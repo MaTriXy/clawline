@@ -11,6 +11,7 @@ import LinkPresentation
 
 struct MessageBubble: View {
     let message: Message
+    let presentation: MessagePresentation
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -22,7 +23,6 @@ struct MessageBubble: View {
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
     private var metrics: ChatFlowTheme.Metrics { ChatFlowTheme.Metrics(isCompact: isCompact) }
-    private var presentation: MessagePresentation { MessagePresentationBuilder.build(from: message) }
     private var textualParts: [MessagePart] { presentation.parts.filter { $0.isTextual }}
     private var nonTextParts: [MessagePart] { presentation.parts.filter { !$0.isTextual }}
     private var hasTextualParts: Bool { !textualParts.isEmpty }
@@ -190,6 +190,17 @@ struct MessageBubble: View {
                 .font(.system(size: metrics.shortFontSize + 8))
         case .code(let language, let code):
             CodeBlockView(language: language, code: code)
+        case .table(let model):
+            MarkdownTableView(
+                model: model,
+                role: message.role,
+                metrics: metrics,
+                maxLineWidth: maxLineWidth,
+                colorScheme: colorScheme,
+                isExpanded: false,
+                onExpand: { showExpandedSheet = true },
+                onCollapse: { }
+            )
         case .linkPreview(let url):
             LinkPreviewCard(url: url)
         case .image(let attachment):
@@ -322,7 +333,7 @@ struct MessageBubble: View {
 
         promotionTask?.cancel()
         promotionTask = Task { @MainActor in
-            try? await Task.sleep(for: MessageFlowRules.streamingPromotionDelay)
+            try? await Task.sleep(forDuration: MessageFlowRules.streamingPromotionDelay)
             let next = derivedSizeClass
             let current = promotedSizeClass ?? next
             promotedSizeClass = MessageFlowRules.promotedSizeClass(current: current, next: next)
@@ -718,6 +729,17 @@ private struct ExpandedMessageSheet: View {
                     .foregroundColor(.blue)
                     .underline()
             }
+        case .table(let model):
+            MarkdownTableView(
+                model: model,
+                role: message.role,
+                metrics: metrics,
+                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                colorScheme: colorScheme,
+                isExpanded: true,
+                onExpand: {},
+                onCollapse: { dismiss() }
+            )
         case .image(let attachment):
             if let data = attachment.data, let uiImage = UIImage(data: data) {
                 Image(uiImage: uiImage)

@@ -309,7 +309,10 @@ struct ChatView: View {
                     isCompact: isCompact
                 ) {
                     ForEach(viewModel.messages) { message in
-                        MessageBubble(message: message)
+                        MessageBubble(
+                            message: message,
+                            presentation: viewModel.presentation(for: message, metrics: metrics)
+                        )
                             .id(message.id)
                             .messageFailureIndicator(viewModel.failureMessage(for: message.id))
                     }

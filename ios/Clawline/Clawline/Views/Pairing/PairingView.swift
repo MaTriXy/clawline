@@ -340,7 +340,7 @@ private final class PreviewAuthManager: AuthManaging {
 
 private final class PreviewConnectionService: ConnectionServicing {
     func requestPairing(serverURL: URL, claimedName: String, deviceId: String) async throws -> PairingResult {
-        try await Task.sleep(for: .seconds(2))
+        try await Task.sleep(forDuration: .seconds(2))
         return .success(token: "preview-token", userId: claimedName)
     }
 }

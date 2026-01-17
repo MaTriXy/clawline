@@ -41,7 +41,7 @@ final class StubChatService: ChatServicing {
 
     func connect(token: String, lastMessageId: String?) async throws {
         stateContinuation?.yield(.connecting)
-        try await Task.sleep(for: .milliseconds(500))
+        try await Task.sleep(forDuration: .milliseconds(500))
         stateContinuation?.yield(.connected)
     }
 

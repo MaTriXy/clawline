@@ -7,6 +7,7 @@
 
 import Foundation
 import Observation
+import UIKit
 
 enum ConnectionAlertSeverity: Equatable {
     case caution
@@ -56,6 +57,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private var connectionAlertTask: Task<Void, Never>?
     private var pendingConnectionErrorMessage: String?
     private var messageFailures: [String: MessageFailure] = [:]
+    private var presentationCache: [PresentationCacheKey: PresentationCacheEntry] = [:]
+    private var tableParseStates: [String: StreamingTableParseState] = [:]
 
     private struct PendingLocalMessage: Equatable {
         let id: String
@@ -76,6 +79,16 @@ final class ChatViewModel: ChatViewModelHosting {
         self.uploadService = uploadService
         self.toastManager = toastManager
         self.connectionAlertGracePeriod = connectionAlertGracePeriod
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMemoryWarningNotification),
+            name: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
     }
 
     func onAppear() async {
@@ -351,7 +364,7 @@ final class ChatViewModel: ChatViewModelHosting {
             let jitter = Duration.milliseconds(Int.random(in: 0...1000))
             let delay = immediate ? Duration.zero : reconnectBackoff + jitter
             if delay > .zero {
-                try? await Task.sleep(for: delay)
+                try? await Task.sleep(forDuration: delay)
             }
             let snapshot = await MainActor.run { self.connectionSnapshot() }
             guard let token = snapshot.token else { return }
@@ -424,7 +437,7 @@ final class ChatViewModel: ChatViewModelHosting {
         connectionAlertTask?.cancel()
         connectionAlertTask = Task { [weak self] in
             guard let self else { return }
-            try? await Task.sleep(for: self.connectionAlertGracePeriod)
+            try? await Task.sleep(forDuration: self.connectionAlertGracePeriod)
             await MainActor.run {
                 guard self.connectionAlert == .caution else { return }
                 self.connectionAlert = .critical
@@ -535,9 +548,58 @@ final class ChatViewModel: ChatViewModelHosting {
         orphanedKeys.forEach { attachmentData.removeValue(forKey: $0) }
     }
 
+    private func handleMemoryWarning() {
+        presentationCache.removeAll()
+        tableParseStates.removeAll()
+    }
+
+    @MainActor
+    @objc
+    private func handleMemoryWarningNotification() {
+        handleMemoryWarning()
+    }
+
     private func clearInput() {
         inputContent = NSAttributedString(string: "")
         attachmentData.removeAll()
+    }
+
+    func presentation(for message: Message, metrics: ChatFlowTheme.Metrics) -> MessagePresentation {
+        let key = PresentationCacheKey(messageID: message.id, isCompact: metrics.isCompact)
+        if let cached = presentationCache[key], cached.sourceMessage == message {
+            return cached.presentation
+        }
+
+        var state = tableParseStates[message.id] ?? StreamingTableParseState()
+        let presentation = MessagePresentationBuilder.build(
+            from: message,
+            metrics: metrics,
+            streamingState: &state
+        )
+        var resolvedPresentation = presentation
+
+        if !message.streaming, state.isDirty {
+            var canonicalState = StreamingTableParseState()
+            resolvedPresentation = MessagePresentationBuilder.build(
+                from: message,
+                metrics: metrics,
+                streamingState: &canonicalState
+            )
+        }
+
+        if message.streaming {
+            tableParseStates[message.id] = state
+        } else {
+            tableParseStates[message.id] = nil
+        }
+
+        presentationCache[key] = PresentationCacheEntry(
+            sourceMessage: message,
+            presentation: resolvedPresentation
+        )
+        trimPresentationCache()
+        trimStreamingStates()
+        return resolvedPresentation
     }
 
     func failureMessage(for messageId: String) -> String? {
@@ -598,9 +660,40 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    private func trimPresentationCache(maxEntries: Int = 150) {
+        let activeIds = Set(messages.map(\.id))
+        guard !activeIds.isEmpty else { return }
+        presentationCache = presentationCache.filter { activeIds.contains($0.key.messageID) }
+        guard presentationCache.count > maxEntries else { return }
+        let overflow = presentationCache.count - maxEntries
+        for key in presentationCache.keys.prefix(overflow) {
+            presentationCache.removeValue(forKey: key)
+        }
+    }
+
+    private func trimStreamingStates(maxEntries: Int = 120) {
+        let activeIds = Set(messages.prefix(100).map(\.id))
+        tableParseStates = tableParseStates.filter { activeIds.contains($0.key) }
+        guard tableParseStates.count > maxEntries else { return }
+        let overflow = tableParseStates.count - maxEntries
+        for key in tableParseStates.keys.prefix(overflow) {
+            tableParseStates.removeValue(forKey: key)
+        }
+    }
+
     private struct MessageFailure: Equatable {
         let code: String
         let message: String?
+    }
+
+    private struct PresentationCacheKey: Hashable {
+        let messageID: String
+        let isCompact: Bool
+    }
+
+    private struct PresentationCacheEntry {
+        let sourceMessage: Message
+        let presentation: MessagePresentation
     }
 
     private func handleSlashCommand(_ text: String) -> Bool {
@@ -631,6 +724,14 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func debugConnectionAlert() -> ConnectionAlertSeverity? {
         connectionAlert
+    }
+
+    func debugPresentationCacheSize() -> Int {
+        presentationCache.count
+    }
+
+    func debugTableParseStateSize() -> Int {
+        tableParseStates.count
     }
 #endif
 }

@@ -34,7 +34,7 @@ struct ChatViewModelTests {
             )
         )
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
 
         let snapshot = await MainActor.run { viewModel.debugConnectionSnapshot() }
         #expect(snapshot.lastMessageId == "s_snapshot")
@@ -72,7 +72,7 @@ struct ChatViewModelTests {
             )
         )
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         let firstCount = await MainActor.run { viewModel.messages.count }
         #expect(firstCount == 1)
 
@@ -89,7 +89,7 @@ struct ChatViewModelTests {
             )
         )
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         let finalState = await MainActor.run { viewModel.messages }
         #expect(finalState.count == 1)
         #expect(finalState.first?.content == "Final")
@@ -116,7 +116,7 @@ struct ChatViewModelTests {
         viewModel.inputContent = NSAttributedString(string: "Hello!")
         viewModel.send()
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         let placeholderId = await MainActor.run { viewModel.messages.first?.id }
         #expect(placeholderId?.hasPrefix("c_") == true)
 
@@ -132,7 +132,7 @@ struct ChatViewModelTests {
             )
         )
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         let messages = await MainActor.run { viewModel.messages }
         #expect(messages.count == 1)
         #expect(messages.first?.id == "s_user_echo")
@@ -158,14 +158,14 @@ struct ChatViewModelTests {
         viewModel.inputContent = NSAttributedString(string: "Broken message")
         viewModel.send()
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         guard let messageId = chatService.lastSentId else {
             Issue.record("Expected chat service to capture sent message id")
             return
         }
 
         chatService.emitServiceEvent(.messageError(messageId: messageId, code: "invalid_message", message: "bad content"))
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
 
         let failure = viewModel.failureMessage(for: messageId)
         #expect(failure == "bad content")
@@ -192,10 +192,10 @@ struct ChatViewModelTests {
 
         await viewModel.onAppear()
         chatService.emitConnectionState(.connected)
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
 
         chatService.emitServiceEvent(.connectionInterrupted(reason: "Connection lost"))
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
 
         let alert = await MainActor.run { viewModel.debugConnectionAlert() }
         #expect(alert == .caution)
@@ -208,9 +208,10 @@ struct ChatViewModelTests {
     func canSendWithAttachmentOnly() {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
         let viewModel = ChatViewModel(
             auth: auth,
-            chatService: TestChatService(),
+            chatService: chatService,
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
@@ -222,6 +223,55 @@ struct ChatViewModelTests {
         viewModel.inputContent = makeAttributedContent(with: [attachment.id])
 
         #expect(viewModel.canSend)
+    }
+
+    @Test("Doc §5: Memory warnings flush presentation cache")
+    @MainActor
+    func memoryWarningClearsPresentationCache() async throws {
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: TestChatService(),
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager()
+        )
+
+        let message = Message(
+            id: "table-msg",
+            role: .assistant,
+            content: """
+            | Foo | Bar |
+            | --- | --- |
+            | A | B |
+            """,
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil
+        )
+
+        await viewModel.onAppear()
+        let chatService = TestChatService()
+        chatService.emit(message)
+        try await Task.sleep(forDuration: .milliseconds(10))
+
+        let metrics = ChatFlowTheme.Metrics(isCompact: true)
+        let cachedMessage = await MainActor.run { viewModel.messages.first ?? message }
+        _ = viewModel.presentation(for: cachedMessage, metrics: metrics)
+
+        let cacheCount = await MainActor.run { viewModel.debugPresentationCacheSize() }
+        #expect(cacheCount == 1)
+
+        NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        try await Task.sleep(forDuration: .milliseconds(10))
+
+        let flushedCache = await MainActor.run { viewModel.debugPresentationCacheSize() }
+        let flushedStates = await MainActor.run { viewModel.debugTableParseStateSize() }
+        #expect(flushedCache == 0)
+        #expect(flushedStates == 0)
     }
 
     @Test("send uploads attachments that require persistence")

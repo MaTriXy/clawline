@@ -18,7 +18,7 @@ struct ProviderServiceTests {
         let serverURL = URL(string: "wss://example.com/ws")!
 
         Task {
-            try await Task.sleep(for: .milliseconds(10))
+            try await Task.sleep(forDuration: .milliseconds(10))
             mockSocket.enqueue(text: #"{ "type": "pair_result", "success": true, "token": "jwt", "userId": "user_1" }"#)
         }
 
@@ -113,9 +113,9 @@ struct ProviderServiceTests {
 
         // Queue auth result then a message after a short delay.
         Task {
-            try await Task.sleep(for: .milliseconds(20))
+            try await Task.sleep(forDuration: .milliseconds(20))
             mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
-            try await Task.sleep(for: .milliseconds(20))
+            try await Task.sleep(forDuration: .milliseconds(20))
             mockSocket.enqueue(text: #"{ "type": "message", "id": "s_1", "role": "assistant", "content": "Hi", "timestamp": 1700000000000, "streaming": false, "attachments": [] }"#)
         }
 
@@ -141,7 +141,7 @@ struct ProviderServiceTests {
         )
 
         Task {
-            try await Task.sleep(for: .milliseconds(10))
+            try await Task.sleep(forDuration: .milliseconds(10))
             mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
         }
 
@@ -215,7 +215,7 @@ private final class HangingWebSocketConnector: WebSocketConnecting {
 
     func connect(to url: URL) async throws -> any WebSocketClient {
         if mode == .connect {
-            try await Task.sleep(for: .seconds(60))
+            try await Task.sleep(forDuration: .seconds(60))
         }
         return client
     }
@@ -234,7 +234,7 @@ private final class HangingWebSocketClient: WebSocketClient {
 
     func send(text: String) async throws {
         if hangOnSend {
-            try await Task.sleep(for: .seconds(60))
+            try await Task.sleep(forDuration: .seconds(60))
         }
     }
 
