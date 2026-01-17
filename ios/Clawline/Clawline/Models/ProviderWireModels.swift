@@ -107,6 +107,7 @@ struct ClientMessagePayload: Codable, Equatable {
         self.id = try container.decode(String.self, forKey: .id)
         self.content = try container.decode(String.self, forKey: .content)
         self.attachments = try container.decodeIfPresent([WireAttachment].self, forKey: .attachments) ?? []
+        self.channelType = try container.decodeIfPresent(ChatChannelType.self, forKey: .channelType) ?? .personal
     }
 
     func encode(to encoder: Encoder) throws {
@@ -115,6 +116,7 @@ struct ClientMessagePayload: Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(content, forKey: .content)
         try container.encode(attachments, forKey: .attachments)
+        try container.encode(channelType, forKey: .channelType)
     }
 }
 
