@@ -34,3 +34,5 @@ tmp_patch.patch
 provider/dist/
 provider/.bun-cache/
 provider/bun.lock
+scratch/
+scratch/

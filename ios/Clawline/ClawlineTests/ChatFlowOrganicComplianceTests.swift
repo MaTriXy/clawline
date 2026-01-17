@@ -22,7 +22,7 @@ struct ChatFlowOrganicComplianceTests {
         print("Hello")
         ```
         """)
-        let presentation = MessagePresentationBuilder.build(from: message)
+        let presentation = buildPresentation(message)
 
         #expect(presentation.parts.contains(where: { part in
             if case .markdown = part { return true }
@@ -36,9 +36,168 @@ struct ChatFlowOrganicComplianceTests {
         }))
     }
 
+    @Test("Doc §5: Markdown tables promote to table part")
+    func messagePresentationParsesTables() {
+        let message = sampleMessage(content: """
+        | Animal | Legs |
+        | :--- | ---: |
+        | Cat | 4 |
+        | Bird | 2 |
+        """)
+        let presentation = buildPresentation(message)
+        guard case .table(let table)? = presentation.parts.first(where: { part in
+            if case .table = part { return true }
+            return false
+        }) else {
+            Issue.record("Expected table part")
+            return
+        }
+        #expect(table.header?.count == 2)
+        #expect(table.rows.count == 2)
+        #expect(table.rows.first?.cells.last?.plainText == "4")
+    }
+
+    @Test("Doc §5: Header-only tables fall back to markdown")
+    func headerOnlyTablesFallback() {
+        let message = sampleMessage(content: """
+        | Foo | Bar |
+        | --- | --- |
+        """)
+        let presentation = buildPresentation(message)
+        #expect(!presentation.parts.contains(where: { part in
+            if case .table = part { return true }
+            return false
+        }))
+    }
+
+    @Test("Doc §5: Escaped pipes stay inside a cell")
+    func escapedPipesRemainInCell() {
+        let message = sampleMessage(content: """
+        | Value |
+        | --- |
+        | Foo \\| Bar |
+        """)
+        let presentation = buildPresentation(message)
+        guard case .table(let table)? = presentation.parts.first(where: { part in
+            if case .table = part { return true }
+            return false
+        }) else {
+            Issue.record("Expected table part")
+            return
+        }
+        #expect(table.rows.first?.cells.first?.plainText == "Foo | Bar")
+    }
+
+    @Test("Doc §5: Inline code preserves literal pipes")
+    func inlineCodePipesStayLiteral() {
+        let message = sampleMessage(content: """
+        | Code |
+        | --- |
+        | `a | b` |
+        """)
+        let presentation = buildPresentation(message)
+        guard case .table(let table)? = presentation.parts.first(where: { part in
+            if case .table = part { return true }
+            return false
+        }) else {
+            Issue.record("Expected table part")
+            return
+        }
+        #expect(table.rows.first?.cells.first?.plainText == "a | b")
+    }
+
+    @Test("Doc §5: Tables touching lists require leading pipes")
+    func tablesAdjacentToListsRequireLeadingPipe() {
+        let message = sampleMessage(content: """
+        - bullet intro
+        Foo | Bar
+        | --- | --- |
+        | 1 | 2 |
+        """)
+        let presentation = buildPresentation(message)
+        #expect(!presentation.parts.contains(where: { part in
+            if case .table = part { return true }
+            return false
+        }))
+    }
+
+    @Test("Doc §5: Column count capped at forty")
+    func tableColumnLimit() {
+        let header = Array(repeating: "H", count: 41).joined(separator: " | ")
+        let row = Array(repeating: "1", count: 41).joined(separator: " | ")
+        let message = sampleMessage(content: """
+        | \(header) |
+        | \(Array(repeating: "---", count: 41).joined(separator: " | ")) |
+        | \(row) |
+        """)
+        let presentation = buildPresentation(message)
+        #expect(!presentation.parts.contains(where: { part in
+            if case .table = part { return true }
+            return false
+        }))
+    }
+
+    @Test("Doc §5: Table cells capped at 400 per message")
+    func tableCellCountIsCapped() {
+        let header = "| A | B | C | D | E | F | G | H | I | J |"
+        let divider = "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+        let row = "| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |"
+        let body = Array(repeating: row, count: 60).joined(separator: "\n")
+        let message = sampleMessage(content: """
+        \(header)
+        \(divider)
+        \(body)
+        """)
+        let presentation = buildPresentation(message)
+        guard case .table(let table)? = presentation.parts.first(where: { part in
+            if case .table = part { return true }
+            return false
+        }) else {
+            Issue.record("Expected table part")
+            return
+        }
+        #expect(table.rows.count * 10 <= 390)
+    }
+
+    @Test("Doc §5: Excessive markdown nesting falls back to plain text")
+    func markdownDepthLimitApplies() {
+        let message = sampleMessage(content: """
+        | Value |
+        | --- |
+        | ******deep****** |
+        """)
+        let presentation = buildPresentation(message)
+        guard case .table(let table)? = presentation.parts.first(where: { part in
+            if case .table = part { return true }
+            return false
+        }) else {
+            Issue.record("Expected table part")
+            return
+        }
+        #expect(table.rows.first?.cells.first?.plainText == "deep")
+    }
+
+    @Test("Doc §8: Table parsing meets performance budget")
+    func tableParsingPerformance() {
+        let header = "| " + Array(repeating: "Col", count: 10).joined(separator: " | ") + " |"
+        let divider = "| " + Array(repeating: "---", count: 10).joined(separator: " | ") + " |"
+        let row = "| " + Array(repeating: "cell", count: 10).joined(separator: " | ") + " |"
+        let body = Array(repeating: row, count: 40).joined(separator: "\n")
+        let message = sampleMessage(content: """
+        \(header)
+        \(divider)
+        \(body)
+        """)
+        let clock = ContinuousClock()
+        let start = clock.now
+        _ = buildPresentation(message)
+        let duration = clock.now - start
+        #expect(duration < .milliseconds(500))
+    }
+
     @Test("Doc §5: Exact URL detection")
     func messagePresentationDetectsExactURLs() {
-        let exact = MessagePresentationBuilder.build(from: sampleMessage(content: "https://example.com/path"))
+        let exact = buildPresentation(sampleMessage(content: "https://example.com/path"))
         #expect(exact.parts.contains(where: { part in
             if case .linkPreview(let url) = part {
                 return url.absoluteString == "https://example.com/path"
@@ -46,7 +205,7 @@ struct ChatFlowOrganicComplianceTests {
             return false
         }))
 
-        let partial = MessagePresentationBuilder.build(from: sampleMessage(content: "Visit https://example.com now"))
+        let partial = buildPresentation(sampleMessage(content: "Visit https://example.com now"))
         #expect(!partial.parts.contains(where: { part in
             if case .linkPreview = part { return true }
             return false
@@ -55,7 +214,7 @@ struct ChatFlowOrganicComplianceTests {
 
     @Test("Doc §5: Emoji-only detection")
     func messagePresentationEmojiOnlyClassification() {
-        let presentation = MessagePresentationBuilder.build(from: sampleMessage(content: "😀😁"))
+        let presentation = buildPresentation(sampleMessage(content: "😀😁"))
         #expect(presentation.parts.contains(where: { part in
             if case .inlineEmoji(let value) = part {
                 return value.contains("😀")
@@ -76,7 +235,7 @@ struct ChatFlowOrganicComplianceTests {
             attachments: [sampleAttachment(id: "img1"), sampleAttachment(id: "img2")],
             deviceId: nil
         )
-        let presentation = MessagePresentationBuilder.build(from: message)
+        let presentation = buildPresentation(message)
         #expect(presentation.parts.contains(where: { part in
             if case .gallery(let attachments) = part {
                 return attachments.count == 2
@@ -88,7 +247,7 @@ struct ChatFlowOrganicComplianceTests {
 
     @Test("Doc §6: Word count strips markdown syntax")
     func wordCountStripsMarkdown() {
-        let presentation = MessagePresentationBuilder.build(from: sampleMessage(content: "**bold** _italic_ `code` text"))
+        let presentation = buildPresentation(sampleMessage(content: "**bold** _italic_ `code` text"))
         #expect(presentation.wordCount == 4)
     }
 
@@ -112,20 +271,20 @@ struct ChatFlowOrganicComplianceTests {
             attachments: [sampleAttachment(id: "img")],
             deviceId: nil
         )
-        let presentation = MessagePresentationBuilder.build(from: message)
+        let presentation = buildPresentation(message)
         #expect(presentation.inferredSizeClass() == .long)
     }
 
     @Test("Doc §3: 1–3 word messages classify as short")
     func flowClassificationShortUnderFourWords() {
-        let presentation = MessagePresentationBuilder.build(from: sampleMessage(content: "tiny message"))
+        let presentation = buildPresentation(sampleMessage(content: "tiny message"))
         #expect(presentation.inferredSizeClass() == .short)
     }
 
     @Test("Doc §3: >20 word messages classify as long")
     func flowClassificationLongOverTwentyWords() {
         let content = Array(repeating: "word", count: 25).joined(separator: " ")
-        let presentation = MessagePresentationBuilder.build(from: sampleMessage(content: content))
+        let presentation = buildPresentation(sampleMessage(content: content))
         #expect(presentation.inferredSizeClass() == .long)
     }
 
@@ -312,7 +471,7 @@ struct ChatFlowOrganicComplianceTests {
             attachments: [sampleAttachment(id: "img1"), sampleAttachment(id: "img2")],
             deviceId: nil
         )
-        let presentation = MessagePresentationBuilder.build(from: message)
+        let presentation = buildPresentation(message)
         let label = MessageAccessibilityFormatter.label(for: message, presentation: presentation)
         #expect(label.contains("Assistant"))
         #expect(label.contains("2 image attachments"))
@@ -338,6 +497,12 @@ struct ChatFlowOrganicComplianceTests {
             attachments: [],
             deviceId: nil
         )
+    }
+
+    private func buildPresentation(_ message: Message, isCompact: Bool = true) -> MessagePresentation {
+        var state = StreamingTableParseState()
+        let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+        return MessagePresentationBuilder.build(from: message, metrics: metrics, streamingState: &state)
     }
 
     private func sampleAttachment(id: String) -> Clawline.Attachment {

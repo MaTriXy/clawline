@@ -135,7 +135,7 @@ final class ProviderConnectionService: ConnectionServicing {
             }
 
             group.addTask { [pendingTimeout] in
-                try await Task.sleep(for: pendingTimeout)
+                try await Task.sleep(forDuration: pendingTimeout)
                 throw Error.timeout
             }
 
@@ -154,7 +154,7 @@ final class ProviderConnectionService: ConnectionServicing {
             }
 
             group.addTask {
-                try await Task.sleep(for: timeout)
+                try await Task.sleep(forDuration: timeout)
                 throw Error.timeout
             }
 

@@ -322,7 +322,7 @@ final class ProviderChatService: ChatServicing {
         Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(for: ackInterval)
+                try? await Task.sleep(forDuration: ackInterval)
                 guard let socket = self.socket else { return }
                 guard self.pendingMessages[payload.id] != nil else { return }
                 if let data = try? self.encoder.encode(payload),

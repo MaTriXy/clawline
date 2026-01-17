@@ -35,7 +35,7 @@ final class StubChatService: ChatServicing {
 
     func connect(token: String, lastMessageId: String?) async throws {
         stateContinuation?.yield(.connecting)
-        try await Task.sleep(for: .milliseconds(500))
+        try await Task.sleep(forDuration: .milliseconds(500))
         stateContinuation?.yield(.connected)
     }
 
@@ -44,7 +44,7 @@ final class StubChatService: ChatServicing {
     }
 
     func send(id: String, content: String, attachments: [WireAttachment]) async throws {
-        try await Task.sleep(for: .seconds(responseDelay))
+        try await Task.sleep(forDuration: .seconds(responseDelay))
 
         let response = Message(
             id: UUID().uuidString,

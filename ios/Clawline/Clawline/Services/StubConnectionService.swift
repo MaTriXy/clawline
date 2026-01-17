@@ -12,7 +12,7 @@ final class StubConnectionService: ConnectionServicing {
     var shouldSucceed: Bool = true
 
     func requestPairing(serverURL: URL, claimedName: String, deviceId: String) async throws -> PairingResult {
-        try await Task.sleep(for: .seconds(approvalDelay))
+        try await Task.sleep(forDuration: .seconds(approvalDelay))
 
         if shouldSucceed {
             let fakeToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.stub.\(deviceId)"
