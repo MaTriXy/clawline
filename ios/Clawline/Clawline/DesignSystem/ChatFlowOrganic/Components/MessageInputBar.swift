@@ -160,55 +160,49 @@ struct MessageInputBar: View {
             .glassEffect(.regular.interactive(), in: Circle())
             .disabled(isSending)
 
-            ZStack(alignment: .leading) {
-                RichTextEditor(
-                    attributedText: $content,
-                    calculatedHeight: $editorHeight,
-                    selectionRange: $selectionRange,
-                    focusTrigger: focusTrigger,
-                    isEditable: !isSending,
-                    onFocusChange: onFocusChange,
-                    trailingPadding: metrics.textTrailingInset(isSending: isSending)
-                )
-                .opacity(isSending ? 0.5 : 1)
+            HStack(spacing: 0) {
+                ZStack(alignment: .leading) {
+                    RichTextEditor(
+                        attributedText: $content,
+                        calculatedHeight: $editorHeight,
+                        selectionRange: $selectionRange,
+                        focusTrigger: focusTrigger,
+                        isEditable: !isSending,
+                        onFocusChange: onFocusChange,
+                        trailingPadding: metrics.textTrailingInset(isSending: isSending)
+                    )
+                    .opacity(isSending ? 0.5 : 1)
 
-                if content.length == 0 {
-                    Text("Message")
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                        .frame(maxHeight: .infinity, alignment: .center)
-                        .padding(.leading, 20)
-                        .padding(.trailing, metrics.textTrailingInset(isSending: isSending))
-                }
-
-                if let alertMessage = connectionAlertMessage,
-                   let alertColor = connectionAlertColor {
-                    RoundedRectangle(cornerRadius: isSingleLine ? inputHeight / 2 : 22, style: .continuous)
-                        .fill(alertColor.opacity(0.08))
-                        .allowsHitTesting(false)
-
-                    HStack(spacing: 8) {
-                        Image(systemName: "wifi.slash")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text(alertMessage)
-                            .font(.system(size: 14, weight: .semibold))
+                    if content.length == 0 {
+                        Text("Message")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                            .frame(maxHeight: .infinity, alignment: .center)
+                            .padding(.leading, 20)
+                            .padding(.trailing, metrics.textTrailingInset(isSending: isSending))
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .foregroundColor(alertColor)
-                    .allowsHitTesting(false)
+
+                    if let alertMessage = connectionAlertMessage,
+                       let alertColor = connectionAlertColor {
+                        RoundedRectangle(cornerRadius: isSingleLine ? inputHeight / 2 : 22, style: .continuous)
+                            .fill(alertColor.opacity(0.08))
+                            .allowsHitTesting(false)
+
+                        HStack(spacing: 8) {
+                            Image(systemName: "wifi.slash")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text(alertMessage)
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .foregroundColor(alertColor)
+                        .allowsHitTesting(false)
+                    }
                 }
-            }
-            .frame(height: inputHeight)
-            .frame(maxWidth: .infinity, alignment: .bottom)
-            .glassEffect(.regular, in: inputShape)
-            .overlay {
-                if let alertColor = connectionAlertColor {
-                    inputShape
-                        .stroke(alertColor.opacity(0.4), lineWidth: 1)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
+                .frame(height: inputHeight)
+                .frame(maxWidth: .infinity, alignment: .bottom)
+
                 Button(action: isSending ? onCancel : onSend) {
                     if isSending {
                         Text("Cancel")
@@ -225,8 +219,18 @@ struct MessageInputBar: View {
                 .disabled(!isSending && !canSend)
                 .opacity(connectionAlertColor == nil ? 1 : 0.65)
                 .padding(.trailing, metrics.sendButtonInnerPadding)
+                .padding(.leading, metrics.sendButtonInnerPadding)
                 .padding(.bottom, metrics.sendButtonBottomInset)
                 .accessibilityHint(connectionAlertHint ?? "")
+            }
+            .frame(height: inputHeight)
+            .frame(maxWidth: .infinity, alignment: .bottom)
+            .glassEffect(.regular, in: inputShape)
+            .overlay {
+                if let alertColor = connectionAlertColor {
+                    inputShape
+                        .stroke(alertColor.opacity(0.4), lineWidth: 1)
+                }
             }
         }
         .padding(.horizontal, metrics.concentricPadding)

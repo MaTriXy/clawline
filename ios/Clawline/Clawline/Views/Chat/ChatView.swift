@@ -292,6 +292,8 @@ struct ChatView: View {
                 endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
 
