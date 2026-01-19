@@ -116,7 +116,18 @@ struct ChatView: View {
         @Bindable var toastManager = toastManager
 
         GeometryReader { geometry in
+            let topInset: CGFloat = authManager.isAdmin ? 24 : 60
+            let rawOffset = calculateConcentricOffset(bottomInset: geometry.safeAreaInsets.bottom)
+            let inputBarBaseHeight: CGFloat = 44
+            let bottomInset: CGFloat = inputBarBaseHeight
+                + MessageInputBarMetrics.elementSpacing
+                + (isInputFocused ? 0 : rawOffset)
+
             ZStack(alignment: .top) {
+                messageList(topInset: topInset, bottomInset: bottomInset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea(.container, edges: .bottom)
+
                 VStack(spacing: 0) {
                     if authManager.isAdmin {
                         ChannelSwitcherView(
@@ -130,60 +141,16 @@ struct ChatView: View {
                         .padding(.bottom, 12)
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    let topInset: CGFloat = authManager.isAdmin ? 24 : 60
-                    messageList(topInset: topInset)
-                        .frame(maxHeight: .infinity)
+                    Spacer(minLength: 0)
+                }
 
-                    if let error = viewModel.error {
+                if let error = viewModel.error {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
                         errorBanner(error)
                     }
-                }
-                // ═══════════════════════════════════════════════════════════════════════════════
-                // ⚠️ CRITICAL SECTION - READ HEADER COMMENT BEFORE MODIFYING ⚠️
-                // ═══════════════════════════════════════════════════════════════════════════════
-                //
-                // This .safeAreaInset block is where the keyboard positioning fix is implemented.
-                // The content inside gets RECREATED when geometry changes (keyboard show/hide).
-                //
-                // WHY THE OFFSET IS APPLIED HERE (not in MessageInputBar):
-                // - MessageInputBar's body won't re-render when parent state changes
-                // - BUT modifiers applied TO MessageInputBar from here DO update
-                // - So we calculate offset here using parent's @State isInputFocused
-                //
-                // WHY onFocusChange CALLBACK (not @FocusState in MessageInputBar):
-                // - @FocusState in MessageInputBar resets when view recreates
-                // - Callback allows MessageInputBar to report focus to stable parent
-                // - Parent's @State survives the geometry change
-                //
-                .safeAreaInset(edge: .bottom) {
-                    // Positive offset pushes bar DOWN into safe area for concentric alignment.
-                    // When focused (keyboard visible), offset is 0 (bar sits above keyboard).
-                    let rawOffset = calculateConcentricOffset(bottomInset: geometry.safeAreaInsets.bottom)
-                    let concentricOffset = isInputFocused ? 0 : rawOffset
-
-                    MessageInputBar(
-                        content: $viewModel.inputContent,
-                        selectionRange: $selectionRange,
-                        canSend: viewModel.canSend,
-                        isSending: viewModel.isSending,
-                        connectionAlert: viewModel.connectionAlert,
-                        focusTrigger: focusRequestID,
-                        bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
-                        isKeyboardVisible: isInputFocused,
-                        onSend: { viewModel.send() },
-                        onCancel: { viewModel.cancelSend() },
-                        onAdd: {
-                            logger.info("Attachment menu requested")
-                            showAttachmentMenu = true
-                        },
-                        // ⚠️ This callback is how focus state survives view recreation.
-                        // DO NOT replace with @Binding or try to use @FocusState directly.
-                        onFocusChange: { focused in isInputFocused = focused }
-                    )
-                    // ⚠️ Offset MUST be applied here, not inside MessageInputBar.
-                    // See header comment for why.
-                    .offset(y: concentricOffset)
-                    .animation(.easeOut(duration: 0.25), value: concentricOffset)
+                    .padding(.bottom, bottomInset)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
                 if let toast = toastManager.toast {
@@ -194,6 +161,53 @@ struct ChatView: View {
                     .padding(.horizontal, 24)
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
+            }
+            // ═══════════════════════════════════════════════════════════════════════════════
+            // ⚠️ CRITICAL SECTION - READ HEADER COMMENT BEFORE MODIFYING ⚠️
+            // ═══════════════════════════════════════════════════════════════════════════════
+            //
+            // This .safeAreaInset block is where the keyboard positioning fix is implemented.
+            // The content inside gets RECREATED when geometry changes (keyboard show/hide).
+            //
+            // WHY THE OFFSET IS APPLIED HERE (not in MessageInputBar):
+            // - MessageInputBar's body won't re-render when parent state changes
+            // - BUT modifiers applied TO MessageInputBar from here DO update
+            // - So we calculate offset here using parent's @State isInputFocused
+            //
+            // WHY onFocusChange CALLBACK (not @FocusState in MessageInputBar):
+            // - @FocusState in MessageInputBar resets when view recreates
+            // - Callback allows MessageInputBar to report focus to stable parent
+            // - Parent's @State survives the geometry change
+            //
+            .safeAreaInset(edge: .bottom) {
+                // Positive offset pushes bar DOWN into safe area for concentric alignment.
+                // When focused (keyboard visible), offset is 0 (bar sits above keyboard).
+                let rawOffset = calculateConcentricOffset(bottomInset: geometry.safeAreaInsets.bottom)
+                let concentricOffset = isInputFocused ? 0 : rawOffset
+
+                MessageInputBar(
+                    content: $viewModel.inputContent,
+                    selectionRange: $selectionRange,
+                    canSend: viewModel.canSend,
+                    isSending: viewModel.isSending,
+                    connectionAlert: viewModel.connectionAlert,
+                    focusTrigger: focusRequestID,
+                    bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
+                    isKeyboardVisible: isInputFocused,
+                    onSend: { viewModel.send() },
+                    onCancel: { viewModel.cancelSend() },
+                    onAdd: {
+                        logger.info("Attachment menu requested")
+                        showAttachmentMenu = true
+                    },
+                    // ⚠️ This callback is how focus state survives view recreation.
+                    // DO NOT replace with @Binding or try to use @FocusState directly.
+                    onFocusChange: { focused in isInputFocused = focused }
+                )
+                // ⚠️ Offset MUST be applied here, not inside MessageInputBar.
+                // See header comment for why.
+                .offset(y: concentricOffset)
+                .animation(.easeOut(duration: 0.25), value: concentricOffset)
             }
         }
         .background {
@@ -297,41 +311,13 @@ struct ChatView: View {
         }
     }
 
-    private func messageList(topInset: CGFloat) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                let isCompact = horizontalSizeClass == .compact
-                let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-                let maxWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-
-                FlowLayout(
-                    itemSpacing: metrics.flowGap,
-                    rowSpacing: metrics.flowGap,
-                    maxLineWidth: maxWidth,
-                    isCompact: isCompact
-                ) {
-                    ForEach(viewModel.messages) { message in
-                        MessageBubble(
-                            message: message,
-                            presentation: viewModel.presentation(for: message, metrics: metrics)
-                        )
-                            .id(message.id)
-                            .messageFailureIndicator(viewModel.failureMessage(for: message.id))
-                    }
-                }
-                .padding(metrics.containerPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .contentMargins(.top, topInset, for: .scrollContent)
-            .scrollContentBackground(.hidden)
-            .onChange(of: viewModel.messages.count) {
-                if let last = viewModel.messages.last {
-                    withAnimation {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
-                }
-            }
-        }
+    private func messageList(topInset: CGFloat, bottomInset: CGFloat) -> some View {
+        MessageFlowCollectionView(
+            viewModel: viewModel,
+            topInset: topInset,
+            bottomInset: bottomInset,
+            isCompact: horizontalSizeClass == .compact
+        )
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -599,63 +585,6 @@ private func restoreFocusIfNeeded() {
         let t = (bottomInset - minSafeArea) / (maxSafeArea - minSafeArea)
         let clampedT = max(0, min(1, t))
         return maxOffset * (1 - clampedT)
-    }
-}
-
-private struct MessageFailureModifier: ViewModifier {
-    let reason: String?
-
-    func body(content: Content) -> some View {
-        if let reason {
-            content
-                .padding(.bottom, 32)
-                .overlay(alignment: .bottomLeading) {
-                    MessageFailureBadge(reason: reason)
-                        .offset(y: 18)
-                }
-        } else {
-            content
-        }
-    }
-}
-
-private struct MessageFailureBadge: View {
-    let reason: String
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12, weight: .bold))
-            Text(reason)
-                .font(.system(size: 12, weight: .semibold))
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-        }
-        .foregroundColor(labelColor)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(
-            Capsule()
-                .fill(backgroundColor)
-        )
-        .accessibilityLabel("Message failed. \(reason)")
-    }
-
-    private var labelColor: Color {
-        colorScheme == .dark ? Color.yellow : Color(red: 0.6, green: 0.12, blue: 0.12)
-    }
-
-    private var backgroundColor: Color {
-        colorScheme == .dark
-            ? Color.yellow.opacity(0.15)
-            : Color(red: 0.98, green: 0.92, blue: 0.92)
-    }
-}
-
-private extension View {
-    func messageFailureIndicator(_ reason: String?) -> some View {
-        modifier(MessageFailureModifier(reason: reason))
     }
 }
 

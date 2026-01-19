@@ -133,6 +133,9 @@ extension MessagePart {
 
 enum MessagePresentationBuilder {
     private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MarkdownTable")
+    private static let linkDetector: NSDataDetector? = {
+        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    }()
     private static let separatorPattern = try! NSRegularExpression(
         pattern: #"^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*$"#,
         options: []
@@ -749,9 +752,8 @@ enum MessagePresentationBuilder {
     }
 
     private static func exactURL(from text: String) -> URL? {
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
-            return nil
-        }
+        guard !text.contains(where: { $0.isWhitespace }) else { return nil }
+        guard let detector = linkDetector else { return nil }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         guard let match = detector.firstMatch(in: text, options: [], range: range) else { return nil }
         guard match.range.length == range.length else { return nil }

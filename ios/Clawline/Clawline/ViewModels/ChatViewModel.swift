@@ -320,6 +320,7 @@ final class ChatViewModel: ChatViewModelHosting {
         lastServerMessageId = message.id
     }
 
+
     private func removePlaceholder(withId id: String) {
         let channels = Array(channelMessages.keys)
         for channel in channels {
@@ -566,7 +567,8 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func presentation(for message: Message, metrics: ChatFlowTheme.Metrics) -> MessagePresentation {
         let key = PresentationCacheKey(messageID: message.id, isCompact: metrics.isCompact)
-        if let cached = presentationCache[key], cached.sourceMessage == message {
+        let fingerprint = presentationFingerprint(for: message)
+        if let cached = presentationCache[key], cached.fingerprint == fingerprint {
             return cached.presentation
         }
 
@@ -594,7 +596,7 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         presentationCache[key] = PresentationCacheEntry(
-            sourceMessage: message,
+            fingerprint: fingerprint,
             presentation: resolvedPresentation
         )
         trimPresentationCache()
@@ -660,15 +662,10 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    private func trimPresentationCache(maxEntries: Int = 150) {
+    private func trimPresentationCache() {
         let activeIds = Set(messages.map(\.id))
         guard !activeIds.isEmpty else { return }
         presentationCache = presentationCache.filter { activeIds.contains($0.key.messageID) }
-        guard presentationCache.count > maxEntries else { return }
-        let overflow = presentationCache.count - maxEntries
-        for key in presentationCache.keys.prefix(overflow) {
-            presentationCache.removeValue(forKey: key)
-        }
     }
 
     private func trimStreamingStates(maxEntries: Int = 120) {
@@ -692,8 +689,23 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private struct PresentationCacheEntry {
-        let sourceMessage: Message
+        let fingerprint: Int
         let presentation: MessagePresentation
+    }
+
+    private func presentationFingerprint(for message: Message) -> Int {
+        var hasher = Hasher()
+        hasher.combine(message.id)
+        hasher.combine(message.content)
+        hasher.combine(message.streaming)
+        hasher.combine(message.attachments.count)
+        for attachment in message.attachments {
+            hasher.combine(attachment.id)
+            hasher.combine(attachment.mimeType ?? "")
+            hasher.combine(attachment.assetId ?? "")
+            hasher.combine(attachment.type.rawValue)
+        }
+        return hasher.finalize()
     }
 
     private func handleSlashCommand(_ text: String) -> Bool {

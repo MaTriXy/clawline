@@ -42,6 +42,8 @@ struct RootView: View {
             backgroundColor
                 .backgroundEffect(settings.effectConfig)
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .animation(.easeInOut(duration: 0.3), value: auth.isAuthenticated)
     }

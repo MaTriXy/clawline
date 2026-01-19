@@ -118,7 +118,12 @@ private func logViewHierarchyOnce() {
 
 private func printHierarchy(view: UIView, indent: String, logger: Logger) {
     let bgDescription = view.backgroundColor?.description ?? "nil"
-    logger.info("\(indent, privacy: .public)\(String(describing: type(of: view)), privacy: .public) bg=\(bgDescription, privacy: .public)")
+    let frameDescription = NSCoder.string(for: view.frame)
+    let line = "\(indent)\(String(describing: type(of: view))) bg=\(bgDescription) frame=\(frameDescription) hit=\(view.isUserInteractionEnabled)"
+    logger.info("\(line, privacy: .public)")
+#if DEBUG
+    print("ViewHierarchy: \(line)")
+#endif
     for subview in view.subviews {
         printHierarchy(view: subview, indent: indent + "  ", logger: logger)
     }

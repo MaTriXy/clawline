@@ -12,6 +12,7 @@ import LinkPresentation
 struct MessageBubble: View {
     let message: Message
     let presentation: MessagePresentation
+    let onLayoutInvalidation: ((String) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -44,6 +45,9 @@ struct MessageBubble: View {
             .onChange(of: message.content) { _, _ in schedulePromotionUpdate() }
             .onChange(of: message.attachments.count) { _, _ in schedulePromotionUpdate() }
             .onChange(of: message.streaming) { _, _ in schedulePromotionUpdate() }
+            .onChange(of: promotedSizeClass) { _, _ in
+                onLayoutInvalidation?(message.id)
+            }
             .sheet(isPresented: $showExpandedSheet) {
                 ExpandedMessageSheet(message: message, presentation: presentation)
             }
