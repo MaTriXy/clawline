@@ -90,8 +90,6 @@ enum ChatFlowTheme {
         let isCompact: Bool
 
         var flowGap: CGFloat { isCompact ? 12 : 16 }
-        var flowHeightWrapThreshold: CGFloat { 1.6 }
-        var flowHeightDeltaLimit: CGFloat { bubblePaddingHorizontal }
         var containerPadding: CGFloat { isCompact ? 16 : 24 }
         var bubblePaddingVertical: CGFloat { isCompact ? 14 : 16 }
         var bubblePaddingHorizontal: CGFloat { isCompact ? 16 : 20 }

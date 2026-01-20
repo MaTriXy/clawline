@@ -28,10 +28,10 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     }
 }
 
-final class MessageFlowCollectionViewController: UIViewController {
+final class MessageFlowCollectionViewController: UIViewController, UICollectionViewDelegateFlowLayout {
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
-    private var flowLayout: MessageFlowLayout!
+    private var flowLayout: UICollectionViewFlowLayout!
 
     private var messagesById: [String: Message] = [:]
     private var fingerprints: [String: Int] = [:]
@@ -128,13 +128,11 @@ final class MessageFlowCollectionViewController: UIViewController {
     }
 
     private func configureCollectionView() {
-        flowLayout = MessageFlowLayout()
+        flowLayout = UICollectionViewFlowLayout()
         flowLayout.sectionInset = .zero
-        flowLayout.itemSpacing = 0
-        flowLayout.rowSpacing = 0
-        flowLayout.sizeProvider = { [weak self] indexPath in
-            self?.sizeForItem(at: indexPath) ?? .zero
-        }
+        flowLayout.minimumInteritemSpacing = 0
+        flowLayout.minimumLineSpacing = 0
+        flowLayout.estimatedItemSize = .zero
 
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: flowLayout)
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -142,6 +140,7 @@ final class MessageFlowCollectionViewController: UIViewController {
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
         collectionView.keyboardDismissMode = .interactive
+        collectionView.delegate = self
         collectionView.register(MessageBubbleCell.self, forCellWithReuseIdentifier: MessageBubbleCell.reuseIdentifier)
 
         view.addSubview(collectionView)
@@ -186,10 +185,8 @@ final class MessageFlowCollectionViewController: UIViewController {
 
     private func updateLayout() {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-        flowLayout.itemSpacing = metrics.flowGap
-        flowLayout.rowSpacing = metrics.flowGap
-        flowLayout.heightWrapThreshold = metrics.flowHeightWrapThreshold
-        flowLayout.heightWrapDelta = metrics.flowHeightDeltaLimit
+        flowLayout.minimumInteritemSpacing = metrics.flowGap
+        flowLayout.minimumLineSpacing = metrics.flowGap
         flowLayout.sectionInset = UIEdgeInsets(
             top: metrics.containerPadding + topInset,
             left: metrics.containerPadding,
@@ -305,6 +302,12 @@ final class MessageFlowCollectionViewController: UIViewController {
             ceil(value * scale) / scale
         }
         return CGSize(width: snap(size.width), height: snap(size.height))
+    }
+
+    func collectionView(_ collectionView: UICollectionView,
+                        layout collectionViewLayout: UICollectionViewLayout,
+                        sizeForItemAt indexPath: IndexPath) -> CGSize {
+        sizeForItem(at: indexPath)
     }
 }
 
@@ -442,82 +445,5 @@ private final class MessageBubbleCell: UICollectionViewCell {
         } else {
             lastMismatch = nil
         }
-    }
-}
-
-private final class MessageFlowLayout: UICollectionViewLayout {
-    var itemSpacing: CGFloat = 0
-    var rowSpacing: CGFloat = 0
-    var sectionInset: UIEdgeInsets = .zero
-    var sizeProvider: ((IndexPath) -> CGSize)?
-    var heightWrapThreshold: CGFloat = 1.6
-    var heightWrapDelta: CGFloat = .infinity
-
-    private var attributesCache: [IndexPath: UICollectionViewLayoutAttributes] = [:]
-    private var contentSize: CGSize = .zero
-    private var lastWidth: CGFloat = 0
-
-    override func prepare() {
-        super.prepare()
-        guard let collectionView, let sizeProvider else { return }
-
-        attributesCache.removeAll()
-        let totalWidth = collectionView.bounds.width
-        lastWidth = totalWidth
-        let availableWidth = max(0, totalWidth - sectionInset.left - sectionInset.right)
-
-        var x = sectionInset.left
-        var y = sectionInset.top
-        var rowHeight: CGFloat = 0
-
-        let itemCount = collectionView.numberOfItems(inSection: 0)
-        for item in 0..<itemCount {
-            let indexPath = IndexPath(item: item, section: 0)
-            var size = sizeProvider(indexPath)
-            if size.width > availableWidth {
-                size.width = availableWidth
-            }
-            let heightMismatch = rowHeight > 0 && (
-                heightRatio(a: rowHeight, b: size.height) > heightWrapThreshold ||
-                abs(rowHeight - size.height) > heightWrapDelta
-            )
-            if x > sectionInset.left && (x + size.width > sectionInset.left + availableWidth || heightMismatch) {
-                x = sectionInset.left
-                y += rowHeight + rowSpacing
-                rowHeight = 0
-            }
-            let frame = CGRect(x: x, y: y, width: size.width, height: size.height)
-            let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
-            attributes.frame = frame
-            attributesCache[indexPath] = attributes
-
-            x += size.width + itemSpacing
-            rowHeight = max(rowHeight, size.height)
-        }
-
-        let height = y + rowHeight + sectionInset.bottom
-        contentSize = CGSize(width: totalWidth, height: height)
-    }
-
-    override var collectionViewContentSize: CGSize {
-        contentSize
-    }
-
-    override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-        attributesCache.values.filter { $0.frame.intersects(rect) }
-    }
-
-    override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-        attributesCache[indexPath]
-    }
-
-    override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
-        abs(newBounds.width - lastWidth) > 0.5
-    }
-
-    private func heightRatio(a: CGFloat, b: CGFloat) -> CGFloat {
-        let minValue = max(1, min(a, b))
-        let maxValue = max(a, b)
-        return maxValue / minValue
     }
 }
