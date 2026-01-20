@@ -1,0 +1,32 @@
+# Flow layout rules & implementation decisions
+
+## Layout stability rules (agreed)
+- Bubble dimensions must be a deterministic function of **message content** + **pre-measured screen width**.
+- The only width-dependent rule is the comfortable reading width cap; once computed for the current device width, it should remain stable.
+- Bubbles should not change size or invalidate their layout rect after initial layout unless **device width changes** (e.g., rotation).
+- Rotation is the only expected trigger for recomputing widths; this should be a one-way recalculation to a new stable size.
+- As long as the device width stays constant, the layout must remain stable (no reflow/invalidation caused by internal view state).
+
+## Invariants
+- For a fixed device width, each message resolves to a **single stable size** (width, height).
+- Width/height changes are allowed **only** for content changes or device width changes; internal measurement jitter must be **debounced**.
+- SwiftUI may perform multiple internal passes, but the **external layout must converge**.
+- Collection view layout is the only owner of placement; SwiftUI does not reposition items.
+- Horizontal placement honors the flow rules (row wrapping); vertical gaps come only from row spacing.
+
+## Current implementation decisions
+- Use `UICollectionViewFlowLayout` with **delegate sizing**:
+  - `estimatedItemSize = .zero` (self-sizing disabled).
+  - `collectionView(_:layout:sizeForItemAt:)` returns a cached size per message.
+- Size measurement pipeline:
+  - `sizeForItem` measures a SwiftUI sizing view via `UIHostingController.sizeThatFits`.
+  - The measured size is clamped to max width, snapped to pixel, and cached per message.
+- Debounce measurement-driven invalidations:
+  - Cells re-measure in `layoutSubviews` and only invalidate when deltas exceed ~1pt.
+  - Mismatch reports update the cache and call `invalidateLayout`.
+- Width changes (rotation / bounds changes) clear cached sizes by re-running `updateLayout()` and reconfiguring items.
+
+## Open items / to verify
+- Ensure message sizing uses only content + width (no post-layout state changes).
+- Confirm that link preview / image loading does not change measured height after initial size (if it does, consider fixed-height placeholders or precomputed sizing).
+- Recheck width computation when device rotates; this is the sole allowed cause of size changes.
