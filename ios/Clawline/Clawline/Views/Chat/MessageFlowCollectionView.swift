@@ -5,6 +5,7 @@
 //  Created by Codex on 1/18/26.
 //
 
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -174,6 +175,9 @@ final class MessageFlowCollectionViewController: UIViewController {
                 isCompact: self.isCompact,
                 onLayoutInvalidation: { [weak self] messageId in
                     self?.invalidateLayout(for: messageId)
+                },
+                onLayoutOverflow: { [weak self] messageId, measuredSize in
+                    self?.applyMeasuredSize(measuredSize, for: messageId)
                 }
             )
             return cell
@@ -184,6 +188,8 @@ final class MessageFlowCollectionViewController: UIViewController {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         flowLayout.itemSpacing = metrics.flowGap
         flowLayout.rowSpacing = metrics.flowGap
+        flowLayout.heightWrapThreshold = metrics.flowHeightWrapThreshold
+        flowLayout.heightWrapDelta = metrics.flowHeightDeltaLimit
         flowLayout.sectionInset = UIEdgeInsets(
             top: metrics.containerPadding + topInset,
             left: metrics.containerPadding,
@@ -236,13 +242,15 @@ final class MessageFlowCollectionViewController: UIViewController {
             failureReason: viewModel.failureMessage(for: message.id),
             isCompact: isCompact
         )
-        let unconstrainedWidth = sizeClass == .short ? CGFloat.greatestFiniteMagnitude : maxWidth
-        let targetWidth = max(1, unconstrainedWidth)
-        let targetSize = CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height)
+        let targetSize = CGSize(width: maxWidth, height: CGFloat.greatestFiniteMagnitude)
         let measured = sizingHost.sizeThatFits(in: targetSize)
-        let size = CGSize(width: min(maxWidth, measured.width), height: measured.height)
-        sizeCache[id] = size
-        return size
+        let clamped = CGSize(
+            width: min(maxWidth, max(1, measured.width)),
+            height: max(1, measured.height)
+        )
+        let snapped = snapToPixel(clamped)
+        sizeCache[id] = snapped
+        return snapped
     }
 
     private func scrollToBottom(animated: Bool) {
@@ -272,6 +280,32 @@ final class MessageFlowCollectionViewController: UIViewController {
         sizeCache.removeValue(forKey: messageId)
         flowLayout.invalidateLayout()
     }
+
+    private func applyMeasuredSize(_ measuredSize: CGSize, for messageId: String) {
+        let current = sizeCache[messageId]
+        let heightDelta = abs((current?.height ?? 0) - measuredSize.height)
+        let widthDelta = abs((current?.width ?? 0) - measuredSize.width)
+        guard heightDelta > 1 || widthDelta > 1 else { return }
+        guard let viewModel, let message = messagesById[messageId] else { return }
+        let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+        let presentation = viewModel.presentation(for: message, metrics: metrics)
+        let sizeClass = MessageFlowRules.sizeClass(for: presentation)
+        let maxWidth = maxItemWidth(for: sizeClass, containerWidth: availableContentWidth())
+        let clamped = CGSize(
+            width: min(maxWidth, measuredSize.width),
+            height: measuredSize.height
+        )
+        sizeCache[messageId] = snapToPixel(clamped)
+        flowLayout.invalidateLayout()
+    }
+
+    private func snapToPixel(_ size: CGSize) -> CGSize {
+        let scale = UIScreen.main.scale
+        func snap(_ value: CGFloat) -> CGFloat {
+            ceil(value * scale) / scale
+        }
+        return CGSize(width: snap(size.width), height: snap(size.height))
+    }
 }
 
 private struct MessageBubbleDisplayView: View {
@@ -288,6 +322,7 @@ private struct MessageBubbleDisplayView: View {
                 presentation: presentation,
                 onLayoutInvalidation: onLayoutInvalidation
             )
+            .id(message.id)
                 .messageFailureIndicator(failureReason)
             Spacer(minLength: 0)
         }
@@ -302,20 +337,28 @@ private struct MessageBubbleSizingView: View {
     let isCompact: Bool
 
     var body: some View {
-        MessageBubble(
-            message: message,
-            presentation: presentation,
-            onLayoutInvalidation: nil
-        )
-            .messageFailureIndicator(failureReason)
-            .environment(\.horizontalSizeClass, isCompact ? .compact : .regular)
+        HStack(alignment: .top, spacing: 0) {
+            MessageBubble(
+                message: message,
+                presentation: presentation,
+                onLayoutInvalidation: nil
+            )
+            .id(message.id)
+                .messageFailureIndicator(failureReason)
+            Spacer(minLength: 0)
+        }
+        .environment(\.horizontalSizeClass, isCompact ? .compact : .regular)
     }
 }
 
 private final class MessageBubbleCell: UICollectionViewCell {
     static let reuseIdentifier = "MessageBubbleCell"
+    private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "FlowLayout")
 
     private var hostingController: UIHostingController<MessageBubbleDisplayView>?
+    private var messageId: String?
+    private var onLayoutOverflow: ((String, CGSize) -> Void)?
+    private var lastMismatch: (messageId: String, bounds: CGSize, measured: CGSize)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -332,8 +375,12 @@ private final class MessageBubbleCell: UICollectionViewCell {
         presentation: MessagePresentation,
         failureReason: String?,
         isCompact: Bool,
-        onLayoutInvalidation: ((String) -> Void)?
+        onLayoutInvalidation: ((String) -> Void)?,
+        onLayoutOverflow: ((String, CGSize) -> Void)?
     ) {
+        messageId = message.id
+        self.onLayoutOverflow = onLayoutOverflow
+        lastMismatch = nil
         let rootView = MessageBubbleDisplayView(
             message: message,
             presentation: presentation,
@@ -361,6 +408,41 @@ private final class MessageBubbleCell: UICollectionViewCell {
 
         self.hostingController = hostingController
     }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        messageId = nil
+        onLayoutOverflow = nil
+        lastMismatch = nil
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard let hostingController,
+              let messageId else { return }
+        let boundsSize = contentView.bounds.size
+        let targetSize = CGSize(width: boundsSize.width, height: CGFloat.greatestFiniteMagnitude)
+        let measured = hostingController.sizeThatFits(in: targetSize)
+        let heightDelta = abs(measured.height - contentView.bounds.height)
+        let widthDelta = abs(measured.width - contentView.bounds.width)
+        if heightDelta > 1 || widthDelta > 1 {
+            if let lastMismatch,
+               lastMismatch.messageId == messageId,
+               abs(lastMismatch.bounds.width - boundsSize.width) < 1,
+               abs(lastMismatch.bounds.height - boundsSize.height) < 1,
+               abs(lastMismatch.measured.width - measured.width) < 1,
+               abs(lastMismatch.measured.height - measured.height) < 1 {
+                return
+            }
+            lastMismatch = (messageId: messageId, bounds: boundsSize, measured: measured)
+            Self.logger.info(
+                "Layout mismatch \(messageId, privacy: .public) layout=\(self.contentView.bounds.debugDescription, privacy: .public) measured=\(String(describing: measured), privacy: .public)"
+            )
+            onLayoutOverflow?(messageId, measured)
+        } else {
+            lastMismatch = nil
+        }
+    }
 }
 
 private final class MessageFlowLayout: UICollectionViewLayout {
@@ -368,6 +450,8 @@ private final class MessageFlowLayout: UICollectionViewLayout {
     var rowSpacing: CGFloat = 0
     var sectionInset: UIEdgeInsets = .zero
     var sizeProvider: ((IndexPath) -> CGSize)?
+    var heightWrapThreshold: CGFloat = 1.6
+    var heightWrapDelta: CGFloat = .infinity
 
     private var attributesCache: [IndexPath: UICollectionViewLayoutAttributes] = [:]
     private var contentSize: CGSize = .zero
@@ -393,7 +477,11 @@ private final class MessageFlowLayout: UICollectionViewLayout {
             if size.width > availableWidth {
                 size.width = availableWidth
             }
-            if x > sectionInset.left && x + size.width > sectionInset.left + availableWidth {
+            let heightMismatch = rowHeight > 0 && (
+                heightRatio(a: rowHeight, b: size.height) > heightWrapThreshold ||
+                abs(rowHeight - size.height) > heightWrapDelta
+            )
+            if x > sectionInset.left && (x + size.width > sectionInset.left + availableWidth || heightMismatch) {
                 x = sectionInset.left
                 y += rowHeight + rowSpacing
                 rowHeight = 0
@@ -425,5 +513,11 @@ private final class MessageFlowLayout: UICollectionViewLayout {
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
         abs(newBounds.width - lastWidth) > 0.5
+    }
+
+    private func heightRatio(a: CGFloat, b: CGFloat) -> CGFloat {
+        let minValue = max(1, min(a, b))
+        let maxValue = max(a, b)
+        return maxValue / minValue
     }
 }

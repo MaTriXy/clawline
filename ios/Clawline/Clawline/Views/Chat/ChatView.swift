@@ -217,9 +217,6 @@ struct ChatView: View {
                 .overlay(NoiseOverlayView().ignoresSafeArea())
         }
         .task { await viewModel.onAppear() }
-#if DEBUG && targetEnvironment(simulator)
-        .task { authManager.updateAdminStatus(true) }
-#endif
         .onDisappear { viewModel.onDisappear() }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }

@@ -12,6 +12,8 @@ struct FlowLayout: Layout {
     var rowSpacing: CGFloat
     var maxLineWidth: CGFloat
     var isCompact: Bool
+    var heightWrapThreshold: CGFloat = 1.6
+    var heightWrapDelta: CGFloat = .infinity
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
         let containerWidth = proposal.width ?? maxLineWidth
@@ -26,7 +28,11 @@ struct FlowLayout: Layout {
                 subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
             }
 
-            if rowWidth > 0 && rowWidth + size.width > containerWidth {
+            let heightMismatch = rowHeight > 0 && (
+                heightRatio(a: rowHeight, b: size.height) > heightWrapThreshold ||
+                abs(rowHeight - size.height) > heightWrapDelta
+            )
+            if rowWidth > 0 && (rowWidth + size.width > containerWidth || heightMismatch) {
                 totalHeight += rowHeight + rowSpacing
                 rowWidth = 0
                 rowHeight = 0
@@ -52,7 +58,11 @@ struct FlowLayout: Layout {
                 subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
             }
 
-            if x > bounds.minX && x + size.width > bounds.maxX {
+            let heightMismatch = rowHeight > 0 && (
+                heightRatio(a: rowHeight, b: size.height) > heightWrapThreshold ||
+                abs(rowHeight - size.height) > heightWrapDelta
+            )
+            if x > bounds.minX && (x + size.width > bounds.maxX || heightMismatch) {
                 x = bounds.minX
                 y += rowHeight + rowSpacing
                 rowHeight = 0
@@ -84,6 +94,12 @@ struct FlowLayout: Layout {
 
     private func readOnMainActor<T>(_ work: () -> T) -> T {
         MainActor.assumeIsolated(work)
+    }
+
+    private func heightRatio(a: CGFloat, b: CGFloat) -> CGFloat {
+        let minValue = max(1, min(a, b))
+        let maxValue = max(a, b)
+        return maxValue / minValue
     }
 
 }

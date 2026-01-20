@@ -19,8 +19,6 @@ struct MessageBubble: View {
 
     @State private var showExpandedSheet = false
     @State private var measuredContentHeight: CGFloat = 0
-    @State private var promotedSizeClass: MessageSizeClass? = nil
-    @State private var promotionTask: Task<Void, Never>? = nil
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
     private var metrics: ChatFlowTheme.Metrics { ChatFlowTheme.Metrics(isCompact: isCompact) }
@@ -31,22 +29,16 @@ struct MessageBubble: View {
     private var maxLineWidth: CGFloat { ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize) }
 
     private var sizeClass: MessageSizeClass {
-        if message.streaming {
-            return promotedSizeClass ?? derivedSizeClass
-        }
-        return derivedSizeClass
+        derivedSizeClass
     }
 
     var body: some View {
         bubble
             .fixedSize(horizontal: sizeClass == .short, vertical: true)
             .layoutValue(key: MessageSizeClassKey.self, value: sizeClass)
-            .onAppear(perform: schedulePromotionUpdate)
-            .onChange(of: message.content) { _, _ in schedulePromotionUpdate() }
-            .onChange(of: message.attachments.count) { _, _ in schedulePromotionUpdate() }
-            .onChange(of: message.streaming) { _, _ in schedulePromotionUpdate() }
-            .onChange(of: promotedSizeClass) { _, _ in
-                onLayoutInvalidation?(message.id)
+            .onChange(of: measuredContentHeight) { oldValue, newValue in
+                guard abs(newValue - oldValue) > 0.5 else { return }
+                invalidateLayout()
             }
             .sheet(isPresented: $showExpandedSheet) {
                 ExpandedMessageSheet(message: message, presentation: presentation)
@@ -206,11 +198,19 @@ struct MessageBubble: View {
                 onCollapse: { }
             )
         case .linkPreview(let url):
-            LinkPreviewCard(url: url)
+            LinkPreviewCard(url: url, onLayoutInvalidation: invalidateLayout)
         case .image(let attachment):
-            AttachmentImageView(attachment: attachment, isMediaOnly: presentation.hasMediaOnly)
+            AttachmentImageView(
+                attachment: attachment,
+                isMediaOnly: presentation.hasMediaOnly,
+                onLayoutInvalidation: invalidateLayout
+            )
         case .gallery(let attachments):
-            MessageAttachmentView(attachments: attachments, isMediaOnly: presentation.hasMediaOnly)
+            MessageAttachmentView(
+                attachments: attachments,
+                isMediaOnly: presentation.hasMediaOnly,
+                onLayoutInvalidation: invalidateLayout
+            )
         }
     }
 
@@ -328,22 +328,6 @@ struct MessageBubble: View {
         }
     }
 
-    private func schedulePromotionUpdate() {
-        guard message.streaming else {
-            promotionTask?.cancel()
-            promotedSizeClass = nil
-            return
-        }
-
-        promotionTask?.cancel()
-        promotionTask = Task { @MainActor in
-            try? await Task.sleep(forDuration: MessageFlowRules.streamingPromotionDelay)
-            let next = derivedSizeClass
-            let current = promotedSizeClass ?? next
-            promotedSizeClass = MessageFlowRules.promotedSizeClass(current: current, next: next)
-        }
-    }
-
     private var shouldTruncate: Bool {
         MessageFlowRules.shouldTruncate(
             hasTextualParts: hasTextualParts,
@@ -405,6 +389,10 @@ struct MessageBubble: View {
 
     private var bubblePaddingHorizontal: CGFloat {
         presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
+    }
+
+    private func invalidateLayout() {
+        onLayoutInvalidation?(message.id)
     }
 }
 
@@ -496,11 +484,16 @@ private struct CodeBlockView: View {
 private struct MessageAttachmentView: View {
     let attachments: [Attachment]
     let isMediaOnly: Bool
+    let onLayoutInvalidation: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(attachments) { attachment in
-                AttachmentImageView(attachment: attachment, isMediaOnly: isMediaOnly)
+                AttachmentImageView(
+                    attachment: attachment,
+                    isMediaOnly: isMediaOnly,
+                    onLayoutInvalidation: onLayoutInvalidation
+                )
             }
         }
     }
@@ -509,6 +502,7 @@ private struct MessageAttachmentView: View {
 private struct AttachmentImageView: View {
     let attachment: Attachment
     let isMediaOnly: Bool
+    let onLayoutInvalidation: (() -> Void)?
 
     var body: some View {
         Group {
@@ -523,8 +517,10 @@ private struct AttachmentImageView: View {
                         image
                             .resizable()
                             .scaledToFill()
+                            .onAppear(perform: onLayoutInvalidation)
                     case .failure:
                         placeholder
+                            .onAppear(perform: onLayoutInvalidation)
                     case .empty:
                         placeholder
                     @unknown default:
@@ -560,6 +556,7 @@ private struct AttachmentImageView: View {
 
 private struct LinkPreviewCard: View {
     let url: URL
+    let onLayoutInvalidation: (() -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @State private var metadata: LPLinkMetadata? = nil
     @State private var isLoading = false
@@ -606,6 +603,7 @@ private struct LinkPreviewCard: View {
             DispatchQueue.main.async {
                 self.metadata = fetched
                 self.isLoading = false
+                self.onLayoutInvalidation?()
             }
         }
     }

@@ -13,6 +13,9 @@ enum MessageFlowRules {
         if presentation.hasMediaOnly {
             return .long
         }
+        if presentation.hasBlockContent || presentation.hasMultipleTextBlocks {
+            return .long
+        }
         if presentation.wordCount <= 3 {
             return .short
         }
@@ -59,5 +62,21 @@ enum MessageFlowRules {
 extension MessagePresentation {
     func inferredSizeClass() -> MessageSizeClass {
         MessageFlowRules.sizeClass(for: self)
+    }
+
+    var hasBlockContent: Bool {
+        parts.contains { part in
+            switch part {
+            case .code, .table, .linkPreview, .image, .gallery:
+                return true
+            case .text, .markdown, .inlineEmoji:
+                return false
+            }
+        }
+    }
+
+    var hasMultipleTextBlocks: Bool {
+        let textBlocks = parts.filter { $0.isTextual }
+        return textBlocks.count > 1
     }
 }

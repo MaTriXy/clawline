@@ -298,7 +298,7 @@ Bootstrap behavior (v1):
 - Operators should only start the provider when ready to pair the first device.
 - If all admin devices are lost, operators can reset by deleting the provider state directory; this invalidates all tokens and re-enables first-admin bootstrap.
 - As a less destructive alternative, operators may promote an existing allowlisted device by setting `isAdmin: true` in the allowlist (or via a future CLI), preserving message history.
-- Admin status is stored in the allowlist (`isAdmin: true`) and included as a JWT claim for quick checks.
+- Admin status is stored in the allowlist (`isAdmin: true`) and surfaced to clients via the `auth_result.isAdmin` field; the JWT itself no longer includes this claim, so the provider must re-check the allowlist for every privileged action.
 - Only admin devices may send `pair_decision`. Device revocation is an operator action outside the WebSocket protocol in v1 (no in-app revoke). Operators should preserve at least one admin device; when possible, the provider should reject revoking the last remaining admin.
 - Admin promotion is not supported in v1. Only the first-admin bootstrap device is admin by default; operators may manually set `isAdmin: true` in the allowlist if additional admins are required.
 - If a device's connection drops before receiving `pair_result`, the device may resend `pair_request` and the server should issue a new token (fresh JWT, preserving `isAdmin`).
@@ -322,6 +322,7 @@ Bootstrap behavior (v1):
   "success": true,
   "userId": "kaywood",
   "sessionId": "sess_xyz",
+  "isAdmin": true,
   "replayCount": 42,
   "replayTruncated": false
 }
@@ -518,7 +519,6 @@ Error/HTTP mapping:
 {
   "sub": "user_4f1d2c7e-7c52-4f75-9f7a-2f7f9f2d9a3b",
   "deviceId": "d2f1c0d1-9a4b-4a92-9c6d-2c4e4c9f7b2a",
-  "isAdmin": false,
   "iat": 1704672000,
   "exp": 1736208000
 }
@@ -529,7 +529,7 @@ Error/HTTP mapping:
 - HS256 keeps the signing implementation simple for an in-process plugin; if future components outside the provider need to validate tokens, migrate to RS256/ES256 to avoid sharing the secret.
 - `sub` (`userId`) is server-assigned (UUIDv4). Clients MUST treat `userId` as opaque. In v1 there is no admin rename flow.
 - `deviceId` claim MUST be a UUIDv4 string and MUST match the `auth.deviceId` value.
-- `isAdmin` in the JWT is informational; the provider MUST verify admin status against the allowlist on privileged actions.
+- `isAdmin` is provided via `auth_result` for UI hints; the provider MUST verify admin status against the allowlist on privileged actions.
 - Tokens expire after `tokenTtlSeconds` (default 1 year). V1 has no refresh flow; expired tokens require re-pairing. Operators may set `tokenTtlSeconds: null` to disable expiry (omit the `exp` claim).
 - Operators should periodically rotate the provider secret (e.g., every 90 days) to limit token lifetime; rotation invalidates all tokens.
 - Because transport is plaintext in v1, operators MUST deploy the provider only on trusted networks (VPN, localhost, or reverse proxy) or accept the risk of bearer token interception.

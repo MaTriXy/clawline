@@ -6,8 +6,10 @@
 //
 
 import Foundation
+import OSLog
 
 final class ProviderChatService: ChatServicing {
+    private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ProviderChatService")
     enum Error: Swift.Error, LocalizedError {
         case missingBaseURL
         case notConnected
@@ -55,6 +57,8 @@ final class ProviderChatService: ChatServicing {
     private struct AuthResultPayload: Decodable {
         let type: String
         let success: Bool
+        let userId: String?
+        let isAdmin: Bool?
         let reason: String?
     }
 
@@ -256,6 +260,11 @@ final class ProviderChatService: ChatServicing {
         if result.success {
             resolveAuthContinuation(with: .success(()))
             stateContinuation?.yield(.connected)
+            if let isAdmin = result.isAdmin {
+                logger.info("Auth result received (userId: \(result.userId ?? "unknown", privacy: .public), isAdmin: \(isAdmin, privacy: .public))")
+                let info = ChatUserInfo(userId: result.userId ?? "", isAdmin: isAdmin)
+                serviceEventContinuation?.yield(.userInfo(info))
+            }
         } else {
             let reason = result.reason ?? "Unknown error"
             let error = Error.authFailed(reason)

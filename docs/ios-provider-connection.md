@@ -77,15 +77,16 @@ On subsequent launches:
    Use the most recent server event ID (`s_*`) processed on this device; omit the field or send `null` on first auth after pairing (or if no server events have ever been processed on this device).
 3. Provider responds with:
    ```json
-   {
-     "type": "auth_result",
-     "success": true,
-     "userId": "user_...",
-     "sessionId": "sess_...",
-     "replayCount": 12,
-     "replayTruncated": false,
-     "historyReset": false
-   }
+  {
+    "type": "auth_result",
+    "success": true,
+    "userId": "user_...",
+    "sessionId": "sess_...",
+    "isAdmin": true,
+    "replayCount": 12,
+    "replayTruncated": false,
+    "historyReset": false
+  }
    ```
    `sessionId` is diagnostic only and not reused by the client.
 4. On failure, client clears token and returns to pairing. Example failure payload:
@@ -93,7 +94,7 @@ On subsequent launches:
    { "type": "auth_result", "success": false, "reason": "auth_failed" }
    ```
 5. On success, provider replays missed events (if any) after `lastMessageId`. `lastMessageId` MUST be the most recent server event ID (`s_*`) that this device fully processed (assistant output, echoed user message, typing, etc.). Every device tied to the same `userId` eventually observes the same ordered history, although individual sockets may lag until replay completes.
-   - Admin detection: `AuthManaging` must expose the decoded JWT claims so the UI can read the `isAdmin` boolean (present in the token per `docs/architecture.md`). Only admins subscribe to and display `pair_approval_request`s.
+  - Admin detection: read `auth_result.isAdmin` to decide whether to expose admin-only UI (e.g., pending approvals). The JWT no longer carries this flag; rely on the runtime value from the provider and expect it to change if the allowlist is edited.
 6. Use `auth_result.replayCount`, `auth_result.replayTruncated`, and `auth_result.historyReset` to show a "history truncated/reset" notice when needed. When `historyReset` is true, drop any local conversation state beyond what replay delivered.
 Clients must include `protocolVersion: 1` in `pair_request` and `auth` or the provider will reject the request with `error` `invalid_message` and close the socket.
 The client may call `GET /version` (no auth) to verify `protocolVersion: 1` before attempting a connection. If the server responds with a different version, fail fast and show an update-required UI. Response schema:
