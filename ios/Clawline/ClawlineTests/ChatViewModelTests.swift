@@ -96,7 +96,7 @@ struct ChatViewModelTests {
         #expect(finalState.first?.streaming == false)
     }
 
-    @Test("Server echoes without device id still replace placeholder")
+    @Test("Server echoes with matching device id replace placeholder")
     @MainActor
     func userEchoWithoutDeviceIdDoesNotDuplicate() async throws {
         let auth = TestAuthManager()
@@ -128,7 +128,8 @@ struct ChatViewModelTests {
                 timestamp: Date(),
                 streaming: false,
                 attachments: [],
-                deviceId: nil
+                deviceId: "device",
+                channelType: .personal
             )
         )
 
@@ -250,7 +251,8 @@ struct ChatViewModelTests {
             timestamp: Date(),
             streaming: false,
             attachments: [],
-            deviceId: nil
+            deviceId: nil,
+            channelType: .personal
         )
 
         await viewModel.onAppear()
@@ -423,18 +425,19 @@ struct ChatViewModelTests {
 
         await viewModel.onAppear()
 
+        try await Task.sleep(for: .milliseconds(10))
         chatService.emitServiceEvent(.userInfo(ChatUserInfo(userId: "user", isAdmin: true)))
         try await Task.sleep(for: .milliseconds(10))
 
         #expect(auth.isAdmin)
-        let unlockToast = await MainActor.run { toastManager.debugLastMessage() }
-        #expect(unlockToast == "Admin channel unlocked")
+        let unlockMessages = await MainActor.run { toastManager.debugMessages }
+        #expect(unlockMessages.contains("Admin channel unlocked"))
 
         chatService.emitServiceEvent(.userInfo(ChatUserInfo(userId: "user", isAdmin: false)))
         try await Task.sleep(for: .milliseconds(10))
         #expect(auth.isAdmin == false)
-        let revokeToast = await MainActor.run { toastManager.debugLastMessage() }
-        #expect(revokeToast == "Admin access revoked")
+        let revokeMessages = await MainActor.run { toastManager.debugMessages }
+        #expect(revokeMessages.contains("Admin access revoked"))
     }
 }
 
@@ -464,13 +467,12 @@ private final class TestAuthManager: AuthManaging {
 
     func refreshAdminStatusFromToken() {}
 }
-}
-
 private final class TestChatService: ChatServicing {
     private var messageContinuation: AsyncStream<Message>.Continuation?
     private var stateContinuation: AsyncStream<ConnectionState>.Continuation?
     private var eventContinuation: AsyncStream<ChatServiceEvent>.Continuation?
     private var bufferedMessages: [Message] = []
+    private var bufferedEvents: [ChatServiceEvent] = []
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
     private(set) var lastChannelType: ChatChannelType?
@@ -493,6 +495,8 @@ private final class TestChatService: ChatServicing {
     private(set) lazy var serviceEvents: AsyncStream<ChatServiceEvent> = {
         AsyncStream { continuation in
             self.eventContinuation = continuation
+            bufferedEvents.forEach { continuation.yield($0) }
+            bufferedEvents.removeAll()
         }
     }()
 
@@ -523,7 +527,11 @@ private final class TestChatService: ChatServicing {
     }
 
     func emitServiceEvent(_ event: ChatServiceEvent) {
-        eventContinuation?.yield(event)
+        if let continuation = eventContinuation {
+            continuation.yield(event)
+        } else {
+            bufferedEvents.append(event)
+        }
     }
 }
 

@@ -36,12 +36,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var messagesById: [String: Message] = [:]
     private var fingerprints: [String: Int] = [:]
     private var sizeCache: [String: CGSize] = [:]
+    private var invalidationScheduled = false
     private var lastMessageId: String?
     private var viewModel: ChatViewModel?
     private var isCompact: Bool = true
     private var topInset: CGFloat = 0
     private var bottomInset: CGFloat = 0
     private var lastBoundsSize: CGSize = .zero
+    private var forceReconfigureAll = false
     private lazy var sizingHost = UIHostingController(
         rootView: MessageBubbleSizingView(
             message: Message(
@@ -79,6 +81,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let size = collectionView.bounds.size
         guard size != .zero, size != lastBoundsSize else { return }
         lastBoundsSize = size
+        forceReconfigureAll = true
         updateLayout()
         if let viewModel {
             update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset)
@@ -88,7 +91,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat) {
         loadViewIfNeeded()
         self.viewModel = viewModel
-        let needsLayoutUpdate = self.isCompact != isCompact || self.topInset != topInset || self.bottomInset != bottomInset
+        let needsLayoutUpdate = forceReconfigureAll
+            || self.isCompact != isCompact
+            || self.topInset != topInset
+            || self.bottomInset != bottomInset
         self.isCompact = isCompact
         self.topInset = topInset
         self.bottomInset = bottomInset
@@ -117,6 +123,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             snapshot.reconfigureItems(changedIds)
             flowLayout.invalidateLayout()
         }
+        forceReconfigureAll = false
 
         dataSource.apply(snapshot, animatingDifferences: false)
         fingerprints = newFingerprints
@@ -275,7 +282,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func invalidateLayout(for messageId: String) {
         guard sizeCache[messageId] != nil else { return }
         sizeCache.removeValue(forKey: messageId)
-        flowLayout.invalidateLayout()
+        scheduleLayoutInvalidation()
     }
 
     private func applyMeasuredSize(_ measuredSize: CGSize, for messageId: String) {
@@ -293,7 +300,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             height: measuredSize.height
         )
         sizeCache[messageId] = snapToPixel(clamped)
-        flowLayout.invalidateLayout()
+        scheduleLayoutInvalidation()
     }
 
     private func snapToPixel(_ size: CGSize) -> CGSize {
@@ -302,6 +309,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             ceil(value * scale) / scale
         }
         return CGSize(width: snap(size.width), height: snap(size.height))
+    }
+
+    private func scheduleLayoutInvalidation() {
+        guard !invalidationScheduled else { return }
+        invalidationScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.invalidationScheduled = false
+            self.flowLayout.invalidateLayout()
+        }
     }
 
     func collectionView(_ collectionView: UICollectionView,
