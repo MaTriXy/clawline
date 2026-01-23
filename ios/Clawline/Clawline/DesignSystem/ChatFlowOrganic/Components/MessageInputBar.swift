@@ -76,7 +76,10 @@ struct MessageInputBar: View {
     }
 
     private var inputHeight: CGFloat {
-        max(editorHeight, metrics.inputBarHeight)
+        if content.length == 0 {
+            return metrics.inputBarHeight
+        }
+        return max(editorHeight, metrics.inputBarHeight)
     }
 
     private var connectionAlertColor: Color? {
@@ -126,27 +129,6 @@ struct MessageInputBar: View {
 
     private var sendButtonWidth: CGFloat {
         isSending ? metrics.sendingButtonWidth : metrics.sendButtonSize
-    }
-
-    private var sendButtonShape: AnyShape {
-        isSending ? AnyShape(Capsule()) : AnyShape(Circle())
-    }
-
-    private var sendButtonBackground: Color {
-        if isSending {
-            return Color(.systemGray5)
-        }
-        if !canSend {
-            return Color(.systemGray4)
-        }
-        return Color.accentColor
-    }
-
-    private var sendButtonForeground: Color {
-        if isSending {
-            return Color.primary
-        }
-        return Color.white
     }
 
     var body: some View {
@@ -210,17 +192,14 @@ struct MessageInputBar: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         Image(systemName: "paperplane.fill")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                     }
                 }
                 .frame(width: sendButtonWidth, height: metrics.sendButtonSize)
-                .background(sendButtonShape.fill(sendButtonBackground))
-                .foregroundStyle(sendButtonForeground)
+                .contentShape(Rectangle())
                 .disabled(!isSending && !canSend)
                 .opacity(connectionAlertColor == nil ? 1 : 0.65)
-                .padding(.trailing, metrics.sendButtonInnerPadding)
-                .padding(.leading, metrics.sendButtonInnerPadding)
-                .padding(.bottom, metrics.sendButtonBottomInset)
+                .padding(.trailing, 4)
                 .accessibilityHint(connectionAlertHint ?? "")
             }
             .frame(height: inputHeight)
@@ -235,6 +214,10 @@ struct MessageInputBar: View {
         }
         .padding(.horizontal, metrics.concentricPadding)
         .padding(.bottom, metrics.bottomPadding)
+        .onChange(of: content.length) { _, newValue in
+            guard newValue == 0 else { return }
+            editorHeight = metrics.inputBarHeight
+        }
     }
 }
 

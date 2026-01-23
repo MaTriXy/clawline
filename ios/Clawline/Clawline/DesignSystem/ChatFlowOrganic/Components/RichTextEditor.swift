@@ -22,7 +22,7 @@ struct RichTextEditor: UIViewRepresentable {
         textView.delegate = context.coordinator
         textView.isScrollEnabled = false
         textView.backgroundColor = .clear
-        textView.textContainerInset = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: trailingPadding)
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: trailingPadding)
         textView.textContainer.lineFragmentPadding = 0
         textView.adjustsFontForContentSizeCategory = true
         textView.font = UIFont.preferredFont(forTextStyle: .body)
@@ -111,8 +111,8 @@ struct RichTextEditor: UIViewRepresentable {
             let fittingSize = CGSize(width: referenceWidth,
                                      height: .greatestFiniteMagnitude)
             let size = textView.sizeThatFits(fittingSize)
-            let minHeight: CGFloat = 44
-            let maxHeight: CGFloat = 112
+            let minHeight: CGFloat = 48
+            let maxHeight: CGFloat = 120
             let clamped = min(max(size.height, minHeight), maxHeight)
             if abs(parent.calculatedHeight - clamped) > 0.5 {
                 parent.calculatedHeight = clamped

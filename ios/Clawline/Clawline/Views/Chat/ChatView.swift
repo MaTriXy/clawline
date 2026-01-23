@@ -110,23 +110,27 @@ struct ChatView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+    @State private var channelSwitcherHeight: CGFloat = 0
+    @State private var inputBarHeight: CGFloat = 0
+
 
     var body: some View {
         @Bindable var viewModel = viewModel
         @Bindable var toastManager = toastManager
 
         GeometryReader { geometry in
-            let topInset: CGFloat = authManager.isAdmin ? 24 : 60
-            let rawOffset = calculateConcentricOffset(bottomInset: geometry.safeAreaInsets.bottom)
-            let inputBarBaseHeight: CGFloat = 44
-            let bottomInset: CGFloat = inputBarBaseHeight
-                + MessageInputBarMetrics.elementSpacing
-                + (isInputFocused ? 0 : rawOffset)
+            let topInset: CGFloat = authManager.isAdmin
+                ? geometry.safeAreaInsets.top + channelSwitcherHeight
+                : geometry.safeAreaInsets.top
+            let inputBarBaseHeight: CGFloat = 48
+            let resolvedInputHeight = max(inputBarHeight, inputBarBaseHeight)
+            // Bottom inset is constant - concentric offset only affects input bar position, not message padding
+            let bottomInset: CGFloat = resolvedInputHeight + MessageInputBarMetrics.elementSpacing
 
             ZStack(alignment: .top) {
                 messageList(topInset: topInset, bottomInset: bottomInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: .bottom)
+                    .ignoresSafeArea(.container, edges: [.top, .bottom])
 
                 VStack(spacing: 0) {
                     if authManager.isAdmin {
@@ -139,6 +143,14 @@ struct ChatView: View {
                         .padding(.horizontal, 24)
                         .padding(.top, 16)
                         .padding(.bottom, 12)
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: ChannelSwitcherHeightPreferenceKey.self,
+                                    value: proxy.size.height
+                                )
+                            }
+                        )
                         .transition(.move(edge: .top).combined(with: .opacity))
                     }
                     Spacer(minLength: 0)
@@ -160,6 +172,17 @@ struct ChatView: View {
                     .padding(.top, geometry.safeAreaInsets.top + 12)
                     .padding(.horizontal, 24)
                     .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .onPreferenceChange(ChannelSwitcherHeightPreferenceKey.self) { height in
+                channelSwitcherHeight = height
+            }
+            .onPreferenceChange(InputBarHeightPreferenceKey.self) { height in
+                inputBarHeight = height
+            }
+            .onChange(of: authManager.isAdmin) { _, isAdmin in
+                if !isAdmin {
+                    channelSwitcherHeight = 0
                 }
             }
             // ═══════════════════════════════════════════════════════════════════════════════
@@ -203,6 +226,14 @@ struct ChatView: View {
                     // ⚠️ This callback is how focus state survives view recreation.
                     // DO NOT replace with @Binding or try to use @FocusState directly.
                     onFocusChange: { focused in isInputFocused = focused }
+                )
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: InputBarHeightPreferenceKey.self,
+                            value: proxy.size.height
+                        )
+                    }
                 )
                 // ⚠️ Offset MUST be applied here, not inside MessageInputBar.
                 // See header comment for why.
@@ -313,7 +344,8 @@ struct ChatView: View {
             viewModel: viewModel,
             topInset: topInset,
             bottomInset: bottomInset,
-            isCompact: horizontalSizeClass == .compact
+            isCompact: horizontalSizeClass == .compact,
+            isKeyboardVisible: isInputFocused
         )
     }
 
@@ -537,7 +569,7 @@ private func restoreFocusIfNeeded() {
         var body: some View {
             Text(message)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundColor(.white)
+                .foregroundColor(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .padding(.horizontal, 20)
@@ -582,6 +614,22 @@ private func restoreFocusIfNeeded() {
         let t = (bottomInset - minSafeArea) / (maxSafeArea - minSafeArea)
         let clampedT = max(0, min(1, t))
         return maxOffset * (1 - clampedT)
+    }
+}
+
+private struct ChannelSwitcherHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct InputBarHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

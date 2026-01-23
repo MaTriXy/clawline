@@ -18,18 +18,16 @@ struct MessageInputBarMetrics {
     let isFieldFocused: Bool
 
     let addButtonSize: CGFloat = 44
-    let inputBarHeight: CGFloat = 44
+    let inputBarHeight: CGFloat = 48
 
-    var sendButtonSize: CGFloat {
-        horizontalSizeClass == .compact ? 40 : 44
-    }
+    let sendButtonSize: CGFloat = 44  // Minimum 44pt tap target per HIG
 
     let sendingButtonWidth: CGFloat = 92
 
     func textTrailingInset(isSending: Bool) -> CGFloat { 20 }
 
-    var sendButtonInnerPadding: CGFloat { 8 }
-    var sendButtonBottomInset: CGFloat { 6 }
+    var sendButtonInnerPadding: CGFloat { 0 }
+    var sendButtonBottomInset: CGFloat { 0 }  // Vertically centered
 
     var concentricPadding: CGFloat {
         max(deviceCornerRadius - (inputBarHeight / 2), 8)

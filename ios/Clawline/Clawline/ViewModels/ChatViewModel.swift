@@ -7,6 +7,7 @@
 
 import Foundation
 import Observation
+import OSLog
 import UIKit
 
 enum ConnectionAlertSeverity: Equatable {
@@ -21,6 +22,7 @@ protocol ChatViewModelHosting: AnyObject {
 @Observable
 @MainActor
 final class ChatViewModel: ChatViewModelHosting {
+    private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     private(set) var messages: [Message] = []
     private(set) var activeChannel: ChatChannelType = .personal
     private(set) var lastServerMessageId: String?
@@ -176,14 +178,19 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func send() {
         guard !isSending else { return }
+        isSending = true  // Set immediately to prevent double-tap race condition
 
         pruneAttachmentData()
         let (text, pendingIds) = inputContent.contentForSending()
         let pendingAttachments = pendingIds.compactMap { attachmentData[$0] }
 
-        guard !text.isEmpty || !pendingAttachments.isEmpty else { return }
+        guard !text.isEmpty || !pendingAttachments.isEmpty else {
+            isSending = false
+            return
+        }
 
         if pendingAttachments.isEmpty && handleSlashCommand(text) {
+            isSending = false
             return
         }
 
@@ -203,8 +210,8 @@ final class ChatViewModel: ChatViewModelHosting {
         )
         appendMessage(placeholder)
         pendingLocalMessages.append(PendingLocalMessage(id: clientId, channel: channel))
+        clearInput()
 
-        isSending = true
         error = nil
 
         sendTask = Task { [weak self] in
@@ -253,7 +260,12 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func handleIncoming(_ message: Message) {
+        let snippet = String(message.content.prefix(80))
+        logger.info(
+            "incoming id=\(message.id, privacy: .public) channel=\(message.channelType.rawValue, privacy: .public) role=\(String(describing: message.role), privacy: .public) streaming=\(message.streaming, privacy: .public) deviceId=\(message.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
+        )
         if replacePendingMessageIfNeeded(with: message) {
+            logger.info("incoming replacePending id=\(message.id, privacy: .public)")
             updateLastServerMessageIdIfNeeded(with: message)
             return
         }
@@ -261,6 +273,7 @@ final class ChatViewModel: ChatViewModelHosting {
         ensureChannelStorage(for: message.channelType)
         var channelList = channelMessages[message.channelType] ?? []
         if let existingIndex = channelList.firstIndex(where: { $0.id == message.id }) {
+            logger.info("incoming duplicate id=\(message.id, privacy: .public) index=\(existingIndex, privacy: .public) channel=\(message.channelType.rawValue, privacy: .public)")
             channelList[existingIndex] = message
         } else {
             channelList.append(message)
@@ -306,6 +319,11 @@ final class ChatViewModel: ChatViewModelHosting {
         channelMessages[channel] = newMessages
         if channel == activeChannel {
             messages = newMessages
+            let total = newMessages.count
+            let uniqueCount = Set(newMessages.map(\.id)).count
+            if uniqueCount != total {
+                logger.info("message list duplicate ids detected channel=\(channel.rawValue, privacy: .public) total=\(total, privacy: .public) unique=\(uniqueCount, privacy: .public)")
+            }
         }
     }
 
