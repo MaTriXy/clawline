@@ -124,8 +124,11 @@ struct ChatView: View {
                 : geometry.safeAreaInsets.top
             let inputBarBaseHeight: CGFloat = 48
             let resolvedInputHeight = max(inputBarHeight, inputBarBaseHeight)
-            // Bottom inset is constant - concentric offset only affects input bar position, not message padding
-            let bottomInset: CGFloat = resolvedInputHeight + MessageInputBarMetrics.elementSpacing
+            // Base bottom inset for input bar: height + spacing + safe area (for home indicator).
+            // When keyboard is visible, SwiftUI shrinks the view so safe area isn't needed.
+            // When keyboard is hidden, safe area ensures content clears the input bar.
+            let bottomSafeArea = isInputFocused ? 0 : geometry.safeAreaInsets.bottom
+            let bottomInset: CGFloat = resolvedInputHeight + MessageInputBarMetrics.elementSpacing + bottomSafeArea
 
             ZStack(alignment: .top) {
                 messageList(topInset: topInset, bottomInset: bottomInset)
@@ -217,7 +220,9 @@ struct ChatView: View {
                     focusTrigger: focusRequestID,
                     bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
                     isKeyboardVisible: isInputFocused,
-                    onSend: { viewModel.send() },
+                    onSend: {
+                        viewModel.send()
+                    },
                     onCancel: { viewModel.cancelSend() },
                     onAdd: {
                         logger.info("Attachment menu requested")

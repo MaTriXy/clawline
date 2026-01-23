@@ -109,6 +109,42 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         view.isOpaque = false
         configureCollectionView()
         configureDataSource()
+        setupKeyboardTracking()
+    }
+
+    private func setupKeyboardTracking() {
+        // Observe keyboard frame changes to adjust content inset.
+        // This is the standard UIKit pattern for scroll view keyboard avoidance.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillChangeFrame),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+    }
+
+    @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+        guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return
+        }
+        let windowHeight = view.window?.bounds.height ?? UIScreen.main.bounds.height
+        let keyboardHeight = max(0, windowHeight - frame.minY)
+        let keyboardJustAppeared = keyboardHeight > 0 && currentKeyboardHeight == 0
+        currentKeyboardHeight = keyboardHeight
+
+        // Scroll to keep content visible when keyboard appears
+        if keyboardJustAppeared && isNearBottom(extraMargin: max(24, baseBottomInset)) {
+            scrollToBottom(animated: true)
+        }
+    }
+
+    private var baseBottomInset: CGFloat = 0
+    private var currentKeyboardHeight: CGFloat = 0
+
+    /// Single source of truth for setting bottom content inset.
+    private func applyBottomContentInset() {
+        collectionView.contentInset.bottom = baseBottomInset
+        collectionView.verticalScrollIndicatorInsets.bottom = baseBottomInset
     }
 
     override func viewDidLayoutSubviews() {
@@ -120,6 +156,21 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         updateLayout()
         if let viewModel {
             update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible)
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
+            // Force reconfigure all cells to pick up new colors on next runloop
+            // (cells need time to receive updated trait collection)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.forceReconfigureAll = true
+                if let viewModel = self.viewModel {
+                    self.update(viewModel: viewModel, isCompact: self.isCompact, topInset: self.topInset, bottomInset: self.bottomInset, isKeyboardVisible: self.isKeyboardVisible)
+                }
+            }
         }
     }
 
@@ -245,12 +296,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     metrics: metrics,
                     containerWidth: self.availableContentWidth()
                 )
+                // Use cached size width for consistent sizing with measurement
+                let configureWidth = self.sizeCache[id]?.width ?? maxWidth
                 cell?.configure(
                     message: message,
                     presentation: presentation,
                     failureReason: viewModel.failureMessage(for: message.id),
                     isCompact: self.isCompact,
-                    maxWidth: maxWidth,
+                    maxWidth: configureWidth,
                     onRequestExpand: { [weak self] in
                         guard let self else { return }
                         let sheet = ExpandedMessageSheet(message: message, presentation: presentation)
@@ -294,8 +347,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             bottom: metrics.containerPadding,
             right: metrics.containerPadding
         )
-        collectionView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
-        collectionView.scrollIndicatorInsets = collectionView.contentInset
+        // Store base bottom inset (input bar height + spacing).
+        // SwiftUI's safeAreaInset handles keyboard by resizing the view frame.
+        baseBottomInset = bottomInset
+        applyBottomContentInset()
         lastMeasuredSizes.removeAll()
         sizeCache.removeAll()
         flowLayout.invalidateLayout()
@@ -312,19 +367,21 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                               containerWidth: CGFloat) -> CGFloat {
         let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
         let paddedLineWidth = maxLineWidth + metrics.bubblePaddingHorizontal * 2
+        let result: CGFloat
         switch sizeClass {
         case .short:
-            return min(containerWidth, paddedLineWidth)
+            result = min(containerWidth, paddedLineWidth)
         case .medium:
-            return mediumMaxWidth(
+            result = mediumMaxWidth(
                 message: message,
                 presentation: presentation,
                 metrics: metrics,
                 containerWidth: containerWidth
             )
         case .long:
-            return min(containerWidth, paddedLineWidth)
+            result = min(containerWidth, paddedLineWidth)
         }
+        return result
     }
 
     private func sizeForItem(at indexPath: IndexPath) -> CGSize {
@@ -439,30 +496,130 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                 presentation: MessagePresentation,
                                 metrics: ChatFlowTheme.Metrics,
                                 containerWidth: CGFloat) -> CGFloat {
-        if !isCompact {
-            return min(containerWidth, max(containerWidth * 0.45, 200))
+        // Max width same as .long (typography-based)
+        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
+        let maxAllowedWidth = min(containerWidth, maxLineWidth + metrics.bubblePaddingHorizontal * 2)
+        // Min width is 1/4 of the effective max (containerWidth on iPhone, typography-based on iPad)
+        let minWidth = containerWidth / 4
+
+        // Strategy: minimize width (prefer more lines), only use fewer lines if width < minWidth
+
+        // 1. Try 3 lines - find minimum width
+        if let width = findMinimumWidthForLines(
+            targetLines: 3,
+            message: message,
+            presentation: presentation,
+            metrics: metrics,
+            minWidth: minWidth,
+            maxWidth: maxAllowedWidth
+        ), width >= minWidth {
+            return width
         }
 
-        let candidateWidth = max(1, floor(containerWidth * (2.0 / 3.0)))
+        // 2. Try 2 lines - find minimum width
+        if let width = findMinimumWidthForLines(
+            targetLines: 2,
+            message: message,
+            presentation: presentation,
+            metrics: metrics,
+            minWidth: minWidth,
+            maxWidth: maxAllowedWidth
+        ), width >= minWidth {
+            return width
+        }
+
+        // 3. Try single line
+        let singleLineWidth = measureSingleLineWidth(
+            for: message,
+            presentation: presentation,
+            metrics: metrics
+        )
+        if singleLineWidth <= maxAllowedWidth {
+            return max(minWidth, singleLineWidth)
+        }
+
+        // 4. Fallback - use max allowed width
+        return maxAllowedWidth
+    }
+
+    private func measureSingleLineWidth(for message: Message,
+                                        presentation: MessagePresentation,
+                                        metrics: ChatFlowTheme.Metrics) -> CGFloat {
+        // Use .short sizeClass to get natural single-line width (fixedSize horizontal: true)
+        textSizingHost.rootView = MessageBubbleTextMeasurementView(
+            message: message,
+            presentation: presentation,
+            isCompact: isCompact,
+            sizeClass: .short,  // Use short to get single-line measurement
+            maxWidth: .greatestFiniteMagnitude
+        )
+        let measured = textSizingHost.sizeThatFits(
+            in: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        )
+        // Add bubble padding
+        return measured.width + (metrics.bubblePaddingHorizontal * 2)
+    }
+
+    private func findMinimumWidthForLines(targetLines: Int,
+                                          message: Message,
+                                          presentation: MessagePresentation,
+                                          metrics: ChatFlowTheme.Metrics,
+                                          minWidth: CGFloat,
+                                          maxWidth: CGFloat) -> CGFloat? {
+        // Check if target line count is achievable at max width
+        let linesAtMax = estimatedLineCount(
+            for: message,
+            presentation: presentation,
+            metrics: metrics,
+            atWidth: maxWidth
+        )
+        guard linesAtMax <= targetLines else {
+            return nil  // Can't fit in targetLines even at max width
+        }
+
+        // Binary search for minimum width where text fits in targetLines
+        var low = minWidth
+        var high = maxWidth
+        var bestWidth = maxWidth
+
+        while high - low > 4 {  // 4pt precision is sufficient
+            let mid = floor((low + high) / 2)
+            let lines = estimatedLineCount(
+                for: message,
+                presentation: presentation,
+                metrics: metrics,
+                atWidth: mid
+            )
+            if lines <= targetLines {
+                bestWidth = mid
+                high = mid
+            } else {
+                low = mid
+            }
+        }
+
+        return bestWidth
+    }
+
+    private func estimatedLineCount(for message: Message,
+                                    presentation: MessagePresentation,
+                                    metrics: ChatFlowTheme.Metrics,
+                                    atWidth bubbleWidth: CGFloat) -> Int {
+        // Text content width is bubble width minus horizontal padding
+        let contentWidth = bubbleWidth - (metrics.bubblePaddingHorizontal * 2)
         guard let textHeight = measureTextHeight(
             for: message,
             presentation: presentation,
             sizeClass: .medium,
             metrics: metrics,
-            maxWidth: candidateWidth
+            maxWidth: contentWidth
         ) else {
-            return containerWidth
+            return 1
         }
-
         let lineSpacing: CGFloat = 4
         let font = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
         let lineHeight = font.lineHeight
-        let estimatedLines = Int(ceil((textHeight + lineSpacing) / (lineHeight + lineSpacing)))
-        if estimatedLines <= 3 {
-            return candidateWidth
-        }
-
-        return containerWidth
+        return Int(ceil((textHeight + lineSpacing) / (lineHeight + lineSpacing)))
     }
 
     private func measureTextHeight(for message: Message,
