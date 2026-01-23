@@ -81,6 +81,51 @@ These items were considered and explicitly deferred as non‑MVP:
 - Revocation operates per device. Removing the final device for a `userId` leaves history intact but inaccessible until an operator reassigns a new device to that account.
 
 
+## Clawdbot Channel Mapping
+
+Clawline integrates with Clawdbot's session/routing model. Understanding this mapping is essential:
+
+**Core concept**: SESSION = conversation memory, CHANNEL = delivery pipe.
+
+Conversation continuity comes from the SESSION, not the channel. The channel just determines where replies get delivered.
+
+### Channel Types
+
+| Clawline Channel | Clawdbot Equivalent | Session Key | Access |
+|------------------|---------------------|-------------|--------|
+| DM channel | Discord/Telegram DM | `agent:main:main` | `isAdmin: true` users only |
+| Personal channel | Discord channel | `agent:main:clawline:dm:{userId}` | All registered users |
+
+### DM Channel (Main Session)
+
+The DM channel (`channelType: "admin"`) routes to Clawdbot's **main session**:
+
+- Equivalent to DMing the Discord bot or Telegram bot
+- Same conversation memory whether you message via Discord, Telegram, or Clawline
+- Only users with `isAdmin: true` in the allowlist can access
+- Replies go to the originating user's devices (not broadcast to all admins)
+- Continuity comes from the shared session, not from special delivery
+
+This matches Clawdbot's default `dmScope: "main"` behavior.
+
+### Personal Channels (Per-User Sessions)
+
+Personal channels (`channelType: "personal"`) route to isolated per-user sessions:
+
+- Each registered user (family member, etc.) gets their own conversation
+- Agent doesn't mix conversations between users
+- Similar to Discord channels where each has separate memory
+
+### Reply Routing
+
+All channels use the same pattern:
+- `OriginatingTo: "{userId}"` → `broadcastToUser(userId)` (all user's devices)
+
+No special handling for DM channel. The only differences are:
+1. Access control (`isAdmin: true` required)
+2. Session routing (main vs per-user)
+
+
 ## Related docs
 
 - `docs/provider-architecture.md`
