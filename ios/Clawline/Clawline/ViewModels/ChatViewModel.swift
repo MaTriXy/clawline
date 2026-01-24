@@ -694,9 +694,15 @@ final class ChatViewModel: ChatViewModelHosting {
         case "asset_not_found":
             return "Attachment could not be found on the provider."
         case "rate_limited":
-            return "Slow down a bit; you’re being rate limited."
+            return "Slow down a bit; you're being rate limited."
         case "upload_failed_retryable":
             return "Upload failed; try again."
+        case "queue_failed", "queue_full":
+            return "Message couldn't be queued. Try again."
+        case "connection_lost":
+            return "Message not delivered — connection lost."
+        case "invalid_channel":
+            return "Cannot send to this channel."
         default:
             return "Message failed (\(code))."
         }
