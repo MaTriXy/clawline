@@ -348,6 +348,7 @@ struct ChatView: View {
                 .tag(ChatChannelType.admin)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        .background(Color.clear)
     }
 
     /// Binding that syncs TabView selection with viewModel.activeChannel

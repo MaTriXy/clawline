@@ -148,7 +148,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 guard let self else { return }
                 self.forceReconfigureAll = true
                 if let viewModel = self.viewModel {
-                    self.update(viewModel: viewModel, isCompact: self.isCompact, topInset: self.topInset, bottomInset: self.bottomInset, isKeyboardVisible: self.isKeyboardVisible)
+                    self.update(viewModel: viewModel, isCompact: self.isCompact, topInset: self.topInset, bottomInset: self.bottomInset, isKeyboardVisible: self.isKeyboardVisible, channel: self.channelOverride)
                 }
             }
         }
