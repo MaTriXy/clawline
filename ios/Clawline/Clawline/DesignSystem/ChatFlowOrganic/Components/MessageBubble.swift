@@ -560,18 +560,21 @@ private struct CodeBlockView: View {
                     .foregroundColor(labelColor)
                     .tracking(0.5)
             }
-            if let highlighted = highlightedCode {
-                Text(highlighted)
-                    .font(.system(size: 13, weight: .regular, design: .monospaced))
-                    .lineSpacing(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text(code)
-                    .font(.system(size: 13, weight: .regular, design: .monospaced))
-                    .foregroundColor(plainTextColor)
-                    .lineSpacing(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView(.horizontal, showsIndicators: true) {
+                if let highlighted = highlightedCode {
+                    Text(highlighted)
+                        .font(.system(size: 13, weight: .regular, design: .monospaced))
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: true, vertical: false)
+                } else {
+                    Text(code)
+                        .font(.system(size: 13, weight: .regular, design: .monospaced))
+                        .foregroundColor(plainTextColor)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
             }
+            .scrollBounceBehavior(.basedOnSize)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 12)

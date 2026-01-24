@@ -1115,6 +1115,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
 /// Matches the SwiftUI CodeBlockView in the design system.
 final class CodeBlockUIKitView: UIView {
     private let languageLabel = UILabel()
+    private let codeScrollView = UIScrollView()
     private let codeLabel = UILabel()
     private var currentCode: String = ""
     private var currentLanguage: String?
@@ -1134,7 +1135,17 @@ final class CodeBlockUIKitView: UIView {
         layer.cornerCurve = .continuous
         clipsToBounds = true
 
-        let stack = UIStackView(arrangedSubviews: [languageLabel, codeLabel])
+        // Configure scroll view for horizontal scrolling
+        codeScrollView.showsHorizontalScrollIndicator = true
+        codeScrollView.showsVerticalScrollIndicator = false
+        codeScrollView.alwaysBounceHorizontal = false
+        codeScrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Add code label to scroll view
+        codeLabel.translatesAutoresizingMaskIntoConstraints = false
+        codeScrollView.addSubview(codeLabel)
+
+        let stack = UIStackView(arrangedSubviews: [languageLabel, codeScrollView])
         stack.axis = .vertical
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -1144,7 +1155,16 @@ final class CodeBlockUIKitView: UIView {
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+
+            // Code label fills scroll view content
+            codeLabel.topAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.topAnchor),
+            codeLabel.leadingAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.leadingAnchor),
+            codeLabel.trailingAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.trailingAnchor),
+            codeLabel.bottomAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.bottomAnchor),
+
+            // Scroll view height matches content (no vertical scrolling)
+            codeScrollView.contentLayoutGuide.heightAnchor.constraint(equalTo: codeScrollView.frameLayoutGuide.heightAnchor)
         ])
 
         languageLabel.font = UIFont.systemFont(ofSize: 11, weight: .semibold)
