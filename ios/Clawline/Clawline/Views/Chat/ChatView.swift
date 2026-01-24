@@ -110,8 +110,8 @@ struct ChatView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    @State private var channelSwitcherHeight: CGFloat = 0
     @State private var inputBarHeight: CGFloat = 0
+    @State private var channelToastManager = ChannelToastManager()
 
 
     var body: some View {
@@ -119,9 +119,7 @@ struct ChatView: View {
         @Bindable var toastManager = toastManager
 
         GeometryReader { geometry in
-            let topInset: CGFloat = authManager.isAdmin
-                ? geometry.safeAreaInsets.top + channelSwitcherHeight
-                : geometry.safeAreaInsets.top
+            let topInset: CGFloat = geometry.safeAreaInsets.top
             let inputBarBaseHeight: CGFloat = 48
             let resolvedInputHeight = max(inputBarHeight, inputBarBaseHeight)
             // Base bottom inset for input bar: height + spacing + safe area (for home indicator).
@@ -135,28 +133,11 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
 
-                VStack(spacing: 0) {
-                    if authManager.isAdmin {
-                        ChannelSwitcherView(
-                            activeChannel: viewModel.activeChannel,
-                            onSelect: { channel in
-                                viewModel.setActiveChannel(channel)
-                            }
-                        )
-                        .padding(.horizontal, 24)
-                        .padding(.top, 16)
-                        .padding(.bottom, 12)
-                        .background(
-                            GeometryReader { proxy in
-                                Color.clear.preference(
-                                    key: ChannelSwitcherHeightPreferenceKey.self,
-                                    value: proxy.size.height
-                                )
-                            }
-                        )
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                    Spacer(minLength: 0)
+                // Channel toast (centered)
+                if channelToastManager.isVisible {
+                    ChannelToast(channelName: channelToastManager.channelName)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
 
                 if let error = viewModel.error {
@@ -177,16 +158,8 @@ struct ChatView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .onPreferenceChange(ChannelSwitcherHeightPreferenceKey.self) { height in
-                channelSwitcherHeight = height
-            }
             .onPreferenceChange(InputBarHeightPreferenceKey.self) { height in
                 inputBarHeight = height
-            }
-            .onChange(of: authManager.isAdmin) { _, isAdmin in
-                if !isAdmin {
-                    channelSwitcherHeight = 0
-                }
             }
             // ═══════════════════════════════════════════════════════════════════════════════
             // ⚠️ CRITICAL SECTION - READ HEADER COMMENT BEFORE MODIFYING ⚠️
@@ -325,6 +298,7 @@ struct ChatView: View {
             )
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: toastManager.toast)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: channelToastManager.isVisible)
     }
 
     @ViewBuilder
@@ -350,8 +324,27 @@ struct ChatView: View {
             topInset: topInset,
             bottomInset: bottomInset,
             isCompact: horizontalSizeClass == .compact,
-            isKeyboardVisible: isInputFocused
+            isKeyboardVisible: isInputFocused,
+            onChannelSwipe: handleChannelSwipe
         )
+    }
+
+    /// Handle swipe gesture to switch between channels (admin only)
+    private func handleChannelSwipe(_ newChannel: ChatChannelType) {
+        guard authManager.isAdmin else { return }
+
+        // Only switch if different channel
+        guard newChannel != viewModel.activeChannel else { return }
+
+        // Haptic feedback
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+
+        // Switch channel and show toast
+        viewModel.setActiveChannel(newChannel)
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            channelToastManager.show(channel: newChannel)
+        }
     }
 
     private func errorBanner(_ message: String) -> some View {

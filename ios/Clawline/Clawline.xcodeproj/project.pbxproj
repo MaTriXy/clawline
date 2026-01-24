@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		274F7BA92F0F24F20073BF45 /* Clawline Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 274F7BA82F0F24F20073BF45 /* Clawline Watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		278B578A2F248E2C00E501B1 /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 27HL00022F1000000073BF45 /* HighlightSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -110,6 +111,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				278B578A2F248E2C00E501B1 /* HighlightSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -383,11 +385,11 @@
 			);
 			mainGroup = 274F7B622F0F22B50073BF45;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
-			productRefGroup = 274F7B6C2F0F22B50073BF45 /* Products */;
 			packageReferences = (
 				27HL00012F1000000073BF45 /* XCRemoteSwiftPackageReference "HighlightSwift" */,
 			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 274F7B6C2F0F22B50073BF45 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
