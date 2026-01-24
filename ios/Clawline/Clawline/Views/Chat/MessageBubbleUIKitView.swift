@@ -127,11 +127,9 @@ final class MessageBubbleUIKitView: UIView {
         super.init(frame: frame)
         backgroundColor = .clear
 
-        // Shadow container (behind bubble, inset so white background is fully covered)
+        // Shadow container (behind bubble, clear background with shadowPath)
         shadowContainerView.translatesAutoresizingMaskIntoConstraints = false
-        shadowContainerView.backgroundColor = .white  // Solid color needed for shadow to render
-        shadowContainerView.layer.cornerRadius = 18
-        shadowContainerView.layer.cornerCurve = .continuous
+        shadowContainerView.backgroundColor = .clear
         addSubview(shadowContainerView)
 
         bubbleBackgroundView.translatesAutoresizingMaskIntoConstraints = false
@@ -148,11 +146,11 @@ final class MessageBubbleUIKitView: UIView {
             bubbleBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
             maxWidthConstraint,
             minWidthConstraint,
-            // Shadow container inset so white background is fully covered by bubble
-            shadowContainerView.leadingAnchor.constraint(equalTo: bubbleBackgroundView.leadingAnchor, constant: 6),
-            shadowContainerView.topAnchor.constraint(equalTo: bubbleBackgroundView.topAnchor, constant: 6),
-            shadowContainerView.trailingAnchor.constraint(equalTo: bubbleBackgroundView.trailingAnchor, constant: -6),
-            shadowContainerView.bottomAnchor.constraint(equalTo: bubbleBackgroundView.bottomAnchor, constant: -6)
+            // Shadow container matches bubble frame (clear background, no inset needed)
+            shadowContainerView.leadingAnchor.constraint(equalTo: bubbleBackgroundView.leadingAnchor),
+            shadowContainerView.topAnchor.constraint(equalTo: bubbleBackgroundView.topAnchor),
+            shadowContainerView.trailingAnchor.constraint(equalTo: bubbleBackgroundView.trailingAnchor),
+            shadowContainerView.bottomAnchor.constraint(equalTo: bubbleBackgroundView.bottomAnchor)
         ])
         bubbleBackgroundView.setContentHuggingPriority(.required, for: .horizontal)
         bubbleBackgroundView.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -279,9 +277,8 @@ final class MessageBubbleUIKitView: UIView {
         let path = bubblePath(in: bubbleBackgroundView.bounds)
         maskLayer.path = path.cgPath
 
-        // Shadow container: shadowPath for inset shadow view
-        let shadowPath = UIBezierPath(roundedRect: shadowContainerView.bounds, cornerRadius: 18)
-        shadowContainerView.layer.shadowPath = shadowPath.cgPath
+        // Shadow container: use bubble path for accurate shadow shape
+        shadowContainerView.layer.shadowPath = path.cgPath
 
         // Update border to match bubble shape
         borderGradientLayer.frame = bubbleBackgroundView.frame
@@ -493,7 +490,7 @@ final class MessageBubbleUIKitView: UIView {
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
         shadowContainerView.layer.shadowRadius = 12
         shadowContainerView.layer.shadowOffset = CGSize(width: 0, height: 5)
-        let shadowOpacity: Float = palette.isDark ? 0.50 : 0.40
+        let shadowOpacity: Float = palette.isDark ? 0.25 : 0.40
         shadowContainerView.layer.shadowOpacity = shadowOpacity
 
         // Chromeless mode: hide bubble chrome but keep padding
@@ -539,7 +536,7 @@ final class MessageBubbleUIKitView: UIView {
         // Update shadow (on separate shadow container view)
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
         shadowContainerView.layer.shadowRadius = 12
-        let shadowOpacity: Float = palette.isDark ? 0.50 : 0.40
+        let shadowOpacity: Float = palette.isDark ? 0.25 : 0.40
         shadowContainerView.layer.shadowOpacity = isChromeless ? 0 : shadowOpacity
 
         // Update border colors for light/dark mode
