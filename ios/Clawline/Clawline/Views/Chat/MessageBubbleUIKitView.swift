@@ -565,17 +565,17 @@ final class MessageBubbleUIKitView: UIView {
                 UIColor.white.withAlphaComponent(0.0).cgColor
             ]
         } else {
-            // Light mode: subtle dark border all around for definition
+            // Light mode: visible border all around for definition
             let borderColor = UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 1)
             borderGradientLayer.colors = [
-                borderColor.withAlphaComponent(0.10).cgColor,
-                borderColor.withAlphaComponent(0.08).cgColor,
-                borderColor.withAlphaComponent(0.06).cgColor,
-                borderColor.withAlphaComponent(0.04).cgColor
+                borderColor.withAlphaComponent(0.25).cgColor,
+                borderColor.withAlphaComponent(0.20).cgColor,
+                borderColor.withAlphaComponent(0.15).cgColor,
+                borderColor.withAlphaComponent(0.12).cgColor
             ]
             topHighlightLayer.colors = [
-                borderColor.withAlphaComponent(0.05).cgColor,
-                borderColor.withAlphaComponent(0.0).cgColor
+                UIColor.white.withAlphaComponent(0.40).cgColor,
+                UIColor.white.withAlphaComponent(0.0).cgColor
             ]
         }
     }
