@@ -66,9 +66,12 @@ struct MessageBubble: View {
                     .offset(y: -1) // Overlap by 1pt to hide seam
             }
         }
-        .shadow(color: bubbleShadowNear, radius: 2, x: 0, y: 2)
-        .shadow(color: bubbleShadowMid, radius: 12, x: 0, y: 8)
-        .shadow(color: bubbleShadowFar, radius: 20, x: 0, y: 16)
+        .applyIf(!isChromeless) { view in
+            view
+                .shadow(color: bubbleShadowNear, radius: 2, x: 0, y: 2)
+                .shadow(color: bubbleShadowMid, radius: 12, x: 0, y: 8)
+                .shadow(color: bubbleShadowFar, radius: 20, x: 0, y: 16)
+        }
         .overlay(adminOutline)
         .accessibilityLabel(MessageAccessibilityFormatter.label(for: message, presentation: presentation))
     }
@@ -110,8 +113,11 @@ struct MessageBubble: View {
         }
         .padding(.vertical, bubblePaddingVertical)
         .padding(.horizontal, bubblePaddingHorizontal)
-        .background(bubbleBackground)
-        .overlay(innerHighlightOverlay)
+        .applyIf(!isChromeless) { view in
+            view
+                .background(bubbleBackground)
+                .overlay(innerHighlightOverlay)
+        }
     }
 
     private var header: some View {
@@ -126,13 +132,32 @@ struct MessageBubble: View {
     }
 
     private var messageBody: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: isChromelessEmoji ? .center : .leading, spacing: 12) {
             if hasTextualParts {
-                textContainer
+                if isChromelessEmoji {
+                    chromelessEmojiContent
+                } else {
+                    textContainer
+                }
             }
             ForEach(Array(nonTextParts.enumerated()), id: \.offset) { item in
                 partView(item.element)
             }
+        }
+    }
+
+    /// Whether this is a chromeless emoji message (1-3 emojis only)
+    private var isChromelessEmoji: Bool {
+        isChromeless && presentation.chromelessStyle == .emoji
+    }
+
+    /// Centered, double-sized emoji content for chromeless emoji messages
+    @ViewBuilder
+    private var chromelessEmojiContent: some View {
+        if case .inlineEmoji(let value) = presentation.parts.first {
+            Text(value)
+                .font(.system(size: (metrics.shortFontSize + 8) * 2))
+                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -270,20 +295,23 @@ struct MessageBubble: View {
     }
 
     private var innerHighlightOverlay: some View {
-        // 3D border effect - bright stroke at top that fades down sides
-        // Simulates CSS: inset 0 1px 1px rgba(255, 255, 255, 0.15)
+        // 3D border effect
+        // Dark mode: bright stroke at top that fades down sides (inset highlight)
+        // Light mode: subtle dark border all around for definition
         bubbleShape
             .strokeBorder(
-                LinearGradient(
-                    stops: [
-                        .init(color: Color.white.opacity(0.35), location: 0),
-                        .init(color: Color.white.opacity(0.15), location: 0.3),
-                        .init(color: Color.clear, location: 0.6)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 1.5
+                colorScheme == .dark
+                    ? AnyShapeStyle(LinearGradient(
+                        stops: [
+                            .init(color: Color.white.opacity(0.35), location: 0),
+                            .init(color: Color.white.opacity(0.15), location: 0.3),
+                            .init(color: Color.clear, location: 0.6)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ))
+                    : AnyShapeStyle(Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.08)),
+                lineWidth: colorScheme == .dark ? 1.5 : 1
             )
     }
 
@@ -350,6 +378,11 @@ struct MessageBubble: View {
         false
     }
 
+    /// Chromeless mode: hide bubble chrome for single-element messages that don't truncate
+    private var isChromeless: Bool {
+        presentation.isChromeless && !shouldTruncate
+    }
+
     private var senderName: String {
         message.role == .user ? "You" : "Assistant"
     }
@@ -357,23 +390,23 @@ struct MessageBubble: View {
     private var bubbleShadowNear: Color {
         colorScheme == .dark
             ? Color.black.opacity(0.15)
-            : Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.06)
+            : Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.14)
     }
 
     private var bubbleShadowMid: Color {
         colorScheme == .dark
             ? Color.black.opacity(0.25)
-            : Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.10)
+            : Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.20)
     }
 
     private var bubbleShadowFar: Color {
         colorScheme == .dark
             ? Color.black.opacity(0.20)
-            : Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.08)
+            : Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.16)
     }
 
     private var borderSubtleColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.10)
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.18)
     }
 
     private var truncationIndicatorColor: Color {
@@ -903,5 +936,19 @@ struct ExpandedMessageSheet: View {
         colorScheme == .dark
             ? Color(red: 0.1, green: 0.1, blue: 0.1)
             : ChatFlowTheme.cream(colorScheme)
+    }
+}
+
+// MARK: - View Extension for Conditional Modifiers
+
+extension View {
+    /// Conditionally applies a transformation to a view.
+    @ViewBuilder
+    func applyIf<T: View>(_ condition: Bool, transform: (Self) -> T) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
     }
 }

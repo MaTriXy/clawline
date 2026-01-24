@@ -7,6 +7,7 @@
 
 import HighlightSwift
 import OSLog
+import SwiftUI
 import UIKit
 
 final class MessageBubbleUIKitContainerView: UIView {
@@ -82,6 +83,7 @@ final class MessageBubbleUIKitContainerView: UIView {
 }
 
 final class MessageBubbleUIKitView: UIView {
+    private let shadowContainerView = UIView()  // Separate view for shadow (masks clip shadows)
     private let bubbleBackgroundView = UIView()
     private let contentStack = UIStackView()
     private let headerStack = UIStackView()
@@ -119,10 +121,18 @@ final class MessageBubbleUIKitView: UIView {
     private var truncationHeightConstraint: NSLayoutConstraint?
     private var fadeConstraints: [NSLayoutConstraint] = []
     private var dynamicContentViews: [UIView] = []
+    private var isChromeless = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
+
+        // Shadow container (behind bubble, inset so white background is fully covered)
+        shadowContainerView.translatesAutoresizingMaskIntoConstraints = false
+        shadowContainerView.backgroundColor = .white  // Solid color needed for shadow to render
+        shadowContainerView.layer.cornerRadius = 18
+        shadowContainerView.layer.cornerCurve = .continuous
+        addSubview(shadowContainerView)
 
         bubbleBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         bubbleBackgroundView.isUserInteractionEnabled = true
@@ -137,7 +147,12 @@ final class MessageBubbleUIKitView: UIView {
             bubbleBackgroundView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
             bubbleBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
             maxWidthConstraint,
-            minWidthConstraint
+            minWidthConstraint,
+            // Shadow container inset so white background is fully covered by bubble
+            shadowContainerView.leadingAnchor.constraint(equalTo: bubbleBackgroundView.leadingAnchor, constant: 6),
+            shadowContainerView.topAnchor.constraint(equalTo: bubbleBackgroundView.topAnchor, constant: 6),
+            shadowContainerView.trailingAnchor.constraint(equalTo: bubbleBackgroundView.trailingAnchor, constant: -6),
+            shadowContainerView.bottomAnchor.constraint(equalTo: bubbleBackgroundView.bottomAnchor, constant: -6)
         ])
         bubbleBackgroundView.setContentHuggingPriority(.required, for: .horizontal)
         bubbleBackgroundView.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -264,6 +279,10 @@ final class MessageBubbleUIKitView: UIView {
         let path = bubblePath(in: bubbleBackgroundView.bounds)
         maskLayer.path = path.cgPath
 
+        // Shadow container: shadowPath for inset shadow view
+        let shadowPath = UIBezierPath(roundedRect: shadowContainerView.bounds, cornerRadius: 18)
+        shadowContainerView.layer.shadowPath = shadowPath.cgPath
+
         // Update border to match bubble shape
         borderGradientLayer.frame = bubbleBackgroundView.frame
         borderMaskLayer.frame = bubbleBackgroundView.bounds
@@ -322,13 +341,30 @@ final class MessageBubbleUIKitView: UIView {
         }
         dynamicContentViews.removeAll()
 
+        // Check for chromeless emoji mode (1-3 emojis only, centered with double font)
+        let isChromelessEmoji = presentation.chromelessStyle == .emoji
+
         // Set up bodyLabel with text content (excluding code blocks)
-        bodyLabel.attributedText = MessageBubbleUIKitView.attributedBodyTextOnly(
-            presentation: presentation,
-            sizeClass: sizeClass,
-            metrics: metrics,
-            inkColor: palette.ink
-        )
+        if isChromelessEmoji, case .inlineEmoji(let value) = presentation.parts.first {
+            // Chromeless emoji: double font size, centered
+            let emojiFont = UIFont.systemFont(ofSize: (metrics.shortFontSize + 8) * 2)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            bodyLabel.attributedText = NSAttributedString(
+                string: value,
+                attributes: [
+                    .font: emojiFont,
+                    .paragraphStyle: paragraph
+                ]
+            )
+        } else {
+            bodyLabel.attributedText = MessageBubbleUIKitView.attributedBodyTextOnly(
+                presentation: presentation,
+                sizeClass: sizeClass,
+                metrics: metrics,
+                inkColor: palette.ink
+            )
+        }
 
         // Add bodyLabel to dynamicContentStack if it has content
         let hasTextContent = !(bodyLabel.attributedText?.string.isEmpty ?? true)
@@ -348,6 +384,25 @@ final class MessageBubbleUIKitView: UIView {
             dynamicContentStack.addArrangedSubview(codeView)
             dynamicContentViews.append(codeView)
         }
+
+        // Add table views to dynamicContentStack
+        let tables = presentation.parts.compactMap { part -> TableModel? in
+            if case .table(let model) = part { return model }
+            return nil
+        }
+        for tableModel in tables {
+            let tableView = TableUIKitWrapperView()
+            tableView.configure(
+                model: tableModel,
+                role: message.role,
+                metrics: metrics,
+                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                onExpand: { [weak self] in self?.onRequestExpand?() }
+            )
+            dynamicContentStack.addArrangedSubview(tableView)
+            dynamicContentViews.append(tableView)
+        }
+
         contentLeadingConstraint.constant = metrics.bubblePaddingHorizontal
         contentTrailingConstraint.constant = -metrics.bubblePaddingHorizontal
         contentTopConstraint.constant = metrics.bubblePaddingVertical
@@ -434,10 +489,24 @@ final class MessageBubbleUIKitView: UIView {
         gradientLayer.startPoint = message.role == .user ? CGPoint(x: 0.0, y: 0.0) : CGPoint(x: 0.5, y: 0.0)
         gradientLayer.endPoint = message.role == .user ? CGPoint(x: 1.0, y: 1.0) : CGPoint(x: 0.5, y: 1.0)
 
-        bubbleBackgroundView.layer.shadowColor = palette.shadowNear.cgColor
-        bubbleBackgroundView.layer.shadowOpacity = 0.10
-        bubbleBackgroundView.layer.shadowRadius = 14
-        bubbleBackgroundView.layer.shadowOffset = CGSize(width: 0, height: 4)
+        // Soft shadow
+        shadowContainerView.layer.shadowColor = UIColor.black.cgColor
+        shadowContainerView.layer.shadowRadius = 12
+        shadowContainerView.layer.shadowOffset = CGSize(width: 0, height: 5)
+        let shadowOpacity: Float = palette.isDark ? 0.50 : 0.40
+        shadowContainerView.layer.shadowOpacity = shadowOpacity
+
+        // Chromeless mode: hide bubble chrome but keep padding
+        // Truncated content must keep chrome (provides container for "Show more")
+        isChromeless = presentation.isChromeless && !shouldTruncate
+        gradientLayer.isHidden = isChromeless
+        borderGradientLayer.isHidden = isChromeless
+        topHighlightLayer.isHidden = isChromeless
+        shadowContainerView.isHidden = isChromeless
+        shadowContainerView.layer.shadowOpacity = isChromeless ? 0 : shadowOpacity
+
+        // Update border colors for light/dark mode
+        updateBorderColors(isDark: palette.isDark)
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -467,8 +536,14 @@ final class MessageBubbleUIKitView: UIView {
         let gradientColors = currentMessageRole == .user ? palette.bubbleSelfGradient : palette.bubbleOtherGradient
         gradientLayer.colors = gradientColors.map { $0.cgColor }
 
-        // Update shadow
-        bubbleBackgroundView.layer.shadowColor = palette.shadowNear.cgColor
+        // Update shadow (on separate shadow container view)
+        shadowContainerView.layer.shadowColor = UIColor.black.cgColor
+        shadowContainerView.layer.shadowRadius = 12
+        let shadowOpacity: Float = palette.isDark ? 0.50 : 0.40
+        shadowContainerView.layer.shadowOpacity = isChromeless ? 0 : shadowOpacity
+
+        // Update border colors for light/dark mode
+        updateBorderColors(isDark: palette.isDark)
 
         // Update fade view - use bubble gradient end colors
         // Top color must match bottom color (just transparent) to avoid haze
@@ -477,6 +552,35 @@ final class MessageBubbleUIKitView: UIView {
             top: bottomColor.withAlphaComponent(0),
             bottom: bottomColor
         )
+    }
+
+    private func updateBorderColors(isDark: Bool) {
+        if isDark {
+            // Dark mode: white highlight at top fading down
+            borderGradientLayer.colors = [
+                UIColor.white.withAlphaComponent(0.14).cgColor,
+                UIColor.white.withAlphaComponent(0.05).cgColor,
+                UIColor.clear.cgColor,
+                UIColor.clear.cgColor
+            ]
+            topHighlightLayer.colors = [
+                UIColor.white.withAlphaComponent(0.12).cgColor,
+                UIColor.white.withAlphaComponent(0.0).cgColor
+            ]
+        } else {
+            // Light mode: subtle dark border all around for definition
+            let borderColor = UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 1)
+            borderGradientLayer.colors = [
+                borderColor.withAlphaComponent(0.10).cgColor,
+                borderColor.withAlphaComponent(0.08).cgColor,
+                borderColor.withAlphaComponent(0.06).cgColor,
+                borderColor.withAlphaComponent(0.04).cgColor
+            ]
+            topHighlightLayer.colors = [
+                borderColor.withAlphaComponent(0.05).cgColor,
+                borderColor.withAlphaComponent(0.0).cgColor
+            ]
+        }
     }
 
     func preferredWidth(maxWidth: CGFloat) -> CGFloat {
@@ -548,12 +652,12 @@ final class MessageBubbleUIKitView: UIView {
         ]
 
         let result = NSMutableAttributedString()
-        // Filter to only text parts (no code blocks - those are rendered as separate views)
+        // Filter to only text parts (no code blocks or tables - those are rendered as separate views)
         let textParts = presentation.parts.filter {
             switch $0 {
-            case .text, .markdown, .inlineEmoji, .table:
+            case .text, .markdown, .inlineEmoji:
                 return true
-            case .code, .linkPreview, .image, .gallery:
+            case .code, .table, .linkPreview, .image, .gallery:
                 return false
             }
         }
@@ -578,10 +682,7 @@ final class MessageBubbleUIKitView: UIView {
             case .inlineEmoji(let value):
                 result.append(NSAttributedString(string: value, attributes: baseAttributes))
 
-            case .table(let model):
-                result.append(NSAttributedString(string: "Table (\(model.rows.count) rows)", attributes: baseAttributes))
-
-            case .code, .linkPreview, .image, .gallery:
+            case .code, .table, .linkPreview, .image, .gallery:
                 break
             }
         }
@@ -973,11 +1074,11 @@ enum ChatFlowUIKitTheme {
                 UIColor(red: 0.72, green: 0.45, blue: 0.39, alpha: 1)
             ],
             terracotta: UIColor(red: 0.769, green: 0.471, blue: 0.361, alpha: 1),
-            borderSubtle: UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 0.1),
+            borderSubtle: UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 0.18),
             fadeTop: UIColor(red: 1, green: 1, blue: 1, alpha: 0),
             failureText: UIColor(red: 0.6, green: 0.12, blue: 0.12, alpha: 1),
             failureBackground: UIColor(red: 0.98, green: 0.92, blue: 0.92, alpha: 1),
-            shadowNear: UIColor.black.withAlphaComponent(0.15)
+            shadowNear: UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 0.30)
         )
     }
 
@@ -1318,5 +1419,137 @@ final class CodeBlockUIKitView: UIView {
         case "ini": return "ini"
         default: return lang // Try using the provided language directly
         }
+    }
+}
+
+// MARK: - Table Wrapper View
+
+/// UIKit wrapper for the SwiftUI MarkdownTableView.
+/// Embeds the SwiftUI table using UIHostingController for consistent rendering.
+final class TableUIKitWrapperView: UIView {
+    private var hostingController: UIHostingController<AnyView>?
+    private var currentModel: TableModel?
+    private var currentRole: Message.Role = .assistant
+    private var currentMetrics: ChatFlowTheme.Metrics?
+    private var onExpandAction: (() -> Void)?
+    private var cachedHeight: CGFloat?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = false
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        model: TableModel,
+        role: Message.Role,
+        metrics: ChatFlowTheme.Metrics,
+        maxLineWidth: CGFloat,
+        onExpand: @escaping () -> Void
+    ) {
+        currentModel = model
+        currentRole = role
+        currentMetrics = metrics
+        onExpandAction = onExpand
+        cachedHeight = nil
+
+        // Remove existing hosting controller
+        hostingController?.view.removeFromSuperview()
+        hostingController = nil
+
+        // Create SwiftUI table view
+        let tableView = MarkdownTableView(
+            model: model,
+            role: role,
+            metrics: metrics,
+            maxLineWidth: maxLineWidth,
+            colorScheme: traitCollection.userInterfaceStyle == .dark ? .dark : .light,
+            isExpanded: false,
+            onExpand: onExpand,
+            onCollapse: { }
+        )
+
+        let hostingController = UIHostingController(rootView: AnyView(tableView))
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        // Disable safe area insets to prevent layout issues
+        hostingController._disableSafeArea = true
+        addSubview(hostingController.view)
+
+        NSLayoutConstraint.activate([
+            hostingController.view.topAnchor.constraint(equalTo: topAnchor),
+            hostingController.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        self.hostingController = hostingController
+
+        // Force layout to get accurate size
+        hostingController.view.layoutIfNeeded()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle,
+           let model = currentModel,
+           let metrics = currentMetrics,
+           let onExpand = onExpandAction {
+            // Reconfigure to update color scheme
+            configure(
+                model: model,
+                role: currentRole,
+                metrics: metrics,
+                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                onExpand: onExpand
+            )
+        }
+    }
+
+    override var intrinsicContentSize: CGSize {
+        guard let hostingView = hostingController?.view else {
+            return CGSize(width: UIView.noIntrinsicMetric, height: 44)
+        }
+        let size = hostingView.intrinsicContentSize
+        if size.height > 0 {
+            return size
+        }
+        // Fallback: calculate based on fitting size
+        let fittingSize = hostingView.systemLayoutSizeFitting(
+            CGSize(width: bounds.width > 0 ? bounds.width : 300, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        return fittingSize
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        guard let hostingView = hostingController?.view else {
+            return CGSize(width: size.width, height: 44)
+        }
+
+        // Force layout pass to ensure accurate measurement
+        hostingView.setNeedsLayout()
+        hostingView.layoutIfNeeded()
+
+        let targetSize = CGSize(width: size.width, height: UIView.layoutFittingCompressedSize.height)
+        let fittingSize = hostingView.systemLayoutSizeFitting(
+            targetSize,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+
+        // Cache and return
+        cachedHeight = fittingSize.height
+        return fittingSize
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Invalidate intrinsic content size when layout changes
+        invalidateIntrinsicContentSize()
     }
 }

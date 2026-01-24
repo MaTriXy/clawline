@@ -26,22 +26,23 @@ struct MarkdownTableView: View {
     @State private var focusedCell: (row: Int, column: Int)?
     @State private var containerWidth: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
+    @State private var headerHeight: CGFloat = 0
 
     private var headerFill: Color {
         switch role {
         case .user:
-            return ChatFlowTheme.terracotta(colorScheme).opacity(0.12)
+            return ChatFlowTheme.terracotta(colorScheme).opacity(colorScheme == .dark ? 0.12 : 0.30)
         case .assistant:
-            return ChatFlowTheme.warmBrown(colorScheme).opacity(0.10)
+            return ChatFlowTheme.warmBrown(colorScheme).opacity(colorScheme == .dark ? 0.10 : 0.30)
         }
     }
 
     private var backgroundFill: Color {
         switch role {
         case .user:
-            return ChatFlowTheme.sage(colorScheme).opacity(colorScheme == .dark ? 0.18 : 0.08)
+            return ChatFlowTheme.sage(colorScheme).opacity(colorScheme == .dark ? 0.18 : 0.12)
         case .assistant:
-            return ChatFlowTheme.cream(colorScheme).opacity(colorScheme == .dark ? 0.18 : 0.08)
+            return ChatFlowTheme.cream(colorScheme).opacity(colorScheme == .dark ? 0.18 : 0.12)
         }
     }
 
@@ -121,16 +122,17 @@ struct MarkdownTableView: View {
                 }
             }
         }
+        .padding(1) // Make room for border
         .background(widthReader)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(backgroundFill)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(borderColor, lineWidth: 1)
+                .strokeBorder(borderColor, lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .contextMenu {
@@ -163,6 +165,7 @@ struct MarkdownTableView: View {
                     Color.clear.frame(width: 1).id("leading")
                     gridContent
                 }
+                .frame(minWidth: max(containerWidth - 2, 0))  // Fill container width (minus border padding)
                 .padding(.vertical, 1)
                 .background(offsetReader)
             }
@@ -187,15 +190,17 @@ struct MarkdownTableView: View {
                             columnWidth: columnWidths[column],
                             isHeader: true
                         )
-                        .background(headerFill)
-                        .overlay(alignment: .bottom) {
-                            Rectangle()
-                                .fill(borderColor.opacity(0.3))
-                                .frame(height: 1)
-                        }
                     }
                 }
                 .gridCellAnchor(.topLeading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(headerFill)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(borderColor.opacity(0.3))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 1)
+                }
             }
 
             ForEach(visibleRows, id: \.row.id) { item in
@@ -219,12 +224,13 @@ struct MarkdownTableView: View {
                     }
                 }
                 .gridCellAnchor(.topLeading)
-                .overlay(
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .bottom) {
                     Rectangle()
                         .fill(borderColor.opacity(0.2))
-                        .frame(height: 1),
-                    alignment: .bottom
-                )
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 1)
+                }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .animation(.spring(response: 0.25, dampingFraction: 0.9), value: model.rows.count)
             }
@@ -239,6 +245,7 @@ struct MarkdownTableView: View {
                 .gridCellAnchor(.topLeading)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var footerGridLabel: some View {

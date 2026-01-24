@@ -1284,6 +1284,62 @@
             </table>
         </section>
 
+        <!-- CHROMELESS BUBBLES SECTION -->
+        <section class="section" id="chromeless-bubbles">
+            <h2>Chromeless Bubbles</h2>
+
+            <h3>When Content Speaks for Itself</h3>
+            <p>Certain content types have their own visual container and don't need the bubble chrome (background, border, shadows). When a message contains <strong>only a single element</strong> of these types, the bubble chrome becomes invisible while padding remains constant.</p>
+
+            <h3>Eligible Content Types</h3>
+            <ul>
+                <li><strong>Single image</strong> — Images have their own rounded frame</li>
+                <li><strong>Single table</strong> — Tables have borders; only if ≤5 rows (not truncated)</li>
+                <li><strong>Single code block</strong> — Code blocks have their own dark background</li>
+                <li><strong>1-2 emojis only</strong> — Emojis render at 2× font size, centered horizontally</li>
+                <li><strong>Single block quote</strong> — Block quotes have their own visual treatment (future)</li>
+            </ul>
+
+            <h3>Why Padding Stays</h3>
+            <p>The padding remains constant to maintain alignment with other messages in the flow. The content "floats" in the same position it would occupy if the chrome were visible. This prevents layout shifts and keeps the visual rhythm consistent.</p>
+
+            <h3>Truncation Disqualifies</h3>
+            <p>If the content would be truncated (e.g., a table with >5 rows showing "Show more"), the bubble chrome remains visible. The chrome provides the container for the truncation indicator and maintains the visual boundary of the clipped content.</p>
+
+            <table class="spec-table">
+                <thead>
+                    <tr><th>Content Type</th><th>Chromeless When</th><th>Special Styling</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Image</td><td>Always (images don't truncate)</td><td>—</td></tr>
+                    <tr><td>Table</td><td>≤5 rows visible</td><td>—</td></tr>
+                    <tr><td>Code block</td><td>Always (horizontal scroll, no truncation)</td><td>—</td></tr>
+                    <tr><td>Emoji (1-2)</td><td>Always</td><td>2× font size, centered</td></tr>
+                    <tr><td>Block quote</td><td>Content fits without truncation (future)</td><td>—</td></tr>
+                </tbody>
+            </table>
+
+            <div class="callout">
+                <p>Think of it as the bubble becoming a "ghost" — same space, same alignment, but the visual container fades away to let the content breathe.</p>
+            </div>
+
+            <h3>Implementation Notes</h3>
+            <p>To detect chromeless eligibility:</p>
+            <ol>
+                <li>Check that <code>parts.count == 1</code> (single element)</li>
+                <li>Check that the element is image, table, code, emoji, or blockquote</li>
+                <li>For tables: verify <code>rows.count ≤ 5</code></li>
+                <li>For emoji: verify 1-2 emoji characters only</li>
+            </ol>
+            <p>To hide chrome while preserving layout:</p>
+            <ul>
+                <li>Set background to transparent/hidden</li>
+                <li>Hide border/highlight layers</li>
+                <li>Set shadow opacity to 0</li>
+                <li><strong>Keep all padding values unchanged</strong></li>
+            </ul>
+        </section>
+
         <!-- STATES & INTERACTIONS SECTION -->
         <section class="section" id="states">
             <h2>States & Interactions</h2>

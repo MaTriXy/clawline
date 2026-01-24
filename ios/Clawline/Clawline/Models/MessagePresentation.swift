@@ -120,6 +120,15 @@ enum MessagePart: Equatable {
     case inlineEmoji(String)
 }
 
+/// Content types that can render without bubble chrome when they are the only element.
+enum ChromelessStyle: Equatable {
+    case image
+    case table
+    case codeBlock
+    case emoji  // 1-2 emojis only, centered with double font size
+    // case blockquote (future)
+}
+
 extension MessagePart {
     var isTextual: Bool {
         switch self {
@@ -128,6 +137,35 @@ extension MessagePart {
         case .linkPreview, .image, .gallery:
             return false
         }
+    }
+}
+
+extension MessagePresentation {
+    /// Returns the chromeless style if this message qualifies for chromeless rendering.
+    /// A message qualifies when it contains exactly one element of a supported type
+    /// and that element doesn't require truncation.
+    var chromelessStyle: ChromelessStyle? {
+        guard parts.count == 1 else { return nil }
+        switch parts[0] {
+        case .image:
+            return .image
+        case .table(let model):
+            // Only chromeless if ≤5 rows (tables truncate at 5 rows)
+            return model.rows.count <= 5 ? .table : nil
+        case .code:
+            return .codeBlock
+        case .inlineEmoji(let value):
+            // Only chromeless if 1-2 emojis
+            let emojiCount = value.unicodeScalars.filter { $0.properties.isEmoji }.count
+            return emojiCount >= 1 && emojiCount <= 2 ? .emoji : nil
+        default:
+            return nil
+        }
+    }
+
+    /// Whether this message should render without bubble chrome.
+    var isChromeless: Bool {
+        chromelessStyle != nil
     }
 }
 
