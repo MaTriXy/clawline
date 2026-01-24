@@ -171,19 +171,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.verticalScrollIndicatorInsets.bottom = baseBottomInset
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        let size = collectionView.bounds.size
-        guard size != .zero, size != lastBoundsSize else { return }
-        lastBoundsSize = size
-        forceReconfigureAll = true
-        updateLayout()
-        if let viewModel {
-            update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible)
-        }
-    }
-
-
     func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
         loadViewIfNeeded()
         self.viewModel = viewModel
