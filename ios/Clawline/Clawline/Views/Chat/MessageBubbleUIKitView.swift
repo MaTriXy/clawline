@@ -52,6 +52,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    failureReason: String?,
                    isCompact: Bool,
                    maxWidth: CGFloat,
+                   isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?) {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
@@ -61,6 +62,7 @@ final class MessageBubbleUIKitContainerView: UIView {
             sizeClass: sizeClass,
             metrics: metrics,
             maxWidth: maxWidth,
+            isDark: isDark,
             onRequestExpand: onRequestExpand
         )
 
@@ -123,9 +125,16 @@ final class MessageBubbleUIKitView: UIView {
     private var dynamicContentViews: [UIView] = []
     private var isChromeless = false
 
+    private var traitObservation: (any NSObjectProtocol)?
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
+
+        // Register for trait changes (modern API, replaces deprecated traitCollectionDidChange)
+        traitObservation = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: MessageBubbleUIKitView, previousTraitCollection: UITraitCollection) in
+            self?.updateAppearanceColors()
+        }
 
         // Shadow container (behind bubble, clear background with shadowPath)
         shadowContainerView.translatesAutoresizingMaskIntoConstraints = false
@@ -309,6 +318,7 @@ final class MessageBubbleUIKitView: UIView {
                    sizeClass: MessageSizeClass,
                    metrics: ChatFlowTheme.Metrics,
                    maxWidth: CGFloat,
+                   isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?) {
         // Store for trait collection updates
         currentMessageRole = message.role
@@ -321,7 +331,9 @@ final class MessageBubbleUIKitView: UIView {
         fixedWidthConstraint = nil
         self.onRequestExpand = onRequestExpand
 
-        let palette = ChatFlowUIKitTheme.palette(isDark: traitCollection.userInterfaceStyle == .dark)
+        // Use explicit isDark if provided, otherwise fall back to trait collection
+        let effectiveIsDark = isDark ?? (traitCollection.userInterfaceStyle == .dark)
+        let palette = ChatFlowUIKitTheme.palette(isDark: effectiveIsDark)
         let senderColor = (message.channelType == .admin) ? palette.adminAccent : palette.warmBrown
         senderLabel.font = UIFont.systemFont(ofSize: metrics.senderFontSize, weight: .semibold)
         senderLabel.textColor = senderColor.withAlphaComponent(message.channelType == .admin ? 1.0 : 0.7)
@@ -506,13 +518,6 @@ final class MessageBubbleUIKitView: UIView {
         updateBorderColors(isDark: palette.isDark)
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
-            updateAppearanceColors()
-        }
-    }
-
     private func updateAppearanceColors() {
         let palette = ChatFlowUIKitTheme.palette(isDark: traitCollection.userInterfaceStyle == .dark)
 
@@ -536,9 +541,12 @@ final class MessageBubbleUIKitView: UIView {
         // Update avatar
         avatarView.configure(role: currentMessageRole, isDark: palette.isDark)
 
-        // Update gradient colors
+        // Update gradient colors - force immediate update without animation
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         let gradientColors = currentMessageRole == .user ? palette.bubbleSelfGradient : palette.bubbleOtherGradient
         gradientLayer.colors = gradientColors.map { $0.cgColor }
+        CATransaction.commit()
 
         // Update shadow (on separate shadow container view)
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
@@ -556,9 +564,15 @@ final class MessageBubbleUIKitView: UIView {
             top: bottomColor.withAlphaComponent(0),
             bottom: bottomColor
         )
+
+        // Force layer redraw to ensure gradient is visible
+        gradientLayer.setNeedsDisplay()
+        setNeedsLayout()
     }
 
     private func updateBorderColors(isDark: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         if isDark {
             // Dark mode: white highlight at top fading down
             borderGradientLayer.colors = [
@@ -586,6 +600,9 @@ final class MessageBubbleUIKitView: UIView {
                 UIColor.white.withAlphaComponent(0.0).cgColor
             ]
         }
+        CATransaction.commit()
+        borderGradientLayer.setNeedsDisplay()
+        topHighlightLayer.setNeedsDisplay()
     }
 
     func preferredWidth(maxWidth: CGFloat) -> CGFloat {
@@ -1162,6 +1179,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
                    failureReason: String?,
                    isCompact: Bool,
                    maxWidth: CGFloat,
+                   isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?) {
         messageId = message.id
         messageSnippet = String(message.content.prefix(80))
@@ -1171,6 +1189,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             failureReason: failureReason,
             isCompact: isCompact,
             maxWidth: maxWidth,
+            isDark: isDark,
             onRequestExpand: onRequestExpand
         )
     }
@@ -1226,10 +1245,17 @@ final class CodeBlockUIKitView: UIView {
     private var currentCode: String = ""
     private var currentLanguage: String?
     private static let highlight = Highlight()
+    private var traitObservation: (any NSObjectProtocol)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupView()
+
+        // Register for trait changes (modern API)
+        traitObservation = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: CodeBlockUIKitView, previousTraitCollection: UITraitCollection) in
+            self?.updateColors()
+            self?.applyHighlightedCode()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -1288,14 +1314,6 @@ final class CodeBlockUIKitView: UIView {
         } else {
             backgroundColor = UIColor(red: 0.945, green: 0.933, blue: 0.910, alpha: 1)
             languageLabel.textColor = UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 0.6)
-        }
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
-            updateColors()
-            applyHighlightedCode()
         }
     }
 
@@ -1438,10 +1456,26 @@ final class TableUIKitWrapperView: UIView {
     private var currentMetrics: ChatFlowTheme.Metrics?
     private var onExpandAction: (() -> Void)?
     private var cachedHeight: CGFloat?
+    private var traitObservation: (any NSObjectProtocol)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = false
+
+        // Register for trait changes (modern API)
+        traitObservation = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: TableUIKitWrapperView, previousTraitCollection: UITraitCollection) in
+            guard let self,
+                  let model = self.currentModel,
+                  let metrics = self.currentMetrics,
+                  let onExpand = self.onExpandAction else { return }
+            self.configure(
+                model: model,
+                role: self.currentRole,
+                metrics: metrics,
+                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                onExpand: onExpand
+            )
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -1495,23 +1529,6 @@ final class TableUIKitWrapperView: UIView {
 
         // Force layout to get accurate size
         hostingController.view.layoutIfNeeded()
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle,
-           let model = currentModel,
-           let metrics = currentMetrics,
-           let onExpand = onExpandAction {
-            // Reconfigure to update color scheme
-            configure(
-                model: model,
-                role: currentRole,
-                metrics: metrics,
-                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-                onExpand: onExpand
-            )
-        }
     }
 
     override var intrinsicContentSize: CGSize {

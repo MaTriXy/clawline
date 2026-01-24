@@ -37,6 +37,7 @@ final class ChatViewModel: ChatViewModelHosting {
     var attachmentData: [UUID: PendingAttachment] = [:]
     private(set) var isSending: Bool = false
     private(set) var isAssistantTyping: Bool = false
+    private(set) var typingChannel: ChatChannelType?
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var connectionAlert: ConnectionAlertSeverity?
     private(set) var error: String?
@@ -675,9 +676,15 @@ final class ChatViewModel: ChatViewModelHosting {
             }
         case .typingStateChanged(let isTyping, let channel):
             logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) channel=\(channel.rawValue, privacy: .public) activeChannel=\(self.activeChannel.rawValue, privacy: .public)")
-            // Only show typing indicator if it's for the currently active channel
-            if channel == self.activeChannel {
-                self.isAssistantTyping = isTyping
+            // Track which channel has the typing indicator
+            // (used by paged TabView to show indicator only on the correct page)
+            if isTyping {
+                self.isAssistantTyping = true
+                self.typingChannel = channel
+            } else if self.typingChannel == channel {
+                // Only clear if the stop event is for the same channel we're tracking
+                self.isAssistantTyping = false
+                self.typingChannel = nil
             }
         }
     }

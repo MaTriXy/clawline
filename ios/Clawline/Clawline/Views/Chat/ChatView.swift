@@ -228,10 +228,17 @@ struct ChatView: View {
             }
         }
         .background {
-            ChatFlowTheme.pageBackground(colorScheme)
-                .ignoresSafeArea()
-                .overlay(adminBackgroundOverlay)
-                .overlay(NoiseOverlayView().ignoresSafeArea())
+            // For admin users with paged TabView, each page has its own background
+            // to avoid gradient toggling during swipe. For regular users, apply here.
+            if authManager.isAdmin {
+                ChatFlowTheme.pageBackground(colorScheme)
+                    .ignoresSafeArea()
+                    .overlay(NoiseOverlayView().ignoresSafeArea())
+            } else {
+                ChatFlowTheme.pageBackground(colorScheme)
+                    .ignoresSafeArea()
+                    .overlay(NoiseOverlayView().ignoresSafeArea())
+            }
         }
         .task { await viewModel.onAppear() }
         .onDisappear { viewModel.onDisappear() }
@@ -353,7 +360,9 @@ struct ChatView: View {
                 .background {
                     ChatFlowTheme.pageBackground(colorScheme)
                         .ignoresSafeArea()
-                        .overlay(adminBackgroundOverlay)
+                        // Static admin gradient - always visible on this page
+                        // (not conditioned on activeChannel to prevent flicker during swipe)
+                        .overlay(staticAdminGradient)
                         .overlay(NoiseOverlayView().ignoresSafeArea())
                 }
                 .tag(ChatChannelType.admin)
@@ -361,6 +370,22 @@ struct ChatView: View {
         .tabViewStyle(.page(indexDisplayMode: .never))
         .scrollContentBackground(.hidden)
         .background(Color.clear)
+    }
+
+    /// Static admin gradient overlay - always visible, not conditioned on active channel
+    @ViewBuilder
+    private var staticAdminGradient: some View {
+        LinearGradient(
+            colors: [
+                ChatFlowTheme.adminAccent(colorScheme).opacity(colorScheme == .dark ? 0.3 : 0.18),
+                Color.clear
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     /// Binding that syncs TabView selection with viewModel.activeChannel

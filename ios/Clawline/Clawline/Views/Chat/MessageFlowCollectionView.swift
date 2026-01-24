@@ -40,6 +40,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private let useUIKitBubbles = true
     private let uiKitSizingContainer = MessageBubbleUIKitContainerView()
     private let uiKitBubbleSizer = MessageBubbleUIKitView()
+    private var traitObservation: (any NSObjectProtocol)?
+    private var currentIsDark: Bool = false
 
     private var messagesById: [String: Message] = [:]
     private var fingerprints: [String: Int] = [:]
@@ -90,6 +92,22 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         configureCollectionView()
         configureDataSource()
         setupKeyboardTracking()
+
+        // Set initial dark mode state
+        currentIsDark = traitCollection.userInterfaceStyle == .dark
+
+        // Register for trait changes (modern API, replaces deprecated traitCollectionDidChange)
+        traitObservation = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (vc: MessageFlowCollectionViewController, previousTraitCollection: UITraitCollection) in
+            // Force reload all cells to pick up new colors
+            // Update our tracked isDark state from the VC's trait collection (synchronously on main thread)
+            guard let self else { return }
+            let newIsDark = vc.traitCollection.userInterfaceStyle == .dark
+            guard self.currentIsDark != newIsDark else { return }
+            self.currentIsDark = newIsDark
+            self.sizeCache.removeAll()
+            self.lastMeasuredSizes.removeAll()
+            self.collectionView.reloadData()
+        }
     }
 
     private func setupKeyboardTracking() {
@@ -139,20 +157,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
-            // Force reconfigure all cells to pick up new colors on next runloop
-            // (cells need time to receive updated trait collection)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.forceReconfigureAll = true
-                if let viewModel = self.viewModel {
-                    self.update(viewModel: viewModel, isCompact: self.isCompact, topInset: self.topInset, bottomInset: self.bottomInset, isKeyboardVisible: self.isKeyboardVisible, channel: self.channelOverride)
-                }
-            }
-        }
-    }
 
     func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, channel: ChatChannelType? = nil) {
         loadViewIfNeeded()
@@ -192,7 +196,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         snapshot.appendItems(messages.map(\.id))
 
         // Add typing indicator when assistant is typing (server-controlled)
-        let showTypingIndicator = viewModel.isAssistantTyping
+        // Only show on the matching channel page (for paged TabView)
+        let effectiveChannel = channel ?? viewModel.activeChannel
+        let showTypingIndicator = viewModel.isAssistantTyping && viewModel.typingChannel == effectiveChannel
         let typingIndicatorJustAppeared = showTypingIndicator && !wasShowingTypingIndicator
         let shouldMorph = viewModel.shouldMorphTypingIndicator && wasShowingTypingIndicator
         if showTypingIndicator != wasShowingTypingIndicator {
@@ -312,6 +318,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     failureReason: viewModel.failureMessage(for: message.id),
                     isCompact: self.isCompact,
                     maxWidth: configureWidth,
+                    isDark: self.currentIsDark,
                     onRequestExpand: { [weak self] in
                         guard let self else { return }
                         let sheet = ExpandedMessageSheet(message: message, presentation: presentation)
