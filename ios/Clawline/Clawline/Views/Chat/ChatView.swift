@@ -659,6 +659,8 @@ private struct AttachmentSourceSheet: View {
     let onPhotos: () -> Void
     let onFiles: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         VStack(spacing: 24) {
             Capsule()
@@ -667,51 +669,82 @@ private struct AttachmentSourceSheet: View {
                 .padding(.top, 12)
 
             Text("Add Attachment")
-                .font(.headline)
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundStyle(ChatFlowTheme.warmBrown(colorScheme))
 
             VStack(spacing: 12) {
-                Button {
-                    onCamera()
-                } label: {
-                    Label("Camera", systemImage: "camera.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(AttachmentActionStyle())
+                AttachmentActionButton(
+                    title: "Camera",
+                    icon: "camera.fill",
+                    action: onCamera
+                )
 
-                Button {
-                    onPhotos()
-                } label: {
-                    Label("Photos", systemImage: "photo.on.rectangle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(AttachmentActionStyle())
+                AttachmentActionButton(
+                    title: "Photos",
+                    icon: "photo.on.rectangle",
+                    action: onPhotos
+                )
 
-                Button {
-                    onFiles()
-                } label: {
-                    Label("Files", systemImage: "doc.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(AttachmentActionStyle())
+                AttachmentActionButton(
+                    title: "Files",
+                    icon: "doc.fill",
+                    action: onFiles
+                )
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 24)
 
             Spacer(minLength: 0)
+        }
+        .background {
+            ChatFlowTheme.pageBackground(colorScheme)
+                .ignoresSafeArea()
         }
         .presentationDragIndicator(.visible)
     }
 }
 
-private struct AttachmentActionStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 18, weight: .semibold))
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(uiColor: .secondarySystemBackground))
-            )
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+private struct AttachmentActionButton: View {
+    let title: String
+    let icon: String
+    let action: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isPressed = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(ChatFlowTheme.sage(colorScheme))
+                    .frame(width: 28)
+
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(ChatFlowTheme.warmBrown(colorScheme))
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ChatFlowTheme.warmBrown(colorScheme).opacity(0.4))
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            }
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .scaleEffect(isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.15), value: isPressed)
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
     }
 }
 
