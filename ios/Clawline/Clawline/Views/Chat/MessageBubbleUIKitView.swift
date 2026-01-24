@@ -490,7 +490,7 @@ final class MessageBubbleUIKitView: UIView {
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
         shadowContainerView.layer.shadowRadius = 12
         shadowContainerView.layer.shadowOffset = CGSize(width: 0, height: 5)
-        let shadowOpacity: Float = palette.isDark ? 0.25 : 0.40
+        let shadowOpacity: Float = palette.isDark ? 0.25 : 0.32
         shadowContainerView.layer.shadowOpacity = shadowOpacity
 
         // Chromeless mode: hide bubble chrome but keep padding
@@ -536,7 +536,7 @@ final class MessageBubbleUIKitView: UIView {
         // Update shadow (on separate shadow container view)
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
         shadowContainerView.layer.shadowRadius = 12
-        let shadowOpacity: Float = palette.isDark ? 0.25 : 0.40
+        let shadowOpacity: Float = palette.isDark ? 0.25 : 0.32
         shadowContainerView.layer.shadowOpacity = isChromeless ? 0 : shadowOpacity
 
         // Update border colors for light/dark mode
@@ -566,12 +566,13 @@ final class MessageBubbleUIKitView: UIView {
             ]
         } else {
             // Light mode: visible border all around for definition
+            // Top is brightest, corners/sides fade very light to blend smoothly
             let borderColor = UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 1)
             borderGradientLayer.colors = [
                 borderColor.withAlphaComponent(0.25).cgColor,
-                borderColor.withAlphaComponent(0.20).cgColor,
-                borderColor.withAlphaComponent(0.15).cgColor,
-                borderColor.withAlphaComponent(0.12).cgColor
+                borderColor.withAlphaComponent(0.06).cgColor,
+                borderColor.withAlphaComponent(0.03).cgColor,
+                borderColor.withAlphaComponent(0.02).cgColor
             ]
             topHighlightLayer.colors = [
                 UIColor.white.withAlphaComponent(0.40).cgColor,
