@@ -154,7 +154,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let windowHeight = view.window?.bounds.height ?? UIScreen.main.bounds.height
         let keyboardHeight = max(0, windowHeight - frame.minY)
         let keyboardJustAppeared = keyboardHeight > 0 && currentKeyboardHeight == 0
+        let previousKeyboardHeight = currentKeyboardHeight
         currentKeyboardHeight = keyboardHeight
+
+        // Update content inset to account for keyboard
+        applyBottomContentInset()
+
+        // Adjust scroll position when keyboard height changes
+        let delta = keyboardHeight - previousKeyboardHeight
+        if abs(delta) > 1 {
+            adjustContentOffsetForBottomInsetChange(delta: delta)
+        }
 
         // Scroll to keep content visible when keyboard appears
         if keyboardJustAppeared && isNearBottom(extraMargin: max(24, baseBottomInset)) {
@@ -166,9 +176,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var currentKeyboardHeight: CGFloat = 0
 
     /// Single source of truth for setting bottom content inset.
+    /// Combines baseBottomInset (input bar) with currentKeyboardHeight when keyboard is visible.
     private func applyBottomContentInset() {
-        collectionView.contentInset.bottom = baseBottomInset
-        collectionView.verticalScrollIndicatorInsets.bottom = baseBottomInset
+        let totalBottomInset = baseBottomInset + currentKeyboardHeight
+        collectionView.contentInset.bottom = totalBottomInset
+        collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
     }
 
     func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
