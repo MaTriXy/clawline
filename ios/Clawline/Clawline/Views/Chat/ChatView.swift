@@ -203,7 +203,8 @@ struct ChatView: View {
                     },
                     // ⚠️ This callback is how focus state survives view recreation.
                     // DO NOT replace with @Binding or try to use @FocusState directly.
-                    onFocusChange: { focused in isInputFocused = focused }
+                    onFocusChange: { focused in isInputFocused = focused },
+                    onPasteImages: handlePastedImages
                 )
                 .background(
                     GeometryReader { proxy in
@@ -390,6 +391,23 @@ private func restoreFocusIfNeeded() {
         await MainActor.run {
             insertAttachments([attachment])
         }
+    }
+
+    @MainActor
+    private func handlePastedImages(_ images: [UIImage]) {
+        logger.info("Pasted \(images.count) image(s) from clipboard")
+        var attachments: [PendingAttachment] = []
+        for (index, image) in images.enumerated() {
+            let filename = images.count > 1 ? "pasted-\(index + 1).png" : "pasted.png"
+            if let attachment = makeImageAttachment(from: image, suggestedFilename: filename) {
+                attachments.append(attachment)
+            }
+        }
+        guard !attachments.isEmpty else {
+            toastManager.show(error: .invalidData)
+            return
+        }
+        insertAttachments(attachments)
     }
 
     private func handlePhotoResults(_ results: [PHPickerResult]) async {

@@ -52,6 +52,7 @@ struct MessageInputBar: View {
     let onCancel: () -> Void
     let onAdd: () -> Void
     let onFocusChange: (Bool) -> Void
+    var onPasteImages: (([UIImage]) -> Void)?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -162,6 +163,7 @@ struct MessageInputBar: View {
                     focusTrigger: focusTrigger,
                     isEditable: true,  // Always editable - send button handles disabling
                     onFocusChange: onFocusChange,
+                    onPasteImages: onPasteImages,
                     trailingPadding: 20
                 )
                 .opacity(isSending ? 0.5 : 1)
