@@ -198,6 +198,7 @@
 			);
 			name = Clawline;
 			packageProductDependencies = (
+				27HL00022F1000000073BF45 /* HighlightSwift */,
 			);
 			productName = Clawline;
 			productReference = 274F7B6B2F0F22B50073BF45 /* Clawline.app */;
@@ -384,6 +385,9 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 274F7B6C2F0F22B50073BF45 /* Products */;
+			packageReferences = (
+				27HL00012F1000000073BF45 /* XCRemoteSwiftPackageReference "HighlightSwift" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -1059,6 +1063,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		27HL00012F1000000073BF45 /* XCRemoteSwiftPackageReference "HighlightSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/appstefan/HighlightSwift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		27HL00022F1000000073BF45 /* HighlightSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 27HL00012F1000000073BF45 /* XCRemoteSwiftPackageReference "HighlightSwift" */;
+			productName = HighlightSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 274F7B632F0F22B50073BF45 /* Project object */;
 }

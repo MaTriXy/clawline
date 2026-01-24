@@ -5,6 +5,7 @@
 //  UIKit-only bubble view for layout debugging.
 //
 
+import HighlightSwift
 import OSLog
 import UIKit
 
@@ -115,6 +116,7 @@ final class MessageBubbleUIKitView: UIView {
     private var contentBottomConstraint: NSLayoutConstraint!
     private var truncationHeightConstraint: NSLayoutConstraint?
     private var fadeConstraints: [NSLayoutConstraint] = []
+    private var dynamicContentViews: [UIView] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -186,7 +188,7 @@ final class MessageBubbleUIKitView: UIView {
         bodyLabel.numberOfLines = 0
 
         contentStack.addArrangedSubview(headerStack)
-        contentStack.addArrangedSubview(bodyLabel)
+        // Dynamic content views (text labels, code blocks) will be inserted here in configure
         contentStack.addArrangedSubview(truncationContainer)
 
         truncationContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -296,12 +298,41 @@ final class MessageBubbleUIKitView: UIView {
 
         avatarView.configure(role: message.role, isDark: palette.isDark)
 
-        bodyLabel.attributedText = MessageBubbleUIKitView.attributedBody(
+        // Remove old dynamic content views (code blocks)
+        for view in dynamicContentViews {
+            contentStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        dynamicContentViews.removeAll()
+
+        // Set up bodyLabel with text content (excluding code blocks)
+        bodyLabel.attributedText = MessageBubbleUIKitView.attributedBodyTextOnly(
             presentation: presentation,
             sizeClass: sizeClass,
             metrics: metrics,
             inkColor: palette.ink
         )
+
+        // Insert bodyLabel after headerStack if it has content
+        let hasTextContent = !(bodyLabel.attributedText?.string.isEmpty ?? true)
+        if hasTextContent {
+            contentStack.insertArrangedSubview(bodyLabel, at: 1)
+            dynamicContentViews.append(bodyLabel)
+        }
+
+        // Add code block views
+        let codeBlocks = presentation.parts.compactMap { part -> (String?, String)? in
+            if case .code(let lang, let code) = part { return (lang, code) }
+            return nil
+        }
+        for (lang, code) in codeBlocks {
+            let codeView = CodeBlockUIKitView()
+            codeView.configure(language: lang, code: code)
+            // Insert before truncationContainer (which is last)
+            let insertIndex = contentStack.arrangedSubviews.count - 1
+            contentStack.insertArrangedSubview(codeView, at: insertIndex)
+            dynamicContentViews.append(codeView)
+        }
         contentLeadingConstraint.constant = metrics.bubblePaddingHorizontal
         contentTrailingConstraint.constant = -metrics.bubblePaddingHorizontal
         contentTopConstraint.constant = metrics.bubblePaddingVertical
@@ -460,10 +491,11 @@ final class MessageBubbleUIKitView: UIView {
         .joined(separator: "\n\n")
     }
 
-    private static func attributedBody(presentation: MessagePresentation,
-                                       sizeClass: MessageSizeClass,
-                                       metrics: ChatFlowTheme.Metrics,
-                                       inkColor: UIColor) -> NSAttributedString {
+    /// Builds attributed string for text content only (excludes code blocks which are rendered separately)
+    private static func attributedBodyTextOnly(presentation: MessagePresentation,
+                                               sizeClass: MessageSizeClass,
+                                               metrics: ChatFlowTheme.Metrics,
+                                               inkColor: UIColor) -> NSAttributedString {
         let baseFont: UIFont
         let lineSpacing: CGFloat
         switch sizeClass {
@@ -489,9 +521,17 @@ final class MessageBubbleUIKitView: UIView {
         ]
 
         let result = NSMutableAttributedString()
-        let textualParts = presentation.parts.filter { $0.isTextual }
+        // Filter to only text parts (no code blocks - those are rendered as separate views)
+        let textParts = presentation.parts.filter {
+            switch $0 {
+            case .text, .markdown, .inlineEmoji, .table:
+                return true
+            case .code, .linkPreview, .image, .gallery:
+                return false
+            }
+        }
 
-        for (index, part) in textualParts.enumerated() {
+        for (index, part) in textParts.enumerated() {
             if index > 0 {
                 result.append(NSAttributedString(string: "\n\n", attributes: baseAttributes))
             }
@@ -511,27 +551,10 @@ final class MessageBubbleUIKitView: UIView {
             case .inlineEmoji(let value):
                 result.append(NSAttributedString(string: value, attributes: baseAttributes))
 
-            case .code(let language, let code):
-                let codeFont = UIFont.monospacedSystemFont(ofSize: baseFont.pointSize - 2, weight: .regular)
-                let codeAttributes: [NSAttributedString.Key: Any] = [
-                    .font: codeFont,
-                    .foregroundColor: inkColor,
-                    .backgroundColor: inkColor.withAlphaComponent(0.08),
-                    .paragraphStyle: paragraph
-                ]
-                if let lang = language, !lang.isEmpty {
-                    let langAttributes: [NSAttributedString.Key: Any] = [
-                        .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
-                        .foregroundColor: inkColor.withAlphaComponent(0.6)
-                    ]
-                    result.append(NSAttributedString(string: lang.uppercased() + "\n", attributes: langAttributes))
-                }
-                result.append(NSAttributedString(string: code, attributes: codeAttributes))
-
             case .table(let model):
                 result.append(NSAttributedString(string: "Table (\(model.rows.count) rows)", attributes: baseAttributes))
 
-            case .linkPreview, .image, .gallery:
+            case .code, .linkPreview, .image, .gallery:
                 break
             }
         }
@@ -585,9 +608,9 @@ final class MessageBubbleUIKitView: UIView {
                     newFont = UIFont(descriptor: descriptor, size: baseFont.pointSize)
                 }
             } else if traits.contains(.traitMonoSpace) {
-                newFont = UIFont.monospacedSystemFont(ofSize: baseFont.pointSize - 1, weight: .regular)
-                // Add subtle background for inline code
-                nsAttributed.addAttribute(.backgroundColor, value: inkColor.withAlphaComponent(0.08), range: range)
+                newFont = UIFont.monospacedSystemFont(ofSize: baseFont.pointSize - 1, weight: .medium)
+                // Add code-style background using system fill for proper appearance
+                nsAttributed.addAttribute(.backgroundColor, value: UIColor.tertiarySystemFill, range: range)
             }
 
             nsAttributed.addAttribute(.font, value: newFont, range: range)
@@ -1056,5 +1079,191 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
         Self.logger.info("UIKit bubble mismatch id=\(id) snippet=\"\(snippet)\"")
         Self.logger.info("UIKit bubble mismatch bounds=\(boundsDesc)")
         Self.logger.info("UIKit bubble mismatch bubble=\(bubbleDesc)")
+    }
+}
+
+// MARK: - Code Block View
+
+/// UIKit view for rendering code blocks with proper container styling and syntax highlighting.
+/// Matches the SwiftUI CodeBlockView in the design system.
+final class CodeBlockUIKitView: UIView {
+    private let languageLabel = UILabel()
+    private let codeLabel = UILabel()
+    private var currentCode: String = ""
+    private var currentLanguage: String?
+    private static let highlight = Highlight()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupView()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupView() {
+        layer.cornerRadius = 12
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+
+        let stack = UIStackView(arrangedSubviews: [languageLabel, codeLabel])
+        stack.axis = .vertical
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
+        ])
+
+        languageLabel.font = UIFont.systemFont(ofSize: 11, weight: .semibold)
+        codeLabel.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        codeLabel.numberOfLines = 0
+
+        updateColors()
+    }
+
+    private func updateColors() {
+        let isDark = traitCollection.userInterfaceStyle == .dark
+        if isDark {
+            backgroundColor = UIColor(red: 0.118, green: 0.118, blue: 0.118, alpha: 1)
+            languageLabel.textColor = UIColor.white.withAlphaComponent(0.6)
+        } else {
+            backgroundColor = UIColor(red: 0.945, green: 0.933, blue: 0.910, alpha: 1)
+            languageLabel.textColor = UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 0.6)
+        }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
+            updateColors()
+            applyHighlightedCode()
+        }
+    }
+
+    func configure(language: String?, code: String) {
+        currentLanguage = language
+        currentCode = code
+
+        if let lang = language, !lang.isEmpty {
+            languageLabel.text = lang.uppercased()
+            languageLabel.isHidden = false
+        } else {
+            languageLabel.isHidden = true
+        }
+
+        // Show plain text immediately, then apply highlighting async
+        applyPlainCode()
+        updateColors()
+        applyHighlightedCode()
+    }
+
+    private func applyHighlightedCode() {
+        let isDark = traitCollection.userInterfaceStyle == .dark
+        let colors: HighlightColors = isDark ? .dark(.atomOne) : .light(.atomOne)
+
+        Task { @MainActor in
+            do {
+                // Map common language names to HighlightSwift language strings
+                let langString = Self.mapLanguageString(currentLanguage)
+                let highlighted: AttributedString
+                if let lang = langString {
+                    highlighted = try await Self.highlight.attributedText(currentCode, language: lang, colors: colors)
+                } else {
+                    highlighted = try await Self.highlight.attributedText(currentCode, colors: colors)
+                }
+
+                // Convert to NSAttributedString and apply our font
+                let mutable = NSMutableAttributedString(highlighted)
+                let fullRange = NSRange(location: 0, length: mutable.length)
+
+                // Apply monospace font while preserving colors
+                mutable.enumerateAttribute(.font, in: fullRange, options: []) { _, range, _ in
+                    mutable.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: range)
+                }
+
+                // Apply line spacing
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.lineSpacing = 4
+                mutable.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
+
+                self.codeLabel.attributedText = mutable
+            } catch {
+                // Fallback to plain text on error
+                self.applyPlainCode()
+            }
+        }
+    }
+
+    private func applyPlainCode() {
+        let isDark = traitCollection.userInterfaceStyle == .dark
+        let textColor = isDark
+            ? UIColor.white.withAlphaComponent(0.9)
+            : UIColor(red: 0.239, green: 0.204, blue: 0.161, alpha: 1)
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 4
+        let attributed = NSAttributedString(
+            string: currentCode,
+            attributes: [
+                .font: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: textColor,
+                .paragraphStyle: paragraph
+            ]
+        )
+        codeLabel.attributedText = attributed
+    }
+
+    /// Maps common language identifiers to highlight.js language names
+    private static func mapLanguageString(_ language: String?) -> String? {
+        guard let lang = language?.lowercased() else { return nil }
+        switch lang {
+        case "swift": return "swift"
+        case "python", "py": return "python"
+        case "javascript", "js": return "javascript"
+        case "typescript", "ts": return "typescript"
+        case "java": return "java"
+        case "kotlin", "kt": return "kotlin"
+        case "c": return "c"
+        case "cpp", "c++": return "cpp"
+        case "csharp", "c#", "cs": return "csharp"
+        case "go", "golang": return "go"
+        case "rust", "rs": return "rust"
+        case "ruby", "rb": return "ruby"
+        case "php": return "php"
+        case "sql": return "sql"
+        case "bash", "sh", "shell", "zsh": return "bash"
+        case "html": return "html"
+        case "css": return "css"
+        case "json": return "json"
+        case "yaml", "yml": return "yaml"
+        case "xml": return "xml"
+        case "markdown", "md": return "markdown"
+        case "objectivec", "objc", "objective-c": return "objectivec"
+        case "dart": return "dart"
+        case "scala": return "scala"
+        case "r": return "r"
+        case "perl": return "perl"
+        case "lua": return "lua"
+        case "haskell", "hs": return "haskell"
+        case "elixir", "ex": return "elixir"
+        case "clojure", "clj": return "clojure"
+        case "fsharp", "f#", "fs": return "fsharp"
+        case "ocaml", "ml": return "ocaml"
+        case "erlang", "erl": return "erlang"
+        case "julia", "jl": return "julia"
+        case "groovy": return "groovy"
+        case "powershell", "ps1": return "powershell"
+        case "dockerfile", "docker": return "dockerfile"
+        case "makefile", "make": return "makefile"
+        case "diff": return "diff"
+        case "ini": return "ini"
+        default: return lang // Try using the provided language directly
+        }
     }
 }
