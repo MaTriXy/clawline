@@ -91,12 +91,49 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         super.viewDidLoad()
         view.backgroundColor = .clear
         view.isOpaque = false
+        view.clipsToBounds = false
         configureCollectionView()
         configureDataSource()
         setupKeyboardTracking()
 
         // currentIsDark will be set by the first update() call from SwiftUI
         // which passes the colorScheme environment value
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        // Extend the collection view to fill the entire screen, ignoring safe areas.
+        // SwiftUI's UIViewControllerRepresentable doesn't respect .ignoresSafeArea() for UIKit views,
+        // so we manually extend the collection view to window bounds.
+        if let window = view.window {
+            let windowBounds = window.bounds
+            let viewOriginInWindow = view.convert(CGPoint.zero, to: window)
+
+            // Calculate frame that extends from top of screen to bottom
+            let extendedFrame = CGRect(
+                x: 0,
+                y: -viewOriginInWindow.y,
+                width: windowBounds.width,
+                height: windowBounds.height
+            )
+
+            // Only update if significantly different to avoid layout loops
+            if abs(collectionView.frame.minY - extendedFrame.minY) > 1 ||
+               abs(collectionView.frame.height - extendedFrame.height) > 1 {
+                collectionView.frame = extendedFrame
+            }
+        }
+
+        // Handle bounds size changes
+        let size = collectionView.bounds.size
+        guard size != .zero, size != lastBoundsSize else { return }
+        lastBoundsSize = size
+        forceReconfigureAll = true
+        updateLayout()
+        if let viewModel {
+            update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible)
+        }
     }
 
     private func setupKeyboardTracking() {
@@ -253,12 +290,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         flowLayout.minimumLineSpacing = 0
         flowLayout.estimatedItemSize = .zero
 
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: flowLayout)
-        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        // Use frame-based layout - we extend to window bounds in viewDidLayoutSubviews
+        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: flowLayout)
+        collectionView.translatesAutoresizingMaskIntoConstraints = true
+        collectionView.autoresizingMask = []
         collectionView.backgroundColor = .clear
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
         collectionView.keyboardDismissMode = .interactive
+        collectionView.clipsToBounds = false  // Allow content to render past bounds during scroll
         collectionView.delegate = self
         if useUIKitBubbles {
             collectionView.register(MessageBubbleUIKitCell.self, forCellWithReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier)
@@ -268,12 +308,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.register(TypingIndicatorCell.self, forCellWithReuseIdentifier: TypingIndicatorCell.reuseIdentifier)
 
         view.addSubview(collectionView)
-        NSLayoutConstraint.activate([
-            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collectionView.topAnchor.constraint(equalTo: view.topAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+        // Frame will be set in viewDidLayoutSubviews to extend to window bounds
     }
 
     private func configureDataSource() {
@@ -355,14 +390,18 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         flowLayout.minimumInteritemSpacing = metrics.flowGap
         flowLayout.minimumLineSpacing = metrics.flowGap
+        // Section inset is just for padding - content insets handle safe areas
         flowLayout.sectionInset = UIEdgeInsets(
-            top: metrics.containerPadding + topInset,
+            top: metrics.containerPadding,
             left: metrics.containerPadding,
             bottom: metrics.containerPadding,
             right: metrics.containerPadding
         )
-        // Store base bottom inset (input bar height + spacing).
-        // SwiftUI's safeAreaInset handles keyboard by resizing the view frame.
+        // Content insets allow scrolling under safe areas while resting below them
+        // Top inset = safe area (status bar) so content can scroll under it
+        // Bottom inset = input bar height
+        collectionView.contentInset.top = topInset
+        collectionView.verticalScrollIndicatorInsets.top = topInset
         baseBottomInset = bottomInset
         applyBottomContentInset()
         lastMeasuredSizes.removeAll()
@@ -690,8 +729,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return
         }
         let contentInset = collectionView.contentInset
-        let visibleHeight = collectionView.bounds.height - contentInset.top - contentInset.bottom
-        let targetY = attributes.frame.maxY - visibleHeight + contentInset.bottom
+        // Calculate target offset to show bottom of last message just above bottom inset (input bar)
+        // Formula: message.maxY should align with (bounds.height - contentInset.bottom)
+        let targetY = attributes.frame.maxY - collectionView.bounds.height + contentInset.bottom
         let minY = -contentInset.top
         let maxY = collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom
         let clampedY = max(minY, min(targetY, maxY))
