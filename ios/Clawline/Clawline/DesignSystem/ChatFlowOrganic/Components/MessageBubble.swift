@@ -857,23 +857,7 @@ struct ExpandedMessageSheet: View {
             Text(value)
                 .font(.system(size: 32))
         case .code(let language, let code):
-            VStack(alignment: .leading, spacing: 6) {
-                if let language, !language.isEmpty {
-                    Text(language.uppercased())
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color.white.opacity(0.6))
-                        .tracking(0.5)
-                }
-                Text(code)
-                    .font(.system(size: 13, weight: .regular, design: .monospaced))
-                    .foregroundColor(Color.white.opacity(0.9))
-                    .lineSpacing(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .background(Color(red: 0.118, green: 0.118, blue: 0.118))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            CodeBlockView(language: language, code: code)
         case .linkPreview(let url):
             Link(destination: url) {
                 Text(url.absoluteString)

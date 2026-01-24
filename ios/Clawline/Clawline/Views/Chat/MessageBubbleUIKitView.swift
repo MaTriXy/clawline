@@ -85,6 +85,8 @@ final class MessageBubbleUIKitView: UIView {
     private let bubbleBackgroundView = UIView()
     private let contentStack = UIStackView()
     private let headerStack = UIStackView()
+    private let dynamicContentWrapper = UIView()  // Clips for truncation
+    private let dynamicContentStack = UIStackView()  // Holds text + code blocks
     private let avatarView = AvatarCircleView()
     private let senderLabel = UILabel()
     private let bodyLabel = UILabel()
@@ -104,7 +106,7 @@ final class MessageBubbleUIKitView: UIView {
     private var minWidthConstraint: NSLayoutConstraint!
     private var fixedWidthConstraint: NSLayoutConstraint?
     private var bodyMaxWidthConstraint: NSLayoutConstraint?
-    private var bodyHeightConstraint: NSLayoutConstraint?
+    private var dynamicContentHeightConstraint: NSLayoutConstraint?
     private var shouldTruncate = false
     private var onRequestExpand: (() -> Void)?
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
@@ -172,6 +174,7 @@ final class MessageBubbleUIKitView: UIView {
 
         contentStack.axis = .vertical
         contentStack.spacing = 10
+        contentStack.alignment = .fill
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         bubbleBackgroundView.addSubview(contentStack)
 
@@ -188,7 +191,21 @@ final class MessageBubbleUIKitView: UIView {
         bodyLabel.numberOfLines = 0
 
         contentStack.addArrangedSubview(headerStack)
-        // Dynamic content views (text labels, code blocks) will be inserted here in configure
+
+        // Dynamic content wrapper clips content for truncation
+        dynamicContentWrapper.clipsToBounds = true
+        dynamicContentStack.axis = .vertical
+        dynamicContentStack.spacing = 10
+        dynamicContentStack.translatesAutoresizingMaskIntoConstraints = false
+        dynamicContentWrapper.addSubview(dynamicContentStack)
+        NSLayoutConstraint.activate([
+            dynamicContentStack.topAnchor.constraint(equalTo: dynamicContentWrapper.topAnchor),
+            dynamicContentStack.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
+            dynamicContentStack.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
+            dynamicContentStack.bottomAnchor.constraint(lessThanOrEqualTo: dynamicContentWrapper.bottomAnchor)
+        ])
+        contentStack.addArrangedSubview(dynamicContentWrapper)
+
         contentStack.addArrangedSubview(truncationContainer)
 
         truncationContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -298,9 +315,9 @@ final class MessageBubbleUIKitView: UIView {
 
         avatarView.configure(role: message.role, isDark: palette.isDark)
 
-        // Remove old dynamic content views (code blocks)
+        // Remove old dynamic content views
         for view in dynamicContentViews {
-            contentStack.removeArrangedSubview(view)
+            dynamicContentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
         dynamicContentViews.removeAll()
@@ -313,14 +330,14 @@ final class MessageBubbleUIKitView: UIView {
             inkColor: palette.ink
         )
 
-        // Insert bodyLabel after headerStack if it has content
+        // Add bodyLabel to dynamicContentStack if it has content
         let hasTextContent = !(bodyLabel.attributedText?.string.isEmpty ?? true)
         if hasTextContent {
-            contentStack.insertArrangedSubview(bodyLabel, at: 1)
+            dynamicContentStack.addArrangedSubview(bodyLabel)
             dynamicContentViews.append(bodyLabel)
         }
 
-        // Add code block views
+        // Add code block views to dynamicContentStack
         let codeBlocks = presentation.parts.compactMap { part -> (String?, String)? in
             if case .code(let lang, let code) = part { return (lang, code) }
             return nil
@@ -328,9 +345,7 @@ final class MessageBubbleUIKitView: UIView {
         for (lang, code) in codeBlocks {
             let codeView = CodeBlockUIKitView()
             codeView.configure(language: lang, code: code)
-            // Insert before truncationContainer (which is last)
-            let insertIndex = contentStack.arrangedSubviews.count - 1
-            contentStack.insertArrangedSubview(codeView, at: insertIndex)
+            dynamicContentStack.addArrangedSubview(codeView)
             dynamicContentViews.append(codeView)
         }
         contentLeadingConstraint.constant = metrics.bubblePaddingHorizontal
@@ -361,7 +376,7 @@ final class MessageBubbleUIKitView: UIView {
             fixedWidthConstraint?.isActive = true
         }
 
-        bodyHeightConstraint?.isActive = false
+        dynamicContentHeightConstraint?.isActive = false
         shouldTruncate = false
         truncationContainer.isHidden = true
         fadeView.isHidden = true
@@ -371,18 +386,30 @@ final class MessageBubbleUIKitView: UIView {
         if sizeClass == .long {
             let contentWidth = maxWidth - (metrics.bubblePaddingHorizontal * 2)
             let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-            let bodyWidth = min(contentWidth, maxLineWidth)
-            let measuredHeight = bodyLabel.sizeThatFits(CGSize(width: bodyWidth, height: .greatestFiniteMagnitude)).height
-            if measuredHeight > metrics.truncationHeight {
+            let measureWidth = min(contentWidth, maxLineWidth)
+
+            // Calculate total height of all dynamic content (text + code blocks)
+            var totalHeight: CGFloat = 0
+            let spacing = dynamicContentStack.spacing
+            for (index, view) in dynamicContentViews.enumerated() {
+                let viewHeight = view.sizeThatFits(CGSize(width: measureWidth, height: .greatestFiniteMagnitude)).height
+                totalHeight += viewHeight
+                if index > 0 {
+                    totalHeight += spacing
+                }
+            }
+
+            if totalHeight > metrics.truncationHeight {
                 shouldTruncate = true
-                let heightConstraint = bodyLabel.heightAnchor.constraint(lessThanOrEqualToConstant: metrics.truncationHeight)
+                // Simply constrain the wrapper height - it will clip the overflow
+                let heightConstraint = dynamicContentWrapper.heightAnchor.constraint(equalToConstant: metrics.truncationHeight)
                 heightConstraint.isActive = true
-                bodyHeightConstraint = heightConstraint
+                dynamicContentHeightConstraint = heightConstraint
+
                 truncationContainer.isHidden = false
                 truncationLabel.textColor = (message.role == .user) ? palette.terracotta : palette.warmBrown
                 fadeView.isHidden = false
                 // Use bubble gradient end colors for seamless fade
-                // Top color must match bottom color (just transparent) to avoid haze
                 let bottomColor = message.role == .user ? palette.bubbleSelfGradient.last! : palette.bubbleOtherGradient.last!
                 fadeView.updateColors(
                     top: bottomColor.withAlphaComponent(0),
@@ -390,9 +417,9 @@ final class MessageBubbleUIKitView: UIView {
                 )
                 let fadeHeight: CGFloat = 100
                 fadeConstraints = [
-                    fadeView.leadingAnchor.constraint(equalTo: bodyLabel.leadingAnchor),
-                    fadeView.trailingAnchor.constraint(equalTo: bodyLabel.trailingAnchor),
-                    fadeView.bottomAnchor.constraint(equalTo: bodyLabel.bottomAnchor),
+                    fadeView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
+                    fadeView.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
+                    fadeView.bottomAnchor.constraint(equalTo: dynamicContentWrapper.bottomAnchor),
                     fadeView.heightAnchor.constraint(equalToConstant: fadeHeight)
                 ]
                 NSLayoutConstraint.activate(fadeConstraints)
@@ -1144,6 +1171,12 @@ final class CodeBlockUIKitView: UIView {
             updateColors()
             applyHighlightedCode()
         }
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        // Use systemLayoutSizeFitting to respect Auto Layout constraints
+        let targetSize = CGSize(width: size.width, height: UIView.layoutFittingCompressedSize.height)
+        return systemLayoutSizeFitting(targetSize, withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
     }
 
     func configure(language: String?, code: String) {
