@@ -71,9 +71,7 @@ struct PairingView: View {
                     // State-specific content
                     switch viewModel.state {
                     case .idle, .enteringName, .enteringAddress, .waitingForApproval(_, _):
-                        // Subtract horizontal padding from width since inputScrollView sizes
-                        // its content to fill the width, but padding is applied outside it
-                        inputScrollView(width: geometry.size.width - (2 * concentricPadding))
+                        inputScrollView()
                             .frame(height: inputHeight)
                     case .success:
                         ProgressView()
@@ -104,24 +102,24 @@ struct PairingView: View {
         }
     }
 
-    private func inputScrollView(width: CGFloat) -> some View {
+    private func inputScrollView() -> some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
                     nameInputRow
-                        .frame(width: width)
+                        .containerRelativeFrame(.horizontal)
                         .opacity(viewModel.currentPage == 0 ? 1 : 0)
                         .animation(.easeInOut(duration: 0.3), value: viewModel.currentPage)
                         .id(0)
 
                     addressInputRow
-                        .frame(width: width)
+                        .containerRelativeFrame(.horizontal)
                         .opacity(viewModel.currentPage == 1 ? 1 : 0)
                         .animation(.easeInOut(duration: 0.3), value: viewModel.currentPage)
                         .id(1)
 
                     waitingInputRow
-                        .frame(width: width)
+                        .containerRelativeFrame(.horizontal)
                         .opacity(viewModel.currentPage == 2 ? 1 : 0)
                         .animation(.easeInOut(duration: 0.3), value: viewModel.currentPage)
                         .id(2)

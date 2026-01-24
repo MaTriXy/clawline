@@ -1,0 +1,23 @@
+{
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Settings/SettingsManager.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsManager.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsManager.d",
+    "diagnostics" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsManager.dia",
+    "object" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsManager.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsManager.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Settings/SettingsView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsView.dia",
+    "object" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/SettingsView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Shaders/BackgroundEffect.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/BackgroundEffect.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/BackgroundEffect.d",
+    "diagnostics" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/BackgroundEffect.dia",
+    "object" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/BackgroundEffect.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/BackgroundEffect.swiftdeps"
+  }
+}

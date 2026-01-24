@@ -1070,7 +1070,7 @@
             </table>
 
             <h3>Responsive Behavior</h3>
-            <p>On narrower screens (iPhone width), <code>.medium</code> messages expand to full width since there isn't room for two side-by-side. <code>.short</code> messages can still pair up.</p>
+            <p>On narrower screens (iPhone width), <code>.medium</code> messages use ~2/3 width when the text would render in <= 3 lines at that width. Otherwise they expand to full width. <code>.short</code> messages can still pair up.</p>
         </section>
 
         <!-- ELEMENT PAIRING SECTION -->
@@ -1321,13 +1321,13 @@
                     <tr><td>Container padding</td><td>24px</td><td>16px</td></tr>
                     <tr><td>Bubble padding</td><td>16px 20px</td><td>14px 16px</td></tr>
                     <tr><td>Short text size</td><td>22px</td><td>18px</td></tr>
-                    <tr><td>Medium message width</td><td>~45%</td><td>100%</td></tr>
+                    <tr><td>Medium message width</td><td>~45%</td><td>~2/3 if <= 3 lines, else 100%</td></tr>
                     <tr><td>Truncated max-height</td><td>200px</td><td>160px</td></tr>
                 </tbody>
             </table>
 
             <h3>Key Principle</h3>
-            <p>On iPhone, <code>.medium</code> messages expand to full width because the screen isn't wide enough for two meaningful bubbles side-by-side. <code>.short</code> messages can still pair up since they're compact by nature.</p>
+            <p>On iPhone, <code>.medium</code> messages use ~2/3 width when the text would render in <= 3 lines at that width, and otherwise expand to full width. <code>.short</code> messages can still pair up since they're compact by nature.</p>
         </section>
 
         <!-- ACCESSIBILITY SECTION -->

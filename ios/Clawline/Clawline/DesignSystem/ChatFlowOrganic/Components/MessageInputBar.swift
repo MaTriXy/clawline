@@ -116,6 +116,16 @@ struct MessageInputBar: View {
         }
     }
 
+    private var sendButtonShape: AnyShape {
+        if isSending {
+            // Pill shape for "Cancel" text
+            return AnyShape(Capsule())
+        } else {
+            // Circle for send icon
+            return AnyShape(Circle())
+        }
+    }
+
     private var connectionAlertHint: String? {
         switch connectionAlert {
         case .caution:
@@ -128,79 +138,60 @@ struct MessageInputBar: View {
     }
 
     private var sendButtonWidth: CGFloat {
-        isSending ? metrics.sendingButtonWidth : metrics.sendButtonSize
+        isSending ? metrics.sendingButtonWidth : metrics.inputBarHeight
     }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: MessageInputBarMetrics.elementSpacing) {
+            // Add button - separate glass circle, same height as input bar
             Button(action: onAdd) {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .semibold))
             }
             .accessibilityLabel("Add attachment")
-            .frame(width: metrics.addButtonSize, height: metrics.addButtonSize)
+            .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
             .glassEffect(.regular.interactive(), in: Circle())
             .disabled(isSending)
 
-            HStack(spacing: 0) {
-                ZStack(alignment: .leading) {
-                    RichTextEditor(
-                        attributedText: $content,
-                        calculatedHeight: $editorHeight,
-                        selectionRange: $selectionRange,
-                        focusTrigger: focusTrigger,
-                        isEditable: !isSending,
-                        onFocusChange: onFocusChange,
-                        trailingPadding: metrics.textTrailingInset(isSending: isSending)
-                    )
-                    .opacity(isSending ? 0.5 : 1)
+            // Text field - glass capsule/rounded rect
+            ZStack(alignment: .leading) {
+                RichTextEditor(
+                    attributedText: $content,
+                    calculatedHeight: $editorHeight,
+                    selectionRange: $selectionRange,
+                    focusTrigger: focusTrigger,
+                    isEditable: true,  // Always editable - send button handles disabling
+                    onFocusChange: onFocusChange,
+                    trailingPadding: 20
+                )
+                .opacity(isSending ? 0.5 : 1)
 
-                    if content.length == 0 {
-                        Text("Message")
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                            .frame(maxHeight: .infinity, alignment: .center)
-                            .padding(.leading, 20)
-                            .padding(.trailing, metrics.textTrailingInset(isSending: isSending))
-                    }
+                if content.length == 0 {
+                    Text("Message")
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                        .frame(maxHeight: .infinity, alignment: .center)
+                        .padding(.leading, 20)
+                        .padding(.trailing, 20)
+                }
 
-                    if let alertMessage = connectionAlertMessage,
-                       let alertColor = connectionAlertColor {
-                        RoundedRectangle(cornerRadius: isSingleLine ? inputHeight / 2 : 22, style: .continuous)
-                            .fill(alertColor.opacity(0.08))
-                            .allowsHitTesting(false)
-
-                        HStack(spacing: 8) {
-                            Image(systemName: "wifi.slash")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text(alertMessage)
-                                .font(.system(size: 14, weight: .semibold))
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        .foregroundColor(alertColor)
+                if let alertMessage = connectionAlertMessage,
+                   let alertColor = connectionAlertColor {
+                    RoundedRectangle(cornerRadius: isSingleLine ? inputHeight / 2 : 22, style: .continuous)
+                        .fill(alertColor.opacity(0.08))
                         .allowsHitTesting(false)
-                    }
-                }
-                .frame(height: inputHeight)
-                .frame(maxWidth: .infinity, alignment: .bottom)
 
-                Button(action: isSending ? onCancel : onSend) {
-                    if isSending {
-                        Text("Cancel")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 18, weight: .semibold))
+                    HStack(spacing: 8) {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text(alertMessage)
+                            .font(.system(size: 14, weight: .semibold))
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .foregroundColor(alertColor)
+                    .allowsHitTesting(false)
                 }
-                .frame(width: sendButtonWidth, height: metrics.sendButtonSize)
-                .contentShape(Rectangle())
-                .disabled(!isSending && !canSend)
-                .opacity(connectionAlertColor == nil ? 1 : 0.65)
-                .padding(.trailing, 4)
-                .accessibilityHint(connectionAlertHint ?? "")
             }
             .frame(height: inputHeight)
             .frame(maxWidth: .infinity, alignment: .bottom)
@@ -211,6 +202,24 @@ struct MessageInputBar: View {
                         .stroke(alertColor.opacity(0.4), lineWidth: 1)
                 }
             }
+
+            // Send button - separate glass circle, same height as input bar
+            Button(action: isSending ? onCancel : onSend) {
+                if isSending {
+                    Text("Cancel")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+            }
+            .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
+            .glassEffect(.regular.interactive(), in: sendButtonShape)
+            .contentShape(Rectangle())
+            .disabled(!isSending && !canSend)
+            .opacity(connectionAlertColor == nil ? 1 : 0.65)
+            .accessibilityHint(connectionAlertHint ?? "")
         }
         .padding(.horizontal, metrics.concentricPadding)
         .padding(.bottom, metrics.bottomPadding)

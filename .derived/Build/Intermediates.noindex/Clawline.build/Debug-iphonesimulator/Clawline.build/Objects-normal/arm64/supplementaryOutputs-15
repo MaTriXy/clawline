@@ -1,0 +1,23 @@
+{
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/MessageFailureIndicator.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFailureIndicator.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFailureIndicator.d",
+    "diagnostics" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFailureIndicator.dia",
+    "object" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFailureIndicator.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFailureIndicator.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/MessageFlowCollectionView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFlowCollectionView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFlowCollectionView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFlowCollectionView.dia",
+    "object" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFlowCollectionView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageFlowCollectionView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Pairing/PairingView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/PairingView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/PairingView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/PairingView.dia",
+    "object" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/PairingView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/PairingView.swiftdeps"
+  }
+}

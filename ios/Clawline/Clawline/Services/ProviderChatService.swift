@@ -10,6 +10,7 @@ import OSLog
 
 final class ProviderChatService: ChatServicing {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ProviderChatService")
+    private let messageLogger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     enum Error: Swift.Error, LocalizedError {
         case missingBaseURL
         case notConnected
@@ -78,6 +79,21 @@ final class ProviderChatService: ChatServicing {
         let type: String
         let userId: String
         let isAdmin: Bool
+    }
+
+    private struct EventEnvelope: Decodable {
+        let type: String
+        let event: String
+    }
+
+    private struct ActivityEventPayload: Decodable {
+        let type: String
+        let event: String
+        let payload: ActivityPayload
+
+        struct ActivityPayload: Decodable {
+            let isActive: Bool
+        }
     }
 
     private struct PendingMessage {
@@ -249,7 +265,10 @@ final class ProviderChatService: ChatServicing {
                 handleServerError(data: data)
             case "user_info":
                 handleUserInfo(data: data)
+            case "event":
+                handleEvent(data: data)
             default:
+                logger.debug("Unknown message type: \(envelope.type, privacy: .public)")
                 break
             }
         }
@@ -276,6 +295,10 @@ final class ProviderChatService: ChatServicing {
 
     private func handleMessage(data: Data) {
         guard let payload = try? decoder.decode(ServerMessagePayload.self, from: data) else { return }
+        let snippet = String(payload.content.prefix(80))
+        messageLogger.info(
+            "recv message id=\(payload.id, privacy: .public) channel=\(payload.channelType.rawValue, privacy: .public) role=\(String(describing: payload.role), privacy: .public) streaming=\(payload.streaming, privacy: .public) deviceId=\(payload.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
+        )
         let message = Message(payload: payload)
         messageContinuation?.yield(message)
     }
@@ -323,6 +346,26 @@ final class ProviderChatService: ChatServicing {
         guard let payload = try? decoder.decode(UserInfoPayload.self, from: data) else { return }
         let info = ChatUserInfo(userId: payload.userId, isAdmin: payload.isAdmin)
         serviceEventContinuation?.yield(.userInfo(info))
+    }
+
+    private func handleEvent(data: Data) {
+        guard let envelope = try? decoder.decode(EventEnvelope.self, from: data) else {
+            logger.warning("Failed to decode event envelope")
+            return
+        }
+        logger.info("Received event: \(envelope.event, privacy: .public)")
+
+        switch envelope.event {
+        case "activity":
+            guard let payload = try? decoder.decode(ActivityEventPayload.self, from: data) else {
+                logger.warning("Failed to decode activity event payload")
+                return
+            }
+            logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public)")
+            serviceEventContinuation?.yield(.typingStateChanged(isTyping: payload.payload.isActive))
+        default:
+            logger.debug("Unknown event type: \(envelope.event, privacy: .public)")
+        }
     }
 
     private func handleSocketClose() {

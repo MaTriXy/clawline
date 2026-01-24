@@ -1,0 +1,23 @@
+{
+  "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "object" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/ClawlineApp.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ClawlineApp.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ClawlineApp.d",
+    "diagnostics" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ClawlineApp.dia",
+    "object" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ClawlineApp.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ClawlineApp.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/RootView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/RootView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/RootView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/RootView.dia",
+    "object" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/RootView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.derived/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/RootView.swiftdeps"
+  }
+}

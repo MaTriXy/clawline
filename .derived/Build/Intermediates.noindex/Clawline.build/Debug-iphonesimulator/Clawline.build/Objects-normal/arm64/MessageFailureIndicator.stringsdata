@@ -1,0 +1,16 @@
+{
+  "source": "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/MessageFailureIndicator.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Message failed. %@",
+        "location": {
+          "startingColumn": 29,
+          "startingLine": 47
+        }
+      }
+    ]
+  },
+  "version": 1
+}

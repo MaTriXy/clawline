@@ -1,0 +1,56 @@
+{
+  "source": "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/ChatView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Dismiss",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 325
+        }
+      },
+      {
+        "comment": "",
+        "key": "Dismiss with tap or swipe up.",
+        "location": {
+          "startingColumn": 36,
+          "startingLine": 556
+        }
+      },
+      {
+        "comment": "",
+        "key": "Add Attachment",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 623
+        }
+      },
+      {
+        "comment": "",
+        "key": "Camera",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 630
+        }
+      },
+      {
+        "comment": "",
+        "key": "Photos",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 638
+        }
+      },
+      {
+        "comment": "",
+        "key": "Files",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 646
+        }
+      }
+    ]
+  },
+  "version": 1
+}

@@ -46,13 +46,14 @@ enum ChatFlowTheme {
 
     // MARK: - Gradients
     static func pageBackground(_ scheme: ColorScheme) -> LinearGradient {
+        // --bg-surface-gradient from design system: #1C1917 to #141210
         scheme == .dark
-            ? LinearGradient(colors: [Color(red: 0.059, green: 0.055, blue: 0.051),
-                                      Color(red: 0.102, green: 0.094, blue: 0.086)],
-                             startPoint: .topLeading, endPoint: .bottomTrailing)
-            : LinearGradient(colors: [Color(red: 0.910, green: 0.878, blue: 0.831),
-                                      Color(red: 0.831, green: 0.784, blue: 0.737)],
-                             startPoint: .topLeading, endPoint: .bottomTrailing)
+            ? LinearGradient(colors: [Color(red: 0.110, green: 0.098, blue: 0.090),  // #1C1917
+                                      Color(red: 0.078, green: 0.071, blue: 0.063)], // #141210
+                             startPoint: .top, endPoint: .bottom)
+            : LinearGradient(colors: [Color(red: 0.941, green: 0.918, blue: 0.878),  // #F0EAE0
+                                      Color(red: 0.910, green: 0.878, blue: 0.831)], // #E8E0D4
+                             startPoint: .top, endPoint: .bottom)
     }
 
     static func surfaceGradient(_ scheme: ColorScheme) -> LinearGradient {
@@ -97,7 +98,7 @@ enum ChatFlowTheme {
         var mediumFontSize: CGFloat { 17 }
         var bodyFontSize: CGFloat { 15 }
         var senderFontSize: CGFloat { 12 }
-        var truncationHeight: CGFloat { isCompact ? 320 : 400 }
+        var truncationHeight: CGFloat { isCompact ? 160 : 200 }
     }
 
     // MARK: - Typography helpers

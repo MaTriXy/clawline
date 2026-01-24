@@ -54,6 +54,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var isKeyboardVisible: Bool = false
     private var lastBoundsSize: CGSize = .zero
     private var forceReconfigureAll = false
+    private var wasShowingTypingIndicator = false
     private lazy var sizingHost = UIHostingController(
         rootView: MessageBubbleSizingView(
             message: Message(
@@ -209,6 +210,18 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         snapshot.appendSections([0])
         snapshot.appendItems(messages.map(\.id))
 
+        // Add typing indicator when assistant is typing (server-controlled)
+        let showTypingIndicator = viewModel.isAssistantTyping
+        let typingIndicatorJustAppeared = showTypingIndicator && !wasShowingTypingIndicator
+        let shouldMorph = viewModel.shouldMorphTypingIndicator && wasShowingTypingIndicator
+        if showTypingIndicator != wasShowingTypingIndicator {
+            logger.info("typing indicator state changed: show=\(showTypingIndicator, privacy: .public) wasShowing=\(self.wasShowingTypingIndicator, privacy: .public)")
+        }
+        wasShowingTypingIndicator = showTypingIndicator
+        if showTypingIndicator {
+            snapshot.appendItems([TypingIndicatorCell.itemId])
+        }
+
         let changedIds = needsLayoutUpdate
             ? messages.map(\.id)
             : newFingerprints.compactMap { id, fingerprint in
@@ -222,14 +235,18 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         forceReconfigureAll = false
 
-        dataSource.apply(snapshot, animatingDifferences: false)
+        // Animate when morphing from typing indicator to message for smooth transition
+        dataSource.apply(snapshot, animatingDifferences: shouldMorph)
         logger.info(
-            "diffing apply snapshot count=\(messageCount, privacy: .public) changed=\(changedIds.count, privacy: .public) needsLayout=\(needsLayoutUpdate, privacy: .public)"
+            "diffing apply snapshot count=\(messageCount, privacy: .public) changed=\(changedIds.count, privacy: .public) needsLayout=\(needsLayoutUpdate, privacy: .public) morph=\(shouldMorph, privacy: .public)"
         )
         fingerprints = newFingerprints
 
         if lastMessageId != messages.last?.id {
             lastMessageId = messages.last?.id
+            scrollToBottom(animated: true)
+        } else if typingIndicatorJustAppeared {
+            // Scroll to show typing indicator when it appears
             scrollToBottom(animated: true)
         } else if keyboardJustAppeared && wasNearBottom {
             // When keyboard appears and user was near bottom, scroll to keep bottom visible
@@ -262,6 +279,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         } else {
             collectionView.register(MessageBubbleCell.self, forCellWithReuseIdentifier: MessageBubbleCell.reuseIdentifier)
         }
+        collectionView.register(TypingIndicatorCell.self, forCellWithReuseIdentifier: TypingIndicatorCell.reuseIdentifier)
 
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
@@ -276,11 +294,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         dataSource = UICollectionViewDiffableDataSource<Int, String>(
             collectionView: collectionView
         ) { [weak self] (collectionView: UICollectionView, indexPath: IndexPath, id: String) in
-            guard let self,
-                  let viewModel = self.viewModel,
-                  let message = self.messagesById[id] else {
-                return nil
+            guard let self, let viewModel = self.viewModel else { return nil }
+
+            // Handle typing indicator
+            if id == TypingIndicatorCell.itemId {
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: TypingIndicatorCell.reuseIdentifier,
+                    for: indexPath
+                ) as? TypingIndicatorCell
+                cell?.configure(isCompact: self.isCompact)
+                cell?.startAnimating()
+                return cell
             }
+
+            guard let message = self.messagesById[id] else { return nil }
             let metrics = ChatFlowTheme.Metrics(isCompact: self.isCompact)
             let presentation = viewModel.presentation(for: message, metrics: metrics)
             if self.useUIKitBubbles {
@@ -384,10 +411,24 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         return result
     }
 
+    /// Fixed size for the typing indicator bubble.
+    private var typingIndicatorSize: CGSize {
+        // 1.5x the original size: Dots: 3 × 10pt with 8pt spacing = 46pt + 48pt padding = 94pt width
+        // Height is 1.5x the original (66pt)
+        CGSize(width: 94, height: 66)
+    }
+
     private func sizeForItem(at indexPath: IndexPath) -> CGSize {
-        guard let id = dataSource.itemIdentifier(for: indexPath),
-              let viewModel,
-              let message = messagesById[id] else {
+        guard let id = dataSource.itemIdentifier(for: indexPath), let viewModel else {
+            return .zero
+        }
+
+        // Handle typing indicator size
+        if id == TypingIndicatorCell.itemId {
+            return typingIndicatorSize
+        }
+
+        guard let message = messagesById[id] else {
             return .zero
         }
         if useUIKitBubbles, let cached = sizeCache[id] {

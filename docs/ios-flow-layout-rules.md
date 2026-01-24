@@ -13,6 +13,9 @@
 - SwiftUI may perform multiple internal passes, but the **external layout must converge**.
 - Collection view layout is the only owner of placement; SwiftUI does not reposition items.
 - Horizontal placement honors the flow rules (row wrapping); vertical gaps come only from row spacing.
+- Bubble visual bounds **must match** the layout bounds (no invisible trailing space).
+- Padding is **only** the standard flow gap, applied evenly horizontally and vertically.
+- Overlaps are never allowed.
 
 ## Current implementation decisions
 - Use `UICollectionViewFlowLayout` with **delegate sizing**:

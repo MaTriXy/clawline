@@ -13,12 +13,12 @@ struct MessageBubble: View {
     let message: Message
     let presentation: MessagePresentation
     let onLayoutInvalidation: ((String) -> Void)?
+    let truncationState: TruncationState
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var showExpandedSheet = false
-    @State private var measuredContentHeight: CGFloat = 0
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
     private var metrics: ChatFlowTheme.Metrics { ChatFlowTheme.Metrics(isCompact: isCompact) }
@@ -33,16 +33,22 @@ struct MessageBubble: View {
     }
 
     var body: some View {
-        bubble
-            .fixedSize(horizontal: sizeClass == .short, vertical: true)
+        sizedBubble
             .layoutValue(key: MessageSizeClassKey.self, value: sizeClass)
-            .onChange(of: measuredContentHeight) { oldValue, newValue in
-                guard abs(newValue - oldValue) > 0.5 else { return }
-                invalidateLayout()
-            }
             .sheet(isPresented: $showExpandedSheet) {
                 ExpandedMessageSheet(message: message, presentation: presentation)
             }
+    }
+
+    @ViewBuilder
+    private var sizedBubble: some View {
+        if sizeClass == .short {
+            bubble
+                .fixedSize(horizontal: true, vertical: true)
+        } else {
+            bubble
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var bubble: some View {
@@ -132,39 +138,32 @@ struct MessageBubble: View {
     private var textContainer: some View {
         Group {
             if sizeClass == .long {
-                textualStack
+                textualContent
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: maxLineWidth, alignment: .leading)
-                    .frame(maxHeight: shouldTruncate ? metrics.truncationHeight : nil, alignment: .topLeading)
                     .clipped()
                     .overlay(truncationFadeOverlay)
-                    .background(
-                        textualStack
-                            .frame(maxWidth: maxLineWidth, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .background(ContentHeightReader())
-                            .hidden()
-                    )
+            } else if sizeClass == .short {
+                textualContent
+                    .fixedSize(horizontal: true, vertical: true)
             } else {
-                textualStack
+                textualContent
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: maxLineWidth, alignment: .leading)
             }
-        }
-        .onPreferenceChange(ContentHeightPreferenceKey.self) { newValue in
-            measuredContentHeight = newValue
         }
     }
 
-    private var textualStack: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(textualParts.enumerated()), id: \.offset) { item in
-                partView(item.element)
-            }
-        }
-        .font(fontForSizeClass())
-        .foregroundColor(ChatFlowTheme.ink(colorScheme))
-        .lineSpacing(sizeClass == .short ? 0 : 4)
+    private var textualContent: some View {
+        MessageBubbleTextContentView(
+            message: message,
+            presentation: presentation,
+            metrics: metrics,
+            colorScheme: colorScheme,
+            sizeClass: sizeClass,
+            onLayoutInvalidation: { invalidateLayout() },
+            onRequestExpand: { showExpandedSheet = true }
+        )
     }
 
     @ViewBuilder
@@ -265,12 +264,21 @@ struct MessageBubble: View {
     }
 
     private var innerHighlightOverlay: some View {
-        LinearGradient(
-            colors: [Color.white.opacity(0.15), Color.clear],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .clipShape(bubbleShape)
+        // 3D border effect - bright stroke at top that fades down sides
+        // Simulates CSS: inset 0 1px 1px rgba(255, 255, 255, 0.15)
+        bubbleShape
+            .strokeBorder(
+                LinearGradient(
+                    stops: [
+                        .init(color: Color.white.opacity(0.35), location: 0),
+                        .init(color: Color.white.opacity(0.15), location: 0.3),
+                        .init(color: Color.clear, location: 0.6)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                lineWidth: 1.5
+            )
     }
 
     @ViewBuilder
@@ -329,22 +337,11 @@ struct MessageBubble: View {
     }
 
     private var shouldTruncate: Bool {
-        MessageFlowRules.shouldTruncate(
-            hasTextualParts: hasTextualParts,
-            sizeClass: sizeClass,
-            isExpanded: false,
-            measuredHeight: measuredContentHeight,
-            metrics: metrics
-        )
+        truncationState.shouldTruncate
     }
 
     private var shouldShowTruncationControl: Bool {
-        MessageFlowRules.shouldShowTruncationControl(
-            hasTextualParts: hasTextualParts,
-            sizeClass: sizeClass,
-            measuredHeight: measuredContentHeight,
-            metrics: metrics
-        )
+        false
     }
 
     private var senderName: String {
@@ -396,34 +393,102 @@ struct MessageBubble: View {
     }
 }
 
-private struct ContentHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
+struct TruncationState: Equatable {
+    var contentHeight: CGFloat?
+    var shouldTruncate: Bool
+    var showsControl: Bool
+
+    static let none = TruncationState(contentHeight: nil, shouldTruncate: false, showsControl: false)
 }
 
-private struct ContentHeightReader: View {
+struct MessageBubbleTextContentView: View {
+    let message: Message
+    let presentation: MessagePresentation
+    let metrics: ChatFlowTheme.Metrics
+    let colorScheme: ColorScheme
+    let sizeClass: MessageSizeClass
+    let onLayoutInvalidation: (() -> Void)?
+    let onRequestExpand: () -> Void
+
+    private var textualParts: [MessagePart] {
+        presentation.parts.filter { $0.isTextual }
+    }
+
     var body: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .preference(key: ContentHeightPreferenceKey.self, value: proxy.size.height)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(textualParts.enumerated()), id: \.offset) { item in
+                textPartView(item.element)
+            }
+        }
+        .font(fontForSizeClass())
+        .foregroundColor(ChatFlowTheme.ink(colorScheme))
+        .lineSpacing(sizeClass == .short ? 0 : 4)
+    }
+
+    @ViewBuilder
+    private func textPartView(_ part: MessagePart) -> some View {
+        switch part {
+        case .text(let value):
+            Text(value)
+                .lineLimit(nil)
+        case .markdown(let value):
+            if let attributed = try? AttributedString(markdown: value) {
+                Text(attributed)
+                    .lineLimit(nil)
+            } else {
+                Text(value)
+                    .lineLimit(nil)
+            }
+        case .inlineEmoji(let value):
+            Text(value)
+                .font(.system(size: metrics.shortFontSize + 8))
+        case .code(let language, let code):
+            CodeBlockView(language: language, code: code)
+        case .table(let model):
+            MarkdownTableView(
+                model: model,
+                role: message.role,
+                metrics: metrics,
+                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                colorScheme: colorScheme,
+                isExpanded: false,
+                onExpand: onRequestExpand,
+                onCollapse: { }
+            )
+        case .linkPreview, .image, .gallery:
+            EmptyView()
+        }
+    }
+
+    private func fontForSizeClass() -> Font {
+        switch sizeClass {
+        case .short:
+            return .system(size: metrics.shortFontSize, weight: .semibold)
+        case .medium:
+            return .system(size: metrics.mediumFontSize, weight: .medium)
+        case .long:
+            return .system(size: metrics.bodyFontSize, weight: .regular)
         }
     }
 }
 
 private struct AvatarView: View {
     let role: Message.Role
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Text(initial)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundColor(.white)
+        // TEST: Bright pink to confirm this code is running
+        Circle()
+            .fill(Color.pink)
+            .overlay {
+                Circle()
+                    .strokeBorder(Color.yellow, lineWidth: 4)
+            }
+            .overlay {
+                Text(initial)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+            }
             .frame(width: 32, height: 32)
-            .background(avatarGradient)
-            .clipShape(Circle())
-            .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 2)
     }
 
     private var initial: String {
@@ -432,26 +497,30 @@ private struct AvatarView: View {
 
     private var avatarGradient: RadialGradient {
         if role == .user {
+            // RIDICULOUS gradient - bright green center, very dark edges
             return RadialGradient(
-                colors: [
-                    Color(red: 0.420, green: 0.608, blue: 0.416),
-                    Color(red: 0.290, green: 0.478, blue: 0.306),
-                    Color(red: 0.176, green: 0.353, blue: 0.196)
+                stops: [
+                    .init(color: Color(red: 0.6, green: 0.9, blue: 0.6), location: 0),     // Very bright green
+                    .init(color: Color(red: 0.42, green: 0.61, blue: 0.42), location: 0.3), // #6B9B6A
+                    .init(color: Color(red: 0.18, green: 0.35, blue: 0.20), location: 0.7), // #2D5A32
+                    .init(color: Color(red: 0.1, green: 0.2, blue: 0.1), location: 1.0)    // Very dark green
                 ],
-                center: .top,
-                startRadius: 2,
-                endRadius: 18
+                center: UnitPoint(x: 0.4, y: 0.3),
+                startRadius: 0,
+                endRadius: 20
             )
         }
+        // RIDICULOUS terracotta gradient
         return RadialGradient(
-            colors: [
-                ChatFlowTheme.softCoral(colorScheme),
-                ChatFlowTheme.terracotta(colorScheme),
-                Color(red: 0.659, green: 0.353, blue: 0.259)
+            stops: [
+                .init(color: Color(red: 1.0, green: 0.8, blue: 0.7), location: 0),     // Very bright coral
+                .init(color: Color(red: 0.91, green: 0.66, blue: 0.61), location: 0.3), // soft-coral
+                .init(color: Color(red: 0.66, green: 0.35, blue: 0.26), location: 0.7), // #A85A42
+                .init(color: Color(red: 0.4, green: 0.2, blue: 0.15), location: 1.0)   // Very dark
             ],
-            center: .top,
-            startRadius: 2,
-            endRadius: 18
+            center: UnitPoint(x: 0.4, y: 0.3),
+            startRadius: 0,
+            endRadius: 20
         )
     }
 }
@@ -619,7 +688,7 @@ private struct LinkPreviewCard: View {
     }
 }
 
-private struct ExpandedMessageSheet: View {
+struct ExpandedMessageSheet: View {
     let message: Message
     let presentation: MessagePresentation
     @Environment(\.dismiss) private var dismiss

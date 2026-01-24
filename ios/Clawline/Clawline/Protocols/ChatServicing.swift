@@ -33,6 +33,7 @@ enum ChatServiceEvent: Equatable {
     case messageError(messageId: String?, code: String, message: String?)
     case connectionInterrupted(reason: String?)
     case userInfo(ChatUserInfo)
+    case typingStateChanged(isTyping: Bool)
 }
 
 protocol ChatServicing {

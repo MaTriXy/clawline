@@ -16,7 +16,7 @@ enum ChatChannelType: String, Codable, CaseIterable, Equatable {
         case .personal:
             return "Personal"
         case .admin:
-            return "Admin"
+            return "DM"
         }
     }
 }

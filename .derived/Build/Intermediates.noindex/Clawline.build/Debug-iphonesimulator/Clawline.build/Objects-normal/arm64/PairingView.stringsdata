@@ -1,0 +1,64 @@
+{
+  "source": "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Pairing/PairingView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Clawline",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 60
+        }
+      },
+      {
+        "comment": "",
+        "key": "Your name",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 162
+        }
+      },
+      {
+        "comment": "",
+        "key": "Server address",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 211
+        }
+      },
+      {
+        "comment": "",
+        "key": "Retry pairing request",
+        "location": {
+          "startingColumn": 37,
+          "startingLine": 295
+        }
+      },
+      {
+        "comment": "",
+        "key": "Waiting for owner",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 270
+        }
+      },
+      {
+        "comment": "",
+        "key": "This might take a while, check back soon",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 256
+        }
+      },
+      {
+        "comment": "",
+        "key": "Tap retry to resubmit the request.",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 259
+        }
+      }
+    ]
+  },
+  "version": 1
+}

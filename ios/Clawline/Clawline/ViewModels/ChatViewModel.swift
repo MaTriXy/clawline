@@ -31,10 +31,13 @@ final class ChatViewModel: ChatViewModelHosting {
     }
     var attachmentData: [UUID: PendingAttachment] = [:]
     private(set) var isSending: Bool = false
+    private(set) var isAssistantTyping: Bool = false
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var connectionAlert: ConnectionAlertSeverity?
     private(set) var error: String?
     private(set) var sendTask: Task<Void, Never>?
+    /// Tracks if typing indicator was visible when a message arrives (for morph transition).
+    private(set) var shouldMorphTypingIndicator: Bool = false
 
     var canSend: Bool {
         connectionAlert == nil && !inputContent.isEffectivelyEmpty
@@ -264,6 +267,16 @@ final class ChatViewModel: ChatViewModelHosting {
         logger.info(
             "incoming id=\(message.id, privacy: .public) channel=\(message.channelType.rawValue, privacy: .public) role=\(String(describing: message.role), privacy: .public) streaming=\(message.streaming, privacy: .public) deviceId=\(message.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
         )
+
+        // Check if this is an assistant message arriving while typing indicator is visible.
+        // If so, the UI should morph the typing indicator into this message instead of inserting new.
+        if message.role == .assistant && isAssistantTyping {
+            shouldMorphTypingIndicator = true
+            isAssistantTyping = false
+        } else {
+            shouldMorphTypingIndicator = false
+        }
+
         if replacePendingMessageIfNeeded(with: message) {
             logger.info("incoming replacePending id=\(message.id, privacy: .public)")
             updateLastServerMessageIdIfNeeded(with: message)
@@ -649,14 +662,17 @@ final class ChatViewModel: ChatViewModelHosting {
             if info.isAdmin {
                 ensureChannelStorage(for: .admin)
                 if !wasAdmin {
-                    toastManager.show("Admin channel unlocked")
+                    toastManager.show("DM channel unlocked")
                 }
             } else if wasAdmin {
-                toastManager.show("Admin access revoked")
+                toastManager.show("DM access revoked")
                 if activeChannel == .admin {
                     setActiveChannel(.personal)
                 }
             }
+        case .typingStateChanged(let isTyping):
+            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) (was \(self.isAssistantTyping, privacy: .public))")
+            isAssistantTyping = isTyping
         }
     }
 
