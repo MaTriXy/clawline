@@ -342,11 +342,20 @@ struct ChatView: View {
     private func pagedChannelView(topInset: CGFloat, bottomInset: CGFloat) -> some View {
         TabView(selection: channelBinding) {
             messageList(topInset: topInset, bottomInset: bottomInset, channel: .personal)
-                .background(Color.clear)
+                .background {
+                    ChatFlowTheme.pageBackground(colorScheme)
+                        .ignoresSafeArea()
+                        .overlay(NoiseOverlayView().ignoresSafeArea())
+                }
                 .tag(ChatChannelType.personal)
 
             messageList(topInset: topInset, bottomInset: bottomInset, channel: .admin)
-                .background(Color.clear)
+                .background {
+                    ChatFlowTheme.pageBackground(colorScheme)
+                        .ignoresSafeArea()
+                        .overlay(adminBackgroundOverlay)
+                        .overlay(NoiseOverlayView().ignoresSafeArea())
+                }
                 .tag(ChatChannelType.admin)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
