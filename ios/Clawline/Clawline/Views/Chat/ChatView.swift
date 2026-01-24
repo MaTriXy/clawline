@@ -129,9 +129,16 @@ struct ChatView: View {
             let bottomInset: CGFloat = resolvedInputHeight + MessageInputBarMetrics.elementSpacing + bottomSafeArea
 
             ZStack(alignment: .top) {
-                messageList(topInset: topInset, bottomInset: bottomInset)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: [.top, .bottom])
+                // Paged channel view for admins, single channel for regular users
+                if authManager.isAdmin {
+                    pagedChannelView(topInset: topInset, bottomInset: bottomInset)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .ignoresSafeArea(.container, edges: [.top, .bottom])
+                } else {
+                    messageList(topInset: topInset, bottomInset: bottomInset, channel: .personal)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .ignoresSafeArea(.container, edges: [.top, .bottom])
+                }
 
                 // Channel toast (centered)
                 if channelToastManager.isVisible {
@@ -319,33 +326,48 @@ struct ChatView: View {
         }
     }
 
-    private func messageList(topInset: CGFloat, bottomInset: CGFloat) -> some View {
+    private func messageList(topInset: CGFloat, bottomInset: CGFloat, channel: ChatChannelType) -> some View {
         MessageFlowCollectionView(
             viewModel: viewModel,
             topInset: topInset,
             bottomInset: bottomInset,
             isCompact: horizontalSizeClass == .compact,
             isKeyboardVisible: isInputFocused,
-            onChannelSwipe: handleChannelSwipe
+            channel: channel
         )
     }
 
-    /// Handle swipe gesture to switch between channels (admin only)
-    private func handleChannelSwipe(_ newChannel: ChatChannelType) {
-        guard authManager.isAdmin else { return }
+    /// Paged TabView for horizontal swipe between channels (admin only)
+    @ViewBuilder
+    private func pagedChannelView(topInset: CGFloat, bottomInset: CGFloat) -> some View {
+        TabView(selection: channelBinding) {
+            messageList(topInset: topInset, bottomInset: bottomInset, channel: .personal)
+                .tag(ChatChannelType.personal)
 
-        // Only switch if different channel
-        guard newChannel != viewModel.activeChannel else { return }
-
-        // Haptic feedback
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-
-        // Switch channel and show toast
-        viewModel.setActiveChannel(newChannel)
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            channelToastManager.show(channel: newChannel)
+            messageList(topInset: topInset, bottomInset: bottomInset, channel: .admin)
+                .tag(ChatChannelType.admin)
         }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+    }
+
+    /// Binding that syncs TabView selection with viewModel.activeChannel
+    private var channelBinding: Binding<ChatChannelType> {
+        Binding(
+            get: { viewModel.activeChannel },
+            set: { newChannel in
+                guard newChannel != viewModel.activeChannel else { return }
+
+                // Haptic feedback
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+
+                // Switch channel and show toast
+                viewModel.setActiveChannel(newChannel)
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    channelToastManager.show(channel: newChannel)
+                }
+            }
+        )
     }
 
     private func errorBanner(_ message: String) -> some View {

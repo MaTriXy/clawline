@@ -25,6 +25,11 @@ final class ChatViewModel: ChatViewModelHosting {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     private(set) var messages: [Message] = []
     private(set) var activeChannel: ChatChannelType = .personal
+
+    /// Returns messages for a specific channel (used by paged channel views)
+    func messages(for channel: ChatChannelType) -> [Message] {
+        channelMessages[channel] ?? []
+    }
     private(set) var lastServerMessageId: String?
     var inputContent: NSAttributedString = NSAttributedString() {
         didSet { pruneAttachmentData() }

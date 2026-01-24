@@ -16,26 +16,25 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var bottomInset: CGFloat
     var isCompact: Bool
     var isKeyboardVisible: Bool
-    var onChannelSwipe: ((ChatChannelType) -> Void)?
+    /// Optional channel override - if provided, shows messages for this channel instead of activeChannel
+    var channel: ChatChannelType?
 
     func makeUIViewController(context: Context) -> MessageFlowCollectionViewController {
         let controller = MessageFlowCollectionViewController()
         controller.loadViewIfNeeded()
-        controller.onChannelSwipe = onChannelSwipe
-        controller.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible)
+        controller.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible, channel: channel)
         return controller
     }
 
     func updateUIViewController(_ uiViewController: MessageFlowCollectionViewController, context: Context) {
-        uiViewController.onChannelSwipe = onChannelSwipe
-        uiViewController.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible)
+        uiViewController.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible, channel: channel)
     }
 }
 
-final class MessageFlowCollectionViewController: UIViewController, UICollectionViewDelegateFlowLayout, UIGestureRecognizerDelegate {
+final class MessageFlowCollectionViewController: UIViewController, UICollectionViewDelegateFlowLayout {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     private var collectionView: UICollectionView!
-    var onChannelSwipe: ((ChatChannelType) -> Void)?
+    private var channelOverride: ChatChannelType?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var flowLayout: MessageFlowLayout!
     private let useUIKitBubbles = true
@@ -91,42 +90,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         configureCollectionView()
         configureDataSource()
         setupKeyboardTracking()
-        setupSwipeGestures()
-    }
-
-    private func setupSwipeGestures() {
-        let swipeLeft = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
-        swipeLeft.direction = .left
-        swipeLeft.delegate = self
-        collectionView.addGestureRecognizer(swipeLeft)
-
-        let swipeRight = UISwipeGestureRecognizer(target: self, action: #selector(handleSwipe(_:)))
-        swipeRight.direction = .right
-        swipeRight.delegate = self
-        collectionView.addGestureRecognizer(swipeRight)
-    }
-
-    @objc private func handleSwipe(_ gesture: UISwipeGestureRecognizer) {
-        let newChannel: ChatChannelType
-        switch gesture.direction {
-        case .left:
-            newChannel = .admin
-        case .right:
-            newChannel = .personal
-        default:
-            return
-        }
-        onChannelSwipe?(newChannel)
-    }
-
-    // Allow swipe gestures to work alongside scroll gestures
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                          shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        // Allow swipe gestures to coexist with scroll gestures
-        if gestureRecognizer is UISwipeGestureRecognizer {
-            return true
-        }
-        return false
     }
 
     private func setupKeyboardTracking() {
@@ -191,9 +154,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool) {
+    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, channel: ChatChannelType? = nil) {
         loadViewIfNeeded()
         self.viewModel = viewModel
+        self.channelOverride = channel
         let previousBottomInset = self.bottomInset
         let wasNearBottom = isNearBottom(extraMargin: max(24, previousBottomInset))
         let keyboardJustAppeared = isKeyboardVisible && !self.isKeyboardVisible
@@ -210,7 +174,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             updateLayout()
         }
 
-        let messages = viewModel.messages
+        // Use channel override if provided, otherwise use activeChannel messages
+        let messages = channel.map { viewModel.messages(for: $0) } ?? viewModel.messages
         let messageCount = messages.count
         if Set(messages.map(\.id)).count != messageCount {
             logger.info("diffing duplicate ids in viewModel.messages count=\(messageCount, privacy: .public)")
