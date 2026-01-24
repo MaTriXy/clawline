@@ -18,16 +18,19 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var isKeyboardVisible: Bool
     /// Optional channel override - if provided, shows messages for this channel instead of activeChannel
     var channel: ChatChannelType?
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeUIViewController(context: Context) -> MessageFlowCollectionViewController {
         let controller = MessageFlowCollectionViewController()
         controller.loadViewIfNeeded()
-        controller.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible, channel: channel)
+        let isDark = colorScheme == .dark
+        controller.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible, channel: channel, isDark: isDark)
         return controller
     }
 
     func updateUIViewController(_ uiViewController: MessageFlowCollectionViewController, context: Context) {
-        uiViewController.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible, channel: channel)
+        let isDark = colorScheme == .dark
+        uiViewController.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible, channel: channel, isDark: isDark)
     }
 }
 
@@ -40,7 +43,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private let useUIKitBubbles = true
     private let uiKitSizingContainer = MessageBubbleUIKitContainerView()
     private let uiKitBubbleSizer = MessageBubbleUIKitView()
-    private var traitObservation: (any NSObjectProtocol)?
     private var currentIsDark: Bool = false
 
     private var messagesById: [String: Message] = [:]
@@ -93,21 +95,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         configureDataSource()
         setupKeyboardTracking()
 
-        // Set initial dark mode state
-        currentIsDark = traitCollection.userInterfaceStyle == .dark
-
-        // Register for trait changes (modern API, replaces deprecated traitCollectionDidChange)
-        traitObservation = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (vc: MessageFlowCollectionViewController, previousTraitCollection: UITraitCollection) in
-            // Force reload all cells to pick up new colors
-            // Update our tracked isDark state from the VC's trait collection (synchronously on main thread)
-            guard let self else { return }
-            let newIsDark = vc.traitCollection.userInterfaceStyle == .dark
-            guard self.currentIsDark != newIsDark else { return }
-            self.currentIsDark = newIsDark
-            self.sizeCache.removeAll()
-            self.lastMeasuredSizes.removeAll()
-            self.collectionView.reloadData()
-        }
+        // currentIsDark will be set by the first update() call from SwiftUI
+        // which passes the colorScheme environment value
     }
 
     private func setupKeyboardTracking() {
@@ -158,10 +147,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
 
-    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, channel: ChatChannelType? = nil) {
+    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
         loadViewIfNeeded()
         self.viewModel = viewModel
         self.channelOverride = channel
+
+        // Handle appearance change from SwiftUI colorScheme
+        if let isDark = isDark, currentIsDark != isDark {
+            logger.info("update: appearance changed isDark=\(isDark, privacy: .public)")
+            currentIsDark = isDark
+            sizeCache.removeAll()
+            lastMeasuredSizes.removeAll()
+            forceReconfigureAll = true
+        }
+
         let previousBottomInset = self.bottomInset
         let wasNearBottom = isNearBottom(extraMargin: max(24, previousBottomInset))
         let keyboardJustAppeared = isKeyboardVisible && !self.isKeyboardVisible

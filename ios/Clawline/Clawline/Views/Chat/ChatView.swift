@@ -227,6 +227,7 @@ struct ChatView: View {
                 .animation(.easeOut(duration: 0.25), value: concentricOffset)
             }
         }
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
         .background {
             // For admin users with paged TabView, each page has its own background
             // to avoid gradient toggling during swipe. For regular users, apply here.

@@ -362,8 +362,19 @@ final class ProviderChatService: ChatServicing {
                 logger.warning("Failed to decode activity event payload")
                 return
             }
-            let channel = ChatChannelType(rawValue: payload.payload.sessionKey ?? "personal") ?? .personal
-            logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public) channel=\(channel.rawValue, privacy: .public)")
+            // Map server sessionKey to iOS channel type
+            // Server may send "dm", "admin", "personal", or nil
+            let channel: ChatChannelType
+            switch payload.payload.sessionKey?.lowercased() {
+            case "dm", "admin":
+                channel = .admin
+            case "personal", .none:
+                channel = .personal
+            default:
+                logger.warning("Unknown sessionKey: \(payload.payload.sessionKey ?? "nil", privacy: .public), defaulting to personal")
+                channel = .personal
+            }
+            logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public) sessionKey=\(payload.payload.sessionKey ?? "nil", privacy: .public) channel=\(channel.rawValue, privacy: .public)")
             serviceEventContinuation?.yield(.typingStateChanged(isTyping: payload.payload.isActive, channel: channel))
         default:
             logger.debug("Unknown event type: \(envelope.event, privacy: .public)")

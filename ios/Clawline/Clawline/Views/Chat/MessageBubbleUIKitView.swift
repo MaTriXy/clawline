@@ -85,6 +85,7 @@ final class MessageBubbleUIKitContainerView: UIView {
 }
 
 final class MessageBubbleUIKitView: UIView {
+    private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "BubbleTheme")
     private let shadowContainerView = UIView()  // Separate view for shadow (masks clip shadows)
     private let bubbleBackgroundView = UIView()
     private let contentStack = UIStackView()
@@ -323,6 +324,7 @@ final class MessageBubbleUIKitView: UIView {
         // Store for trait collection updates
         currentMessageRole = message.role
         currentChannelType = message.channelType
+
         // Reset width constraints per size class.
         currentMetrics = metrics
         minWidthConstraint.constant = 120
@@ -333,6 +335,7 @@ final class MessageBubbleUIKitView: UIView {
 
         // Use explicit isDark if provided, otherwise fall back to trait collection
         let effectiveIsDark = isDark ?? (traitCollection.userInterfaceStyle == .dark)
+        Self.logger.debug("configure: isDark=\(isDark.map { String($0) } ?? "nil", privacy: .public) effectiveIsDark=\(effectiveIsDark, privacy: .public) role=\(String(describing: message.role), privacy: .public)")
         let palette = ChatFlowUIKitTheme.palette(isDark: effectiveIsDark)
         let senderColor = (message.channelType == .admin) ? palette.adminAccent : palette.warmBrown
         senderLabel.font = UIFont.systemFont(ofSize: metrics.senderFontSize, weight: .semibold)
@@ -519,7 +522,9 @@ final class MessageBubbleUIKitView: UIView {
     }
 
     private func updateAppearanceColors() {
-        let palette = ChatFlowUIKitTheme.palette(isDark: traitCollection.userInterfaceStyle == .dark)
+        let isDark = traitCollection.userInterfaceStyle == .dark
+        Self.logger.debug("updateAppearanceColors: isDark=\(isDark, privacy: .public) role=\(String(describing: self.currentMessageRole), privacy: .public)")
+        let palette = ChatFlowUIKitTheme.palette(isDark: isDark)
 
         // Update sender label color
         let senderColor = (currentChannelType == .admin) ? palette.adminAccent : palette.warmBrown
