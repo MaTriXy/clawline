@@ -11,7 +11,7 @@ A native iOS chat app for communicating with your [Clawd](https://clawd.me) assi
 
 ## What is Clawd?
 
-[Clawd](https://clawd.me) is a personal AI assistant platform. Clawline gives you a dedicated mobile interface to chat with your Clawd instance — with slick native animations, media support, and secure pairing.
+[Clawd](https://clawd.me) is a personal AI assistant platform. Clawline gives you a dedicated mobile interface to chat with your Clawd instance — with slick native animations and media support.
 
 ## Features
 
@@ -21,7 +21,7 @@ A native iOS chat app for communicating with your [Clawd](https://clawd.me) assi
 - Markdown rendering in messages
 - Typing indicators
 - Dark mode support
-- Secure token-based authentication
+- Token-based authentication
 
 ## Requirements
 
