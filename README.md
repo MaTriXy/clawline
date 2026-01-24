@@ -1,31 +1,130 @@
 # Clawline
 
-A native iOS/Android chat app for communicating with your [Clawd](https://clawd.me) assistant.
+A native iOS chat app for communicating with your [Clawd](https://clawd.me) assistant.
+
+![Platform](https://img.shields.io/badge/platform-iOS%2026+-blue)
+![Swift](https://img.shields.io/badge/Swift-5.0-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+<!-- TODO: Add screenshot or demo GIF -->
+<!-- ![Clawline Demo](docs/assets/demo.gif) -->
 
 ## What is Clawd?
 
 [Clawd](https://clawd.me) is a personal AI assistant platform. Clawline gives you a dedicated mobile interface to chat with your Clawd instance — with slick native animations, media support, and secure pairing.
 
-## Structure
+## Features
 
-- `ios/` — Swift/SwiftUI project
-- `android/` — Kotlin/Jetpack Compose project
-- `provider/` — Clawdbot provider (WebSocket connector)
-- `shared/` — Assets, icons, API specs
-- `docs/` — Protocol docs, design notes
-- `prompts/` — LLM translation prompts that work well
+- Native SwiftUI interface with smooth animations
+- Real-time WebSocket messaging
+- Media attachments (images, documents)
+- Markdown rendering in messages
+- Typing indicators
+- Dark mode support
+- Secure token-based authentication
+
+## Requirements
+
+- **Xcode**: 26.0 or later
+- **iOS**: 26.0 or later (iPhone and iPad)
+- **Swift**: 5.0
+- **macOS**: Sequoia 15.0+ (for development)
+
+## Getting Started
+
+### Prerequisites
+
+1. Install Xcode from the Mac App Store or [Apple Developer](https://developer.apple.com/xcode/)
+2. Clone this repository:
+   ```bash
+   git clone https://github.com/clicketyclackety/clawline.git
+   cd clawline
+   ```
+
+### Building the iOS App
+
+1. Open the Xcode project:
+   ```bash
+   open ios/Clawline/Clawline.xcodeproj
+   ```
+
+2. Select your target device or simulator
+
+3. Build and run (⌘R)
+
+### Connecting to a Provider
+
+Clawline connects to a Clawd provider via WebSocket. To pair:
+
+1. Launch the app
+2. Enter your provider URL (e.g., `https://your-clawd-instance.example.com`)
+3. Complete the pairing flow with your provider's approval
+
+## Project Structure
+
+```
+clawline/
+├── ios/Clawline/           # iOS app (Swift/SwiftUI)
+│   ├── Clawline/
+│   │   ├── Models/         # Data models (Message, Attachment, etc.)
+│   │   ├── Views/          # SwiftUI views
+│   │   ├── ViewModels/     # Observable view models
+│   │   ├── Services/       # Chat service, upload service
+│   │   ├── Networking/     # WebSocket client
+│   │   ├── DesignSystem/   # Theme, components, flow layout
+│   │   └── Protocols/      # Service protocols for DI
+│   └── ClawlineTests/      # Unit tests
+├── docs/                   # Protocol docs, design notes
+└── shared/                 # Assets, icons, API specs
+```
 
 ## Architecture
 
-- **Native-first**: Swift on iOS, Kotlin on Android (no React Native)
-- **LLM-assisted development**: Code translated between platforms using AI
-- **Custom provider**: Connects to Clawd gateway via WebSocket
-- **Secure pairing**: Token-based identity with approval flow
+### Design Principles
 
-## Status
+- **Native-first**: Pure Swift/SwiftUI, no cross-platform frameworks
+- **Protocol-oriented**: Dependency injection via protocols for testability
+- **Reactive**: SwiftUI's `@Observable` for state management
+- **Offline-resilient**: Automatic reconnection with exponential backoff
 
-🚧 Early development
+### Key Components
+
+| Component | Description |
+|-----------|-------------|
+| `ChatViewModel` | Main state container for chat UI |
+| `ProviderChatService` | WebSocket connection and message handling |
+| `MessageFlowCollectionView` | UIKit collection view with flow layout |
+| `MessageBubble` | SwiftUI bubble with markdown support |
+| `ChatFlowTheme` | Typography, colors, and layout metrics |
+
+### Communication Protocol
+
+Clawline uses a WebSocket-based protocol with JSON messages:
+
+- `auth` — Authentication with token
+- `message` — Chat messages (user/assistant)
+- `ack` — Message delivery confirmation
+- `event` — Activity signals (typing indicators)
+- `error` — Error responses
+
+See [docs/protocol.md](docs/protocol.md) for full specification.
+
+## Development
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and contribution guidelines.
+
+### Running Tests
+
+```bash
+cd ios/Clawline
+xcodebuild test -scheme Clawline -destination 'platform=iOS Simulator,name=iPhone 16'
+```
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE) for details.
+
+## Acknowledgments
+
+- Built with assistance from [Claude Code](https://claude.ai/claude-code)
+- Design inspired by modern chat interfaces
