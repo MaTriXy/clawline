@@ -342,12 +342,15 @@ struct ChatView: View {
     private func pagedChannelView(topInset: CGFloat, bottomInset: CGFloat) -> some View {
         TabView(selection: channelBinding) {
             messageList(topInset: topInset, bottomInset: bottomInset, channel: .personal)
+                .background(Color.clear)
                 .tag(ChatChannelType.personal)
 
             messageList(topInset: topInset, bottomInset: bottomInset, channel: .admin)
+                .background(Color.clear)
                 .tag(ChatChannelType.admin)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
+        .scrollContentBackground(.hidden)
         .background(Color.clear)
     }
 

@@ -651,10 +651,8 @@ final class ChatViewModel: ChatViewModelHosting {
             let resolved = userFacingMessage(for: code, fallback: message)
             toastManager.show(resolved)
             guard let messageId else { return }
-            messageFailures[messageId] = MessageFailure(code: code, message: message)
-            if let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == messageId }) {
-                pendingLocalMessages.remove(at: pendingIndex)
-            }
+            // Remove the optimistic placeholder from the UI so user knows message wasn't sent
+            removePlaceholder(withId: messageId)
             if activeClientMessageId == messageId {
                 activeClientMessageId = nil
             }
@@ -675,9 +673,12 @@ final class ChatViewModel: ChatViewModelHosting {
                     setActiveChannel(.personal)
                 }
             }
-        case .typingStateChanged(let isTyping):
-            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) (was \(self.isAssistantTyping, privacy: .public))")
-            isAssistantTyping = isTyping
+        case .typingStateChanged(let isTyping, let channel):
+            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) channel=\(channel.rawValue, privacy: .public) activeChannel=\(self.activeChannel.rawValue, privacy: .public)")
+            // Only show typing indicator if it's for the currently active channel
+            if channel == self.activeChannel {
+                self.isAssistantTyping = isTyping
+            }
         }
     }
 

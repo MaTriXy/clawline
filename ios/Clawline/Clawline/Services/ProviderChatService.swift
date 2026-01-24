@@ -93,6 +93,7 @@ final class ProviderChatService: ChatServicing {
 
         struct ActivityPayload: Decodable {
             let isActive: Bool
+            let sessionKey: String?
         }
     }
 
@@ -361,8 +362,9 @@ final class ProviderChatService: ChatServicing {
                 logger.warning("Failed to decode activity event payload")
                 return
             }
-            logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public)")
-            serviceEventContinuation?.yield(.typingStateChanged(isTyping: payload.payload.isActive))
+            let channel = ChatChannelType(rawValue: payload.payload.sessionKey ?? "personal") ?? .personal
+            logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public) channel=\(channel.rawValue, privacy: .public)")
+            serviceEventContinuation?.yield(.typingStateChanged(isTyping: payload.payload.isActive, channel: channel))
         default:
             logger.debug("Unknown event type: \(envelope.event, privacy: .public)")
         }
@@ -370,8 +372,19 @@ final class ProviderChatService: ChatServicing {
 
     private func handleSocketClose() {
         resolveAuthContinuation(with: .failure(Error.notConnected))
-        pendingMessages.values.forEach { $0.retryTask?.cancel() }
+
+        // Notify the UI about each pending message that failed to send
+        // This removes the optimistic placeholders so users know messages weren't delivered
+        for (messageId, pending) in pendingMessages {
+            pending.retryTask?.cancel()
+            serviceEventContinuation?.yield(.messageError(
+                messageId: messageId,
+                code: "connection_lost",
+                message: "Message not delivered - connection lost"
+            ))
+        }
         pendingMessages.removeAll()
+
         stateContinuation?.yield(.disconnected)
         if shouldNotifyDisconnect {
             serviceEventContinuation?.yield(.connectionInterrupted(reason: pendingDisconnectReason))

@@ -520,8 +520,15 @@ final class MessageBubbleUIKitView: UIView {
         let senderColor = (currentChannelType == .admin) ? palette.adminAccent : palette.warmBrown
         senderLabel.textColor = senderColor.withAlphaComponent(currentChannelType == .admin ? 1.0 : 0.7)
 
-        // Update body text color
-        bodyLabel.textColor = palette.ink
+        // Update body text color - must update attributed string since textColor is ignored for attributed text
+        if let attributedText = bodyLabel.attributedText, attributedText.length > 0 {
+            let mutable = NSMutableAttributedString(attributedString: attributedText)
+            mutable.addAttribute(.foregroundColor, value: palette.ink, range: NSRange(location: 0, length: mutable.length))
+            bodyLabel.attributedText = mutable
+        }
+
+        // Update truncation label color
+        truncationLabel.textColor = (currentMessageRole == .user) ? palette.terracotta : palette.warmBrown
 
         // Update truncation border
         truncationBorder.backgroundColor = palette.borderSubtle
