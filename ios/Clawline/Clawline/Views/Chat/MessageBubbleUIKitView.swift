@@ -296,9 +296,8 @@ final class MessageBubbleUIKitView: UIView {
 
         avatarView.configure(role: message.role, isDark: palette.isDark)
 
-        let text = MessageBubbleUIKitView.textContent(from: presentation)
         bodyLabel.attributedText = MessageBubbleUIKitView.attributedBody(
-            text: text,
+            presentation: presentation,
             sizeClass: sizeClass,
             metrics: metrics,
             inkColor: palette.ink
@@ -461,31 +460,140 @@ final class MessageBubbleUIKitView: UIView {
         .joined(separator: "\n\n")
     }
 
-    private static func attributedBody(text: String,
+    private static func attributedBody(presentation: MessagePresentation,
                                        sizeClass: MessageSizeClass,
                                        metrics: ChatFlowTheme.Metrics,
                                        inkColor: UIColor) -> NSAttributedString {
-        let font: UIFont
+        let baseFont: UIFont
         let lineSpacing: CGFloat
         switch sizeClass {
         case .short:
-            font = UIFont.systemFont(ofSize: metrics.shortFontSize, weight: .semibold)
+            baseFont = UIFont.systemFont(ofSize: metrics.shortFontSize, weight: .semibold)
             lineSpacing = 0
         case .medium:
-            font = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
+            baseFont = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
             lineSpacing = 4
         case .long:
-            font = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular)
+            baseFont = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular)
             lineSpacing = 4
         }
+
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = lineSpacing
         paragraph.alignment = .left
-        return NSAttributedString(string: text, attributes: [
-            .font: font,
+
+        let baseAttributes: [NSAttributedString.Key: Any] = [
+            .font: baseFont,
             .foregroundColor: inkColor,
             .paragraphStyle: paragraph
-        ])
+        ]
+
+        let result = NSMutableAttributedString()
+        let textualParts = presentation.parts.filter { $0.isTextual }
+
+        for (index, part) in textualParts.enumerated() {
+            if index > 0 {
+                result.append(NSAttributedString(string: "\n\n", attributes: baseAttributes))
+            }
+
+            switch part {
+            case .text(let value):
+                result.append(NSAttributedString(string: value, attributes: baseAttributes))
+
+            case .markdown(let value):
+                // Parse markdown to attributed string
+                if let parsed = parseMarkdown(value, baseFont: baseFont, inkColor: inkColor, lineSpacing: lineSpacing) {
+                    result.append(parsed)
+                } else {
+                    result.append(NSAttributedString(string: value, attributes: baseAttributes))
+                }
+
+            case .inlineEmoji(let value):
+                result.append(NSAttributedString(string: value, attributes: baseAttributes))
+
+            case .code(let language, let code):
+                let codeFont = UIFont.monospacedSystemFont(ofSize: baseFont.pointSize - 2, weight: .regular)
+                let codeAttributes: [NSAttributedString.Key: Any] = [
+                    .font: codeFont,
+                    .foregroundColor: inkColor,
+                    .backgroundColor: inkColor.withAlphaComponent(0.08),
+                    .paragraphStyle: paragraph
+                ]
+                if let lang = language, !lang.isEmpty {
+                    let langAttributes: [NSAttributedString.Key: Any] = [
+                        .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
+                        .foregroundColor: inkColor.withAlphaComponent(0.6)
+                    ]
+                    result.append(NSAttributedString(string: lang.uppercased() + "\n", attributes: langAttributes))
+                }
+                result.append(NSAttributedString(string: code, attributes: codeAttributes))
+
+            case .table(let model):
+                result.append(NSAttributedString(string: "Table (\(model.rows.count) rows)", attributes: baseAttributes))
+
+            case .linkPreview, .image, .gallery:
+                break
+            }
+        }
+
+        return result
+    }
+
+    /// Parse markdown string into NSAttributedString with proper formatting
+    private static func parseMarkdown(_ markdown: String,
+                                      baseFont: UIFont,
+                                      inkColor: UIColor,
+                                      lineSpacing: CGFloat) -> NSAttributedString? {
+        // Use AttributedString for markdown parsing, then convert to NSAttributedString
+        guard let attributed = try? AttributedString(
+            markdown: markdown,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) else {
+            return nil
+        }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = lineSpacing
+        paragraph.alignment = .left
+
+        // Convert to NSAttributedString and apply base styling
+        let nsAttributed = NSMutableAttributedString(attributed)
+
+        // Apply base font and color to entire string first
+        let fullRange = NSRange(location: 0, length: nsAttributed.length)
+        nsAttributed.addAttribute(.foregroundColor, value: inkColor, range: fullRange)
+        nsAttributed.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
+
+        // Walk through and update fonts while preserving traits
+        nsAttributed.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
+            guard let existingFont = value as? UIFont else {
+                nsAttributed.addAttribute(.font, value: baseFont, range: range)
+                return
+            }
+
+            let traits = existingFont.fontDescriptor.symbolicTraits
+            var newFont = baseFont
+
+            if traits.contains(.traitBold) && traits.contains(.traitItalic) {
+                if let descriptor = baseFont.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
+                    newFont = UIFont(descriptor: descriptor, size: baseFont.pointSize)
+                }
+            } else if traits.contains(.traitBold) {
+                newFont = UIFont.systemFont(ofSize: baseFont.pointSize, weight: .bold)
+            } else if traits.contains(.traitItalic) {
+                if let descriptor = baseFont.fontDescriptor.withSymbolicTraits(.traitItalic) {
+                    newFont = UIFont(descriptor: descriptor, size: baseFont.pointSize)
+                }
+            } else if traits.contains(.traitMonoSpace) {
+                newFont = UIFont.monospacedSystemFont(ofSize: baseFont.pointSize - 1, weight: .regular)
+                // Add subtle background for inline code
+                nsAttributed.addAttribute(.backgroundColor, value: inkColor.withAlphaComponent(0.08), range: range)
+            }
+
+            nsAttributed.addAttribute(.font, value: newFont, range: range)
+        }
+
+        return nsAttributed
     }
 
     // MARK: - UIKit-Native Text Measurement
