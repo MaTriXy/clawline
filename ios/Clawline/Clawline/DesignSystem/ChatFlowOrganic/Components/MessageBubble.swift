@@ -141,8 +141,7 @@ struct MessageBubble: View {
                 textualContent
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: maxLineWidth, alignment: .leading)
-                    .clipped()
-                    .overlay(truncationFadeOverlay)
+                    .mask(truncationFadeMask)
             } else if sizeClass == .short {
                 textualContent
                     .fixedSize(horizontal: true, vertical: true)
@@ -239,17 +238,23 @@ struct MessageBubble: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    private var truncationFadeOverlay: some View {
-        Group {
-            if shouldTruncate {
-                LinearGradient(
-                    colors: [Color.clear, bubbleFadeColor],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 100)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-            }
+    /// Mask that fades text to transparent at the bottom when truncated.
+    /// White = visible, clear = invisible. The bubble background shows through.
+    @ViewBuilder
+    private var truncationFadeMask: some View {
+        if shouldTruncate {
+            // Single gradient covering the full height - only fades in bottom 20%
+            LinearGradient(
+                stops: [
+                    .init(color: .white, location: 0),
+                    .init(color: .white, location: 0.75),
+                    .init(color: .clear, location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        } else {
+            Color.white
         }
     }
 
@@ -368,12 +373,6 @@ struct MessageBubble: View {
 
     private var borderSubtleColor: Color {
         colorScheme == .dark ? Color.white.opacity(0.08) : Color(red: 0.361, green: 0.290, blue: 0.239).opacity(0.10)
-    }
-
-    private var bubbleFadeColor: Color {
-        message.role == .user
-            ? ChatFlowTheme.sage(colorScheme)
-            : ChatFlowTheme.cream(colorScheme)
     }
 
     private var truncationIndicatorColor: Color {

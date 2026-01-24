@@ -79,30 +79,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             truncationState: .none
         )
     )
-    private lazy var textSizingHost = UIHostingController(
-        rootView: MessageBubbleTextMeasurementView(
-            message: Message(
-                id: "",
-                role: .assistant,
-                content: "",
-                timestamp: Date(),
-                streaming: false,
-                attachments: [],
-                deviceId: nil,
-                channelType: .personal
-            ),
-            presentation: MessagePresentation(
-                parts: [],
-                wordCount: 0,
-                hasTextualContent: false,
-                isEmojiOnly: false,
-                hasMediaOnly: false
-            ),
-            isCompact: true,
-            sizeClass: .medium,
-            maxWidth: 320
-        )
-    )
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -586,19 +562,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func measureSingleLineWidth(for message: Message,
                                         presentation: MessagePresentation,
                                         metrics: ChatFlowTheme.Metrics) -> CGFloat {
-        // Use .short sizeClass to get natural single-line width (fixedSize horizontal: true)
-        textSizingHost.rootView = MessageBubbleTextMeasurementView(
-            message: message,
-            presentation: presentation,
-            isCompact: isCompact,
-            sizeClass: .short,  // Use short to get single-line measurement
-            maxWidth: .greatestFiniteMagnitude
-        )
-        let measured = textSizingHost.sizeThatFits(
-            in: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        // UIKit-native single-line width measurement
+        let textWidth = MessageBubbleUIKitView.measureSingleLineWidth(
+            for: presentation,
+            metrics: metrics
         )
         // Add bubble padding
-        return measured.width + (metrics.bubblePaddingHorizontal * 2)
+        return textWidth + (metrics.bubblePaddingHorizontal * 2)
     }
 
     private func findMinimumWidthForLines(targetLines: Int,
@@ -646,21 +616,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                     presentation: MessagePresentation,
                                     metrics: ChatFlowTheme.Metrics,
                                     atWidth bubbleWidth: CGFloat) -> Int {
-        // Text content width is bubble width minus horizontal padding
-        let contentWidth = bubbleWidth - (metrics.bubblePaddingHorizontal * 2)
-        guard let textHeight = measureTextHeight(
-            for: message,
-            presentation: presentation,
-            sizeClass: .medium,
+        // UIKit-native line count estimation
+        MessageBubbleUIKitView.estimatedLineCount(
+            for: presentation,
             metrics: metrics,
-            maxWidth: contentWidth
-        ) else {
-            return 1
-        }
-        let lineSpacing: CGFloat = 4
-        let font = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
-        let lineHeight = font.lineHeight
-        return Int(ceil((textHeight + lineSpacing) / (lineHeight + lineSpacing)))
+            atBubbleWidth: bubbleWidth
+        )
     }
 
     private func measureTextHeight(for message: Message,
@@ -668,18 +629,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                    sizeClass: MessageSizeClass,
                                    metrics: ChatFlowTheme.Metrics,
                                    maxWidth: CGFloat) -> CGFloat? {
-        guard presentation.hasTextualContent else { return nil }
-        textSizingHost.rootView = MessageBubbleTextMeasurementView(
-            message: message,
-            presentation: presentation,
-            isCompact: isCompact,
+        // UIKit-native text height measurement
+        MessageBubbleUIKitView.measureTextHeight(
+            for: presentation,
             sizeClass: sizeClass,
+            metrics: metrics,
             maxWidth: maxWidth
         )
-        let measured = textSizingHost.sizeThatFits(
-            in: CGSize(width: maxWidth, height: CGFloat.greatestFiniteMagnitude)
-        )
-        return measured.height
     }
 
     private func makeTruncationState(presentation: MessagePresentation,
@@ -913,38 +869,6 @@ private struct MessageBubbleSizingView: View {
     }
 }
 
-private struct MessageBubbleTextMeasurementView: View {
-    let message: Message
-    let presentation: MessagePresentation
-    let isCompact: Bool
-    let sizeClass: MessageSizeClass
-    let maxWidth: CGFloat
-
-    var body: some View {
-        Group {
-            switch sizeClass {
-            case .short:
-                content.fixedSize(horizontal: true, vertical: true)
-            case .medium, .long:
-                content
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: maxWidth, alignment: .leading)
-            }
-        }
-    }
-
-    private var content: some View {
-        MessageBubbleTextContentView(
-            message: message,
-            presentation: presentation,
-            metrics: ChatFlowTheme.Metrics(isCompact: isCompact),
-            colorScheme: .light,
-            sizeClass: sizeClass,
-            onLayoutInvalidation: nil,
-            onRequestExpand: { }
-        )
-    }
-}
 
 private final class MessageFlowLayout: UICollectionViewFlowLayout {
     private var cachedAttributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]

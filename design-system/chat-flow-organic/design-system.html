@@ -324,7 +324,7 @@
         /* Message bubble styles (copied from main) */
         .message-bubble {
             background: var(--bg-bubble-self);
-            border-radius: 24px 24px 3px 24px; /* bottom-right sharp - iMessage convention */
+            border-radius: 24px 24px 4px 24px; /* bottom-right sharp - iMessage convention */
             padding: 16px 20px;
             box-shadow: var(--shadow-bubble);
             max-width: 100%;
@@ -340,7 +340,7 @@
 
         .message-bubble.other {
             background: var(--bg-bubble-other);
-            border-radius: 24px 24px 24px 3px; /* bottom-left sharp - iMessage convention */
+            border-radius: 24px 24px 24px 4px; /* bottom-left sharp - iMessage convention */
         }
 
         .message-header {
@@ -651,7 +651,7 @@
             <p>Short messages are <em>utterances</em> — exclamations, reactions, verbal nods. Long messages are <em>thoughts</em> — considered, complete. The typography mirrors how we naturally modulate our voice in conversation.</p>
 
             <h3>The Teardrop Indicator</h3>
-            <p>Each bubble has rounded corners on three sides, but one corner is <strong>sharply pointed (3-4px radius)</strong>. This sharp corner indicates the speaker, following iMessage convention:</p>
+            <p>Each bubble has rounded corners on three sides, but one corner is <strong>sharply pointed (4px radius)</strong>. This sharp corner indicates the speaker, following iMessage convention:</p>
             <ul>
                 <li><strong>Bottom-right sharp</strong> — Self (your messages)</li>
                 <li><strong>Bottom-left sharp</strong> — Other (their messages)</li>
@@ -1185,8 +1185,8 @@
                 <tbody>
                     <tr><td>Background (self)</td><td><code>var(--bg-bubble-self)</code></td></tr>
                     <tr><td>Background (other)</td><td><code>var(--bg-bubble-other)</code></td></tr>
-                    <tr><td>Border radius (self)</td><td><code>24px 24px 3px 24px</code> (bottom-right sharp)</td></tr>
-                    <tr><td>Border radius (other)</td><td><code>24px 24px 24px 3px</code> (bottom-left sharp)</td></tr>
+                    <tr><td>Border radius (self)</td><td><code>24px 24px 4px 24px</code> (bottom-right sharp)</td></tr>
+                    <tr><td>Border radius (other)</td><td><code>24px 24px 24px 4px</code> (bottom-left sharp)</td></tr>
                     <tr><td>Padding</td><td><code>16px 20px</code></td></tr>
                     <tr><td>Box shadow</td><td><code>var(--shadow-bubble)</code></td></tr>
                     <tr><td>Min width</td><td><code>120px</code></td></tr>
@@ -1276,7 +1276,7 @@
                     <tr><th>Property</th><th>Value</th></tr>
                 </thead>
                 <tbody>
-                    <tr><td>Max content height</td><td><code>200px</code> (iPad) / <code>160px</code> (iPhone)</td></tr>
+                    <tr><td>Max content height</td><td><code>400px</code> (iPad) / <code>320px</code> (iPhone)</td></tr>
                     <tr><td>Fade gradient height</td><td><code>100px</code></td></tr>
                     <tr><td>Indicator font size</td><td><code>12px</code></td></tr>
                     <tr><td>Indicator border top</td><td><code>1px solid var(--border-subtle)</code></td></tr>
@@ -1322,7 +1322,7 @@
                     <tr><td>Bubble padding</td><td>16px 20px</td><td>14px 16px</td></tr>
                     <tr><td>Short text size</td><td>22px</td><td>18px</td></tr>
                     <tr><td>Medium message width</td><td>~45%</td><td>~2/3 if <= 3 lines, else 100%</td></tr>
-                    <tr><td>Truncated max-height</td><td>200px</td><td>160px</td></tr>
+                    <tr><td>Truncated max-height</td><td>400px</td><td>320px</td></tr>
                 </tbody>
             </table>
 
@@ -1386,7 +1386,7 @@
                         <li>Omit avatars to "save space" — they're navigation landmarks</li>
                         <li>Force all messages to full width — let content determine size</li>
                         <li>Use raw color values instead of tokens</li>
-                        <li>Make the teardrop corner rounded — it's intentionally sharp (3px)</li>
+                        <li>Make the teardrop corner rounded — it's intentionally sharp (4px)</li>
                         <li>Use the same text size for all message lengths</li>
                         <li>Let text span the full viewport width on iPad</li>
                         <li>Rely solely on color to distinguish senders</li>

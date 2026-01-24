@@ -96,6 +96,8 @@ final class MessageBubbleUIKitView: UIView {
     private let maskLayer = CAShapeLayer()
     private let borderGradientLayer = CAGradientLayer()
     private let borderMaskLayer = CAShapeLayer()
+    private let topHighlightLayer = CAGradientLayer()
+    private let topHighlightMask = CAShapeLayer()
 
     private var maxWidthConstraint: NSLayoutConstraint!
     private var minWidthConstraint: NSLayoutConstraint!
@@ -119,6 +121,9 @@ final class MessageBubbleUIKitView: UIView {
         backgroundColor = .clear
 
         bubbleBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        bubbleBackgroundView.isUserInteractionEnabled = true
+        let bubbleTap = UITapGestureRecognizer(target: self, action: #selector(handleBubbleTap))
+        bubbleBackgroundView.addGestureRecognizer(bubbleTap)
         addSubview(bubbleBackgroundView)
         maxWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(lessThanOrEqualToConstant: 320)
         minWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(greaterThanOrEqualToConstant: 120)
@@ -138,8 +143,8 @@ final class MessageBubbleUIKitView: UIView {
 
         // 3D border rim - subtle highlight at top
         borderGradientLayer.colors = [
-            UIColor.white.withAlphaComponent(0.22).cgColor,
-            UIColor.white.withAlphaComponent(0.08).cgColor,
+            UIColor.white.withAlphaComponent(0.14).cgColor,
+            UIColor.white.withAlphaComponent(0.05).cgColor,
             UIColor.clear.cgColor,
             UIColor.clear.cgColor
         ]
@@ -151,6 +156,17 @@ final class MessageBubbleUIKitView: UIView {
         borderMaskLayer.lineWidth = 1.0
         borderGradientLayer.mask = borderMaskLayer
         layer.addSublayer(borderGradientLayer)
+
+        // 1pt inner highlight at top edge
+        topHighlightLayer.colors = [
+            UIColor.white.withAlphaComponent(0.12).cgColor,
+            UIColor.white.withAlphaComponent(0.0).cgColor
+        ]
+        topHighlightLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
+        topHighlightLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
+        topHighlightMask.fillColor = UIColor.white.cgColor
+        topHighlightLayer.mask = topHighlightMask
+        layer.addSublayer(topHighlightLayer)
 
         contentStack.axis = .vertical
         contentStack.spacing = 10
@@ -192,8 +208,10 @@ final class MessageBubbleUIKitView: UIView {
             truncationBorder.topAnchor.constraint(equalTo: truncationContainer.topAnchor),
             truncationBorder.heightAnchor.constraint(equalToConstant: 1),
 
+            // Center label horizontally; top padding from hrule, no bottom padding (bubble has its own)
             truncationLabel.centerXAnchor.constraint(equalTo: truncationContainer.centerXAnchor),
-            truncationLabel.centerYAnchor.constraint(equalTo: truncationContainer.centerYAnchor)
+            truncationLabel.topAnchor.constraint(equalTo: truncationBorder.bottomAnchor, constant: 12),
+            truncationLabel.bottomAnchor.constraint(equalTo: truncationContainer.bottomAnchor)
         ])
         truncationHeightConstraint = truncationContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
         truncationHeightConstraint?.isActive = true
@@ -231,6 +249,24 @@ final class MessageBubbleUIKitView: UIView {
         borderGradientLayer.frame = bubbleBackgroundView.frame
         borderMaskLayer.frame = bubbleBackgroundView.bounds
         borderMaskLayer.path = path.cgPath
+
+        // Top highlight - 1pt band at top, clipped to bubble shape
+        let highlightHeight: CGFloat = 1.5
+        topHighlightLayer.frame = CGRect(
+            x: bubbleBackgroundView.frame.minX,
+            y: bubbleBackgroundView.frame.minY,
+            width: bubbleBackgroundView.bounds.width,
+            height: highlightHeight
+        )
+        // Mask to bubble shape (offset to align with highlight frame)
+        let highlightMaskPath = bubblePath(in: CGRect(
+            x: 0,
+            y: 0,
+            width: bubbleBackgroundView.bounds.width,
+            height: bubbleBackgroundView.bounds.height
+        ))
+        topHighlightMask.frame = CGRect(x: 0, y: 0, width: bubbleBackgroundView.bounds.width, height: highlightHeight)
+        topHighlightMask.path = highlightMaskPath.cgPath
     }
 
     func configure(message: Message,
@@ -315,9 +351,12 @@ final class MessageBubbleUIKitView: UIView {
                 truncationContainer.isHidden = false
                 truncationLabel.textColor = (message.role == .user) ? palette.terracotta : palette.warmBrown
                 fadeView.isHidden = false
+                // Use bubble gradient end colors for seamless fade
+                // Top color must match bottom color (just transparent) to avoid haze
+                let bottomColor = message.role == .user ? palette.bubbleSelfGradient.last! : palette.bubbleOtherGradient.last!
                 fadeView.updateColors(
-                    top: palette.fadeTop,
-                    bottom: message.role == .user ? palette.sage : palette.cream
+                    top: bottomColor.withAlphaComponent(0),
+                    bottom: bottomColor
                 )
                 let fadeHeight: CGFloat = 100
                 fadeConstraints = [
@@ -374,10 +413,12 @@ final class MessageBubbleUIKitView: UIView {
         // Update shadow
         bubbleBackgroundView.layer.shadowColor = palette.shadowNear.cgColor
 
-        // Update fade view
+        // Update fade view - use bubble gradient end colors
+        // Top color must match bottom color (just transparent) to avoid haze
+        let bottomColor = currentMessageRole == .user ? palette.bubbleSelfGradient.last! : palette.bubbleOtherGradient.last!
         fadeView.updateColors(
-            top: palette.fadeTop,
-            bottom: currentMessageRole == .user ? palette.sage : palette.cream
+            top: bottomColor.withAlphaComponent(0),
+            bottom: bottomColor
         )
     }
 
@@ -390,6 +431,11 @@ final class MessageBubbleUIKitView: UIView {
     }
 
     @objc private func handleTruncationTap() {
+        onRequestExpand?()
+    }
+
+    @objc private func handleBubbleTap() {
+        guard shouldTruncate else { return }
         onRequestExpand?()
     }
 
@@ -442,6 +488,96 @@ final class MessageBubbleUIKitView: UIView {
         ])
     }
 
+    // MARK: - UIKit-Native Text Measurement
+
+    /// Measure the natural single-line width of text content (no wrapping).
+    /// Used for line balancing to determine minimum width needed.
+    static func measureSingleLineWidth(
+        for presentation: MessagePresentation,
+        metrics: ChatFlowTheme.Metrics
+    ) -> CGFloat {
+        let text = textContent(from: presentation)
+        guard !text.isEmpty else { return 0 }
+
+        // Use short size class font for single-line measurement (natural width)
+        let font = UIFont.systemFont(ofSize: metrics.shortFontSize, weight: .semibold)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let size = (text as NSString).boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin],
+            attributes: attributes,
+            context: nil
+        )
+        return ceil(size.width)
+    }
+
+    /// Measure the height of text content at a given width.
+    /// Used to estimate line count for layout decisions.
+    static func measureTextHeight(
+        for presentation: MessagePresentation,
+        sizeClass: MessageSizeClass,
+        metrics: ChatFlowTheme.Metrics,
+        maxWidth: CGFloat
+    ) -> CGFloat? {
+        guard presentation.hasTextualContent else { return nil }
+        let text = textContent(from: presentation)
+        guard !text.isEmpty else { return nil }
+
+        let font: UIFont
+        let lineSpacing: CGFloat
+        switch sizeClass {
+        case .short:
+            font = UIFont.systemFont(ofSize: metrics.shortFontSize, weight: .semibold)
+            lineSpacing = 0
+        case .medium:
+            font = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
+            lineSpacing = 4
+        case .long:
+            font = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular)
+            lineSpacing = 4
+        }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = lineSpacing
+        paragraph.alignment = .left
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .paragraphStyle: paragraph
+        ]
+
+        let size = (text as NSString).boundingRect(
+            with: CGSize(width: maxWidth, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes,
+            context: nil
+        )
+        return ceil(size.height)
+    }
+
+    /// Estimate line count for text at a given bubble width.
+    /// contentWidth = bubbleWidth - horizontal padding
+    static func estimatedLineCount(
+        for presentation: MessagePresentation,
+        metrics: ChatFlowTheme.Metrics,
+        atBubbleWidth bubbleWidth: CGFloat
+    ) -> Int {
+        let contentWidth = bubbleWidth - (metrics.bubblePaddingHorizontal * 2)
+        guard let textHeight = measureTextHeight(
+            for: presentation,
+            sizeClass: .medium,
+            metrics: metrics,
+            maxWidth: contentWidth
+        ) else {
+            return 1
+        }
+
+        let lineSpacing: CGFloat = 4
+        let font = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
+        let lineHeight = font.lineHeight
+        return Int(ceil((textHeight + lineSpacing) / (lineHeight + lineSpacing)))
+    }
+
     private func bubblePath(in rect: CGRect) -> UIBezierPath {
         let radii = bubbleCornerRadii(messageId: messageIdForCorners())
         return roundedRectPath(
@@ -459,7 +595,7 @@ final class MessageBubbleUIKitView: UIView {
 
     private func bubbleCornerRadii(messageId: String) -> (topLeft: CGFloat, topRight: CGFloat, bottomRight: CGFloat, bottomLeft: CGFloat) {
         let base: CGFloat = 24
-        let sharp: CGFloat = 3
+        let sharp: CGFloat = 4
         let variationsSelf: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
             (32, 24, sharp, 24),
             (24, 32, sharp, 28),

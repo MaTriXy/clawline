@@ -21,8 +21,10 @@
 - Use `UICollectionViewFlowLayout` with **delegate sizing**:
   - `estimatedItemSize = .zero` (self-sizing disabled).
   - `collectionView(_:layout:sizeForItemAt:)` returns a cached size per message.
-- Size measurement pipeline:
-  - `sizeForItem` measures a SwiftUI sizing view via `UIHostingController.sizeThatFits`.
+- Size measurement pipeline (UIKit-native):
+  - `sizeForItem` uses `MessageBubbleUIKitView` for sizing via `systemLayoutSizeFitting`.
+  - Text measurement uses `NSAttributedString.boundingRect` for single source of truth.
+  - Line balancing for medium messages uses UIKit text measurement (not SwiftUI).
   - The measured size is clamped to max width, snapped to pixel, and cached per message.
 - Debounce measurement-driven invalidations:
   - Cells re-measure in `layoutSubviews` and only invalidate when deltas exceed ~1pt.
