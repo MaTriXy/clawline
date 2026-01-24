@@ -227,19 +227,14 @@ struct ChatView: View {
                 .animation(.easeOut(duration: 0.25), value: concentricOffset)
             }
         }
-        .ignoresSafeArea(.container, edges: [.top, .bottom])
         .background {
-            // For admin users with paged TabView, each page has its own background
-            // to avoid gradient toggling during swipe. For regular users, apply here.
-            if authManager.isAdmin {
-                ChatFlowTheme.pageBackground(colorScheme)
-                    .ignoresSafeArea()
-                    .overlay(NoiseOverlayView().ignoresSafeArea())
-            } else {
-                ChatFlowTheme.pageBackground(colorScheme)
-                    .ignoresSafeArea()
-                    .overlay(NoiseOverlayView().ignoresSafeArea())
-            }
+            // Background extends edge-to-edge. Admin users with paged TabView have
+            // per-page backgrounds for the gradient; regular users get background here.
+            // The adminBackgroundOverlay only shows for non-paged (non-admin) view.
+            ChatFlowTheme.pageBackground(colorScheme)
+                .ignoresSafeArea()
+                .overlay(adminBackgroundOverlay)
+                .overlay(NoiseOverlayView().ignoresSafeArea())
         }
         .task { await viewModel.onAppear() }
         .onDisappear { viewModel.onDisappear() }
