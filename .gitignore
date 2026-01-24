@@ -37,3 +37,4 @@ provider/.bun-cache/
 provider/bun.lock
 scratch/
 scratch/
+.derived/
