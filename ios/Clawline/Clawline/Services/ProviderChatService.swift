@@ -232,7 +232,16 @@ final class ProviderChatService: ChatServicing {
         receiveTask = nil
         socket?.close(with: .normalClosure)
         socket = nil
-        pendingMessages.values.forEach { $0.retryTask?.cancel() }
+        if !pendingMessages.isEmpty {
+            for (messageId, pending) in pendingMessages {
+                pending.retryTask?.cancel()
+                emitServiceEvent(.messageError(
+                    messageId: messageId,
+                    code: "connection_lost",
+                    message: "Message not delivered - connection lost"
+                ))
+            }
+        }
         pendingMessages.removeAll()
         logger.info("state -> disconnected (performDisconnect)")
         updateState(.disconnected)
@@ -374,6 +383,21 @@ final class ProviderChatService: ChatServicing {
             logger.info("state -> failed (server error session_replaced)")
             updateState(.failed(error))
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
+        case "invalid_message", "payload_too_large", "invalid_channel":
+            logger.info("message-level error without messageId code=\(payload.code, privacy: .public)")
+            if !pendingMessages.isEmpty {
+                for (messageId, pending) in pendingMessages {
+                    pending.retryTask?.cancel()
+                    emitServiceEvent(.messageError(
+                        messageId: messageId,
+                        code: payload.code,
+                        message: payload.message
+                    ))
+                }
+                pendingMessages.removeAll()
+            } else {
+                emitServiceEvent(.messageError(messageId: nil, code: payload.code, message: payload.message))
+            }
         default:
             logger.info("state -> failed (server error) code=\(payload.code, privacy: .public)")
             updateState(.failed(Error.serverError(code: payload.code, message: payload.message)))
