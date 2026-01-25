@@ -273,40 +273,64 @@ struct ChatView: View {
             )
             let concentricOffset = isKeyboardVisible ? 0 : rawOffset
 
-            MessageInputBar(
-                content: $viewModel.inputContent,
-                selectionRange: $selectionRange,
-                canSend: viewModel.canSend,
-                isSending: viewModel.isSending,
-                connectionAlert: viewModel.connectionAlert,
-                focusTrigger: focusRequestID,
-                bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
-                isKeyboardVisible: isKeyboardVisible,
-                onSend: {
-                    viewModel.send()
-                },
-                onCancel: { viewModel.cancelSend() },
-                onAdd: {
-                    activeSheet = .attachmentMenu
-                },
-                // ⚠️ This callback is how focus state survives view recreation.
-                // DO NOT replace with @Binding or try to use @FocusState directly.
-                onFocusChange: { focused in isInputFocused = focused },
-                onPasteImages: handlePastedImages
-            )
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: InputBarHeightPreferenceKey.self,
-                        value: proxy.size.height
-                    )
+            VStack(spacing: 6) {
+                if let versionLabel = appVersionLabel {
+                    Text(versionLabel)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.horizontal, 24)
                 }
-            )
+
+                MessageInputBar(
+                    content: $viewModel.inputContent,
+                    selectionRange: $selectionRange,
+                    canSend: viewModel.canSend,
+                    isSending: viewModel.isSending,
+                    connectionAlert: viewModel.connectionAlert,
+                    focusTrigger: focusRequestID,
+                    bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
+                    isKeyboardVisible: isKeyboardVisible,
+                    onSend: {
+                        viewModel.send()
+                    },
+                    onCancel: { viewModel.cancelSend() },
+                    onAdd: {
+                        activeSheet = .attachmentMenu
+                    },
+                    // ⚠️ This callback is how focus state survives view recreation.
+                    // DO NOT replace with @Binding or try to use @FocusState directly.
+                    onFocusChange: { focused in isInputFocused = focused },
+                    onPasteImages: handlePastedImages
+                )
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: InputBarHeightPreferenceKey.self,
+                            value: proxy.size.height
+                        )
+                    }
+                )
+            }
             // ⚠️ Offset MUST be applied here, not inside MessageInputBar.
             // See header comment for why.
             .offset(y: concentricOffset)
             .animation(.easeOut(duration: 0.25), value: concentricOffset)
         }
+    }
+
+    private var appVersionLabel: String? {
+        let version = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String
+        let build = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String
+        guard let version, !version.isEmpty else { return nil }
+        if let build, !build.isEmpty {
+            return "v\(version) (build \(build))"
+        }
+        return "v\(version)"
     }
 
     private func messageList(topInset: CGFloat, bottomInset: CGFloat, channel: ChatChannelType) -> some View {
