@@ -174,6 +174,21 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private var baseBottomInset: CGFloat = 0
     private var currentKeyboardHeight: CGFloat = 0
+    private var pendingScrollToBottomAttempts: Int = 0
+    private var pendingScrollToBottomAnimated: Bool = false
+
+    private func syncKeyboardHeightIfNeeded(isKeyboardVisible: Bool) {
+        guard isKeyboardVisible, currentKeyboardHeight == 0 else { return }
+        let height = view.keyboardLayoutGuide.layoutFrame.height
+        guard height > 0.5 else { return }
+        let previous = currentKeyboardHeight
+        currentKeyboardHeight = height
+        applyBottomContentInset()
+        let delta = height - previous
+        if abs(delta) > 1 {
+            adjustContentOffsetForBottomInsetChange(delta: delta)
+        }
+    }
 
     /// Single source of truth for setting bottom content inset.
     /// Combines baseBottomInset (input bar) with currentKeyboardHeight when keyboard is visible.
@@ -181,6 +196,27 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let totalBottomInset = baseBottomInset + currentKeyboardHeight
         collectionView.contentInset.bottom = totalBottomInset
         collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
+    }
+
+    private func scheduleScrollToBottom(animated: Bool, attempts: Int = 2) {
+        pendingScrollToBottomAttempts = max(pendingScrollToBottomAttempts, attempts)
+        pendingScrollToBottomAnimated = pendingScrollToBottomAnimated || animated
+        performPendingScrollToBottomIfNeeded()
+    }
+
+    private func performPendingScrollToBottomIfNeeded() {
+        guard pendingScrollToBottomAttempts > 0 else { return }
+        let animated = pendingScrollToBottomAnimated
+        pendingScrollToBottomAttempts -= 1
+        collectionView.layoutIfNeeded()
+        scrollToBottom(animated: animated)
+        if pendingScrollToBottomAttempts > 0 {
+            DispatchQueue.main.async { [weak self] in
+                self?.performPendingScrollToBottomIfNeeded()
+            }
+        } else {
+            pendingScrollToBottomAnimated = false
+        }
     }
 
     func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
@@ -208,6 +244,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.topInset = topInset
         self.bottomInset = bottomInset
         self.isKeyboardVisible = isKeyboardVisible
+        syncKeyboardHeightIfNeeded(isKeyboardVisible: isKeyboardVisible)
 
         if needsLayoutUpdate {
             updateLayout()
@@ -266,16 +303,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if lastMessageId != messages.last?.id {
             lastMessageId = messages.last?.id
-            scrollToBottom(animated: true)
+            scheduleScrollToBottom(animated: true)
         } else if typingIndicatorJustAppeared {
             // Scroll to show typing indicator when it appears
-            scrollToBottom(animated: true)
+            scheduleScrollToBottom(animated: true)
         } else if keyboardJustAppeared && wasNearBottom {
             // When keyboard appears and user was near bottom, scroll to keep bottom visible
-            scrollToBottom(animated: false)
+            scheduleScrollToBottom(animated: false)
         } else if needsLayoutUpdate {
             if wasNearBottom {
-                scrollToBottom(animated: false)
+                scheduleScrollToBottom(animated: false)
             } else if previousBottomInset != bottomInset {
                 adjustContentOffsetForBottomInsetChange(delta: bottomInset - previousBottomInset)
             }
@@ -720,17 +757,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func scrollToBottom(animated: Bool) {
         guard let lastMessageId,
-              let indexPath = dataSource.indexPath(for: lastMessageId) else {
+              dataSource.indexPath(for: lastMessageId) != nil else {
             return
         }
         collectionView.layoutIfNeeded()
-        guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else {
-            return
-        }
         let contentInset = collectionView.contentInset
-        // Calculate target offset to show bottom of last message just above bottom inset (input bar)
-        // Formula: message.maxY should align with (bounds.height - contentInset.bottom)
-        let targetY = attributes.frame.maxY - collectionView.bounds.height + contentInset.bottom
+        // Scroll to the bottom of the content (includes section insets/padding).
+        // Using contentSize avoids under-scrolling when sectionInset.bottom is non-zero.
+        let targetY = collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom
         let minY = -contentInset.top
         let maxY = collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom
         let clampedY = max(minY, min(targetY, maxY))
@@ -816,6 +850,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         lastMeasuredSizes[messageId] = snapped
         sizeCache[messageId] = snapped
         scheduleLayoutInvalidation()
+        if messageId == lastMessageId {
+            scheduleScrollToBottom(animated: false, attempts: 1)
+        }
     }
 
     private func snapToPixel(_ size: CGSize) -> CGSize {

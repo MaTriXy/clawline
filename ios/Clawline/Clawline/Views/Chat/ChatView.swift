@@ -83,10 +83,10 @@ struct ChatView: View {
     // State in recreated views resets silently. See header comment for full explanation.
     @State private var isInputFocused = false
     @State private var selectionRange = NSRange(location: 0, length: 0)
-    @State private var showAttachmentMenu = false
-    @State private var showCamera = false
-    @State private var showPhotoPicker = false
-    @State private var showFilePicker = false
+    @State private var activeSheet: AttachmentSheet?
+    @State private var isPhotosPickerPresented = false
+    @State private var isFileImporterPresented = false
+    @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var focusRequestID = 0
     @State private var shouldRestoreFocusAfterPicker = false
 
@@ -112,6 +112,18 @@ struct ChatView: View {
 
     @State private var inputBarHeight: CGFloat = 0
     @State private var channelToastManager = ChannelToastManager()
+
+    private enum AttachmentSheet: Identifiable {
+        case sourceMenu
+        case camera
+
+        var id: String {
+            switch self {
+            case .sourceMenu: return "sourceMenu"
+            case .camera: return "camera"
+            }
+        }
+    }
 
 
     var body: some View {
@@ -206,7 +218,7 @@ struct ChatView: View {
                     onCancel: { viewModel.cancelSend() },
                     onAdd: {
                         logger.info("Attachment menu requested")
-                        showAttachmentMenu = true
+                        activeSheet = .sourceMenu
                     },
                     // ⚠️ This callback is how focus state survives view recreation.
                     // DO NOT replace with @Binding or try to use @FocusState directly.
@@ -230,10 +242,8 @@ struct ChatView: View {
         .background {
             // Background extends edge-to-edge. Admin users with paged TabView have
             // per-page backgrounds for the gradient; regular users get background here.
-            // The adminBackgroundOverlay only shows for non-paged (non-admin) view.
             ChatFlowTheme.pageBackground(colorScheme)
                 .ignoresSafeArea()
-                .overlay(adminBackgroundOverlay)
                 .overlay(NoiseOverlayView().ignoresSafeArea())
         }
         .task { await viewModel.onAppear() }
@@ -242,91 +252,69 @@ struct ChatView: View {
             guard phase == .active else { return }
             viewModel.handleSceneDidBecomeActive()
         }
-        .sheet(isPresented: $showAttachmentMenu) {
-            AttachmentSourceSheet(
-                onCamera: {
-                    showAttachmentMenu = false
-                    presentCamera()
-                },
-                onPhotos: {
-                    showAttachmentMenu = false
-                    prepareForAttachmentPicker()
-                    showPhotoPicker = true
-                },
-                onFiles: {
-                    showAttachmentMenu = false
-                    prepareForAttachmentPicker()
-                    showFilePicker = true
-                }
-            )
-            .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $showCamera) {
-            CameraPicker(
-                onImage: { image in
-                    showCamera = false
-                    Task {
-                        await handleCapturedImage(image)
-                        await MainActor.run { restoreFocusIfNeeded() }
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case .sourceMenu:
+                AttachmentSourceSheet(
+                    onCamera: {
+                        presentCamera()
+                    },
+                    onPhotos: {
+                        presentPhotoPicker()
+                    },
+                    onFiles: {
+                        presentFileImporter()
                     }
-                },
-                onCancel: {
-                    showCamera = false
+                )
+                .presentationDetents([.medium, .large])
+            case .camera:
+                CameraPicker(
+                    onImage: { image in
+                        activeSheet = nil
+                        Task {
+                            await handleCapturedImage(image)
+                            await MainActor.run { restoreFocusIfNeeded() }
+                        }
+                    },
+                    onCancel: {
+                        activeSheet = nil
+                        restoreFocusIfNeeded()
+                    }
+                )
+            }
+        }
+        .photosPicker(
+            isPresented: $isPhotosPickerPresented,
+            selection: $photoPickerItems,
+            matching: .images
+        )
+        .onChange(of: photoPickerItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
+            Task {
+                await handlePhotoPickerItems(newItems)
+                await MainActor.run {
+                    photoPickerItems = []
                     restoreFocusIfNeeded()
                 }
-            )
+            }
         }
-        .sheet(isPresented: $showPhotoPicker) {
-            PhotoPicker(
-                selectionLimit: 0,
-                onPick: { results in
-                    showPhotoPicker = false
-                    Task {
-                        await handlePhotoResults(results)
-                        await MainActor.run { restoreFocusIfNeeded() }
-                    }
-                },
-                onCancel: {
-                    showPhotoPicker = false
-                    restoreFocusIfNeeded()
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                Task {
+                    await handleDocumentResults(urls)
+                    await MainActor.run { restoreFocusIfNeeded() }
                 }
-            )
-        }
-        .sheet(isPresented: $showFilePicker) {
-            DocumentPicker(
-                contentTypes: [.item],
-                onPick: { urls in
-                    showFilePicker = false
-                    Task {
-                        await handleDocumentResults(urls)
-                        await MainActor.run { restoreFocusIfNeeded() }
-                    }
-                },
-                onCancel: {
-                    showFilePicker = false
-                    restoreFocusIfNeeded()
-                }
-            )
+            case .failure:
+                restoreFocusIfNeeded()
+            }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: toastManager.toast)
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: channelToastManager.isVisible)
-    }
-
-    @ViewBuilder
-    private var adminBackgroundOverlay: some View {
-        if authManager.isAdmin && viewModel.activeChannel == .admin {
-            LinearGradient(
-                colors: [
-                    ChatFlowTheme.adminAccent(colorScheme).opacity(colorScheme == .dark ? 0.3 : 0.18),
-                    Color.clear
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-        }
     }
 
     private func messageList(topInset: CGFloat, bottomInset: CGFloat, channel: ChatChannelType) -> some View {
@@ -356,9 +344,6 @@ struct ChatView: View {
                 .background {
                     ChatFlowTheme.pageBackground(colorScheme)
                         .ignoresSafeArea()
-                        // Static admin gradient - always visible on this page
-                        // (not conditioned on activeChannel to prevent flicker during swipe)
-                        .overlay(staticAdminGradient)
                         .overlay(NoiseOverlayView().ignoresSafeArea())
                 }
                 .tag(ChatChannelType.admin)
@@ -366,22 +351,6 @@ struct ChatView: View {
         .tabViewStyle(.page(indexDisplayMode: .never))
         .scrollContentBackground(.hidden)
         .background(Color.clear)
-    }
-
-    /// Static admin gradient overlay - always visible, not conditioned on active channel
-    @ViewBuilder
-    private var staticAdminGradient: some View {
-        LinearGradient(
-            colors: [
-                ChatFlowTheme.adminAccent(colorScheme).opacity(colorScheme == .dark ? 0.3 : 0.18),
-                Color.clear
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 
     /// Binding that syncs TabView selection with viewModel.activeChannel
@@ -436,7 +405,25 @@ private func restoreFocusIfNeeded() {
             restoreFocusIfNeeded()
             return
         }
-        showCamera = true
+        activeSheet = .camera
+    }
+
+    @MainActor
+    private func presentPhotoPicker() {
+        prepareForAttachmentPicker()
+        activeSheet = nil
+        DispatchQueue.main.async {
+            isPhotosPickerPresented = true
+        }
+    }
+
+    @MainActor
+    private func presentFileImporter() {
+        prepareForAttachmentPicker()
+        activeSheet = nil
+        DispatchQueue.main.async {
+            isFileImporterPresented = true
+        }
     }
 
     private func handleCapturedImage(_ image: UIImage) async {
@@ -466,10 +453,12 @@ private func restoreFocusIfNeeded() {
         insertAttachments(attachments)
     }
 
-    private func handlePhotoResults(_ results: [PHPickerResult]) async {
+    private func handlePhotoPickerItems(_ items: [PhotosPickerItem]) async {
         var attachments: [PendingAttachment] = []
-        for result in results {
-            if let attachment = await loadPhotoAttachment(from: result) {
+        for item in items {
+            if let data = try? await item.loadTransferable(type: Data.self),
+               let image = UIImage(data: data),
+               let attachment = makeImageAttachment(from: image, suggestedFilename: item.itemIdentifier) {
                 attachments.append(attachment)
             }
         }
@@ -529,33 +518,6 @@ private func restoreFocusIfNeeded() {
         let safeLocation = min(max(range.location, 0), length)
         let maxLength = max(0, min(range.length, length - safeLocation))
         return NSRange(location: safeLocation, length: maxLength)
-    }
-
-    private func loadPhotoAttachment(from result: PHPickerResult) async -> PendingAttachment? {
-        let provider = result.itemProvider
-        guard provider.canLoadObject(ofClass: UIImage.self) else { return nil }
-        do {
-            let image = try await loadImage(from: provider)
-            return makeImageAttachment(from: image, suggestedFilename: provider.suggestedName)
-        } catch {
-            return nil
-        }
-    }
-
-    private func loadImage(from provider: NSItemProvider) async throws -> UIImage {
-        try await withCheckedThrowingContinuation { continuation in
-            provider.loadObject(ofClass: UIImage.self) { object, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                if let image = object as? UIImage {
-                    continuation.resume(returning: image)
-                } else {
-                    continuation.resume(throwing: AttachmentError.invalidData)
-                }
-            }
-        }
     }
 
     private func loadDocumentAttachment(from url: URL) throws -> PendingAttachment {
