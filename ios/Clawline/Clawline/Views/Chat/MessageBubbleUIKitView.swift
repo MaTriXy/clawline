@@ -84,7 +84,7 @@ final class MessageBubbleUIKitContainerView: UIView {
     }
 }
 
-final class MessageBubbleUIKitView: UIView {
+final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "BubbleTheme")
     private let shadowContainerView = UIView()  // Separate view for shadow (masks clip shadows)
     private let bubbleBackgroundView = UIView()
@@ -94,7 +94,7 @@ final class MessageBubbleUIKitView: UIView {
     private let dynamicContentStack = UIStackView()  // Holds text + code blocks
     private let avatarView = AvatarCircleView()
     private let senderLabel = UILabel()
-    private let bodyLabel = UILabel()
+    private let bodyLabel = UITextView()
     private let truncationContainer = UIView()
     private let truncationLabel = UILabel()
     private let truncationBorder = UIView()
@@ -147,6 +147,7 @@ final class MessageBubbleUIKitView: UIView {
         bubbleBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         bubbleBackgroundView.isUserInteractionEnabled = true
         let bubbleTap = UITapGestureRecognizer(target: self, action: #selector(handleBubbleTap))
+        bubbleTap.cancelsTouchesInView = false
         bubbleBackgroundView.addGestureRecognizer(bubbleTap)
         addSubview(bubbleBackgroundView)
         maxWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(lessThanOrEqualToConstant: 320)
@@ -213,7 +214,14 @@ final class MessageBubbleUIKitView: UIView {
         headerStack.addArrangedSubview(avatarView)
         headerStack.addArrangedSubview(senderLabel)
 
-        bodyLabel.numberOfLines = 0
+        bodyLabel.backgroundColor = .clear
+        bodyLabel.isEditable = false
+        bodyLabel.isSelectable = true
+        bodyLabel.isScrollEnabled = false
+        bodyLabel.textContainerInset = .zero
+        bodyLabel.textContainer.lineFragmentPadding = 0
+        bodyLabel.dataDetectorTypes = [.link]
+        bodyLabel.delegate = self
 
         contentStack.addArrangedSubview(headerStack)
 
@@ -343,6 +351,10 @@ final class MessageBubbleUIKitView: UIView {
         senderLabel.font = UIFont.systemFont(ofSize: metrics.senderFontSize, weight: .semibold)
         senderLabel.textColor = senderColor.withAlphaComponent(message.channelType == .admin ? 1.0 : 0.7)
         senderLabel.text = (message.role == .user) ? "You" : "Assistant"
+        bodyLabel.linkTextAttributes = [
+            .foregroundColor: palette.ink,
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]
 
         truncationBorder.backgroundColor = palette.borderSubtle
 
@@ -426,18 +438,15 @@ final class MessageBubbleUIKitView: UIView {
 
         switch sizeClass {
         case .short:
-            bodyLabel.numberOfLines = 0
             bodyMaxWidthConstraint?.isActive = false
             // Set fixed width to match measured preferredWidth for consistent sizing
             fixedWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(equalToConstant: maxWidth)
             fixedWidthConstraint?.isActive = true
         case .medium:
-            bodyLabel.numberOfLines = 0
             bodyMaxWidthConstraint?.isActive = false
             fixedWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(equalToConstant: maxWidth)
             fixedWidthConstraint?.isActive = true
         case .long:
-            bodyLabel.numberOfLines = 0
             let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
             bodyMaxWidthConstraint?.isActive = false
             let constraint = bodyLabel.widthAnchor.constraint(lessThanOrEqualToConstant: maxLineWidth)
@@ -631,6 +640,11 @@ final class MessageBubbleUIKitView: UIView {
         onRequestExpand?()
     }
 
+    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        UIApplication.shared.open(URL)
+        return false
+    }
+
     private static func textContent(from presentation: MessagePresentation) -> String {
         let parts = presentation.parts.filter { $0.isTextual }
         return parts.map { part in
@@ -717,6 +731,7 @@ final class MessageBubbleUIKitView: UIView {
 
             case .linkPreview(let url):
                 var linkAttributes = baseAttributes
+                linkAttributes[.link] = url
                 linkAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 result.append(NSAttributedString(string: url.absoluteString, attributes: linkAttributes))
 

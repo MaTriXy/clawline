@@ -350,7 +350,25 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     withReuseIdentifier: TypingIndicatorCell.reuseIdentifier,
                     for: indexPath
                 ) as? TypingIndicatorCell
-                cell?.configure(isCompact: self.isCompact)
+                let metrics = ChatFlowTheme.Metrics(isCompact: self.isCompact)
+                let channel = viewModel.typingChannel ?? viewModel.activeChannel
+                let message = TypingIndicatorCell.makeMessage(channelType: channel)
+                let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
+                let sizeClass = MessageFlowRules.sizeClass(for: presentation)
+                let maxWidth = self.maxItemWidth(
+                    for: sizeClass,
+                    message: message,
+                    presentation: presentation,
+                    metrics: metrics,
+                    containerWidth: self.availableContentWidth()
+                )
+                cell?.configure(
+                    message: message,
+                    presentation: presentation,
+                    isCompact: self.isCompact,
+                    maxWidth: maxWidth,
+                    isDark: self.currentIsDark
+                )
                 cell?.startAnimating()
                 return cell
             }
@@ -439,13 +457,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         return result
     }
 
-    /// Fixed size for the typing indicator bubble.
-    private var typingIndicatorSize: CGSize {
-        // 1.5x the original size: Dots: 3 × 10pt with 8pt spacing = 46pt + 48pt padding = 94pt width
-        // Height is 1.5x the original (66pt)
-        CGSize(width: 94, height: 66)
-    }
-
     private func sizeForItem(at indexPath: IndexPath) -> CGSize {
         guard let id = dataSource.itemIdentifier(for: indexPath), let viewModel else {
             return .zero
@@ -453,7 +464,25 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Handle typing indicator size
         if id == TypingIndicatorCell.itemId {
-            return typingIndicatorSize
+            let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+            let channel = viewModel.typingChannel ?? viewModel.activeChannel
+            let message = TypingIndicatorCell.makeMessage(channelType: channel)
+            let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
+            let sizeClass = MessageFlowRules.sizeClass(for: presentation)
+            let availableWidth = availableContentWidth()
+            let maxWidth = maxItemWidth(
+                for: sizeClass,
+                message: message,
+                presentation: presentation,
+                metrics: metrics,
+                containerWidth: availableWidth
+            )
+            return measureUIKitBubbleSize(
+                message: message,
+                presentation: presentation,
+                failureReason: nil,
+                maxWidth: maxWidth
+            )
         }
 
         guard let message = messagesById[id] else {
