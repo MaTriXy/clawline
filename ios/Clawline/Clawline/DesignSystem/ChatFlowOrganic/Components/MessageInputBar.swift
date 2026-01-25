@@ -7,7 +7,7 @@
 
 import SwiftUI
 import UIKit
-import os.log
+import OSLog
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessageInputBar")
 
@@ -144,14 +144,17 @@ struct MessageInputBar: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: MessageInputBarMetrics.elementSpacing) {
-            // Add button - separate glass circle, same height as input bar
-            Button(action: onAdd) {
+            // Add button - send-style for reliable hit testing (left side)
+            Button(action: {
+                onAdd()
+            }) {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .semibold))
             }
-            .accessibilityLabel("Add attachment")
             .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
             .glassEffect(.regular.interactive(), in: Circle())
+            .contentShape(Rectangle())
+            .accessibilityLabel("Add attachment")
             .disabled(isSending)
 
             // Text field - glass capsule/rounded rect
@@ -161,7 +164,7 @@ struct MessageInputBar: View {
                     calculatedHeight: $editorHeight,
                     selectionRange: $selectionRange,
                     focusTrigger: focusTrigger,
-                    isEditable: true,  // Always editable - send button handles disabling
+                    isEditable: true,
                     onFocusChange: onFocusChange,
                     onPasteImages: onPasteImages,
                     trailingPadding: 20
@@ -225,6 +228,10 @@ struct MessageInputBar: View {
         }
         .padding(.horizontal, metrics.concentricPadding)
         .padding(.bottom, metrics.bottomPadding)
+        .simultaneousGesture(TapGesture().onEnded {
+            logger.info("Input bar tap gesture")
+            NSLog("DIAG: Input bar tap gesture")
+        })
         .onChange(of: content.length) { _, newValue in
             guard newValue == 0 else { return }
             editorHeight = metrics.inputBarHeight

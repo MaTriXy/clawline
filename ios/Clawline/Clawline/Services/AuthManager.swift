@@ -8,6 +8,10 @@
 import Foundation
 import Observation
 
+extension Notification.Name {
+    static let authStateDidChange = Notification.Name("AuthStateDidChange")
+}
+
 @Observable
 @MainActor
 final class AuthManager: AuthManaging {
@@ -46,6 +50,7 @@ final class AuthManager: AuthManaging {
         storage.set(token, forKey: StorageKeys.token)
         storage.set(userId, forKey: StorageKeys.userId)
         storage.set(decodedAdmin, forKey: StorageKeys.isAdmin)
+        NotificationCenter.default.post(name: .authStateDidChange, object: self)
     }
 
     func updateAdminStatus(_ isAdmin: Bool) {
@@ -68,6 +73,7 @@ final class AuthManager: AuthManaging {
         storage.removeObject(forKey: StorageKeys.token)
         storage.removeObject(forKey: StorageKeys.userId)
         storage.removeObject(forKey: StorageKeys.isAdmin)
+        NotificationCenter.default.post(name: .authStateDidChange, object: self)
     }
 
     private struct JWTClaims: Decodable {

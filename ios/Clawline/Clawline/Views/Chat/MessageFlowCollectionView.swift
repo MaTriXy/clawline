@@ -16,6 +16,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var bottomInset: CGFloat
     var isCompact: Bool
     var isKeyboardVisible: Bool
+    var onExpand: ((Message) -> Void)?
     /// Optional channel override - if provided, shows messages for this channel instead of activeChannel
     var channel: ChatChannelType?
     @Environment(\.colorScheme) private var colorScheme
@@ -24,13 +25,31 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
         let controller = MessageFlowCollectionViewController()
         controller.loadViewIfNeeded()
         let isDark = colorScheme == .dark
-        controller.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible, channel: channel, isDark: isDark)
+        controller.update(
+            viewModel: viewModel,
+            isCompact: isCompact,
+            topInset: topInset,
+            bottomInset: bottomInset,
+            isKeyboardVisible: isKeyboardVisible,
+            onExpand: onExpand,
+            channel: channel,
+            isDark: isDark
+        )
         return controller
     }
 
     func updateUIViewController(_ uiViewController: MessageFlowCollectionViewController, context: Context) {
         let isDark = colorScheme == .dark
-        uiViewController.update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible, channel: channel, isDark: isDark)
+        uiViewController.update(
+            viewModel: viewModel,
+            isCompact: isCompact,
+            topInset: topInset,
+            bottomInset: bottomInset,
+            isKeyboardVisible: isKeyboardVisible,
+            onExpand: onExpand,
+            channel: channel,
+            isDark: isDark
+        )
     }
 }
 
@@ -40,8 +59,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var channelOverride: ChatChannelType?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var flowLayout: MessageFlowLayout!
-    private let useUIKitBubbles = true
-    private let uiKitSizingContainer = MessageBubbleUIKitContainerView()
     private let uiKitBubbleSizer = MessageBubbleUIKitView()
     private var currentIsDark: Bool = false
 
@@ -62,30 +79,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var lastBoundsSize: CGSize = .zero
     private var forceReconfigureAll = false
     private var wasShowingTypingIndicator = false
-    private lazy var sizingHost = UIHostingController(
-        rootView: MessageBubbleSizingView(
-            message: Message(
-                id: "",
-                role: .assistant,
-                content: "",
-                timestamp: Date(),
-                streaming: false,
-                attachments: [],
-                deviceId: nil,
-                channelType: .personal
-            ),
-            presentation: MessagePresentation(
-                parts: [],
-                wordCount: 0,
-                hasTextualContent: false,
-                isEmojiOnly: false,
-                hasMediaOnly: false
-            ),
-            failureReason: nil,
-            isCompact: true,
-            truncationState: .none
-        )
-    )
+    private var onExpand: ((Message) -> Void)?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -219,10 +213,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
+    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, onExpand: ((Message) -> Void)? = nil, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
         loadViewIfNeeded()
         self.viewModel = viewModel
         self.channelOverride = channel
+        self.onExpand = onExpand
 
         // Handle appearance change from SwiftUI colorScheme
         if let isDark = isDark, currentIsDark != isDark {
@@ -336,11 +331,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.keyboardDismissMode = .interactive
         collectionView.clipsToBounds = false  // Allow content to render past bounds during scroll
         collectionView.delegate = self
-        if useUIKitBubbles {
-            collectionView.register(MessageBubbleUIKitCell.self, forCellWithReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier)
-        } else {
-            collectionView.register(MessageBubbleCell.self, forCellWithReuseIdentifier: MessageBubbleCell.reuseIdentifier)
-        }
+        collectionView.register(MessageBubbleUIKitCell.self, forCellWithReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier)
         collectionView.register(TypingIndicatorCell.self, forCellWithReuseIdentifier: TypingIndicatorCell.reuseIdentifier)
 
         view.addSubview(collectionView)
@@ -367,58 +358,33 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             guard let message = self.messagesById[id] else { return nil }
             let metrics = ChatFlowTheme.Metrics(isCompact: self.isCompact)
             let presentation = viewModel.presentation(for: message, metrics: metrics)
-            if self.useUIKitBubbles {
-                let cell = collectionView.dequeueReusableCell(
-                    withReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier,
-                    for: indexPath
-                ) as? MessageBubbleUIKitCell
-                let sizeClass = MessageFlowRules.sizeClass(for: presentation)
-                let maxWidth = self.maxItemWidth(
-                    for: sizeClass,
-                    message: message,
-                    presentation: presentation,
-                    metrics: metrics,
-                    containerWidth: self.availableContentWidth()
-                )
-                // Use cached size width for consistent sizing with measurement
-                let configureWidth = self.sizeCache[id]?.width ?? maxWidth
-                cell?.configure(
-                    message: message,
-                    presentation: presentation,
-                    failureReason: viewModel.failureMessage(for: message.id),
-                    isCompact: self.isCompact,
-                    maxWidth: configureWidth,
-                    isDark: self.currentIsDark,
-                    onRequestExpand: { [weak self] in
-                        guard let self else { return }
-                        let sheet = ExpandedMessageSheet(message: message, presentation: presentation)
-                        let host = UIHostingController(rootView: sheet)
-                        host.modalPresentationStyle = .pageSheet
-                        self.present(host, animated: true)
-                    }
-                )
-                return cell
-            } else {
-                let cell = collectionView.dequeueReusableCell(
-                    withReuseIdentifier: MessageBubbleCell.reuseIdentifier,
-                    for: indexPath
-                ) as? MessageBubbleCell
-                cell?.configure(
-                    message: message,
-                    presentation: presentation,
-                    failureReason: viewModel.failureMessage(for: message.id),
-                    isCompact: self.isCompact,
-                    truncationState: self.truncationStates[message.id] ?? .none,
-                    onLayoutInvalidation: { [weak self] messageId in
-                        self?.invalidateLayout(for: messageId)
-                    },
-                    onLayoutOverflow: { [weak self] messageId, measuredSize in
-                        guard let self else { return }
-                        self.applyMeasuredSize(measuredSize, for: messageId)
-                    }
-                )
-                return cell
-            }
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier,
+                for: indexPath
+            ) as? MessageBubbleUIKitCell
+            let sizeClass = MessageFlowRules.sizeClass(for: presentation)
+            let maxWidth = self.maxItemWidth(
+                for: sizeClass,
+                message: message,
+                presentation: presentation,
+                metrics: metrics,
+                containerWidth: self.availableContentWidth()
+            )
+            // Use cached size width for consistent sizing with measurement
+            let configureWidth = self.sizeCache[id]?.width ?? maxWidth
+            cell?.configure(
+                message: message,
+                presentation: presentation,
+                failureReason: viewModel.failureMessage(for: message.id),
+                isCompact: self.isCompact,
+                maxWidth: configureWidth,
+                isDark: self.currentIsDark,
+                onRequestExpand: { [weak self] in
+                    guard let self else { return }
+                    self.onExpand?(message)
+                }
+            )
+            return cell
         }
     }
 
@@ -493,7 +459,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard let message = messagesById[id] else {
             return .zero
         }
-        if useUIKitBubbles, let cached = sizeCache[id] {
+        if let cached = sizeCache[id] {
             lastMeasuredSizes[id] = cached
             return cached
         }
@@ -509,52 +475,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             containerWidth: availableWidth
         )
         let failureReason = viewModel.failureMessage(for: message.id)
-        if useUIKitBubbles {
-            let measuredSize = measureUIKitBubbleSize(
-                message: message,
-                presentation: presentation,
-                failureReason: failureReason,
-                maxWidth: maxWidth
-            )
-            sizeCache[id] = measuredSize
-            lastMeasuredSizes[id] = measuredSize
-            return measuredSize
-        }
-        let derivedState: TruncationState = .none
-        if truncationStates[id] != derivedState {
-            truncationStates[id] = derivedState
-            scheduleReconfigure(for: id)
-        }
-        let measuredSize = measureBubbleSize(
+        let measuredSize = measureUIKitBubbleSize(
             message: message,
             presentation: presentation,
             failureReason: failureReason,
-            truncationState: derivedState,
             maxWidth: maxWidth
         )
+        sizeCache[id] = measuredSize
+        lastMeasuredSizes[id] = measuredSize
         return measuredSize
-    }
-
-    private func measureBubbleSize(message: Message,
-                                   presentation: MessagePresentation,
-                                   failureReason: String?,
-                                   truncationState: TruncationState,
-                                   maxWidth: CGFloat) -> CGSize {
-        let targetSize = CGSize(width: maxWidth, height: CGFloat.greatestFiniteMagnitude)
-        sizingHost.rootView = MessageBubbleSizingView(
-            message: message,
-            presentation: presentation,
-            failureReason: failureReason,
-            isCompact: isCompact,
-            truncationState: truncationState
-        )
-        let measured = sizingHost.sizeThatFits(in: targetSize)
-        let minWidth: CGFloat = 120
-        let clamped = CGSize(
-            width: min(maxWidth, max(minWidth, measured.width)),
-            height: max(1, measured.height)
-        )
-        return snapToPixel(clamped)
     }
 
     private func measureUIKitBubbleSize(message: Message,
@@ -888,75 +817,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 }
 
-private struct MessageBubbleHostedView: View {
-    let message: Message
-    let presentation: MessagePresentation
-    let failureReason: String?
-    let isCompact: Bool
-    let onLayoutInvalidation: ((String) -> Void)?
-    let truncationState: TruncationState
-    let onBubbleFrame: ((CGRect) -> Void)?
-
-    var body: some View {
-        bubble
-    }
-
-    private var bubble: some View {
-        MessageBubble(
-            message: message,
-            presentation: presentation,
-            onLayoutInvalidation: onLayoutInvalidation,
-            truncationState: truncationState
-        )
-        .id(message.id)
-        .messageFailureIndicator(failureReason)
-        .environment(\.horizontalSizeClass, isCompact ? .compact : .regular)
-    }
-}
-
-private struct MessageBubbleDisplayView: View {
-    let message: Message
-    let presentation: MessagePresentation
-    let failureReason: String?
-    let isCompact: Bool
-    let onLayoutInvalidation: ((String) -> Void)?
-    let truncationState: TruncationState
-    let onBubbleFrame: ((CGRect) -> Void)?
-
-    var body: some View {
-        MessageBubbleHostedView(
-            message: message,
-            presentation: presentation,
-            failureReason: failureReason,
-            isCompact: isCompact,
-            onLayoutInvalidation: onLayoutInvalidation,
-            truncationState: truncationState,
-            onBubbleFrame: onBubbleFrame
-        )
-    }
-}
-
-private struct MessageBubbleSizingView: View {
-    let message: Message
-    let presentation: MessagePresentation
-    let failureReason: String?
-    let isCompact: Bool
-    let truncationState: TruncationState
-
-    var body: some View {
-        MessageBubbleHostedView(
-            message: message,
-            presentation: presentation,
-            failureReason: failureReason,
-            isCompact: isCompact,
-            onLayoutInvalidation: nil,
-            truncationState: truncationState,
-            onBubbleFrame: nil
-        )
-    }
-}
-
-
 private final class MessageFlowLayout: UICollectionViewFlowLayout {
     private var cachedAttributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]
     private var cachedContentSize: CGSize = .zero
@@ -1015,152 +875,5 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
         newBounds.size != collectionView?.bounds.size
-    }
-}
-
-private final class MessageBubbleCell: UICollectionViewCell {
-    static let reuseIdentifier = "MessageBubbleCell"
-    static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "FlowLayout")
-
-    private var hostingController: UIHostingController<MessageBubbleDisplayView>?
-    private var messageId: String?
-    private var messageSnippet: String = ""
-    private var onLayoutOverflow: ((String, CGSize) -> Void)?
-    private var lastMismatch: (messageId: String, bounds: CGSize, measured: CGSize)?
-    private var lastBubbleFrameMismatch: (messageId: String, bounds: CGRect, bubble: CGRect)?
-    private var bubbleFrame: CGRect?
-    private var hasFailureIndicator = false
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.backgroundColor = .clear
-        backgroundColor = .clear
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func configure(
-        message: Message,
-        presentation: MessagePresentation,
-        failureReason: String?,
-        isCompact: Bool,
-        truncationState: TruncationState,
-        onLayoutInvalidation: ((String) -> Void)?,
-        onLayoutOverflow: ((String, CGSize) -> Void)?
-    ) {
-        messageId = message.id
-        messageSnippet = String(message.content.prefix(80))
-        hasFailureIndicator = (failureReason != nil)
-        self.onLayoutOverflow = onLayoutOverflow
-        lastMismatch = nil
-        let rootView = MessageBubbleDisplayView(
-            message: message,
-            presentation: presentation,
-            failureReason: failureReason,
-            isCompact: isCompact,
-            onLayoutInvalidation: onLayoutInvalidation,
-            truncationState: truncationState,
-            onBubbleFrame: nil
-        )
-
-        if let hostingController {
-            hostingController.rootView = rootView
-            return
-        }
-
-        let hostingController = UIHostingController(rootView: rootView)
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-        hostingController.view.backgroundColor = .clear
-
-        contentView.addSubview(hostingController.view)
-        NSLayoutConstraint.activate([
-            hostingController.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            hostingController.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            hostingController.view.topAnchor.constraint(equalTo: contentView.topAnchor),
-            hostingController.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
-        ])
-
-        self.hostingController = hostingController
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        messageId = nil
-        messageSnippet = ""
-        onLayoutOverflow = nil
-        lastMismatch = nil
-        lastBubbleFrameMismatch = nil
-        bubbleFrame = nil
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        guard let hostingController,
-              let messageId else { return }
-        let boundsSize = contentView.bounds.size
-        let targetSize = CGSize(width: boundsSize.width, height: CGFloat.greatestFiniteMagnitude)
-        let measured = hostingController.sizeThatFits(in: targetSize)
-        let adjustedMeasured = CGSize(
-            width: measured.width,
-            height: measured.height
-        )
-        let heightDelta = abs(adjustedMeasured.height - contentView.bounds.height)
-        let widthDelta = abs(adjustedMeasured.width - contentView.bounds.width)
-        if heightDelta > 1 || widthDelta > 1 {
-            if let lastMismatch,
-               lastMismatch.messageId == messageId,
-               abs(lastMismatch.bounds.width - boundsSize.width) < 1,
-               abs(lastMismatch.bounds.height - boundsSize.height) < 1,
-               abs(lastMismatch.measured.width - adjustedMeasured.width) < 1,
-               abs(lastMismatch.measured.height - adjustedMeasured.height) < 1 {
-                logBubbleFrameMismatchIfNeeded()
-                return
-            }
-            lastMismatch = (messageId: messageId, bounds: boundsSize, measured: adjustedMeasured)
-            let boundsDesc = String(describing: boundsSize)
-            let measuredDesc = String(describing: adjustedMeasured)
-            let hasFailure = hasFailureIndicator
-            Self.logger.info("Layout mismatch id=\(messageId, privacy: .public) snippet=\"\(self.messageSnippet, privacy: .public)\" failure=\(hasFailure)")
-            Self.logger.info("Layout mismatch bounds=\(boundsDesc, privacy: .public)")
-            Self.logger.info("Layout mismatch measured=\(measuredDesc, privacy: .public)")
-            onLayoutOverflow?(messageId, adjustedMeasured)
-        } else {
-            lastMismatch = nil
-        }
-        logBubbleFrameMismatchIfNeeded()
-    }
-
-    private func logBubbleFrameMismatchIfNeeded() {
-        guard let messageId,
-              let bubbleFrame else { return }
-        guard bubbleFrame.width > 1, bubbleFrame.height > 1 else { return }
-        let bounds = contentView.bounds
-        let heightDelta = abs(bounds.height - bubbleFrame.height)
-        let widthDelta = abs(bounds.width - bubbleFrame.width)
-        let yDelta = abs(bubbleFrame.minY - bounds.minY)
-        let xDelta = abs(bubbleFrame.minX - bounds.minX)
-        guard heightDelta > 1 || widthDelta > 1 || yDelta > 1 || xDelta > 1 else {
-            lastBubbleFrameMismatch = nil
-            return
-        }
-        if let lastBubbleFrameMismatch,
-           lastBubbleFrameMismatch.messageId == messageId,
-           abs(lastBubbleFrameMismatch.bounds.width - bounds.width) < 1,
-           abs(lastBubbleFrameMismatch.bounds.height - bounds.height) < 1,
-           abs(lastBubbleFrameMismatch.bubble.width - bubbleFrame.width) < 1,
-           abs(lastBubbleFrameMismatch.bubble.height - bubbleFrame.height) < 1,
-           abs(lastBubbleFrameMismatch.bubble.minX - bubbleFrame.minX) < 1,
-           abs(lastBubbleFrameMismatch.bubble.minY - bubbleFrame.minY) < 1 {
-            return
-        }
-        lastBubbleFrameMismatch = (messageId: messageId, bounds: bounds, bubble: bubbleFrame)
-        let boundsDesc = String(describing: bounds)
-        let bubbleDesc = String(describing: bubbleFrame)
-        let snippet = messageSnippet
-        Self.logger.info("Bubble frame mismatch id=\(messageId, privacy: .public) snippet=\"\(snippet, privacy: .public)\"")
-        Self.logger.info("Bubble frame mismatch bounds=\(boundsDesc, privacy: .public)")
-        Self.logger.info("Bubble frame mismatch bubble=\(bubbleDesc, privacy: .public)")
     }
 }

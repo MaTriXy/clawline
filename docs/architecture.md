@@ -615,7 +615,7 @@ Error/HTTP mapping:
 }
 ```
 Inline attachments MUST be <= 256KB raw bytes. Base64 adds ~33% overhead. Larger files MUST use /upload (otherwise `payload_too_large`).
-Max inline attachments per message: 4. Total inline attachment bytes per message MUST be <= 256KB. Total message payload (content bytes + inline attachment bytes) MUST be <= 320KB. Allowed inline image types: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
+Total inline attachment bytes per message MUST be <= 256KB. Total message payload (content bytes + inline attachment bytes) MUST be <= 320KB. Allowed inline image types: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
 Inline attachments are only for image payloads; non-image files MUST be uploaded via `/upload` and referenced as `asset`. Allowed inline `mimeType` values: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
 Assistant responses may include `attachments` as either inline images or `asset` references; clients MUST handle downloading `asset` attachments.
 

@@ -117,6 +117,8 @@ final class MessageBubbleUIKitView: UIView {
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
     private var currentChannelType: ChatChannelType = .personal
+    private var currentContentPaddingHorizontal: CGFloat = 16
+    private var currentContentPaddingVertical: CGFloat = 14
     private var contentLeadingConstraint: NSLayoutConstraint!
     private var contentTrailingConstraint: NSLayoutConstraint!
     private var contentTopConstraint: NSLayoutConstraint!
@@ -415,10 +417,12 @@ final class MessageBubbleUIKitView: UIView {
             dynamicContentViews.append(tableView)
         }
 
-        contentLeadingConstraint.constant = metrics.bubblePaddingHorizontal
-        contentTrailingConstraint.constant = -metrics.bubblePaddingHorizontal
-        contentTopConstraint.constant = metrics.bubblePaddingVertical
-        contentBottomConstraint.constant = -metrics.bubblePaddingVertical
+        currentContentPaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
+        currentContentPaddingVertical = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingVertical
+        contentLeadingConstraint.constant = currentContentPaddingHorizontal
+        contentTrailingConstraint.constant = -currentContentPaddingHorizontal
+        contentTopConstraint.constant = currentContentPaddingVertical
+        contentBottomConstraint.constant = -currentContentPaddingVertical
 
         switch sizeClass {
         case .short:
@@ -451,7 +455,7 @@ final class MessageBubbleUIKitView: UIView {
         fadeConstraints.removeAll()
 
         if sizeClass == .long {
-            let contentWidth = maxWidth - (metrics.bubblePaddingHorizontal * 2)
+            let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
             let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
             let measureWidth = min(contentWidth, maxLineWidth)
 
@@ -612,10 +616,10 @@ final class MessageBubbleUIKitView: UIView {
 
     func preferredWidth(maxWidth: CGFloat) -> CGFloat {
         let headerWidth = 32 + 10 + senderLabel.intrinsicContentSize.width
-        let contentWidth = maxWidth - (currentMetrics.bubblePaddingHorizontal * 2)
+        let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
         let bodySize = bodyLabel.sizeThatFits(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
         let contentMax = max(headerWidth, bodySize.width)
-        return min(maxWidth, max(120, contentMax + (currentMetrics.bubblePaddingHorizontal * 2)))
+        return min(maxWidth, max(120, contentMax + (currentContentPaddingHorizontal * 2)))
     }
 
     @objc private func handleTruncationTap() {

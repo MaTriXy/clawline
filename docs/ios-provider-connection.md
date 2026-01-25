@@ -204,12 +204,37 @@ Typing events are rate-limited to 2 per second per device; excess events receive
 | `typing` send | 2/sec per `deviceId` | Drop extra typing updates; rely on auto-expire |
 | Oversize payloads | 3 violations within 60s closes socket | Warn user and throttle UI |
 
-## Media and file transfer
+## Media and file transfer (client integration spec)
 
-Two tiers: inline for small attachments (<= 256KB raw bytes; base64 adds ~33% overhead—expect ~341KB JSON payloads), out-of-band for large files.
-HTTP upload/download uses the same host/port as the WebSocket endpoint. The provider enforces the raw byte limit before encoding, so clients should reject larger files locally. Max upload size is 100MB in v1.
+Two tiers: inline images for small attachments (<= 256KB raw bytes; base64 adds ~33% overhead—expect ~341KB JSON payloads), and out-of-band uploads for larger files. HTTP upload/download uses the same host/port as the WebSocket endpoint. The provider enforces limits on decoded bytes before base64, so clients should preflight and reject oversize payloads locally.
 
-### Inline attachments (small)
+### Attachment schema (bidirectional)
+
+Attachments appear on both **client → server** messages and **server → client** echoes/assistant responses.
+
+```json
+[
+  { "type": "image", "mimeType": "image/jpeg", "data": "<base64>" },
+  { "type": "asset", "assetId": "asset_1" }
+]
+```
+
+- Inline attachments are **image-only**. Non-image files MUST use `/upload` + `type: "asset"`.
+- Clients MUST accept `attachments[]` on user echoes and assistant messages. These are **not** UI hints; they are canonical payloads.
+- Providers may include a `metadata` object on attachments (e.g., `filename`, `mimeType`, `size`, `width`, `height`). Clients should ignore unknown metadata fields and never require them.
+
+### Size and count limits (v1)
+
+- Inline attachment bytes (decoded) per attachment: **<= 256KB**.
+- Total inline bytes per message: **<= 256KB**.
+- Attachment count per message: **no fixed limit** (bounded by payload size and server resource limits).
+- Total payload size per message: **<= 320KB** (UTF-8 `content` bytes + decoded inline bytes).
+- Allowed inline `mimeType` values: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
+- Max upload size: **100MB** (raw bytes).
+
+### Client → server flow
+
+**Inline image (small)**
 ```json
 {
   "type": "message",
@@ -220,11 +245,11 @@ HTTP upload/download uses the same host/port as the WebSocket endpoint. The prov
 }
 ```
 
-### Large file upload (v1)
+**HTTP upload + asset reference (large files)**
 
-1) Upload via HTTP `POST /upload` (auth required, multipart, field name `file`). Use `Authorization: Bearer <token>`. Response is `application/json`.
+1) Upload via HTTP `POST /upload` (auth required, multipart, field name `file`). Use `Authorization: Bearer <token>`. The part’s `Content-Type` is used as the stored `mimeType` (if missing, the server stores `application/octet-stream`).
 
-2) Provider responds with asset metadata:
+2) Provider responds with asset metadata (JSON):
 ```json
 {
   "assetId": "asset_1",
@@ -232,7 +257,7 @@ HTTP upload/download uses the same host/port as the WebSocket endpoint. The prov
   "size": 5242880
 }
 ```
-   v1 does not include filename, checksum, or expiry in the response.
+   v1 does not include filename, checksum, or expiry in the response. `assetId` is opaque; do not assume a prefix or format. Clients SHOULD treat it as an opaque token and avoid validating the pattern beyond basic non-empty safety checks.
 
 3) Send a message referencing the asset:
 ```json
@@ -243,8 +268,32 @@ HTTP upload/download uses the same host/port as the WebSocket endpoint. The prov
 }
 ```
 
-### Download
-- Client downloads via HTTP `GET /download/:assetId` (auth required). Use `Authorization: Bearer <token>`. Response content-type is the stored `mimeType` and body is raw bytes.
+If the referenced asset has expired or is unknown, the server returns `asset_not_found`.
+
+### Server → client flow
+
+Assistant messages (and user echoes) may include:
+
+- Inline images (`type: "image"` + base64) — decode and render directly.
+- Asset references (`type: "asset"` + `assetId`) — fetch bytes over HTTP:
+
+```
+GET /download/:assetId
+Authorization: Bearer <token>
+```
+
+The response `Content-Type` is the stored `mimeType`; body is raw bytes. Treat `assetId` as opaque, and handle `asset_not_found` by showing a retry UI and/or prompting a re-upload.
+
+### HTTP endpoints, auth, TTLs, and storage
+
+- **Auth:** `/upload` and `/download/:assetId` require `Authorization: Bearer <token>`.
+- **Endpoints:** same host/port as the WebSocket server; transport is plaintext in v1.
+- **Errors:** JSON error schema + HTTP status (`400` invalid_message, `401` auth_failed, `403` token_revoked, `404` asset_not_found, `413` payload_too_large, `429` rate_limited, `503` upload_failed_retryable, `500` server_error).
+- **Unreferenced upload TTL:** assets that are uploaded but never attached to a message are deleted after **1 hour**.
+- **Streaming guard:** assets referenced by a streaming response stay “referenced” until the stream finalizes or fails; if no streaming updates arrive for **5 minutes**, the stream is treated as failed and the asset becomes unreferenced (1-hour TTL then applies).
+- **Retention:** assets referenced by messages are retained indefinitely in v1 (no quotas/pruning).
+- **Storage:** server writes bytes under `media.storagePath` (default `~/.clawd/clawline-media`), stored at `${storagePath}/assets/<assetId>` with no extension.
+- **Access model:** any authenticated device can download any asset in v1 (no per-device ACLs). Deploy only in trusted networks/households.
 
 ## Error handling
 

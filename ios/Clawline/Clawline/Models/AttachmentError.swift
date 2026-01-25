@@ -18,6 +18,8 @@ enum AttachmentError: LocalizedError {
     case missingBaseURL
     case missingAuth
     case cancelled
+    case payloadTooLarge
+    case uploadTooLarge
     case unknown
 
     var errorDescription: String? {
@@ -42,6 +44,10 @@ enum AttachmentError: LocalizedError {
             return "Not signed in."
         case .cancelled:
             return nil
+        case .payloadTooLarge:
+            return "Message is too large to send."
+        case .uploadTooLarge:
+            return "File is too large to upload."
         case .unknown:
             return "Something went wrong."
         }

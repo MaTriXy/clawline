@@ -149,6 +149,8 @@ extension MessagePresentation {
         switch parts[0] {
         case .image:
             return .image
+        case .gallery:
+            return .image
         case .table(let model):
             // Only chromeless if ≤5 rows (tables truncate at 5 rows)
             return model.rows.count <= 5 ? .table : nil
@@ -777,7 +779,7 @@ enum MessagePresentationBuilder {
             case .image:
                 return true
             case .asset:
-                return attachment.mimeType?.hasPrefix("image/") ?? false
+                return attachment.mimeType?.lowercased().hasPrefix("image/") == true
             case .document:
                 return false
             }

@@ -8,6 +8,39 @@
 import Foundation
 import OSLog
 
+private final class AsyncStreamBroadcaster<Element> {
+    private var continuations: [UUID: AsyncStream<Element>.Continuation] = [:]
+    private let lock = NSLock()
+
+    func stream(initial: Element? = nil) -> AsyncStream<Element> {
+        AsyncStream { [weak self] continuation in
+            let id = UUID()
+            self?.lock.lock()
+            self?.continuations[id] = continuation
+            self?.lock.unlock()
+            if let initial {
+                continuation.yield(initial)
+            }
+            continuation.onTermination = { [weak self] _ in
+                self?.remove(id)
+            }
+        }
+    }
+
+    func send(_ value: Element) {
+        lock.lock()
+        let current = Array(continuations.values)
+        lock.unlock()
+        current.forEach { $0.yield(value) }
+    }
+
+    private func remove(_ id: UUID) {
+        lock.lock()
+        continuations.removeValue(forKey: id)
+        lock.unlock()
+    }
+}
+
 final class ProviderChatService: ChatServicing {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ProviderChatService")
     private let messageLogger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
@@ -110,34 +143,18 @@ final class ProviderChatService: ChatServicing {
     private let decoder: JSONDecoder
     private let ackInterval: Duration = .seconds(5)
 
-    private lazy var messageStream: AsyncStream<Message> = {
-        AsyncStream { continuation in
-            self.messageContinuation = continuation
-        }
-    }()
+    private let messageBroadcaster = AsyncStreamBroadcaster<Message>()
+    private let stateBroadcaster = AsyncStreamBroadcaster<ConnectionState>()
+    private let serviceEventBroadcaster = AsyncStreamBroadcaster<ChatServiceEvent>()
+    private var lastConnectionState: ConnectionState = .disconnected
 
-    private lazy var stateStream: AsyncStream<ConnectionState> = {
-        AsyncStream { continuation in
-            self.stateContinuation = continuation
-            continuation.yield(.disconnected)
-        }
-    }()
-
-    private lazy var serviceEventStream: AsyncStream<ChatServiceEvent> = {
-        AsyncStream { continuation in
-            self.serviceEventContinuation = continuation
-        }
-    }()
-
-    private var messageContinuation: AsyncStream<Message>.Continuation?
-    private var stateContinuation: AsyncStream<ConnectionState>.Continuation?
-    private var serviceEventContinuation: AsyncStream<ChatServiceEvent>.Continuation?
     private var socket: (any WebSocketClient)?
     private var receiveTask: Task<Void, Never>?
     private var authContinuation: CheckedContinuation<Void, Swift.Error>?
     private var pendingMessages: [String: PendingMessage] = [:]
     private var shouldNotifyDisconnect = true
     private var pendingDisconnectReason: String?
+    private var isConnecting = false
 
     init(connector: any WebSocketConnecting,
          deviceId: String,
@@ -151,11 +168,19 @@ final class ProviderChatService: ChatServicing {
         self.decoder = decoder
     }
 
-    var incomingMessages: AsyncStream<Message> { messageStream }
-    var connectionState: AsyncStream<ConnectionState> { stateStream }
-    var serviceEvents: AsyncStream<ChatServiceEvent> { serviceEventStream }
+    var incomingMessages: AsyncStream<Message> { messageBroadcaster.stream() }
+    var connectionState: AsyncStream<ConnectionState> { stateBroadcaster.stream(initial: lastConnectionState) }
+    var serviceEvents: AsyncStream<ChatServiceEvent> { serviceEventBroadcaster.stream() }
 
     func connect(token: String, lastMessageId: String?) async throws {
+        if isConnecting {
+            logger.info("connect suppressed: already connecting")
+            resolveAuthContinuation(with: .failure(Error.notConnected))
+            return
+        }
+        isConnecting = true
+        defer { isConnecting = false }
+
         guard let baseURL = baseURLProvider(),
               let wsURL = makeWebSocketURL(from: baseURL) else {
             throw Error.missingBaseURL
@@ -165,7 +190,8 @@ final class ProviderChatService: ChatServicing {
         shouldNotifyDisconnect = true
         pendingDisconnectReason = nil
 
-        stateContinuation?.yield(.connecting)
+        logger.info("connect start ws=\(wsURL.absoluteString, privacy: .public)")
+        updateState(.connecting)
         let client = try await connector.connect(to: wsURL)
         socket = client
         startListening(on: client)
@@ -180,32 +206,36 @@ final class ProviderChatService: ChatServicing {
                         lastMessageId: lastMessageId
                     )
                     let data = try encoder.encode(authPayload)
-                        guard let text = String(data: data, encoding: .utf8) else {
-                            self.resolveAuthContinuation(with: .failure(Error.notConnected))
-                            return
-                        }
-                        try await client.send(text: text)
-                    } catch {
-                        self.resolveAuthContinuation(with: .failure(error))
+                    guard let text = String(data: data, encoding: .utf8) else {
+                        self.resolveAuthContinuation(with: .failure(Error.notConnected))
+                        return
                     }
+                    try await client.send(text: text)
+                } catch {
+                    self.resolveAuthContinuation(with: .failure(error))
                 }
             }
         }
+    }
 
     func disconnect() {
+        logger.info("disconnect requested")
         performDisconnect(shouldNotify: false)
     }
 
     private func performDisconnect(shouldNotify: Bool, reason: String? = nil) {
+        logger.info("performDisconnect notify=\(shouldNotify, privacy: .public) reason=\(reason ?? "nil", privacy: .public)")
         shouldNotifyDisconnect = shouldNotify
         pendingDisconnectReason = reason
+        resolveAuthContinuation(with: .failure(Error.notConnected))
         receiveTask?.cancel()
         receiveTask = nil
         socket?.close(with: .normalClosure)
         socket = nil
         pendingMessages.values.forEach { $0.retryTask?.cancel() }
         pendingMessages.removeAll()
-        stateContinuation?.yield(.disconnected)
+        logger.info("state -> disconnected (performDisconnect)")
+        updateState(.disconnected)
     }
 
     func send(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType) async throws {
@@ -280,17 +310,19 @@ final class ProviderChatService: ChatServicing {
         guard let result = try? decoder.decode(AuthResultPayload.self, from: data) else { return }
         if result.success {
             resolveAuthContinuation(with: .success(()))
-            stateContinuation?.yield(.connected)
+            logger.info("state -> connected (auth success)")
+            updateState(.connected)
             if let isAdmin = result.isAdmin {
                 logger.info("Auth result received (userId: \(result.userId ?? "unknown", privacy: .public), isAdmin: \(isAdmin, privacy: .public))")
                 let info = ChatUserInfo(userId: result.userId ?? "", isAdmin: isAdmin)
-                serviceEventContinuation?.yield(.userInfo(info))
+                emitServiceEvent(.userInfo(info))
             }
         } else {
             let reason = result.reason ?? "Unknown error"
             let error = Error.authFailed(reason)
             resolveAuthContinuation(with: .failure(error))
-            stateContinuation?.yield(.failed(error))
+            logger.info("state -> failed (auth result) error=\(error.localizedDescription, privacy: .public)")
+            updateState(.failed(error))
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
         }
     }
@@ -302,7 +334,7 @@ final class ProviderChatService: ChatServicing {
             "recv message id=\(payload.id, privacy: .public) channel=\(payload.channelType.rawValue, privacy: .public) role=\(String(describing: payload.role), privacy: .public) streaming=\(payload.streaming, privacy: .public) deviceId=\(payload.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
         )
         let message = Message(payload: payload)
-        messageContinuation?.yield(message)
+        messageBroadcaster.send(message)
     }
 
     private func handleAck(data: Data) {
@@ -319,7 +351,7 @@ final class ProviderChatService: ChatServicing {
             if let pending = pendingMessages.removeValue(forKey: messageId) {
                 pending.retryTask?.cancel()
             }
-            serviceEventContinuation?.yield(.messageError(messageId: messageId, code: payload.code, message: payload.message))
+            emitServiceEvent(.messageError(messageId: messageId, code: payload.code, message: payload.message))
             return
         }
 
@@ -328,26 +360,30 @@ final class ProviderChatService: ChatServicing {
         case "auth_failed":
             let error = Error.authFailed(message)
             resolveAuthContinuation(with: .failure(error))
-            stateContinuation?.yield(.failed(error))
+            logger.info("state -> failed (server error auth_failed) error=\(error.localizedDescription, privacy: .public)")
+            updateState(.failed(error))
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
         case "token_revoked":
             let error = Error.tokenRevoked(message)
             resolveAuthContinuation(with: .failure(error))
-            stateContinuation?.yield(.failed(error))
+            logger.info("state -> failed (server error token_revoked) error=\(error.localizedDescription, privacy: .public)")
+            updateState(.failed(error))
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
         case "session_replaced":
             let error = Error.sessionReplaced
-            stateContinuation?.yield(.failed(error))
+            logger.info("state -> failed (server error session_replaced)")
+            updateState(.failed(error))
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
         default:
-            stateContinuation?.yield(.failed(Error.serverError(code: payload.code, message: payload.message)))
+            logger.info("state -> failed (server error) code=\(payload.code, privacy: .public)")
+            updateState(.failed(Error.serverError(code: payload.code, message: payload.message)))
         }
     }
 
     private func handleUserInfo(data: Data) {
         guard let payload = try? decoder.decode(UserInfoPayload.self, from: data) else { return }
         let info = ChatUserInfo(userId: payload.userId, isAdmin: payload.isAdmin)
-        serviceEventContinuation?.yield(.userInfo(info))
+        emitServiceEvent(.userInfo(info))
     }
 
     private func handleEvent(data: Data) {
@@ -376,10 +412,19 @@ final class ProviderChatService: ChatServicing {
                 channel = .personal
             }
             logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public) channelType=\(payload.payload.channelType ?? "nil", privacy: .public) channel=\(channel.rawValue, privacy: .public)")
-            serviceEventContinuation?.yield(.typingStateChanged(isTyping: payload.payload.isActive, channel: channel))
+            emitServiceEvent(.typingStateChanged(isTyping: payload.payload.isActive, channel: channel))
         default:
             logger.debug("Unknown event type: \(envelope.event, privacy: .public)")
         }
+    }
+
+    private func updateState(_ state: ConnectionState) {
+        lastConnectionState = state
+        stateBroadcaster.send(state)
+    }
+
+    private func emitServiceEvent(_ event: ChatServiceEvent) {
+        serviceEventBroadcaster.send(event)
     }
 
     private func handleSocketClose() {
@@ -389,7 +434,7 @@ final class ProviderChatService: ChatServicing {
         // This removes the optimistic placeholders so users know messages weren't delivered
         for (messageId, pending) in pendingMessages {
             pending.retryTask?.cancel()
-            serviceEventContinuation?.yield(.messageError(
+            emitServiceEvent(.messageError(
                 messageId: messageId,
                 code: "connection_lost",
                 message: "Message not delivered - connection lost"
@@ -397,9 +442,10 @@ final class ProviderChatService: ChatServicing {
         }
         pendingMessages.removeAll()
 
-        stateContinuation?.yield(.disconnected)
+        logger.info("state -> disconnected (socket close) notify=\(self.shouldNotifyDisconnect, privacy: .public)")
+        updateState(.disconnected)
         if shouldNotifyDisconnect {
-            serviceEventContinuation?.yield(.connectionInterrupted(reason: pendingDisconnectReason))
+            emitServiceEvent(.connectionInterrupted(reason: pendingDisconnectReason))
         }
         shouldNotifyDisconnect = true
         pendingDisconnectReason = nil
