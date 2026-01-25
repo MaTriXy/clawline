@@ -5,8 +5,11 @@
 //  Created by Codex on 1/15/26.
 //
 
+import OSLog
 import SwiftUI
 import UIKit
+
+private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "RichTextEditor")
 
 struct RichTextEditor: UIViewRepresentable {
     @Binding var attributedText: NSAttributedString
@@ -15,14 +18,19 @@ struct RichTextEditor: UIViewRepresentable {
     var focusTrigger: Int
     var isEditable: Bool
     var onFocusChange: (Bool) -> Void
+    var onPasteImages: (([UIImage]) -> Void)?
     var trailingPadding: CGFloat = 20
 
-    func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+    func makeUIView(context: Context) -> PastableTextView {
+        let textView = PastableTextView()
         textView.delegate = context.coordinator
+        let coordinator = context.coordinator
+        textView.onPasteImages = { images in
+            coordinator.parent.onPasteImages?(images)
+        }
         textView.isScrollEnabled = false
         textView.backgroundColor = .clear
-        textView.textContainerInset = UIEdgeInsets(top: 10, left: 20, bottom: 10, right: trailingPadding)
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: trailingPadding)
         textView.textContainer.lineFragmentPadding = 0
         textView.adjustsFontForContentSizeCategory = true
         textView.font = UIFont.preferredFont(forTextStyle: .body)
@@ -39,12 +47,19 @@ struct RichTextEditor: UIViewRepresentable {
         return textView
     }
 
-    func updateUIView(_ textView: UITextView, context: Context) {
+    func updateUIView(_ textView: PastableTextView, context: Context) {
         context.coordinator.parent = self
+
+        // Update paste callback
+        let coordinator = context.coordinator
+        textView.onPasteImages = { images in
+            coordinator.parent.onPasteImages?(images)
+        }
 
         if !(textView.attributedText?.isEqual(attributedText) ?? false) {
             textView.attributedText = attributedText
             context.coordinator.enforceBaseAttributes(on: textView)
+            logger.info("[trace] updateUIView set attributedText len=\(attributedText.length)")
         }
 
         if textView.selectedRange != selectionRange && selectionRange.location != NSNotFound {
@@ -94,6 +109,8 @@ struct RichTextEditor: UIViewRepresentable {
             updateHeight(for: textView)
             ensureCaretVisible(in: textView)
             ensureTypingAttributes(on: textView)
+            let length = textView.attributedText?.length ?? 0
+            logger.info("[trace] textViewDidChange len=\(length) sel=\(textView.selectedRange.location),\(textView.selectedRange.length)")
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -111,8 +128,8 @@ struct RichTextEditor: UIViewRepresentable {
             let fittingSize = CGSize(width: referenceWidth,
                                      height: .greatestFiniteMagnitude)
             let size = textView.sizeThatFits(fittingSize)
-            let minHeight: CGFloat = 44
-            let maxHeight: CGFloat = 112
+            let minHeight: CGFloat = 48
+            let maxHeight: CGFloat = 120
             let clamped = min(max(size.height, minHeight), maxHeight)
             if abs(parent.calculatedHeight - clamped) > 0.5 {
                 parent.calculatedHeight = clamped
@@ -157,5 +174,36 @@ struct RichTextEditor: UIViewRepresentable {
                 textView.textStorage.addAttributes([.font: baseFont, .foregroundColor: baseColor], range: range)
             }
         }
+    }
+}
+
+// MARK: - Custom UITextView with image paste support
+
+/// A UITextView subclass that supports pasting images from the clipboard.
+final class PastableTextView: UITextView {
+    var onPasteImages: (([UIImage]) -> Void)?
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)) {
+            // Allow paste if there's text or images in pasteboard
+            let pasteboard = UIPasteboard.general
+            if pasteboard.hasImages || pasteboard.hasStrings {
+                return true
+            }
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    override func paste(_ sender: Any?) {
+        let pasteboard = UIPasteboard.general
+
+        // Check for images first
+        if pasteboard.hasImages, let images = pasteboard.images, !images.isEmpty {
+            onPasteImages?(images)
+            return
+        }
+
+        // Fall back to default paste for text
+        super.paste(sender)
     }
 }

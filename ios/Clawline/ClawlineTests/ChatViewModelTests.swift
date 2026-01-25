@@ -29,11 +29,12 @@ struct ChatViewModelTests {
                 timestamp: Date(),
                 streaming: false,
                 attachments: [],
-                deviceId: nil
+                deviceId: nil,
+                channelType: .personal
             )
         )
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
 
         let snapshot = await MainActor.run { viewModel.debugConnectionSnapshot() }
         #expect(snapshot.lastMessageId == "s_snapshot")
@@ -66,11 +67,12 @@ struct ChatViewModelTests {
                 timestamp: Date(),
                 streaming: true,
                 attachments: [],
-                deviceId: nil
+                deviceId: nil,
+                channelType: .personal
             )
         )
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         let firstCount = await MainActor.run { viewModel.messages.count }
         #expect(firstCount == 1)
 
@@ -82,18 +84,19 @@ struct ChatViewModelTests {
                 timestamp: Date(),
                 streaming: false,
                 attachments: [],
-                deviceId: nil
+                deviceId: nil,
+                channelType: .personal
             )
         )
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         let finalState = await MainActor.run { viewModel.messages }
         #expect(finalState.count == 1)
         #expect(finalState.first?.content == "Final")
         #expect(finalState.first?.streaming == false)
     }
 
-    @Test("Server echoes without device id still replace placeholder")
+    @Test("Server echoes with matching device id replace placeholder")
     @MainActor
     func userEchoWithoutDeviceIdDoesNotDuplicate() async throws {
         let auth = TestAuthManager()
@@ -113,7 +116,7 @@ struct ChatViewModelTests {
         viewModel.inputContent = NSAttributedString(string: "Hello!")
         viewModel.send()
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         let placeholderId = await MainActor.run { viewModel.messages.first?.id }
         #expect(placeholderId?.hasPrefix("c_") == true)
 
@@ -125,11 +128,12 @@ struct ChatViewModelTests {
                 timestamp: Date(),
                 streaming: false,
                 attachments: [],
-                deviceId: nil
+                deviceId: "device",
+                channelType: .personal
             )
         )
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         let messages = await MainActor.run { viewModel.messages }
         #expect(messages.count == 1)
         #expect(messages.first?.id == "s_user_echo")
@@ -155,14 +159,14 @@ struct ChatViewModelTests {
         viewModel.inputContent = NSAttributedString(string: "Broken message")
         viewModel.send()
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
         guard let messageId = chatService.lastSentId else {
             Issue.record("Expected chat service to capture sent message id")
             return
         }
 
         chatService.emitServiceEvent(.messageError(messageId: messageId, code: "invalid_message", message: "bad content"))
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
 
         let failure = viewModel.failureMessage(for: messageId)
         #expect(failure == "bad content")
@@ -189,10 +193,10 @@ struct ChatViewModelTests {
 
         await viewModel.onAppear()
         chatService.emitConnectionState(.connected)
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
 
         chatService.emitServiceEvent(.connectionInterrupted(reason: "Connection lost"))
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(10))
 
         let alert = await MainActor.run { viewModel.debugConnectionAlert() }
         #expect(alert == .caution)
@@ -205,9 +209,10 @@ struct ChatViewModelTests {
     func canSendWithAttachmentOnly() {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
         let viewModel = ChatViewModel(
             auth: auth,
-            chatService: TestChatService(),
+            chatService: chatService,
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
@@ -219,6 +224,56 @@ struct ChatViewModelTests {
         viewModel.inputContent = makeAttributedContent(with: [attachment.id])
 
         #expect(viewModel.canSend)
+    }
+
+    @Test("Doc §5: Memory warnings flush presentation cache")
+    @MainActor
+    func memoryWarningClearsPresentationCache() async throws {
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: TestChatService(),
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager()
+        )
+
+        let message = Message(
+            id: "table-msg",
+            role: .assistant,
+            content: """
+            | Foo | Bar |
+            | --- | --- |
+            | A | B |
+            """,
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            channelType: .personal
+        )
+
+        await viewModel.onAppear()
+        let chatService = TestChatService()
+        chatService.emit(message)
+        try await Task.sleep(forDuration: .milliseconds(10))
+
+        let metrics = ChatFlowTheme.Metrics(isCompact: true)
+        let cachedMessage = await MainActor.run { viewModel.messages.first ?? message }
+        _ = viewModel.presentation(for: cachedMessage, metrics: metrics)
+
+        let cacheCount = await MainActor.run { viewModel.debugPresentationCacheSize() }
+        #expect(cacheCount == 1)
+
+        NotificationCenter.default.post(name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        try await Task.sleep(forDuration: .milliseconds(10))
+
+        let flushedCache = await MainActor.run { viewModel.debugPresentationCacheSize() }
+        let flushedStates = await MainActor.run { viewModel.debugTableParseStateSize() }
+        #expect(flushedCache == 0)
+        #expect(flushedStates == 0)
     }
 
     @Test("send uploads attachments that require persistence")
@@ -289,7 +344,101 @@ struct ChatViewModelTests {
         viewModel.inputContent = NSAttributedString(string: "hello")
         #expect(viewModel.attachmentData.isEmpty)
     }
+    
+    @Test("Outbound sends respect active channel selection")
+    @MainActor
+    func sendUsesActiveChannelType() async throws {
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        auth.updateAdminStatus(true)
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager()
+        )
 
+        viewModel.setActiveChannel(.admin)
+        viewModel.inputContent = NSAttributedString(string: "Admin ping")
+        viewModel.send()
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(chatService.lastChannelType == .admin)
+    }
+
+    @Test("Incoming messages route to matching channel")
+    @MainActor
+    func incomingMessagesRoutePerChannel() async throws {
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        auth.updateAdminStatus(true)
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager()
+        )
+
+        await viewModel.onAppear()
+
+        let adminMessage = Message(
+            id: "s_admin",
+            role: .assistant,
+            content: "Admin hello",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            channelType: .admin
+        )
+
+        chatService.emit(adminMessage)
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(viewModel.messages.isEmpty)
+        viewModel.setActiveChannel(.admin)
+        #expect(viewModel.messages.count == 1)
+        #expect(viewModel.messages.first?.id == "s_admin")
+    }
+
+    @Test("user_info event updates admin state and surfaces toast")
+    @MainActor
+    func userInfoEventUpdatesAdminState() async throws {
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager
+        )
+
+        await viewModel.onAppear()
+
+        try await Task.sleep(for: .milliseconds(10))
+        chatService.emitServiceEvent(.userInfo(ChatUserInfo(userId: "user", isAdmin: true)))
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(auth.isAdmin)
+        let unlockMessages = await MainActor.run { toastManager.debugMessages }
+        #expect(unlockMessages.contains("Admin channel unlocked"))
+
+        chatService.emitServiceEvent(.userInfo(ChatUserInfo(userId: "user", isAdmin: false)))
+        try await Task.sleep(for: .milliseconds(10))
+        #expect(auth.isAdmin == false)
+        let revokeMessages = await MainActor.run { toastManager.debugMessages }
+        #expect(revokeMessages.contains("Admin access revoked"))
+    }
 }
 
 @MainActor
@@ -297,6 +446,7 @@ private final class TestAuthManager: AuthManaging {
     var isAuthenticated: Bool = false
     var currentUserId: String?
     var token: String?
+    var isAdmin: Bool = false
 
     func storeCredentials(token: String, userId: String) {
         self.token = token
@@ -308,16 +458,24 @@ private final class TestAuthManager: AuthManaging {
         token = nil
         currentUserId = nil
         isAuthenticated = false
+        isAdmin = false
     }
-}
 
+    func updateAdminStatus(_ isAdmin: Bool) {
+        self.isAdmin = isAdmin
+    }
+
+    func refreshAdminStatusFromToken() {}
+}
 private final class TestChatService: ChatServicing {
     private var messageContinuation: AsyncStream<Message>.Continuation?
     private var stateContinuation: AsyncStream<ConnectionState>.Continuation?
     private var eventContinuation: AsyncStream<ChatServiceEvent>.Continuation?
     private var bufferedMessages: [Message] = []
+    private var bufferedEvents: [ChatServiceEvent] = []
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
+    private(set) var lastChannelType: ChatChannelType?
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -337,6 +495,8 @@ private final class TestChatService: ChatServicing {
     private(set) lazy var serviceEvents: AsyncStream<ChatServiceEvent> = {
         AsyncStream { continuation in
             self.eventContinuation = continuation
+            bufferedEvents.forEach { continuation.yield($0) }
+            bufferedEvents.removeAll()
         }
     }()
 
@@ -348,9 +508,10 @@ private final class TestChatService: ChatServicing {
         stateContinuation?.yield(.disconnected)
     }
 
-    func send(id: String, content: String, attachments: [WireAttachment]) async throws {
+    func send(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType) async throws {
         lastSentId = id
         lastSentAttachments = attachments
+        lastChannelType = channelType
     }
 
     func emit(_ message: Message) {
@@ -366,7 +527,11 @@ private final class TestChatService: ChatServicing {
     }
 
     func emitServiceEvent(_ event: ChatServiceEvent) {
-        eventContinuation?.yield(event)
+        if let continuation = eventContinuation {
+            continuation.yield(event)
+        } else {
+            bufferedEvents.append(event)
+        }
     }
 }
 

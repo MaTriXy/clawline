@@ -168,7 +168,7 @@ Implementation note:
 Based on `docs/architecture.md`:
 - First-time device pairing: `pair_request` -> admin approval -> `pair_result` (JWT + userId)
 - Subsequent connections: `auth` with stored JWT
-- JWT includes `sub`, `deviceId`, `isAdmin`, `iat`, `exp` (`sub` MUST equal the `userId`)
+- JWT includes `sub`, `deviceId`, `iat`, `exp` (`sub` MUST equal the `userId`). Admin status lives solely in the allowlist and is surfaced to clients via the `auth_result.isAdmin` field after login; it is not part of the JWT claims.
 - Revocation is list-based (no expiry in v1)
 - Provider secret (`jwtSigningKey`) should be generated on first run if not provided, stored in the provider state directory (default `~/.clawd/clawline/`), and reused on restart (rotation is manual in v1).
 - Rotating the signing key invalidates all existing JWTs; devices must re-pair. On rotation, the provider MUST terminate all active sessions immediately.
@@ -197,7 +197,7 @@ Ownership is strictly by queue order: whichever entry reaches successful validat
 - If no admin is online, pending requests remain queued until an admin connects or the TTL expires. When an admin successfully authenticates (after replay), the provider MUST immediately emit every still-valid pending request to that socket before delivering normal chat traffic so approvals are never missed because of a disconnect.
 - Rate limit `pair_request` (5/min per deviceId) and cap pending requests (`maxPendingRequests`, default 100).
 - While a request is pending, any attempt to `auth` MUST return `auth_result { success:false, reason:\"device_not_approved\" }` and close the socket; the client should resume pairing UI.
-- Store admin status on allowlist entries and include `isAdmin` in JWT claims. Only admins can send `pair_decision`.
+- Store admin status on allowlist entries. Include the current flag in `auth_result` responses so clients can adjust their UI, but continue to enforce privileged actions by re-checking the allowlist at runtime (JWT claims are not trusted for admin).
 - Non-admin `pair_decision` attempts return `error` `invalid_message` without closing the connection.
 - Bind tokens to `deviceId`: the provider MUST reject `auth` if the presented JWT’s `deviceId` claim differs from the `deviceId` sent in the payload.
 - Auth validation order: verify JWT signature and expiry before checking `deviceId` binding to avoid leaking valid device identifiers.

@@ -124,7 +124,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Valid JWT presented with a `deviceId` that differs from the token’s `deviceId` claim fails auth with `auth_failed` and closes the connection.
 - JWTs missing the `deviceId` claim fail auth with `auth_failed` and close the connection.
 - JWT `deviceId` claim must be a UUIDv4; invalid formats fail auth with `auth_failed`.
-- JWT claims (v1): `sub` (userId), `deviceId` (claim key is exactly `"deviceId"`), `isAdmin` (bool), `iat`, `exp`. Tokens are HS256-signed.
+- JWT claims (v1): `sub` (userId), `deviceId` (claim key is exactly `"deviceId"`), `iat`, `exp`. Tokens are HS256-signed. Admin status is not part of the token; tests should assert it via `auth_result.isAdmin` and allowlist edits.
 - Tokens expire after `tokenTtlSeconds` (default 1 year). V1 has no refresh flow; expired tokens require re-pairing (operator removal of allowlist entry).
 - Revoked token fails auth with `reason: token_revoked`, then disconnects.
 - Revoking a token while a session is active closes the session immediately.

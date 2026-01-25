@@ -7,7 +7,7 @@
 
 import SwiftUI
 import UIKit
-import os.log
+import OSLog
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessageInputBar")
 
@@ -52,6 +52,7 @@ struct MessageInputBar: View {
     let onCancel: () -> Void
     let onAdd: () -> Void
     let onFocusChange: (Bool) -> Void
+    var onPasteImages: (([UIImage]) -> Void)?
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -76,7 +77,10 @@ struct MessageInputBar: View {
     }
 
     private var inputHeight: CGFloat {
-        max(editorHeight, metrics.inputBarHeight)
+        if content.length == 0 {
+            return metrics.inputBarHeight
+        }
+        return max(editorHeight, metrics.inputBarHeight)
     }
 
     private var connectionAlertColor: Color? {
@@ -113,6 +117,16 @@ struct MessageInputBar: View {
         }
     }
 
+    private var sendButtonShape: AnyShape {
+        if isSending {
+            // Pill shape for "Cancel" text
+            return AnyShape(Capsule())
+        } else {
+            // Circle for send icon
+            return AnyShape(Circle())
+        }
+    }
+
     private var connectionAlertHint: String? {
         switch connectionAlert {
         case .caution:
@@ -125,50 +139,35 @@ struct MessageInputBar: View {
     }
 
     private var sendButtonWidth: CGFloat {
-        isSending ? metrics.sendingButtonWidth : metrics.sendButtonSize
-    }
-
-    private var sendButtonShape: AnyShape {
-        isSending ? AnyShape(Capsule()) : AnyShape(Circle())
-    }
-
-    private var sendButtonBackground: Color {
-        if isSending {
-            return Color(.systemGray5)
-        }
-        if !canSend {
-            return Color(.systemGray4)
-        }
-        return Color.accentColor
-    }
-
-    private var sendButtonForeground: Color {
-        if isSending {
-            return Color.primary
-        }
-        return Color.white
+        isSending ? metrics.sendingButtonWidth : metrics.inputBarHeight
     }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: MessageInputBarMetrics.elementSpacing) {
-            Button(action: onAdd) {
+            // Add button - send-style for reliable hit testing (left side)
+            Button(action: {
+                onAdd()
+            }) {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .semibold))
             }
-            .accessibilityLabel("Add attachment")
-            .frame(width: metrics.addButtonSize, height: metrics.addButtonSize)
+            .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
             .glassEffect(.regular.interactive(), in: Circle())
+            .contentShape(Rectangle())
+            .accessibilityLabel("Add attachment")
             .disabled(isSending)
 
+            // Text field - glass capsule/rounded rect
             ZStack(alignment: .leading) {
                 RichTextEditor(
                     attributedText: $content,
                     calculatedHeight: $editorHeight,
                     selectionRange: $selectionRange,
                     focusTrigger: focusTrigger,
-                    isEditable: !isSending,
+                    isEditable: true,
                     onFocusChange: onFocusChange,
-                    trailingPadding: metrics.textTrailingInset(isSending: isSending)
+                    onPasteImages: onPasteImages,
+                    trailingPadding: 20
                 )
                 .opacity(isSending ? 0.5 : 1)
 
@@ -178,7 +177,7 @@ struct MessageInputBar: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                         .frame(maxHeight: .infinity, alignment: .center)
                         .padding(.leading, 20)
-                        .padding(.trailing, metrics.textTrailingInset(isSending: isSending))
+                        .padding(.trailing, 20)
                 }
 
                 if let alertMessage = connectionAlertMessage,
@@ -208,29 +207,35 @@ struct MessageInputBar: View {
                         .stroke(alertColor.opacity(0.4), lineWidth: 1)
                 }
             }
-            .overlay(alignment: .bottomTrailing) {
-                Button(action: isSending ? onCancel : onSend) {
-                    if isSending {
-                        Text("Cancel")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                    }
+
+            // Send button - separate glass circle, same height as input bar
+            Button(action: isSending ? onCancel : onSend) {
+                if isSending {
+                    Text("Cancel")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 18, weight: .semibold))
                 }
-                .frame(width: sendButtonWidth, height: metrics.sendButtonSize)
-                .background(sendButtonShape.fill(sendButtonBackground))
-                .foregroundStyle(sendButtonForeground)
-                .disabled(!isSending && !canSend)
-                .opacity(connectionAlertColor == nil ? 1 : 0.65)
-                .padding(.trailing, metrics.sendButtonInnerPadding)
-                .padding(.bottom, metrics.sendButtonBottomInset)
-                .accessibilityHint(connectionAlertHint ?? "")
             }
+            .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
+            .glassEffect(.regular.interactive(), in: sendButtonShape)
+            .contentShape(Rectangle())
+            .disabled(!isSending && !canSend)
+            .opacity(connectionAlertColor == nil ? 1 : 0.65)
+            .accessibilityHint(connectionAlertHint ?? "")
         }
         .padding(.horizontal, metrics.concentricPadding)
         .padding(.bottom, metrics.bottomPadding)
+        .simultaneousGesture(TapGesture().onEnded {
+            logger.info("Input bar tap gesture")
+            NSLog("DIAG: Input bar tap gesture")
+        })
+        .onChange(of: content.length) { _, newValue in
+            guard newValue == 0 else { return }
+            editorHeight = metrics.inputBarHeight
+        }
     }
 }
 

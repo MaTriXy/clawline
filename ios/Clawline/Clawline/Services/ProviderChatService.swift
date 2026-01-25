@@ -6,8 +6,44 @@
 //
 
 import Foundation
+import OSLog
+
+private final class AsyncStreamBroadcaster<Element> {
+    private var continuations: [UUID: AsyncStream<Element>.Continuation] = [:]
+    private let lock = NSLock()
+
+    func stream(initial: Element? = nil) -> AsyncStream<Element> {
+        AsyncStream { [weak self] continuation in
+            let id = UUID()
+            self?.lock.lock()
+            self?.continuations[id] = continuation
+            self?.lock.unlock()
+            if let initial {
+                continuation.yield(initial)
+            }
+            continuation.onTermination = { [weak self] _ in
+                self?.remove(id)
+            }
+        }
+    }
+
+    func send(_ value: Element) {
+        lock.lock()
+        let current = Array(continuations.values)
+        lock.unlock()
+        current.forEach { $0.yield(value) }
+    }
+
+    private func remove(_ id: UUID) {
+        lock.lock()
+        continuations.removeValue(forKey: id)
+        lock.unlock()
+    }
+}
 
 final class ProviderChatService: ChatServicing {
+    private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ProviderChatService")
+    private let messageLogger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     enum Error: Swift.Error, LocalizedError {
         case missingBaseURL
         case notConnected
@@ -55,6 +91,8 @@ final class ProviderChatService: ChatServicing {
     private struct AuthResultPayload: Decodable {
         let type: String
         let success: Bool
+        let userId: String?
+        let isAdmin: Bool?
         let reason: String?
     }
 
@@ -70,6 +108,29 @@ final class ProviderChatService: ChatServicing {
         let messageId: String?
     }
 
+    private struct UserInfoPayload: Decodable {
+        let type: String
+        let userId: String
+        let isAdmin: Bool
+    }
+
+    private struct EventEnvelope: Decodable {
+        let type: String
+        let event: String
+    }
+
+    private struct ActivityEventPayload: Decodable {
+        let type: String
+        let event: String
+        let payload: ActivityPayload
+
+        struct ActivityPayload: Decodable {
+            let isActive: Bool
+            let sessionKey: String?
+            let channelType: String?
+        }
+    }
+
     private struct PendingMessage {
         let payload: ClientMessagePayload
         var retryTask: Task<Void, Never>?
@@ -82,34 +143,18 @@ final class ProviderChatService: ChatServicing {
     private let decoder: JSONDecoder
     private let ackInterval: Duration = .seconds(5)
 
-    private lazy var messageStream: AsyncStream<Message> = {
-        AsyncStream { continuation in
-            self.messageContinuation = continuation
-        }
-    }()
+    private let messageBroadcaster = AsyncStreamBroadcaster<Message>()
+    private let stateBroadcaster = AsyncStreamBroadcaster<ConnectionState>()
+    private let serviceEventBroadcaster = AsyncStreamBroadcaster<ChatServiceEvent>()
+    private var lastConnectionState: ConnectionState = .disconnected
 
-    private lazy var stateStream: AsyncStream<ConnectionState> = {
-        AsyncStream { continuation in
-            self.stateContinuation = continuation
-            continuation.yield(.disconnected)
-        }
-    }()
-
-    private lazy var serviceEventStream: AsyncStream<ChatServiceEvent> = {
-        AsyncStream { continuation in
-            self.serviceEventContinuation = continuation
-        }
-    }()
-
-    private var messageContinuation: AsyncStream<Message>.Continuation?
-    private var stateContinuation: AsyncStream<ConnectionState>.Continuation?
-    private var serviceEventContinuation: AsyncStream<ChatServiceEvent>.Continuation?
     private var socket: (any WebSocketClient)?
     private var receiveTask: Task<Void, Never>?
     private var authContinuation: CheckedContinuation<Void, Swift.Error>?
     private var pendingMessages: [String: PendingMessage] = [:]
     private var shouldNotifyDisconnect = true
     private var pendingDisconnectReason: String?
+    private var isConnecting = false
 
     init(connector: any WebSocketConnecting,
          deviceId: String,
@@ -123,11 +168,19 @@ final class ProviderChatService: ChatServicing {
         self.decoder = decoder
     }
 
-    var incomingMessages: AsyncStream<Message> { messageStream }
-    var connectionState: AsyncStream<ConnectionState> { stateStream }
-    var serviceEvents: AsyncStream<ChatServiceEvent> { serviceEventStream }
+    var incomingMessages: AsyncStream<Message> { messageBroadcaster.stream() }
+    var connectionState: AsyncStream<ConnectionState> { stateBroadcaster.stream(initial: lastConnectionState) }
+    var serviceEvents: AsyncStream<ChatServiceEvent> { serviceEventBroadcaster.stream() }
 
     func connect(token: String, lastMessageId: String?) async throws {
+        if isConnecting {
+            logger.info("connect suppressed: already connecting")
+            resolveAuthContinuation(with: .failure(Error.notConnected))
+            return
+        }
+        isConnecting = true
+        defer { isConnecting = false }
+
         guard let baseURL = baseURLProvider(),
               let wsURL = makeWebSocketURL(from: baseURL) else {
             throw Error.missingBaseURL
@@ -137,7 +190,8 @@ final class ProviderChatService: ChatServicing {
         shouldNotifyDisconnect = true
         pendingDisconnectReason = nil
 
-        stateContinuation?.yield(.connecting)
+        logger.info("connect start ws=\(wsURL.absoluteString, privacy: .public)")
+        updateState(.connecting)
         let client = try await connector.connect(to: wsURL)
         socket = client
         startListening(on: client)
@@ -152,35 +206,48 @@ final class ProviderChatService: ChatServicing {
                         lastMessageId: lastMessageId
                     )
                     let data = try encoder.encode(authPayload)
-                        guard let text = String(data: data, encoding: .utf8) else {
-                            self.resolveAuthContinuation(with: .failure(Error.notConnected))
-                            return
-                        }
-                        try await client.send(text: text)
-                    } catch {
-                        self.resolveAuthContinuation(with: .failure(error))
+                    guard let text = String(data: data, encoding: .utf8) else {
+                        self.resolveAuthContinuation(with: .failure(Error.notConnected))
+                        return
                     }
+                    try await client.send(text: text)
+                } catch {
+                    self.resolveAuthContinuation(with: .failure(error))
                 }
             }
         }
+    }
 
     func disconnect() {
+        logger.info("disconnect requested")
         performDisconnect(shouldNotify: false)
     }
 
     private func performDisconnect(shouldNotify: Bool, reason: String? = nil) {
+        logger.info("performDisconnect notify=\(shouldNotify, privacy: .public) reason=\(reason ?? "nil", privacy: .public)")
         shouldNotifyDisconnect = shouldNotify
         pendingDisconnectReason = reason
+        resolveAuthContinuation(with: .failure(Error.notConnected))
         receiveTask?.cancel()
         receiveTask = nil
         socket?.close(with: .normalClosure)
         socket = nil
-        pendingMessages.values.forEach { $0.retryTask?.cancel() }
+        if !pendingMessages.isEmpty {
+            for (messageId, pending) in pendingMessages {
+                pending.retryTask?.cancel()
+                emitServiceEvent(.messageError(
+                    messageId: messageId,
+                    code: "connection_lost",
+                    message: "Message not delivered - connection lost"
+                ))
+            }
+        }
         pendingMessages.removeAll()
-        stateContinuation?.yield(.disconnected)
+        logger.info("state -> disconnected (performDisconnect)")
+        updateState(.disconnected)
     }
 
-    func send(id: String, content: String, attachments: [WireAttachment]) async throws {
+    func send(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType) async throws {
         guard let socket else {
             throw Error.notConnected
         }
@@ -188,7 +255,7 @@ final class ProviderChatService: ChatServicing {
             throw Error.invalidMessageId
         }
 
-        let payload = ClientMessagePayload(id: id, content: content, attachments: attachments)
+        let payload = ClientMessagePayload(id: id, content: content, attachments: attachments, channelType: channelType)
         let data = try encoder.encode(payload)
         guard let text = String(data: data, encoding: .utf8) else { return }
 
@@ -237,7 +304,12 @@ final class ProviderChatService: ChatServicing {
                 handleAck(data: data)
             case "error":
                 handleServerError(data: data)
+            case "user_info":
+                handleUserInfo(data: data)
+            case "event":
+                handleEvent(data: data)
             default:
+                logger.debug("Unknown message type: \(envelope.type, privacy: .public)")
                 break
             }
         }
@@ -247,20 +319,31 @@ final class ProviderChatService: ChatServicing {
         guard let result = try? decoder.decode(AuthResultPayload.self, from: data) else { return }
         if result.success {
             resolveAuthContinuation(with: .success(()))
-            stateContinuation?.yield(.connected)
+            logger.info("state -> connected (auth success)")
+            updateState(.connected)
+            if let isAdmin = result.isAdmin {
+                logger.info("Auth result received (userId: \(result.userId ?? "unknown", privacy: .public), isAdmin: \(isAdmin, privacy: .public))")
+                let info = ChatUserInfo(userId: result.userId ?? "", isAdmin: isAdmin)
+                emitServiceEvent(.userInfo(info))
+            }
         } else {
             let reason = result.reason ?? "Unknown error"
             let error = Error.authFailed(reason)
             resolveAuthContinuation(with: .failure(error))
-            stateContinuation?.yield(.failed(error))
+            logger.info("state -> failed (auth result) error=\(error.localizedDescription, privacy: .public)")
+            updateState(.failed(error))
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
         }
     }
 
     private func handleMessage(data: Data) {
         guard let payload = try? decoder.decode(ServerMessagePayload.self, from: data) else { return }
+        let snippet = String(payload.content.prefix(80))
+        messageLogger.info(
+            "recv message id=\(payload.id, privacy: .public) channel=\(payload.channelType.rawValue, privacy: .public) role=\(String(describing: payload.role), privacy: .public) streaming=\(payload.streaming, privacy: .public) deviceId=\(payload.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
+        )
         let message = Message(payload: payload)
-        messageContinuation?.yield(message)
+        messageBroadcaster.send(message)
     }
 
     private func handleAck(data: Data) {
@@ -277,7 +360,7 @@ final class ProviderChatService: ChatServicing {
             if let pending = pendingMessages.removeValue(forKey: messageId) {
                 pending.retryTask?.cancel()
             }
-            serviceEventContinuation?.yield(.messageError(messageId: messageId, code: payload.code, message: payload.message))
+            emitServiceEvent(.messageError(messageId: messageId, code: payload.code, message: payload.message))
             return
         }
 
@@ -286,29 +369,107 @@ final class ProviderChatService: ChatServicing {
         case "auth_failed":
             let error = Error.authFailed(message)
             resolveAuthContinuation(with: .failure(error))
-            stateContinuation?.yield(.failed(error))
+            logger.info("state -> failed (server error auth_failed) error=\(error.localizedDescription, privacy: .public)")
+            updateState(.failed(error))
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
         case "token_revoked":
             let error = Error.tokenRevoked(message)
             resolveAuthContinuation(with: .failure(error))
-            stateContinuation?.yield(.failed(error))
+            logger.info("state -> failed (server error token_revoked) error=\(error.localizedDescription, privacy: .public)")
+            updateState(.failed(error))
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
         case "session_replaced":
             let error = Error.sessionReplaced
-            stateContinuation?.yield(.failed(error))
+            logger.info("state -> failed (server error session_replaced)")
+            updateState(.failed(error))
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
+        case "invalid_message", "payload_too_large", "invalid_channel":
+            logger.info("message-level error without messageId code=\(payload.code, privacy: .public)")
+            if !pendingMessages.isEmpty {
+                for (messageId, pending) in pendingMessages {
+                    pending.retryTask?.cancel()
+                    emitServiceEvent(.messageError(
+                        messageId: messageId,
+                        code: payload.code,
+                        message: payload.message
+                    ))
+                }
+                pendingMessages.removeAll()
+            } else {
+                emitServiceEvent(.messageError(messageId: nil, code: payload.code, message: payload.message))
+            }
         default:
-            stateContinuation?.yield(.failed(Error.serverError(code: payload.code, message: payload.message)))
+            logger.info("state -> failed (server error) code=\(payload.code, privacy: .public)")
+            updateState(.failed(Error.serverError(code: payload.code, message: payload.message)))
         }
+    }
+
+    private func handleUserInfo(data: Data) {
+        guard let payload = try? decoder.decode(UserInfoPayload.self, from: data) else { return }
+        let info = ChatUserInfo(userId: payload.userId, isAdmin: payload.isAdmin)
+        emitServiceEvent(.userInfo(info))
+    }
+
+    private func handleEvent(data: Data) {
+        guard let envelope = try? decoder.decode(EventEnvelope.self, from: data) else {
+            logger.warning("Failed to decode event envelope")
+            return
+        }
+        logger.info("Received event: \(envelope.event, privacy: .public)")
+
+        switch envelope.event {
+        case "activity":
+            guard let payload = try? decoder.decode(ActivityEventPayload.self, from: data) else {
+                logger.warning("Failed to decode activity event payload")
+                return
+            }
+            // Map server channelType to iOS channel type
+            // Server sends channelType: "admin" or "personal"
+            let channel: ChatChannelType
+            switch payload.payload.channelType?.lowercased() {
+            case "admin":
+                channel = .admin
+            case "personal", .none:
+                channel = .personal
+            default:
+                logger.warning("Unknown channelType: \(payload.payload.channelType ?? "nil", privacy: .public), defaulting to personal")
+                channel = .personal
+            }
+            logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public) channelType=\(payload.payload.channelType ?? "nil", privacy: .public) channel=\(channel.rawValue, privacy: .public)")
+            emitServiceEvent(.typingStateChanged(isTyping: payload.payload.isActive, channel: channel))
+        default:
+            logger.debug("Unknown event type: \(envelope.event, privacy: .public)")
+        }
+    }
+
+    private func updateState(_ state: ConnectionState) {
+        lastConnectionState = state
+        stateBroadcaster.send(state)
+    }
+
+    private func emitServiceEvent(_ event: ChatServiceEvent) {
+        serviceEventBroadcaster.send(event)
     }
 
     private func handleSocketClose() {
         resolveAuthContinuation(with: .failure(Error.notConnected))
-        pendingMessages.values.forEach { $0.retryTask?.cancel() }
+
+        // Notify the UI about each pending message that failed to send
+        // This removes the optimistic placeholders so users know messages weren't delivered
+        for (messageId, pending) in pendingMessages {
+            pending.retryTask?.cancel()
+            emitServiceEvent(.messageError(
+                messageId: messageId,
+                code: "connection_lost",
+                message: "Message not delivered - connection lost"
+            ))
+        }
         pendingMessages.removeAll()
-        stateContinuation?.yield(.disconnected)
+
+        logger.info("state -> disconnected (socket close) notify=\(self.shouldNotifyDisconnect, privacy: .public)")
+        updateState(.disconnected)
         if shouldNotifyDisconnect {
-            serviceEventContinuation?.yield(.connectionInterrupted(reason: pendingDisconnectReason))
+            emitServiceEvent(.connectionInterrupted(reason: pendingDisconnectReason))
         }
         shouldNotifyDisconnect = true
         pendingDisconnectReason = nil
@@ -322,7 +483,7 @@ final class ProviderChatService: ChatServicing {
         Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(for: ackInterval)
+                try? await Task.sleep(forDuration: ackInterval)
                 guard let socket = self.socket else { return }
                 guard self.pendingMessages[payload.id] != nil else { return }
                 if let data = try? self.encoder.encode(payload),

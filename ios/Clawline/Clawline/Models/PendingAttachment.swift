@@ -9,8 +9,10 @@ import Foundation
 import UIKit
 
 struct PendingAttachment: Identifiable {
-    /// Providers only persist uploaded assets, so inline delivery is disabled for now.
-    static let inlineByteLimit: Int = 0
+    static let inlineByteLimit: Int = 256 * 1024
+    static let inlineTotalByteLimit: Int = 256 * 1024
+    static let totalPayloadByteLimit: Int = 320 * 1024
+    static let maxUploadByteLimit: Int = 100 * 1024 * 1024
     static let inlineMimeTypes: Set<String> = [
         "image/png",
         "image/jpeg",

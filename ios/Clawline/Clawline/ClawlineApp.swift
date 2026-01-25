@@ -32,6 +32,9 @@ struct ClawlineApp: App {
         clearHostingBackgrounds()
 
         let authManager = AuthManager()
+#if DEBUG
+        Self.configureDebugAdminIfNeeded(authManager: authManager)
+#endif
         _authManager = State(initialValue: authManager)
         let settingsManager = SettingsManager()
         _settingsManager = State(initialValue: settingsManager)
@@ -71,6 +74,33 @@ struct ClawlineApp: App {
 }
 
 #if DEBUG
+private extension ClawlineApp {
+    static func configureDebugAdminIfNeeded(authManager: AuthManager) {
+        let processInfo = ProcessInfo.processInfo
+        let envValue = processInfo.environment["CLAWLINE_DEBUG_FORCE_ADMIN"]
+        let envForcesAdmin = envValue == "1" || processInfo.arguments.contains("--debug-force-admin")
+        let envDisablesAdmin = envValue == "0"
+#if targetEnvironment(simulator)
+        let simulatorAutoForce = envForcesAdmin
+#else
+        let simulatorAutoForce = false
+#endif
+        let shouldForceAdmin = envForcesAdmin || simulatorAutoForce
+        let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "Debug")
+        logger.info("Debug admin toggle: envEnable=\(envForcesAdmin, privacy: .public) envDisable=\(envDisablesAdmin, privacy: .public) simulatorAuto=\(simulatorAutoForce, privacy: .public)")
+        guard shouldForceAdmin else { return }
+        logger.info("Debug flag enabled: forcing admin channel for simulator verification.")
+
+        if !authManager.isAuthenticated {
+            authManager.storeCredentials(token: "debug-admin-token", userId: "debug-admin")
+        }
+        authManager.updateAdminStatus(true)
+        logger.info("Debug admin now active? \(authManager.isAdmin, privacy: .public)")
+    }
+}
+#endif
+
+#if DEBUG
 private func logViewHierarchyOnce() {
     let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ViewHierarchy")
     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -88,7 +118,12 @@ private func logViewHierarchyOnce() {
 
 private func printHierarchy(view: UIView, indent: String, logger: Logger) {
     let bgDescription = view.backgroundColor?.description ?? "nil"
-    logger.info("\(indent, privacy: .public)\(String(describing: type(of: view)), privacy: .public) bg=\(bgDescription, privacy: .public)")
+    let frameDescription = NSCoder.string(for: view.frame)
+    let line = "\(indent)\(String(describing: type(of: view))) bg=\(bgDescription) frame=\(frameDescription) hit=\(view.isUserInteractionEnabled)"
+    logger.info("\(line, privacy: .public)")
+#if DEBUG
+    print("ViewHierarchy: \(line)")
+#endif
     for subview in view.subviews {
         printHierarchy(view: subview, indent: indent + "  ", logger: logger)
     }

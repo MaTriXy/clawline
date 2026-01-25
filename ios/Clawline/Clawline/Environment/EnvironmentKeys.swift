@@ -39,3 +39,24 @@ extension EnvironmentValues {
         set { self[ChatServiceKey.self] = newValue }
     }
 }
+
+private struct UploadServiceKey: EnvironmentKey {
+    static let defaultValue: any UploadServicing = StubUploadService()
+}
+
+extension EnvironmentValues {
+    var uploadService: any UploadServicing {
+        get { self[UploadServiceKey.self] }
+        set { self[UploadServiceKey.self] = newValue }
+    }
+}
+
+private struct StubUploadService: UploadServicing {
+    func upload(data: Data, mimeType: String, filename: String?) async throws -> String {
+        throw AttachmentError.missingAuth
+    }
+
+    func download(assetId: String) async throws -> Data {
+        throw AttachmentError.missingAuth
+    }
+}

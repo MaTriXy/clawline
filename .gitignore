@@ -3,6 +3,7 @@ ios/build/
 ios/*.xcworkspace
 ios/Pods/
 ios/.build/
+ios/Clawline/DerivedData/
 *.xcuserstate
 
 # Android
@@ -34,3 +35,6 @@ tmp_patch.patch
 provider/dist/
 provider/.bun-cache/
 provider/bun.lock
+scratch/
+scratch/
+.derived/

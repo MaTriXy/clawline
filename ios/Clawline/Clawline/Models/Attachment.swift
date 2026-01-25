@@ -13,6 +13,67 @@ struct Attachment: Identifiable, Equatable, Codable {
     let mimeType: String?
     let data: Data?
     let assetId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case type
+        case mimeType
+        case data
+        case assetId
+        case metadata
+    }
+
+    private struct AttachmentMetadata: Codable, Equatable {
+        let mimeType: String?
+        let filename: String?
+        let size: Int?
+        let width: Int?
+        let height: Int?
+    }
+
+    init(id: String,
+         type: AttachmentType,
+         mimeType: String?,
+         data: Data?,
+         assetId: String?) {
+        self.id = id
+        self.type = type
+        self.mimeType = mimeType
+        self.data = data
+        self.assetId = assetId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedType = try container.decode(AttachmentType.self, forKey: .type)
+        let decodedMimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
+        let metadata = try container.decodeIfPresent(AttachmentMetadata.self, forKey: .metadata)
+        let decodedData = try container.decodeIfPresent(Data.self, forKey: .data)
+        let decodedAssetId = try container.decodeIfPresent(String.self, forKey: .assetId)
+        let decodedId = try container.decodeIfPresent(String.self, forKey: .id)
+
+        type = decodedType
+        mimeType = decodedMimeType ?? metadata?.mimeType
+        data = decodedData
+        assetId = decodedAssetId
+
+        if let decodedId {
+            id = decodedId
+        } else if let decodedAssetId {
+            id = decodedAssetId
+        } else {
+            id = UUID().uuidString
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(type, forKey: .type)
+        try container.encodeIfPresent(mimeType, forKey: .mimeType)
+        try container.encodeIfPresent(data, forKey: .data)
+        try container.encodeIfPresent(assetId, forKey: .assetId)
+    }
 }
 
 enum AttachmentType: String, Codable, Equatable {

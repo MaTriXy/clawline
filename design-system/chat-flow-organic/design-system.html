@@ -324,7 +324,7 @@
         /* Message bubble styles (copied from main) */
         .message-bubble {
             background: var(--bg-bubble-self);
-            border-radius: 24px 24px 3px 24px; /* bottom-right sharp - iMessage convention */
+            border-radius: 24px 24px 4px 24px; /* bottom-right sharp - iMessage convention */
             padding: 16px 20px;
             box-shadow: var(--shadow-bubble);
             max-width: 100%;
@@ -340,7 +340,7 @@
 
         .message-bubble.other {
             background: var(--bg-bubble-other);
-            border-radius: 24px 24px 24px 3px; /* bottom-left sharp - iMessage convention */
+            border-radius: 24px 24px 24px 4px; /* bottom-left sharp - iMessage convention */
         }
 
         .message-header {
@@ -651,7 +651,7 @@
             <p>Short messages are <em>utterances</em> — exclamations, reactions, verbal nods. Long messages are <em>thoughts</em> — considered, complete. The typography mirrors how we naturally modulate our voice in conversation.</p>
 
             <h3>The Teardrop Indicator</h3>
-            <p>Each bubble has rounded corners on three sides, but one corner is <strong>sharply pointed (3-4px radius)</strong>. This sharp corner indicates the speaker, following iMessage convention:</p>
+            <p>Each bubble has rounded corners on three sides, but one corner is <strong>sharply pointed (4px radius)</strong>. This sharp corner indicates the speaker, following iMessage convention:</p>
             <ul>
                 <li><strong>Bottom-right sharp</strong> — Self (your messages)</li>
                 <li><strong>Bottom-left sharp</strong> — Other (their messages)</li>
@@ -1070,7 +1070,7 @@
             </table>
 
             <h3>Responsive Behavior</h3>
-            <p>On narrower screens (iPhone width), <code>.medium</code> messages expand to full width since there isn't room for two side-by-side. <code>.short</code> messages can still pair up.</p>
+            <p>On narrower screens (iPhone width), <code>.medium</code> messages use ~2/3 width when the text would render in <= 3 lines at that width. Otherwise they expand to full width. <code>.short</code> messages can still pair up.</p>
         </section>
 
         <!-- ELEMENT PAIRING SECTION -->
@@ -1185,8 +1185,8 @@
                 <tbody>
                     <tr><td>Background (self)</td><td><code>var(--bg-bubble-self)</code></td></tr>
                     <tr><td>Background (other)</td><td><code>var(--bg-bubble-other)</code></td></tr>
-                    <tr><td>Border radius (self)</td><td><code>24px 24px 3px 24px</code> (bottom-right sharp)</td></tr>
-                    <tr><td>Border radius (other)</td><td><code>24px 24px 24px 3px</code> (bottom-left sharp)</td></tr>
+                    <tr><td>Border radius (self)</td><td><code>24px 24px 4px 24px</code> (bottom-right sharp)</td></tr>
+                    <tr><td>Border radius (other)</td><td><code>24px 24px 24px 4px</code> (bottom-left sharp)</td></tr>
                     <tr><td>Padding</td><td><code>16px 20px</code></td></tr>
                     <tr><td>Box shadow</td><td><code>var(--shadow-bubble)</code></td></tr>
                     <tr><td>Min width</td><td><code>120px</code></td></tr>
@@ -1276,12 +1276,68 @@
                     <tr><th>Property</th><th>Value</th></tr>
                 </thead>
                 <tbody>
-                    <tr><td>Max content height</td><td><code>200px</code> (iPad) / <code>160px</code> (iPhone)</td></tr>
+                    <tr><td>Max content height</td><td><code>400px</code> (iPad) / <code>320px</code> (iPhone)</td></tr>
                     <tr><td>Fade gradient height</td><td><code>100px</code></td></tr>
                     <tr><td>Indicator font size</td><td><code>12px</code></td></tr>
                     <tr><td>Indicator border top</td><td><code>1px solid var(--border-subtle)</code></td></tr>
                 </tbody>
             </table>
+        </section>
+
+        <!-- CHROMELESS BUBBLES SECTION -->
+        <section class="section" id="chromeless-bubbles">
+            <h2>Chromeless Bubbles</h2>
+
+            <h3>When Content Speaks for Itself</h3>
+            <p>Certain content types have their own visual container and don't need the bubble chrome (background, border, shadows). When a message contains <strong>only a single element</strong> of these types, the bubble chrome becomes invisible while padding remains constant.</p>
+
+            <h3>Eligible Content Types</h3>
+            <ul>
+                <li><strong>Single image</strong> — Images have their own rounded frame</li>
+                <li><strong>Single table</strong> — Tables have borders; only if ≤5 rows (not truncated)</li>
+                <li><strong>Single code block</strong> — Code blocks have their own dark background</li>
+                <li><strong>1-2 emojis only</strong> — Emojis render at 2× font size, centered horizontally</li>
+                <li><strong>Single block quote</strong> — Block quotes have their own visual treatment (future)</li>
+            </ul>
+
+            <h3>Why Padding Stays</h3>
+            <p>The padding remains constant to maintain alignment with other messages in the flow. The content "floats" in the same position it would occupy if the chrome were visible. This prevents layout shifts and keeps the visual rhythm consistent.</p>
+
+            <h3>Truncation Disqualifies</h3>
+            <p>If the content would be truncated (e.g., a table with >5 rows showing "Show more"), the bubble chrome remains visible. The chrome provides the container for the truncation indicator and maintains the visual boundary of the clipped content.</p>
+
+            <table class="spec-table">
+                <thead>
+                    <tr><th>Content Type</th><th>Chromeless When</th><th>Special Styling</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Image</td><td>Always (images don't truncate)</td><td>—</td></tr>
+                    <tr><td>Table</td><td>≤5 rows visible</td><td>—</td></tr>
+                    <tr><td>Code block</td><td>Always (horizontal scroll, no truncation)</td><td>—</td></tr>
+                    <tr><td>Emoji (1-2)</td><td>Always</td><td>2× font size, centered</td></tr>
+                    <tr><td>Block quote</td><td>Content fits without truncation (future)</td><td>—</td></tr>
+                </tbody>
+            </table>
+
+            <div class="callout">
+                <p>Think of it as the bubble becoming a "ghost" — same space, same alignment, but the visual container fades away to let the content breathe.</p>
+            </div>
+
+            <h3>Implementation Notes</h3>
+            <p>To detect chromeless eligibility:</p>
+            <ol>
+                <li>Check that <code>parts.count == 1</code> (single element)</li>
+                <li>Check that the element is image, table, code, emoji, or blockquote</li>
+                <li>For tables: verify <code>rows.count ≤ 5</code></li>
+                <li>For emoji: verify 1-2 emoji characters only</li>
+            </ol>
+            <p>To hide chrome while preserving layout:</p>
+            <ul>
+                <li>Set background to transparent/hidden</li>
+                <li>Hide border/highlight layers</li>
+                <li>Set shadow opacity to 0</li>
+                <li><strong>Keep all padding values unchanged</strong></li>
+            </ul>
         </section>
 
         <!-- STATES & INTERACTIONS SECTION -->
@@ -1321,13 +1377,13 @@
                     <tr><td>Container padding</td><td>24px</td><td>16px</td></tr>
                     <tr><td>Bubble padding</td><td>16px 20px</td><td>14px 16px</td></tr>
                     <tr><td>Short text size</td><td>22px</td><td>18px</td></tr>
-                    <tr><td>Medium message width</td><td>~45%</td><td>100%</td></tr>
-                    <tr><td>Truncated max-height</td><td>200px</td><td>160px</td></tr>
+                    <tr><td>Medium message width</td><td>~45%</td><td>~2/3 if <= 3 lines, else 100%</td></tr>
+                    <tr><td>Truncated max-height</td><td>400px</td><td>320px</td></tr>
                 </tbody>
             </table>
 
             <h3>Key Principle</h3>
-            <p>On iPhone, <code>.medium</code> messages expand to full width because the screen isn't wide enough for two meaningful bubbles side-by-side. <code>.short</code> messages can still pair up since they're compact by nature.</p>
+            <p>On iPhone, <code>.medium</code> messages use ~2/3 width when the text would render in <= 3 lines at that width, and otherwise expand to full width. <code>.short</code> messages can still pair up since they're compact by nature.</p>
         </section>
 
         <!-- ACCESSIBILITY SECTION -->
@@ -1386,7 +1442,7 @@
                         <li>Omit avatars to "save space" — they're navigation landmarks</li>
                         <li>Force all messages to full width — let content determine size</li>
                         <li>Use raw color values instead of tokens</li>
-                        <li>Make the teardrop corner rounded — it's intentionally sharp (3px)</li>
+                        <li>Make the teardrop corner rounded — it's intentionally sharp (4px)</li>
                         <li>Use the same text size for all message lengths</li>
                         <li>Let text span the full viewport width on iPad</li>
                         <li>Rely solely on color to distinguish senders</li>

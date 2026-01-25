@@ -17,7 +17,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<string>2</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -56,5 +56,7 @@
 	<string>Clawline needs camera access to take photos for chat.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Clawline needs access to your photos to send images in chat.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Clawline needs permission to save images to your photo library.</string>
 </dict>
 </plist>

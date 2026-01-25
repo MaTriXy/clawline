@@ -32,6 +32,8 @@ enum ConnectionState: Equatable {
 enum ChatServiceEvent: Equatable {
     case messageError(messageId: String?, code: String, message: String?)
     case connectionInterrupted(reason: String?)
+    case userInfo(ChatUserInfo)
+    case typingStateChanged(isTyping: Bool, channel: ChatChannelType)
 }
 
 protocol ChatServicing {
@@ -44,6 +46,7 @@ protocol ChatServicing {
     func send(
         id: String,
         content: String,
-        attachments: [WireAttachment]
+        attachments: [WireAttachment],
+        channelType: ChatChannelType
     ) async throws
 }

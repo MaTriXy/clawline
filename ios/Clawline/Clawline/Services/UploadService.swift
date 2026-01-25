@@ -73,10 +73,7 @@ final class UploadService: UploadServicing {
             throw AttachmentError.missingAuth
         }
 
-        let safeAssetId = try validatedAssetId(assetId)
-        let downloadURL = baseURL
-            .appendingPathComponent("download")
-            .appendingPathComponent(safeAssetId)
+        let downloadURL = try makeDownloadURL(baseURL: baseURL, assetId: assetId)
 
         var request = URLRequest(url: downloadURL)
         request.httpMethod = "GET"
@@ -151,14 +148,27 @@ final class UploadService: UploadServicing {
         return trimmed
     }
 
-    private func validatedAssetId(_ assetId: String) throws -> String {
-        let disallowed = CharacterSet(charactersIn: "/\\?#")
-        guard !assetId.isEmpty,
-              assetId.rangeOfCharacter(from: disallowed) == nil,
-              !assetId.contains("..")
-        else {
+    private func makeDownloadURL(baseURL: URL, assetId: String) throws -> URL {
+        guard !assetId.isEmpty else {
             throw AttachmentError.invalidData
         }
-        return assetId
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw AttachmentError.invalidData
+        }
+        guard let encodedAssetId = encodePathComponent(assetId) else {
+            throw AttachmentError.invalidData
+        }
+        let basePath = components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path
+        components.path = "\(basePath)/download/\(encodedAssetId)"
+        guard let url = components.url else {
+            throw AttachmentError.invalidData
+        }
+        return url
+    }
+
+    private func encodePathComponent(_ value: String) -> String? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed)
     }
 }

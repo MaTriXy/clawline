@@ -10,6 +10,7 @@ import SwiftUI
 struct RootView: View {
     let uploadService: any UploadServicing
     @State private var toastManager = ToastManager()
+    @State private var chatViewModel: ChatViewModel?
     @Environment(AuthManager.self) private var auth
     @Environment(\.connectionService) private var connection
     @Environment(\.deviceIdentifier) private var device
@@ -26,24 +27,45 @@ struct RootView: View {
     var body: some View {
         Group {
             if auth.isAuthenticated {
-                ChatView(
-                    auth: auth,
-                    chatService: chatService,
-                    settings: settings,
-                    device: device,
-                    uploadService: uploadService,
-                    toastManager: toastManager
-                )
+                if let chatViewModel {
+                    ChatView(viewModel: chatViewModel, toastManager: toastManager)
+                } else {
+                    ProgressView()
+                        .task { ensureChatViewModel() }
+                }
             } else {
                 PairingView(auth: auth, connection: connection, device: device)
             }
         }
+        .task(id: auth.isAuthenticated) {
+            if auth.isAuthenticated {
+                ensureChatViewModel()
+            } else {
+                chatViewModel = nil
+            }
+        }
+        .environment(\.uploadService, uploadService)
         .background {
             backgroundColor
                 .backgroundEffect(settings.effectConfig)
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .animation(.easeInOut(duration: 0.3), value: auth.isAuthenticated)
+    }
+
+    @MainActor
+    private func ensureChatViewModel() {
+        guard chatViewModel == nil else { return }
+        chatViewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: settings,
+            device: device,
+            uploadService: uploadService,
+            toastManager: toastManager
+        )
     }
 }
 
