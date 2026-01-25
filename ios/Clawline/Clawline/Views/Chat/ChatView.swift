@@ -5,6 +5,7 @@
 //  Created by Codex on 1/8/26.
 //
 
+import Observation
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -73,8 +74,8 @@ private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
 struct ChatView: View {
-    @State private var viewModel: ChatViewModel
-    @State private var toastManager: ToastManager
+    @Bindable var viewModel: ChatViewModel
+    let toastManager: ToastManager
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthManager.self) private var authManager
 
@@ -82,29 +83,18 @@ struct ChatView: View {
     // MessageInputBar is inside .safeAreaInset and gets recreated on geometry changes.
     // State in recreated views resets silently. See header comment for full explanation.
     @State private var isInputFocused = false
+    @State private var keyboardHeight: CGFloat = 0
     @State private var selectionRange = NSRange(location: 0, length: 0)
-    @State private var activeSheet: AttachmentSheet?
+    @State private var activeSheet: ChatSheet?
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var focusRequestID = 0
     @State private var shouldRestoreFocusAfterPicker = false
 
-    init(auth: any AuthManaging,
-         chatService: any ChatServicing,
-         settings: SettingsManager,
-         device: any DeviceIdentifying,
-         uploadService: any UploadServicing,
-         toastManager: ToastManager) {
-        _toastManager = State(initialValue: toastManager)
-        _viewModel = State(initialValue: ChatViewModel(
-            auth: auth,
-            chatService: chatService,
-            settings: settings,
-            device: device,
-            uploadService: uploadService,
-            toastManager: toastManager
-        ))
+    init(viewModel: ChatViewModel, toastManager: ToastManager) {
+        self._viewModel = Bindable(wrappedValue: viewModel)
+        self.toastManager = toastManager
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -113,131 +103,39 @@ struct ChatView: View {
     @State private var inputBarHeight: CGFloat = 0
     @State private var channelToastManager = ChannelToastManager()
 
-    private enum AttachmentSheet: Identifiable {
-        case sourceMenu
+    private var isKeyboardVisible: Bool {
+        keyboardHeight > 0.5
+    }
+
+    private enum ChatSheet: Identifiable {
+        case attachmentMenu
+        case expandedMessage(Message)
         case camera
 
         var id: String {
             switch self {
-            case .sourceMenu: return "sourceMenu"
-            case .camera: return "camera"
+            case .attachmentMenu:
+                return "attachmentMenu"
+            case .expandedMessage(let message):
+                return "expandedMessage-\(message.id)"
+            case .camera:
+                return "camera"
             }
         }
     }
 
 
     var body: some View {
+        chatBody
+    }
+
+    @ViewBuilder
+    private var chatBody: some View {
         @Bindable var viewModel = viewModel
         @Bindable var toastManager = toastManager
 
         GeometryReader { geometry in
-            let topInset: CGFloat = geometry.safeAreaInsets.top
-            let inputBarBaseHeight: CGFloat = 48
-            let resolvedInputHeight = max(inputBarHeight, inputBarBaseHeight)
-            // Base bottom inset for input bar: height + spacing + safe area (for home indicator).
-            // When keyboard is visible, SwiftUI shrinks the view so safe area isn't needed.
-            // When keyboard is hidden, safe area ensures content clears the input bar.
-            let bottomSafeArea = isInputFocused ? 0 : geometry.safeAreaInsets.bottom
-            let bottomInset: CGFloat = resolvedInputHeight + MessageInputBarMetrics.elementSpacing + bottomSafeArea
-
-            ZStack(alignment: .top) {
-                // Paged channel view for admins, single channel for regular users
-                if authManager.isAdmin {
-                    pagedChannelView(topInset: topInset, bottomInset: bottomInset)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .ignoresSafeArea(.container, edges: [.top, .bottom])
-                } else {
-                    messageList(topInset: topInset, bottomInset: bottomInset, channel: .personal)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .ignoresSafeArea(.container, edges: [.top, .bottom])
-                }
-
-                // Channel toast (centered)
-                if channelToastManager.isVisible {
-                    ChannelToast(channelName: channelToastManager.channelName)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
-
-                if let error = viewModel.error {
-                    VStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        errorBanner(error)
-                    }
-                    .padding(.bottom, bottomInset)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-
-                if let toast = toastManager.toast {
-                    ToastBanner(message: toast.message) {
-                        toastManager.dismiss()
-                    }
-                    .padding(.top, geometry.safeAreaInsets.top + 12)
-                    .padding(.horizontal, 24)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
-            .onPreferenceChange(InputBarHeightPreferenceKey.self) { height in
-                inputBarHeight = height
-            }
-            // ═══════════════════════════════════════════════════════════════════════════════
-            // ⚠️ CRITICAL SECTION - READ HEADER COMMENT BEFORE MODIFYING ⚠️
-            // ═══════════════════════════════════════════════════════════════════════════════
-            //
-            // This .safeAreaInset block is where the keyboard positioning fix is implemented.
-            // The content inside gets RECREATED when geometry changes (keyboard show/hide).
-            //
-            // WHY THE OFFSET IS APPLIED HERE (not in MessageInputBar):
-            // - MessageInputBar's body won't re-render when parent state changes
-            // - BUT modifiers applied TO MessageInputBar from here DO update
-            // - So we calculate offset here using parent's @State isInputFocused
-            //
-            // WHY onFocusChange CALLBACK (not @FocusState in MessageInputBar):
-            // - @FocusState in MessageInputBar resets when view recreates
-            // - Callback allows MessageInputBar to report focus to stable parent
-            // - Parent's @State survives the geometry change
-            //
-            .safeAreaInset(edge: .bottom) {
-                // Positive offset pushes bar DOWN into safe area for concentric alignment.
-                // When focused (keyboard visible), offset is 0 (bar sits above keyboard).
-                let rawOffset = calculateConcentricOffset(bottomInset: geometry.safeAreaInsets.bottom)
-                let concentricOffset = isInputFocused ? 0 : rawOffset
-
-                MessageInputBar(
-                    content: $viewModel.inputContent,
-                    selectionRange: $selectionRange,
-                    canSend: viewModel.canSend,
-                    isSending: viewModel.isSending,
-                    connectionAlert: viewModel.connectionAlert,
-                    focusTrigger: focusRequestID,
-                    bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
-                    isKeyboardVisible: isInputFocused,
-                    onSend: {
-                        viewModel.send()
-                    },
-                    onCancel: { viewModel.cancelSend() },
-                    onAdd: {
-                        logger.info("Attachment menu requested")
-                        activeSheet = .sourceMenu
-                    },
-                    // ⚠️ This callback is how focus state survives view recreation.
-                    // DO NOT replace with @Binding or try to use @FocusState directly.
-                    onFocusChange: { focused in isInputFocused = focused },
-                    onPasteImages: handlePastedImages
-                )
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: InputBarHeightPreferenceKey.self,
-                            value: proxy.size.height
-                        )
-                    }
-                )
-                // ⚠️ Offset MUST be applied here, not inside MessageInputBar.
-                // See header comment for why.
-                .offset(y: concentricOffset)
-                .animation(.easeOut(duration: 0.25), value: concentricOffset)
-            }
+            chatContent(geometry: geometry, viewModel: viewModel, toastManager: toastManager)
         }
         .background {
             // Background extends edge-to-edge. Admin users with paged TabView have
@@ -252,37 +150,15 @@ struct ChatView: View {
             guard phase == .active else { return }
             viewModel.handleSceneDidBecomeActive()
         }
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .sourceMenu:
-                AttachmentSourceSheet(
-                    onCamera: {
-                        presentCamera()
-                    },
-                    onPhotos: {
-                        presentPhotoPicker()
-                    },
-                    onFiles: {
-                        presentFileImporter()
-                    }
-                )
-                .presentationDetents([.medium, .large])
-            case .camera:
-                CameraPicker(
-                    onImage: { image in
-                        activeSheet = nil
-                        Task {
-                            await handleCapturedImage(image)
-                            await MainActor.run { restoreFocusIfNeeded() }
-                        }
-                    },
-                    onCancel: {
-                        activeSheet = nil
-                        restoreFocusIfNeeded()
-                    }
-                )
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            handleKeyboardFrameChange(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            withAnimation(.easeOut(duration: 0.25)) {
+                keyboardHeight = 0
             }
         }
+        .sheet(item: $activeSheet, content: sheetView)
         .photosPicker(
             isPresented: $isPhotosPickerPresented,
             selection: $photoPickerItems,
@@ -317,6 +193,122 @@ struct ChatView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: channelToastManager.isVisible)
     }
 
+    @ViewBuilder
+    private func chatContent(geometry: GeometryProxy,
+                             viewModel: ChatViewModel,
+                             toastManager: ToastManager) -> some View {
+        @Bindable var viewModel = viewModel
+        let topInset: CGFloat = geometry.safeAreaInsets.top
+        let inputBarBaseHeight: CGFloat = 48
+        let resolvedInputHeight = max(inputBarHeight, inputBarBaseHeight)
+        // Base bottom inset for input bar: height + spacing + safe area (for home indicator).
+        // When keyboard is visible, SwiftUI shrinks the view so safe area isn't needed.
+        // When keyboard is hidden, safe area ensures content clears the input bar.
+        let bottomSafeArea = isKeyboardVisible ? 0 : geometry.safeAreaInsets.bottom
+        let bottomInset: CGFloat = resolvedInputHeight + MessageInputBarMetrics.elementSpacing + bottomSafeArea
+
+        ZStack(alignment: .top) {
+            // Paged channel view for admins, single channel for regular users
+            if authManager.isAdmin {
+                pagedChannelView(topInset: topInset, bottomInset: bottomInset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea(.container, edges: [.top, .bottom])
+            } else {
+                messageList(topInset: topInset, bottomInset: bottomInset, channel: .personal)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea(.container, edges: [.top, .bottom])
+            }
+
+            // Channel toast (centered)
+            if channelToastManager.isVisible {
+                ChannelToast(channelName: channelToastManager.channelName)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+
+            if let error = viewModel.error {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    errorBanner(error)
+                }
+                .padding(.bottom, bottomInset)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if let toast = toastManager.toast {
+                ToastBanner(message: toast.message) {
+                    toastManager.dismiss()
+                }
+                .padding(.top, geometry.safeAreaInsets.top + 12)
+                .padding(.horizontal, 24)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .onPreferenceChange(InputBarHeightPreferenceKey.self) { height in
+            inputBarHeight = height
+        }
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // ⚠️ CRITICAL SECTION - READ HEADER COMMENT BEFORE MODIFYING ⚠️
+        // ═══════════════════════════════════════════════════════════════════════════════
+        //
+        // This .safeAreaInset block is where the keyboard positioning fix is implemented.
+        // The content inside gets RECREATED when geometry changes (keyboard show/hide).
+        //
+        // WHY THE OFFSET IS APPLIED HERE (not in MessageInputBar):
+        // - MessageInputBar's body won't re-render when parent state changes
+        // - BUT modifiers applied TO MessageInputBar from here DO update
+        // - So we calculate offset here using parent's @State isInputFocused
+        //
+        // WHY onFocusChange CALLBACK (not @FocusState in MessageInputBar):
+        // - @FocusState in MessageInputBar resets when view recreates
+        // - Callback allows MessageInputBar to report focus to stable parent
+        // - Parent's @State survives the geometry change
+        //
+        .safeAreaInset(edge: .bottom) {
+            // Positive offset pushes bar DOWN into safe area for concentric alignment.
+            // When focused (keyboard visible), offset is 0 (bar sits above keyboard).
+            let rawOffset = calculateConcentricOffset(
+                bottomInset: geometry.safeAreaInsets.bottom,
+                inputBarHeight: resolvedInputHeight
+            )
+            let concentricOffset = isKeyboardVisible ? 0 : rawOffset
+
+            MessageInputBar(
+                content: $viewModel.inputContent,
+                selectionRange: $selectionRange,
+                canSend: viewModel.canSend,
+                isSending: viewModel.isSending,
+                connectionAlert: viewModel.connectionAlert,
+                focusTrigger: focusRequestID,
+                bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
+                isKeyboardVisible: isKeyboardVisible,
+                onSend: {
+                    viewModel.send()
+                },
+                onCancel: { viewModel.cancelSend() },
+                onAdd: {
+                    activeSheet = .attachmentMenu
+                },
+                // ⚠️ This callback is how focus state survives view recreation.
+                // DO NOT replace with @Binding or try to use @FocusState directly.
+                onFocusChange: { focused in isInputFocused = focused },
+                onPasteImages: handlePastedImages
+            )
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: InputBarHeightPreferenceKey.self,
+                        value: proxy.size.height
+                    )
+                }
+            )
+            // ⚠️ Offset MUST be applied here, not inside MessageInputBar.
+            // See header comment for why.
+            .offset(y: concentricOffset)
+            .animation(.easeOut(duration: 0.25), value: concentricOffset)
+        }
+    }
+
     private func messageList(topInset: CGFloat, bottomInset: CGFloat, channel: ChatChannelType) -> some View {
         MessageFlowCollectionView(
             viewModel: viewModel,
@@ -324,8 +316,48 @@ struct ChatView: View {
             bottomInset: bottomInset,
             isCompact: horizontalSizeClass == .compact,
             isKeyboardVisible: isInputFocused,
+            onExpand: { message in
+                activeSheet = .expandedMessage(message)
+            },
             channel: channel
         )
+    }
+
+    @ViewBuilder
+    private func sheetView(_ sheet: ChatSheet) -> some View {
+        switch sheet {
+        case .attachmentMenu:
+            AttachmentSourceSheet(
+                onCamera: {
+                    presentCamera()
+                },
+                onPhotos: {
+                    presentPhotoPicker()
+                },
+                onFiles: {
+                    presentFileImporter()
+                }
+            )
+            .presentationDetents([.medium, .large])
+        case .expandedMessage(let message):
+            let metrics = ChatFlowTheme.Metrics(isCompact: horizontalSizeClass == .compact)
+            let presentation = viewModel.presentation(for: message, metrics: metrics)
+            ExpandedMessageSheet(message: message, presentation: presentation)
+        case .camera:
+            CameraPicker(
+                onImage: { image in
+                    activeSheet = nil
+                    Task {
+                        await handleCapturedImage(image)
+                        await MainActor.run { restoreFocusIfNeeded() }
+                    }
+                },
+                onCancel: {
+                    activeSheet = nil
+                    restoreFocusIfNeeded()
+                }
+            )
+        }
     }
 
     /// Paged TabView for horizontal swipe between channels (admin only)
@@ -391,7 +423,7 @@ struct ChatView: View {
     }
 
     @MainActor
-private func restoreFocusIfNeeded() {
+    private func restoreFocusIfNeeded() {
         guard shouldRestoreFocusAfterPicker else { return }
         focusRequestID &+= 1
         shouldRestoreFocusAfterPicker = false
@@ -412,7 +444,8 @@ private func restoreFocusIfNeeded() {
     private func presentPhotoPicker() {
         prepareForAttachmentPicker()
         activeSheet = nil
-        DispatchQueue.main.async {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
             isPhotosPickerPresented = true
         }
     }
@@ -421,7 +454,8 @@ private func restoreFocusIfNeeded() {
     private func presentFileImporter() {
         prepareForAttachmentPicker()
         activeSheet = nil
-        DispatchQueue.main.async {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
             isFileImporterPresented = true
         }
     }
@@ -629,7 +663,7 @@ private func restoreFocusIfNeeded() {
 
     /// Calculate concentric offset to align input bar with device corner radius.
     /// Returns ~16pt when keyboard hidden, 0pt when keyboard visible (handled by caller).
-    private func calculateConcentricOffset(bottomInset: CGFloat) -> CGFloat {
+    private func calculateConcentricOffset(bottomInset: CGFloat, inputBarHeight: CGFloat) -> CGFloat {
         // Device corner radius: ~50pt for Face ID devices, 0pt for home button devices
         let window = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -638,7 +672,6 @@ private func restoreFocusIfNeeded() {
         let hasRoundedCorners = (window?.safeAreaInsets.bottom ?? 0) > 0
         let deviceCornerRadius: CGFloat = hasRoundedCorners ? 50 : 0
 
-        let inputBarHeight: CGFloat = 48
         let elementSpacing: CGFloat = 8
         let concentricPadding = max(deviceCornerRadius - (inputBarHeight / 2), 8)
 
@@ -648,6 +681,19 @@ private func restoreFocusIfNeeded() {
         let t = (bottomInset - minSafeArea) / (maxSafeArea - minSafeArea)
         let clampedT = max(0, min(1, t))
         return maxOffset * (1 - clampedT)
+    }
+
+    private func handleKeyboardFrameChange(_ notification: Notification) {
+        guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return
+        }
+        let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        let screenHeight = UIScreen.main.bounds.height
+        let overlap = max(0, screenHeight - frame.minY)
+        withAnimation(.easeOut(duration: duration)) {
+            keyboardHeight = overlap
+        }
+        logger.info("[trace] keyboard frame overlap=\(overlap) screenH=\(screenHeight) frameMinY=\(frame.minY)")
     }
 }
 
@@ -696,7 +742,6 @@ private struct AttachmentSourceSheet: View {
     let onFiles: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         VStack(spacing: 24) {
             Capsule()
@@ -793,13 +838,18 @@ private final class PreviewUploadService: UploadServicing {
     let device = PreviewDevice()
     let auth = AuthManager()
     auth.storeCredentials(token: "preview-token", userId: "preview-user")
-    return ChatView(
+    let toastManager = ToastManager()
+    let viewModel = ChatViewModel(
         auth: auth,
         chatService: PreviewChatService(),
         settings: SettingsManager(),
         device: device,
         uploadService: PreviewUploadService(),
-        toastManager: ToastManager()
+        toastManager: toastManager
+    )
+    return ChatView(
+        viewModel: viewModel,
+        toastManager: toastManager
     )
     .environment(auth)
 }
@@ -809,13 +859,18 @@ private final class PreviewUploadService: UploadServicing {
     let auth = AuthManager()
     auth.storeCredentials(token: "preview-token", userId: "preview-user")
     auth.updateAdminStatus(true)
-    return ChatView(
+    let toastManager = ToastManager()
+    let viewModel = ChatViewModel(
         auth: auth,
         chatService: PreviewChatService(),
         settings: SettingsManager(),
         device: device,
         uploadService: PreviewUploadService(),
-        toastManager: ToastManager()
+        toastManager: toastManager
+    )
+    return ChatView(
+        viewModel: viewModel,
+        toastManager: toastManager
     )
     .environment(auth)
 }

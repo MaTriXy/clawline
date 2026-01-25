@@ -5,8 +5,11 @@
 //  Created by Codex on 1/15/26.
 //
 
+import OSLog
 import SwiftUI
 import UIKit
+
+private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "RichTextEditor")
 
 struct RichTextEditor: UIViewRepresentable {
     @Binding var attributedText: NSAttributedString
@@ -56,6 +59,7 @@ struct RichTextEditor: UIViewRepresentable {
         if !(textView.attributedText?.isEqual(attributedText) ?? false) {
             textView.attributedText = attributedText
             context.coordinator.enforceBaseAttributes(on: textView)
+            logger.info("[trace] updateUIView set attributedText len=\(attributedText.length)")
         }
 
         if textView.selectedRange != selectionRange && selectionRange.location != NSNotFound {
@@ -105,6 +109,8 @@ struct RichTextEditor: UIViewRepresentable {
             updateHeight(for: textView)
             ensureCaretVisible(in: textView)
             ensureTypingAttributes(on: textView)
+            let length = textView.attributedText?.length ?? 0
+            logger.info("[trace] textViewDidChange len=\(length) sel=\(textView.selectedRange.location),\(textView.selectedRange.length)")
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {

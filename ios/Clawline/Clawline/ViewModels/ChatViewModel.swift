@@ -23,6 +23,7 @@ protocol ChatViewModelHosting: AnyObject {
 @MainActor
 final class ChatViewModel: ChatViewModelHosting {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
+    private let instanceId = UUID().uuidString
     private(set) var messages: [Message] = []
     private(set) var activeChannel: ChatChannelType = .personal
 
@@ -32,14 +33,21 @@ final class ChatViewModel: ChatViewModelHosting {
     }
     private(set) var lastServerMessageId: String?
     var inputContent: NSAttributedString = NSAttributedString() {
-        didSet { pruneAttachmentData() }
+        didSet {
+            pruneAttachmentData()
+            logger.info("[trace] inputContent len=\(self.inputContent.length) empty=\(self.inputContent.isEffectivelyEmpty) canSend=\(self.canSend) alert=\(String(describing: self.connectionAlert))")
+        }
     }
     var attachmentData: [UUID: PendingAttachment] = [:]
     private(set) var isSending: Bool = false
     private(set) var isAssistantTyping: Bool = false
     private(set) var typingChannel: ChatChannelType?
     private(set) var connectionState: ConnectionState = .disconnected
-    private(set) var connectionAlert: ConnectionAlertSeverity?
+    private(set) var connectionAlert: ConnectionAlertSeverity? {
+        didSet {
+            logger.info("[trace] connectionAlert changed to \(String(describing: self.connectionAlert)) canSend=\(self.canSend)")
+        }
+    }
     private(set) var error: String?
     private(set) var sendTask: Task<Void, Never>?
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
@@ -61,8 +69,13 @@ final class ChatViewModel: ChatViewModelHosting {
     private var pendingLocalMessages: [PendingLocalMessage] = []
     private var reconnectTask: Task<Void, Never>?
     private var reconnectBackoff: Duration = .seconds(1)
+    private var lastReconnectAttemptAt: Date?
+    private let minimumReconnectInterval: TimeInterval = 1.0
+    private var lastReconnectRequestAt: Date?
     private var lastForegroundReconnectTrigger: Date?
     private let foregroundReconnectDebounceInterval: TimeInterval = 5
+    private var connectionStableTask: Task<Void, Never>?
+    private let stableConnectionInterval: Duration = .seconds(5)
     private var activeClientMessageId: String?
     private let connectionAlertGracePeriod: Duration
     private var connectionAlertTask: Task<Void, Never>?
@@ -70,6 +83,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var messageFailures: [String: MessageFailure] = [:]
     private var presentationCache: [PresentationCacheKey: PresentationCacheEntry] = [:]
     private var tableParseStates: [String: StreamingTableParseState] = [:]
+    private var uploadedAssetIds: [UUID: String] = [:]
 
     private struct PendingLocalMessage: Equatable {
         let id: String
@@ -83,6 +97,7 @@ final class ChatViewModel: ChatViewModelHosting {
          uploadService: any UploadServicing,
          toastManager: ToastManager,
          connectionAlertGracePeriod: Duration = .seconds(2)) {
+        logger.info("ChatViewModel init id=\(self.instanceId, privacy: .public)")
         self.auth = auth
         self.chatService = chatService
         self.settings = settings
@@ -96,26 +111,65 @@ final class ChatViewModel: ChatViewModelHosting {
             name: UIApplication.didReceiveMemoryWarningNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAuthStateChangeNotification),
+            name: Notification.Name("AuthStateDidChange"),
+            object: nil
+        )
+        handleAuthStateChange()
     }
 
     deinit {
+        logger.info("ChatViewModel deinit id=\(self.instanceId, privacy: .public)")
         NotificationCenter.default.removeObserver(self, name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: Notification.Name("AuthStateDidChange"), object: nil)
     }
 
     func onAppear() async {
         guard observationTask == nil, auth.token != nil else { return }
 
+        logger.info("ChatViewModel onAppear id=\(self.instanceId, privacy: .public)")
         startObserving()
-        scheduleReconnect(immediate: true)
+        scheduleReconnect(immediate: true, reason: .onAppear)
     }
 
     func onDisappear() {
+        logger.info("ChatViewModel onDisappear id=\(self.instanceId, privacy: .public)")
         observationTask?.cancel()
         observationTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
+        connectionStableTask?.cancel()
+        connectionStableTask = nil
         cancelSend()
         chatService.disconnect()
+    }
+
+    @objc private func handleAuthStateChangeNotification() {
+        handleAuthStateChange()
+    }
+
+    private func handleAuthStateChange() {
+        if auth.token != nil {
+            if observationTask == nil {
+                startObserving()
+            }
+            switch connectionState {
+            case .connected, .connecting, .reconnecting:
+                break
+            default:
+                scheduleReconnect(immediate: true, reason: .authStateChange)
+            }
+        } else {
+            observationTask?.cancel()
+            observationTask = nil
+            reconnectTask?.cancel()
+            reconnectTask = nil
+            connectionStableTask?.cancel()
+            connectionStableTask = nil
+            chatService.disconnect()
+        }
     }
 
     func setActiveChannel(_ channel: ChatChannelType) {
@@ -130,6 +184,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func handleSceneDidBecomeActive() {
         guard auth.token != nil else { return }
+        logger.info("ChatViewModel sceneDidBecomeActive id=\(self.instanceId, privacy: .public) state=\(String(describing: self.connectionState), privacy: .public)")
         switch connectionState {
         case .connected, .connecting, .reconnecting:
             break
@@ -141,11 +196,12 @@ final class ChatViewModel: ChatViewModelHosting {
                 return
             }
             lastForegroundReconnectTrigger = now
-            scheduleReconnect(immediate: false)
+            scheduleReconnect(immediate: false, reason: .sceneDidBecomeActive)
         }
     }
 
     private func startObserving() {
+        logger.info("ChatViewModel startObserving id=\(self.instanceId, privacy: .public)")
         observationTask = Task {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { [weak self] in
@@ -173,6 +229,7 @@ final class ChatViewModel: ChatViewModelHosting {
     @MainActor
     private func observeConnectionState() async {
         for await state in chatService.connectionState {
+            logger.info("ChatViewModel stateStream id=\(self.instanceId, privacy: .public) state=\(String(describing: state), privacy: .public)")
             connectionState = state
             handleConnectionState(state)
         }
@@ -219,7 +276,6 @@ final class ChatViewModel: ChatViewModelHosting {
         )
         appendMessage(placeholder)
         pendingLocalMessages.append(PendingLocalMessage(id: clientId, channel: channel))
-        clearInput()
 
         error = nil
 
@@ -262,6 +318,8 @@ final class ChatViewModel: ChatViewModelHosting {
         messages = []
         activeChannel = .personal
         pendingLocalMessages.removeAll()
+        connectionStableTask?.cancel()
+        connectionStableTask = nil
     }
 
     func clearError() {
@@ -375,34 +433,78 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func handleConnectionState(_ state: ConnectionState) {
+        logger.info("ChatViewModel handleConnectionState id=\(self.instanceId, privacy: .public) state=\(String(describing: state), privacy: .public)")
         switch state {
         case .connected:
-            reconnectBackoff = .seconds(1)
+            connectionStableTask?.cancel()
+            connectionStableTask = Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(forDuration: self.stableConnectionInterval)
+                await MainActor.run {
+                    if self.connectionState == .connected {
+                        self.reconnectBackoff = .seconds(1)
+                    }
+                }
+            }
             reconnectTask?.cancel()
             reconnectTask = nil
             clearConnectionAlert()
             error = nil
             lastForegroundReconnectTrigger = nil
         case .disconnected:
+            connectionStableTask?.cancel()
+            connectionStableTask = nil
             beginConnectionAlert(message: "Not connected to provider.")
-            scheduleReconnect()
+            scheduleReconnect(reason: .connectionStateDisconnected)
         case .failed(let err):
+            connectionStableTask?.cancel()
+            connectionStableTask = nil
             handleConnectionFailure(err)
-            scheduleReconnect()
+            scheduleReconnect(reason: .connectionStateFailed)
         case .connecting, .reconnecting:
             beginConnectionAlert(message: "Reconnecting…", shouldAnnounce: false)
         }
     }
 
-    private func scheduleReconnect(immediate: Bool = false) {
-        guard reconnectTask == nil, auth.token != nil else { return }
+    private enum ReconnectTrigger: String {
+        case onAppear
+        case sceneDidBecomeActive
+        case connectionStateDisconnected
+        case connectionStateFailed
+        case authStateChange
+    }
+
+    private func scheduleReconnect(immediate: Bool = false, reason: ReconnectTrigger = .connectionStateFailed) {
+        let now = Date()
+        if let lastRequest = lastReconnectRequestAt {
+            let elapsed = now.timeIntervalSince(lastRequest)
+            if elapsed < minimumReconnectInterval {
+                logger.info("reconnect debounced reason=\(reason.rawValue, privacy: .public) elapsed=\(elapsed, privacy: .public)")
+                return
+            }
+        }
+        lastReconnectRequestAt = now
+        guard reconnectTask == nil, auth.token != nil else {
+            logger.info("reconnect suppressed reason=\(reason.rawValue, privacy: .public) reconnectTask=\(self.reconnectTask != nil, privacy: .public) hasToken=\(self.auth.token != nil, privacy: .public)")
+            return
+        }
+
+        logger.info("reconnect scheduled id=\(self.instanceId, privacy: .public) reason=\(reason.rawValue, privacy: .public) immediate=\(immediate, privacy: .public) backoff=\(String(describing: self.reconnectBackoff), privacy: .public) state=\(String(describing: self.connectionState), privacy: .public)")
 
         reconnectTask = Task { [weak self] in
             guard let self else { return }
             let jitter = Duration.milliseconds(Int.random(in: 0...1000))
-            let delay = immediate ? Duration.zero : reconnectBackoff + jitter
+            var delay = immediate ? Duration.zero : reconnectBackoff + jitter
+            if let lastAttempt = self.lastReconnectAttemptAt {
+                let elapsed = Date().timeIntervalSince(lastAttempt)
+                let minDelay = max(0, self.minimumReconnectInterval - elapsed)
+                delay = max(delay, .seconds(minDelay))
+            }
             if delay > .zero {
                 try? await Task.sleep(forDuration: delay)
+            }
+            await MainActor.run {
+                self.lastReconnectAttemptAt = Date()
             }
             let snapshot = await MainActor.run { self.connectionSnapshot() }
             guard let token = snapshot.token else { return }
@@ -436,7 +538,7 @@ final class ChatViewModel: ChatViewModelHosting {
                     }
                     self.reconnectBackoff = min(self.reconnectBackoff * 2, .seconds(30))
                     self.reconnectTask = nil
-                    self.scheduleReconnect()
+                    self.scheduleReconnect(reason: .connectionStateFailed)
                 }
             }
         }
@@ -508,7 +610,7 @@ final class ChatViewModel: ChatViewModelHosting {
                               channelType: ChatChannelType) async {
         defer { sendTask = nil }
         do {
-            let wireAttachments = try await buildWireAttachments(from: pendingAttachments)
+            let wireAttachments = try await buildWireAttachments(from: pendingAttachments, content: content)
             try Task.checkCancellation()
             try await chatService.send(
                 id: clientId,
@@ -544,20 +646,44 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    private func buildWireAttachments(from attachments: [PendingAttachment]) async throws -> [WireAttachment] {
+    private func buildWireAttachments(from attachments: [PendingAttachment],
+                                      content: String) async throws -> [WireAttachment] {
         var results: [WireAttachment] = []
+        let contentBytes = content.lengthOfBytes(using: .utf8)
+        if contentBytes > PendingAttachment.totalPayloadByteLimit {
+            throw AttachmentError.payloadTooLarge
+        }
+
+        var inlineBytes = 0
         for attachment in attachments {
             try Task.checkCancellation()
-            if attachment.requiresUpload {
-                let assetId = try await uploadService.upload(
-                    data: attachment.data,
-                    mimeType: attachment.mimeType,
-                    filename: attachment.filename
-                )
-                results.append(.asset(assetId: assetId))
-            } else {
+            let canInline = attachment.isInlineCapableImage
+                && attachment.size <= PendingAttachment.inlineByteLimit
+                && inlineBytes + attachment.size <= PendingAttachment.inlineTotalByteLimit
+                && contentBytes + inlineBytes + attachment.size <= PendingAttachment.totalPayloadByteLimit
+
+            if canInline {
                 results.append(.image(mimeType: attachment.mimeType, data: attachment.data))
+                inlineBytes += attachment.size
+                continue
             }
+
+            if attachment.size > PendingAttachment.maxUploadByteLimit {
+                throw AttachmentError.uploadTooLarge
+            }
+
+            if let cachedAssetId = uploadedAssetIds[attachment.id] {
+                results.append(.asset(assetId: cachedAssetId))
+                continue
+            }
+
+            let assetId = try await uploadService.upload(
+                data: attachment.data,
+                mimeType: attachment.mimeType,
+                filename: attachment.filename
+            )
+            uploadedAssetIds[attachment.id] = assetId
+            results.append(.asset(assetId: assetId))
         }
         return results
     }
@@ -584,6 +710,7 @@ final class ChatViewModel: ChatViewModelHosting {
         let referencedIds = Set(inputContent.pendingAttachmentIds())
         let orphanedKeys = attachmentData.keys.filter { !referencedIds.contains($0) }
         orphanedKeys.forEach { attachmentData.removeValue(forKey: $0) }
+        orphanedKeys.forEach { uploadedAssetIds.removeValue(forKey: $0) }
     }
 
     private func handleMemoryWarning() {
@@ -600,7 +727,9 @@ final class ChatViewModel: ChatViewModelHosting {
     private func clearInput() {
         inputContent = NSAttributedString(string: "")
         attachmentData.removeAll()
+        uploadedAssetIds.removeAll()
     }
+
 
     func presentation(for message: Message, metrics: ChatFlowTheme.Metrics) -> MessagePresentation {
         let key = PresentationCacheKey(messageID: message.id, isCompact: metrics.isCompact)
