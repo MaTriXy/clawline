@@ -317,6 +317,7 @@ enum MessagePresentationBuilder {
             emojiOnly = false
             if let url = exactURL(from: trimmedLine) {
                 parts.append(.linkPreview(url))
+                hasTextual = true
             } else if looksLikeMarkdown(trimmedLine) {
                 parts.append(.markdown(trimmedLine))
                 hasTextual = true

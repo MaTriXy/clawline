@@ -645,7 +645,9 @@ final class MessageBubbleUIKitView: UIView {
                 return value
             case .table(let model):
                 return "Table (\(model.rows.count) rows)"
-            case .linkPreview, .image, .gallery:
+            case .linkPreview(let url):
+                return url.absoluteString
+            case .image, .gallery:
                 return ""
             }
         }
@@ -686,9 +688,9 @@ final class MessageBubbleUIKitView: UIView {
         // Filter to only text parts (no code blocks or tables - those are rendered as separate views)
         let textParts = presentation.parts.filter {
             switch $0 {
-            case .text, .markdown, .inlineEmoji:
+            case .text, .markdown, .inlineEmoji, .linkPreview:
                 return true
-            case .code, .table, .linkPreview, .image, .gallery:
+            case .code, .table, .image, .gallery:
                 return false
             }
         }
@@ -713,7 +715,12 @@ final class MessageBubbleUIKitView: UIView {
             case .inlineEmoji(let value):
                 result.append(NSAttributedString(string: value, attributes: baseAttributes))
 
-            case .code, .table, .linkPreview, .image, .gallery:
+            case .linkPreview(let url):
+                var linkAttributes = baseAttributes
+                linkAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                result.append(NSAttributedString(string: url.absoluteString, attributes: linkAttributes))
+
+            case .code, .table, .image, .gallery:
                 break
             }
         }
