@@ -47,7 +47,8 @@ final class TypingIndicatorCell: UICollectionViewCell {
             isCompact: isCompact,
             maxWidth: maxWidth,
             isDark: isDark,
-            onRequestExpand: nil
+            onRequestExpand: nil,
+            onRetry: nil
         )
     }
 

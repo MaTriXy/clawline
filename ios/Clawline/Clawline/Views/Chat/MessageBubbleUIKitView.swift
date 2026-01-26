@@ -16,6 +16,7 @@ final class MessageBubbleUIKitContainerView: UIView {
     private var bubbleBottomConstraint: NSLayoutConstraint!
     private var badgeBottomConstraint: NSLayoutConstraint!
     private var badgeLeadingConstraint: NSLayoutConstraint!
+    private var onRetry: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -41,6 +42,9 @@ final class MessageBubbleUIKitContainerView: UIView {
             badgeBottomConstraint
         ])
         badgeView.isHidden = true
+        badgeView.isUserInteractionEnabled = true
+        let badgeTap = UITapGestureRecognizer(target: self, action: #selector(handleBadgeTap))
+        badgeView.addGestureRecognizer(badgeTap)
     }
 
     required init?(coder: NSCoder) {
@@ -53,7 +57,8 @@ final class MessageBubbleUIKitContainerView: UIView {
                    isCompact: Bool,
                    maxWidth: CGFloat,
                    isDark: Bool? = nil,
-                   onRequestExpand: (() -> Void)?) {
+                   onRequestExpand: (() -> Void)?,
+                   onRetry: (() -> Void)?) {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
         bubbleView.configure(
@@ -65,6 +70,7 @@ final class MessageBubbleUIKitContainerView: UIView {
             isDark: isDark,
             onRequestExpand: onRequestExpand
         )
+        self.onRetry = onRetry
 
         if let reason = failureReason {
             badgeView.isHidden = false
@@ -77,6 +83,10 @@ final class MessageBubbleUIKitContainerView: UIView {
             bubbleBottomConstraint.constant = 0
             badgeBottomConstraint.constant = 0
         }
+    }
+
+    @objc private func handleBadgeTap() {
+        onRetry?()
     }
 
     func bubbleFrameInContainer() -> CGRect {
@@ -1061,7 +1071,11 @@ final class MessageFailureBadgeView: UIView {
     }
 
     func configure(reason: String) {
-        label.text = reason
+        if reason.isEmpty {
+            label.text = "Message failed. Tap to retry."
+        } else {
+            label.text = "\(reason)\nTap to retry."
+        }
         let isDark = traitCollection.userInterfaceStyle == .dark
         backgroundColor = ChatFlowUIKitTheme.failureBackground(isDark: isDark)
         label.textColor = ChatFlowUIKitTheme.failureText(isDark: isDark)
@@ -1220,7 +1234,8 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
                    isCompact: Bool,
                    maxWidth: CGFloat,
                    isDark: Bool? = nil,
-                   onRequestExpand: (() -> Void)?) {
+                   onRequestExpand: (() -> Void)?,
+                   onRetry: (() -> Void)?) {
         messageId = message.id
         messageSnippet = String(message.content.prefix(80))
         containerView.configure(
@@ -1230,7 +1245,8 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             isCompact: isCompact,
             maxWidth: maxWidth,
             isDark: isDark,
-            onRequestExpand: onRequestExpand
+            onRequestExpand: onRequestExpand,
+            onRetry: onRetry
         )
     }
 

@@ -289,6 +289,43 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    func retryMessage(messageId: String) {
+        guard !isSending else { return }
+        guard let (message, channel, index) = findMessage(id: messageId) else { return }
+
+        let clientId = "c_\(UUID().uuidString)"
+        let retryMessage = Message(
+            id: clientId,
+            role: message.role,
+            content: message.content,
+            timestamp: Date(),
+            streaming: false,
+            attachments: message.attachments,
+            deviceId: deviceId,
+            channelType: channel
+        )
+
+        var channelList = channelMessages[channel] ?? []
+        channelList[index] = retryMessage
+        setMessages(channelList, for: channel)
+
+        pendingLocalMessages.removeAll { $0.id == messageId }
+        pendingLocalMessages.append(PendingLocalMessage(id: clientId, channel: channel))
+        messageFailures.removeValue(forKey: messageId)
+
+        isSending = true
+        activeClientMessageId = clientId
+
+        sendTask = Task { [weak self] in
+            await self?.performRetrySend(
+                clientId: clientId,
+                content: retryMessage.content,
+                attachments: retryMessage.attachments,
+                channelType: channel
+            )
+        }
+    }
+
     func cancelSend() {
         guard isSending else { return }
         sendTask?.cancel()
@@ -382,6 +419,7 @@ final class ChatViewModel: ChatViewModelHosting {
         if activeClientMessageId == pending.id {
             activeClientMessageId = nil
         }
+        messageFailures.removeValue(forKey: pending.id)
         return true
     }
 
@@ -646,6 +684,47 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    private func performRetrySend(clientId: String,
+                                  content: String,
+                                  attachments: [Attachment],
+                                  channelType: ChatChannelType) async {
+        defer { sendTask = nil }
+        do {
+            let wireAttachments = try await buildWireAttachments(from: attachments, content: content)
+            try Task.checkCancellation()
+            try await chatService.send(
+                id: clientId,
+                content: content,
+                attachments: wireAttachments,
+                channelType: channelType
+            )
+            await MainActor.run {
+                isSending = false
+                activeClientMessageId = nil
+            }
+        } catch is CancellationError {
+            await MainActor.run {
+                removePlaceholder(withId: clientId)
+                isSending = false
+                activeClientMessageId = nil
+            }
+        } catch let attachmentError as AttachmentError {
+            await MainActor.run {
+                toastManager.show(error: attachmentError)
+                removePlaceholder(withId: clientId)
+                isSending = false
+                activeClientMessageId = nil
+            }
+        } catch {
+            await MainActor.run {
+                toastManager.show(error.localizedDescription)
+                removePlaceholder(withId: clientId)
+                isSending = false
+                activeClientMessageId = nil
+            }
+        }
+    }
+
     private func buildWireAttachments(from attachments: [PendingAttachment],
                                       content: String) async throws -> [WireAttachment] {
         var results: [WireAttachment] = []
@@ -686,6 +765,62 @@ final class ChatViewModel: ChatViewModelHosting {
             results.append(.asset(assetId: assetId))
         }
         return results
+    }
+
+    private func buildWireAttachments(from attachments: [Attachment],
+                                      content: String) async throws -> [WireAttachment] {
+        var results: [WireAttachment] = []
+        let contentBytes = content.lengthOfBytes(using: .utf8)
+        if contentBytes > PendingAttachment.totalPayloadByteLimit {
+            throw AttachmentError.payloadTooLarge
+        }
+
+        var inlineBytes = 0
+        for attachment in attachments {
+            try Task.checkCancellation()
+
+            if let assetId = attachment.assetId {
+                results.append(.asset(assetId: assetId))
+                continue
+            }
+
+            guard let data = attachment.data else {
+                throw AttachmentError.invalidData
+            }
+            let mimeType = attachment.mimeType ?? "application/octet-stream"
+            let canInline = PendingAttachment.inlineMimeTypes.contains(mimeType.lowercased())
+                && data.count <= PendingAttachment.inlineByteLimit
+                && inlineBytes + data.count <= PendingAttachment.inlineTotalByteLimit
+                && contentBytes + inlineBytes + data.count <= PendingAttachment.totalPayloadByteLimit
+
+            if canInline {
+                results.append(.image(mimeType: mimeType, data: data))
+                inlineBytes += data.count
+                continue
+            }
+
+            if data.count > PendingAttachment.maxUploadByteLimit {
+                throw AttachmentError.uploadTooLarge
+            }
+
+            let assetId = try await uploadService.upload(
+                data: data,
+                mimeType: mimeType,
+                filename: nil
+            )
+            results.append(.asset(assetId: assetId))
+        }
+
+        return results
+    }
+
+    private func findMessage(id: String) -> (message: Message, channel: ChatChannelType, index: Int)? {
+        for (channel, list) in channelMessages {
+            if let index = list.firstIndex(where: { $0.id == id }) {
+                return (list[index], channel, index)
+            }
+        }
+        return nil
     }
 
     private func makeDisplayAttachments(from pendingAttachments: [PendingAttachment]) -> [Attachment] {
@@ -781,8 +916,10 @@ final class ChatViewModel: ChatViewModelHosting {
             let resolved = userFacingMessage(for: code, fallback: message)
             toastManager.show(resolved)
             guard let messageId else { return }
-            // Remove the optimistic placeholder from the UI so user knows message wasn't sent
-            removePlaceholder(withId: messageId)
+            messageFailures[messageId] = MessageFailure(code: code, message: message)
+            if let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == messageId }) {
+                pendingLocalMessages.remove(at: pendingIndex)
+            }
             if activeClientMessageId == messageId {
                 activeClientMessageId = nil
             }
@@ -835,6 +972,8 @@ final class ChatViewModel: ChatViewModelHosting {
             return "Upload failed; try again."
         case "queue_failed", "queue_full":
             return "Message couldn't be queued. Try again."
+        case "session_locked":
+            return "Session is locked. Message not delivered."
         case "connection_lost":
             return "Message not delivered — connection lost."
         case "invalid_channel":

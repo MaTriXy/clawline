@@ -402,6 +402,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 onRequestExpand: { [weak self] in
                     guard let self else { return }
                     self.onExpand?(message)
+                },
+                onRetry: { [weak self] in
+                    self?.viewModel?.retryMessage(messageId: message.id)
                 }
             )
             return cell
