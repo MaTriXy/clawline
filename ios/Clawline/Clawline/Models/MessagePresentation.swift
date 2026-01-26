@@ -134,7 +134,9 @@ extension MessagePart {
         switch self {
         case .text, .markdown, .table, .inlineEmoji, .code:
             return true
-        case .linkPreview, .image, .gallery:
+        case .linkPreview:
+            return true
+        case .image, .gallery:
             return false
         }
     }
