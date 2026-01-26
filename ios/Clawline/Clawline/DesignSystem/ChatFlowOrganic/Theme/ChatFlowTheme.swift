@@ -117,6 +117,6 @@ enum MessageSizeClass: String {
     case long
 }
 
-struct MessageSizeClassKey: LayoutValueKey {
+nonisolated struct MessageSizeClassKey: LayoutValueKey {
     static let defaultValue: MessageSizeClass = .medium
 }

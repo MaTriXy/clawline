@@ -145,7 +145,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
             return
         }
-        let windowHeight = view.window?.bounds.height ?? UIScreen.main.bounds.height
+        let windowHeight = view.window?.windowScene?.screen.bounds.height
+            ?? view.window?.bounds.height
+            ?? frame.maxY
         let keyboardHeight = max(0, windowHeight - frame.minY)
         let keyboardJustAppeared = keyboardHeight > 0 && currentKeyboardHeight == 0
         let previousKeyboardHeight = currentKeyboardHeight
@@ -814,7 +816,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func snapToPixel(_ size: CGSize) -> CGSize {
-        let scale = UIScreen.main.scale
+        let scale = view.window?.windowScene?.screen.scale ?? view.traitCollection.displayScale
         func snap(_ value: CGFloat) -> CGFloat {
             ceil(value * scale) / scale
         }

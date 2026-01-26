@@ -153,8 +153,8 @@ struct MarkdownTableView: View {
             )
             .frame(width: 0, height: 0)
         )
-        .onChange(of: isExpanded, perform: handleExpansionChange)
-        .onChange(of: model.rows.count) { _ in clampFocusedCell() }
+        .onChange(of: isExpanded) { _, newValue in handleExpansionChange(newValue) }
+        .onChange(of: model.rows.count) { _, _ in clampFocusedCell() }
         .onDisappear { keyboardFocus = false }
     }
 
@@ -310,7 +310,7 @@ struct MarkdownTableView: View {
         GeometryReader { proxy in
             Color.clear
                 .onAppear { containerWidth = proxy.size.width }
-                .onChange(of: proxy.size.width) { containerWidth = $0 }
+                .onChange(of: proxy.size.width) { _, newValue in containerWidth = newValue }
         }
     }
 
@@ -339,7 +339,7 @@ struct MarkdownTableView: View {
                     onSelectionChange: { hasActiveSelection = $0 },
                     onLinkTap: { url in
                         registerLinkTap()
-                        _ = openURLAction(url)
+                        openURLAction(url)
                     }
                 )
             }
@@ -382,7 +382,7 @@ struct MarkdownTableView: View {
     }
 
     private func styledAttributedString(for cell: TableModel.Cell, alignment: ColumnAlignment, isHeader: Bool) -> NSAttributedString {
-        var attributed = cell.attributed
+        let attributed = cell.attributed
         let mutable = NSMutableAttributedString(attributed)
         let baseFont = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: isHeader ? .semibold : .regular)
         let scaledFont = UIFontMetrics.default.scaledFont(for: baseFont)

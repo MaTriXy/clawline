@@ -148,6 +148,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         bubbleBackgroundView.isUserInteractionEnabled = true
         let bubbleTap = UITapGestureRecognizer(target: self, action: #selector(handleBubbleTap))
         bubbleTap.cancelsTouchesInView = false
+        bubbleTap.delaysTouchesBegan = false
+        bubbleTap.delaysTouchesEnded = false
         bubbleBackgroundView.addGestureRecognizer(bubbleTap)
         addSubview(bubbleBackgroundView)
         maxWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(lessThanOrEqualToConstant: 320)
@@ -215,6 +217,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         headerStack.addArrangedSubview(senderLabel)
 
         bodyLabel.backgroundColor = .clear
+        bodyLabel.isUserInteractionEnabled = true
         bodyLabel.isEditable = false
         bodyLabel.isSelectable = true
         bodyLabel.isScrollEnabled = false
@@ -222,6 +225,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         bodyLabel.textContainer.lineFragmentPadding = 0
         bodyLabel.dataDetectorTypes = [.link]
         bodyLabel.delegate = self
+        if let longPress = bodyLabel.gestureRecognizers?.first(where: { $0 is UILongPressGestureRecognizer }) {
+            bubbleTap.require(toFail: longPress)
+        }
 
         contentStack.addArrangedSubview(headerStack)
 
@@ -640,9 +646,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         onRequestExpand?()
     }
 
-    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
-        UIApplication.shared.open(URL)
-        return false
+    @available(iOS 17.0, *)
+    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+        if case .link(let url) = textItem.content {
+            UIApplication.shared.open(url)
+            return nil
+        }
+        return defaultAction
     }
 
     private static func textContent(from presentation: MessagePresentation) -> String {
@@ -906,7 +916,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     private func bubbleCornerRadii(messageId: String) -> (topLeft: CGFloat, topRight: CGFloat, bottomRight: CGFloat, bottomLeft: CGFloat) {
-        let base: CGFloat = 24
         let sharp: CGFloat = 4
         let variationsSelf: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
             (32, 24, sharp, 24),
@@ -1546,7 +1555,7 @@ final class TableUIKitWrapperView: UIView {
         hostingController.view.backgroundColor = .clear
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         // Disable safe area insets to prevent layout issues
-        hostingController._disableSafeArea = true
+        hostingController.safeAreaRegions = []
         addSubview(hostingController.view)
 
         NSLayoutConstraint.activate([

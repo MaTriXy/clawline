@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct FlowLayout: Layout {
+nonisolated struct FlowLayout: Layout {
     var itemSpacing: CGFloat
     var rowSpacing: CGFloat
     var maxLineWidth: CGFloat

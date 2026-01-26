@@ -48,9 +48,13 @@ struct SelectableAttributedText: UIViewRepresentable {
             onSelectionChange(hasSelection)
         }
 
-        func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
-            onLinkTap(URL)
-            return false
+        @available(iOS 17.0, *)
+        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+            if case .link(let url) = textItem.content {
+                onLinkTap(url)
+                return nil
+            }
+            return defaultAction
         }
     }
 }

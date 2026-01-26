@@ -8,7 +8,6 @@
 import Foundation
 
 extension Task where Success == Never, Failure == Never {
-    @discardableResult
     static func sleep(forDuration duration: Duration) async throws {
         let components = duration.components
         guard components.seconds >= 0 else { return }

@@ -22,7 +22,9 @@ private final class AsyncStreamBroadcaster<Element> {
                 continuation.yield(initial)
             }
             continuation.onTermination = { [weak self] _ in
-                self?.remove(id)
+                Task { @MainActor [weak self] in
+                    self?.remove(id)
+                }
             }
         }
     }

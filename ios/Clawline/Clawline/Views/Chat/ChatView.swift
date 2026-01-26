@@ -712,7 +712,11 @@ struct ChatView: View {
             return
         }
         let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-        let screenHeight = UIScreen.main.bounds.height
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
+        let screenHeight = window?.windowScene?.screen.bounds.height ?? window?.bounds.height ?? frame.maxY
         let overlap = max(0, screenHeight - frame.minY)
         withAnimation(.easeOut(duration: duration)) {
             keyboardHeight = overlap
