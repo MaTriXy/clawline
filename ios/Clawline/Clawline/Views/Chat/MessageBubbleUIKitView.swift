@@ -95,6 +95,10 @@ final class MessageBubbleUIKitContainerView: UIView {
         }
     }
 
+    func setCenteredOverlayView(_ view: UIView?) {
+        bubbleView.setCenteredOverlayView(view)
+    }
+
     @objc private func handleBadgeTap() {
         onRetry?()
     }
@@ -150,6 +154,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var showsHeader = true
     private var contentPaddingScale: CGFloat = 1
     private var useContinuousCorners = true
+    private weak var centeredOverlayView: UIView?
 
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -591,6 +596,20 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         updateBorderColors(isDark: palette.isDark)
     }
 
+    func setCenteredOverlayView(_ view: UIView?) {
+        if centeredOverlayView === view { return }
+        centeredOverlayView?.removeFromSuperview()
+        centeredOverlayView = view
+        guard let view else { return }
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isUserInteractionEnabled = false
+        bubbleBackgroundView.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.centerXAnchor.constraint(equalTo: bubbleBackgroundView.centerXAnchor),
+            view.centerYAnchor.constraint(equalTo: bubbleBackgroundView.centerYAnchor)
+        ])
+    }
+
     private func updateAppearanceColors() {
         let isDark = traitCollection.userInterfaceStyle == .dark
         Self.logger.debug("updateAppearanceColors: isDark=\(isDark, privacy: .public) role=\(String(describing: self.currentMessageRole), privacy: .public)")
@@ -967,16 +986,16 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     private func bubbleCornerRadii(messageId: String) -> (topLeft: CGFloat, topRight: CGFloat, bottomRight: CGFloat, bottomLeft: CGFloat) {
-        let sharp: CGFloat = 4
+        let sharp: CGFloat = 6
         let variationsSelf: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (32, 24, sharp, 24),
-            (24, 32, sharp, 28),
-            (26, 30, sharp, 28)
+            (30, 28, sharp, 28),
+            (28, 30, sharp, 30),
+            (29, 29, sharp, 28)
         ]
         let variationsOther: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (32, 24, 28, sharp),
-            (24, 32, 28, sharp),
-            (26, 30, 28, sharp)
+            (30, 28, 28, sharp),
+            (28, 30, 30, sharp),
+            (29, 29, 28, sharp)
         ]
         let index = abs(messageId.hashValue) % variationsSelf.count
         if senderLabel.text == "You" {

@@ -33,10 +33,6 @@ final class TypingIndicatorCell: UICollectionViewCell {
             containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
-
-        dotsView.translatesAutoresizingMaskIntoConstraints = true
-        dotsView.isUserInteractionEnabled = false
-        containerView.addSubview(dotsView)
     }
 
     required init?(coder: NSCoder) {
@@ -65,29 +61,14 @@ final class TypingIndicatorCell: UICollectionViewCell {
             onRequestExpand: nil,
             onRetry: nil
         )
+        containerView.setCenteredOverlayView(dotsView)
         setNeedsLayout()
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         stopAnimating()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let bubbleFrame = containerView.bubbleFrameInContainer()
-        let headerHeight: CGFloat = showsHeader ? 32 : 0
-        let headerSpacing: CGFloat = showsHeader ? 10 : 0
-        let paddingVertical = currentMetrics.bubblePaddingVertical * paddingScale
-        let paddingHorizontal = currentMetrics.bubblePaddingHorizontal * paddingScale
-        let contentTop = bubbleFrame.minY + paddingVertical + headerHeight + headerSpacing
-        let contentBottom = bubbleFrame.maxY - paddingVertical
-        let contentHeight = max(0, contentBottom - contentTop)
-        let contentWidth = max(0, bubbleFrame.width - (paddingHorizontal * 2))
-        let indicatorSize = dotsView.intrinsicContentSize
-        let centeredX = bubbleFrame.minX + paddingHorizontal + (contentWidth - indicatorSize.width) / 2
-        let centeredY = contentTop + (contentHeight - indicatorSize.height) / 2
-        dotsView.frame = CGRect(x: centeredX, y: centeredY, width: indicatorSize.width, height: indicatorSize.height)
+        containerView.setCenteredOverlayView(nil)
     }
 
     func startAnimating() {
