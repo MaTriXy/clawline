@@ -491,7 +491,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 showsHeader: false,
                 paddingScale: 0.2,
                 minWidthOverride: 32,
-                maxWidthOverride: maxWidthOverride
+                maxWidthOverride: maxWidthOverride,
+                minHeightOverride: round(maxWidthOverride * 0.75)
             )
         }
 
@@ -532,7 +533,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                         showsHeader: Bool = true,
                                         paddingScale: CGFloat = 1,
                                         minWidthOverride: CGFloat? = nil,
-                                        maxWidthOverride: CGFloat? = nil) -> CGSize {
+                                        maxWidthOverride: CGFloat? = nil,
+                                        minHeightOverride: CGFloat? = nil) -> CGSize {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
         uiKitBubbleSizer.configure(
@@ -562,6 +564,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         )
         let minWidth: CGFloat = minWidthOverride ?? 120
         var height = max(1, measured.height)
+        if let minHeight = minHeightOverride {
+            height = max(height, minHeight)
+        }
         if failureReason != nil {
             height += 32
         }
