@@ -482,11 +482,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 containerWidth: availableWidth
             )
+            let maxWidthOverride = round(maxWidth * 0.2222222)
             return measureUIKitBubbleSize(
                 message: message,
                 presentation: presentation,
                 failureReason: nil,
-                maxWidth: maxWidth
+                maxWidth: maxWidth,
+                showsHeader: false,
+                paddingScale: 0.2,
+                minWidthOverride: 32,
+                maxWidthOverride: maxWidthOverride
             )
         }
 
@@ -523,7 +528,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func measureUIKitBubbleSize(message: Message,
                                         presentation: MessagePresentation,
                                         failureReason: String?,
-                                        maxWidth: CGFloat) -> CGSize {
+                                        maxWidth: CGFloat,
+                                        showsHeader: Bool = true,
+                                        paddingScale: CGFloat = 1,
+                                        minWidthOverride: CGFloat? = nil,
+                                        maxWidthOverride: CGFloat? = nil) -> CGSize {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
         uiKitBubbleSizer.configure(
@@ -532,13 +541,18 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sizeClass: sizeClass,
             metrics: metrics,
             maxWidth: maxWidth,
+            showsHeader: showsHeader,
+            paddingScale: paddingScale,
+            minWidthOverride: minWidthOverride,
+            maxWidthOverride: maxWidthOverride,
             onRequestExpand: nil
         )
+        let effectiveMaxWidth = maxWidthOverride ?? maxWidth
         let preferredWidth: CGFloat
         if sizeClass == .short {
-            preferredWidth = uiKitBubbleSizer.preferredWidth(maxWidth: maxWidth)
+            preferredWidth = uiKitBubbleSizer.preferredWidth(maxWidth: effectiveMaxWidth)
         } else {
-            preferredWidth = maxWidth
+            preferredWidth = effectiveMaxWidth
         }
         let target = CGSize(width: preferredWidth, height: UIView.layoutFittingCompressedSize.height)
         let measured = uiKitBubbleSizer.systemLayoutSizeFitting(
@@ -546,13 +560,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         )
-        let minWidth: CGFloat = 120
+        let minWidth: CGFloat = minWidthOverride ?? 120
         var height = max(1, measured.height)
         if failureReason != nil {
             height += 32
         }
         let clamped = CGSize(
-            width: min(maxWidth, max(minWidth, measured.width)),
+            width: min(effectiveMaxWidth, max(minWidth, measured.width)),
             height: height
         )
         return snapToPixel(clamped)
