@@ -394,10 +394,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         contentPaddingScale = paddingScale
         self.useContinuousCorners = useContinuousCorners
 
+        let effectiveMaxWidth = maxWidthOverride ?? maxWidth
         // Reset width constraints per size class.
         currentMetrics = metrics
         minWidthConstraint.constant = minWidthOverride ?? 120
-        maxWidthConstraint.constant = maxWidthOverride ?? maxWidth
+        maxWidthConstraint.constant = effectiveMaxWidth
         fixedWidthConstraint?.isActive = false
         fixedWidthConstraint = nil
         self.onRequestExpand = onRequestExpand
@@ -502,11 +503,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         case .short:
             bodyMaxWidthConstraint?.isActive = false
             // Set fixed width to match measured preferredWidth for consistent sizing
-            fixedWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(equalToConstant: maxWidth)
+            fixedWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(equalToConstant: effectiveMaxWidth)
             fixedWidthConstraint?.isActive = true
         case .medium:
             bodyMaxWidthConstraint?.isActive = false
-            fixedWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(equalToConstant: maxWidth)
+            fixedWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(equalToConstant: effectiveMaxWidth)
             fixedWidthConstraint?.isActive = true
         case .long:
             let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
@@ -514,7 +515,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             let constraint = bodyLabel.widthAnchor.constraint(lessThanOrEqualToConstant: maxLineWidth)
             constraint.isActive = true
             bodyMaxWidthConstraint = constraint
-            fixedWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(equalToConstant: maxWidth)
+            fixedWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(equalToConstant: effectiveMaxWidth)
             fixedWidthConstraint?.isActive = true
         }
 
