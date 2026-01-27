@@ -60,7 +60,7 @@ final class ProviderChatService: ChatServicing {
             case .missingBaseURL:
                 return "No provider configured. Pair with a provider first."
             case .notConnected:
-                return "Not connected to provider."
+                return "Could not send; not connected."
             case .authFailed(let reason):
                 return "Authentication failed: \(reason)"
             case .tokenRevoked(let reason):

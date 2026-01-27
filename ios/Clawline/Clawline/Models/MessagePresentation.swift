@@ -782,6 +782,9 @@ enum MessagePresentationBuilder {
             case .image:
                 return true
             case .asset:
+                if attachment.data != nil {
+                    return true
+                }
                 return attachment.mimeType?.lowercased().hasPrefix("image/") == true
             case .document:
                 return false

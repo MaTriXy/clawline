@@ -727,17 +727,15 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 UIColor.white.withAlphaComponent(0.0).cgColor
             ]
         } else {
-            // Light mode: visible border all around for definition
-            // Top is brightest, corners/sides fade very light to blend smoothly
-            let borderColor = UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 1)
+            // Light mode: use neutral highlight to avoid dark shoulder on rounded corners.
             borderGradientLayer.colors = [
-                borderColor.withAlphaComponent(0.25).cgColor,
-                borderColor.withAlphaComponent(0.06).cgColor,
-                borderColor.withAlphaComponent(0.03).cgColor,
-                borderColor.withAlphaComponent(0.02).cgColor
+                UIColor.white.withAlphaComponent(0.16).cgColor,
+                UIColor.white.withAlphaComponent(0.06).cgColor,
+                UIColor.white.withAlphaComponent(0.03).cgColor,
+                UIColor.clear.cgColor
             ]
             topHighlightLayer.colors = [
-                UIColor.white.withAlphaComponent(0.40).cgColor,
+                UIColor.white.withAlphaComponent(0.28).cgColor,
                 UIColor.white.withAlphaComponent(0.0).cgColor
             ]
         }
