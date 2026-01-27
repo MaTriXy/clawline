@@ -57,6 +57,9 @@ final class MessageBubbleUIKitContainerView: UIView {
                    isCompact: Bool,
                    maxWidth: CGFloat,
                    showsHeader: Bool = true,
+                   paddingScale: CGFloat = 1,
+                   minWidthOverride: CGFloat? = nil,
+                   maxWidthOverride: CGFloat? = nil,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRetry: (() -> Void)?) {
@@ -69,6 +72,9 @@ final class MessageBubbleUIKitContainerView: UIView {
             metrics: metrics,
             maxWidth: maxWidth,
             showsHeader: showsHeader,
+            paddingScale: paddingScale,
+            minWidthOverride: minWidthOverride,
+            maxWidthOverride: maxWidthOverride,
             isDark: isDark,
             onRequestExpand: onRequestExpand
         )
@@ -140,6 +146,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var dynamicContentViews: [UIView] = []
     private var isChromeless = false
     private var showsHeader = true
+    private var contentPaddingScale: CGFloat = 1
 
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -349,17 +356,21 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    metrics: ChatFlowTheme.Metrics,
                    maxWidth: CGFloat,
                    showsHeader: Bool = true,
+                   paddingScale: CGFloat = 1,
+                   minWidthOverride: CGFloat? = nil,
+                   maxWidthOverride: CGFloat? = nil,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?) {
         // Store for trait collection updates
         currentMessageRole = message.role
         currentChannelType = message.channelType
         self.showsHeader = showsHeader
+        contentPaddingScale = paddingScale
 
         // Reset width constraints per size class.
         currentMetrics = metrics
-        minWidthConstraint.constant = 120
-        maxWidthConstraint.constant = maxWidth
+        minWidthConstraint.constant = minWidthOverride ?? 120
+        maxWidthConstraint.constant = maxWidthOverride ?? maxWidth
         fixedWidthConstraint?.isActive = false
         fixedWidthConstraint = nil
         self.onRequestExpand = onRequestExpand
@@ -451,8 +462,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentViews.append(tableView)
         }
 
-        currentContentPaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
-        currentContentPaddingVertical = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingVertical
+        let basePaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
+        let basePaddingVertical = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingVertical
+        currentContentPaddingHorizontal = basePaddingHorizontal * contentPaddingScale
+        currentContentPaddingVertical = basePaddingVertical * contentPaddingScale
         contentLeadingConstraint.constant = currentContentPaddingHorizontal
         contentTrailingConstraint.constant = -currentContentPaddingHorizontal
         contentTopConstraint.constant = currentContentPaddingVertical

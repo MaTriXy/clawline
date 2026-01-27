@@ -18,6 +18,7 @@ final class TypingIndicatorCell: UICollectionViewCell {
     private let dotsView = TypingDotsView()
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private let showsHeader = false
+    private let paddingScale: CGFloat = 0.75
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -57,6 +58,9 @@ final class TypingIndicatorCell: UICollectionViewCell {
             isCompact: isCompact,
             maxWidth: maxWidth,
             showsHeader: showsHeader,
+            paddingScale: paddingScale,
+            minWidthOverride: 90,
+            maxWidthOverride: maxWidth * 0.75,
             isDark: isDark,
             onRequestExpand: nil,
             onRetry: nil
@@ -74,12 +78,14 @@ final class TypingIndicatorCell: UICollectionViewCell {
         let bubbleFrame = containerView.bubbleFrameInContainer()
         let headerHeight: CGFloat = showsHeader ? 32 : 0
         let headerSpacing: CGFloat = showsHeader ? 10 : 0
-        let contentTop = bubbleFrame.minY + currentMetrics.bubblePaddingVertical + headerHeight + headerSpacing
-        let contentBottom = bubbleFrame.maxY - currentMetrics.bubblePaddingVertical
+        let paddingVertical = currentMetrics.bubblePaddingVertical * paddingScale
+        let paddingHorizontal = currentMetrics.bubblePaddingHorizontal * paddingScale
+        let contentTop = bubbleFrame.minY + paddingVertical + headerHeight + headerSpacing
+        let contentBottom = bubbleFrame.maxY - paddingVertical
         let contentHeight = max(0, contentBottom - contentTop)
-        let contentWidth = max(0, bubbleFrame.width - (currentMetrics.bubblePaddingHorizontal * 2))
+        let contentWidth = max(0, bubbleFrame.width - (paddingHorizontal * 2))
         let indicatorSize = dotsView.intrinsicContentSize
-        let centeredX = bubbleFrame.minX + currentMetrics.bubblePaddingHorizontal + (contentWidth - indicatorSize.width) / 2
+        let centeredX = bubbleFrame.minX + paddingHorizontal + (contentWidth - indicatorSize.width) / 2
         let centeredY = contentTop + (contentHeight - indicatorSize.height) / 2
         dotsView.frame = CGRect(x: centeredX, y: centeredY, width: indicatorSize.width, height: indicatorSize.height)
     }
@@ -121,8 +127,8 @@ final class TypingIndicatorCell: UICollectionViewCell {
 private final class TypingDotsView: UIView {
     private let stack = UIStackView()
     private var dotViews: [UIView] = []
-    private(set) var dotSize: CGFloat = 6
-    private let dotSpacing: CGFloat = 6
+    private(set) var dotSize: CGFloat = 12
+    private let dotSpacing: CGFloat = 8
     private let bounceHeight: CGFloat = 4
     private let duration: CFTimeInterval = 0.9
     private var isAnimating = false
