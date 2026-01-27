@@ -988,14 +988,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private func bubbleCornerRadii(messageId: String) -> (topLeft: CGFloat, topRight: CGFloat, bottomRight: CGFloat, bottomLeft: CGFloat) {
         let sharp: CGFloat = 6
         let variationsSelf: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (30, 28, sharp, 28),
-            (28, 30, sharp, 30),
-            (29, 29, sharp, 28)
+            (32, 30, sharp, 30),
+            (30, 32, sharp, 32),
+            (32, 32, sharp, 30)
         ]
         let variationsOther: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (30, 28, 28, sharp),
-            (28, 30, 30, sharp),
-            (29, 29, 28, sharp)
+            (32, 30, 30, sharp),
+            (30, 32, 32, sharp),
+            (32, 32, 30, sharp)
         ]
         let index = abs(messageId.hashValue) % variationsSelf.count
         if senderLabel.text == "You" {
