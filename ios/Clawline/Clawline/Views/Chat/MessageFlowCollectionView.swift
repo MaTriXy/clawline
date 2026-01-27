@@ -492,7 +492,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 paddingScale: 0.1333333,
                 minWidthOverride: 22,
                 maxWidthOverride: maxWidthOverride,
-                minHeightOverride: round(maxWidthOverride * 0.45)
+                minHeightOverride: round(maxWidthOverride * 0.6)
             )
         }
 
