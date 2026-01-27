@@ -13,7 +13,7 @@ final class TypingIndicatorCell: UICollectionViewCell {
     /// Fixed ID used in the diffable data source for the typing indicator item.
     static let itemId = "__typing_indicator__"
 
-    private static let indicatorText = "   "
+    private static let indicatorText = ""
     private let containerView = MessageBubbleUIKitContainerView()
     private let dotsView = TypingDotsView()
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
@@ -93,12 +93,10 @@ final class TypingIndicatorCell: UICollectionViewCell {
     }
 
     static func makePresentation(metrics: ChatFlowTheme.Metrics) -> MessagePresentation {
-        let text = indicatorText
-        let wordCount = max(1, text.split(whereSeparator: { $0.isWhitespace || $0 == "." }).count)
         return MessagePresentation(
-            parts: [.text(text)],
-            wordCount: wordCount,
-            hasTextualContent: true,
+            parts: [],
+            wordCount: 0,
+            hasTextualContent: false,
             isEmojiOnly: false,
             hasMediaOnly: false
         )
