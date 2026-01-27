@@ -60,7 +60,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    paddingScale: CGFloat = 1,
                    minWidthOverride: CGFloat? = nil,
                    maxWidthOverride: CGFloat? = nil,
-                   useContinuousCorners: Bool = false,
+                   useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRetry: (() -> Void)?) {
@@ -149,7 +149,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var isChromeless = false
     private var showsHeader = true
     private var contentPaddingScale: CGFloat = 1
-    private var useContinuousCorners = false
+    private var useContinuousCorners = true
 
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -374,7 +374,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    paddingScale: CGFloat = 1,
                    minWidthOverride: CGFloat? = nil,
                    maxWidthOverride: CGFloat? = nil,
-                   useContinuousCorners: Bool = false,
+                   useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?) {
         // Store for trait collection updates

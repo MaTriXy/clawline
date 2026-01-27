@@ -61,7 +61,6 @@ final class TypingIndicatorCell: UICollectionViewCell {
             paddingScale: paddingScale,
             minWidthOverride: 90,
             maxWidthOverride: round(maxWidth * 0.75),
-            useContinuousCorners: true,
             isDark: isDark,
             onRequestExpand: nil,
             onRetry: nil
