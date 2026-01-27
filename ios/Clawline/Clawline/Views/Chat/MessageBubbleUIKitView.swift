@@ -326,12 +326,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         let path: UIBezierPath
         if useContinuousCorners {
             let radii = bubbleCornerRadii(messageId: messageIdForCorners())
-            path = continuousRoundedRectPath(
+            path = superellipseRoundedRectPath(
                 rect: bubbleBackgroundView.bounds,
                 topLeft: radii.topLeft,
                 topRight: radii.topRight,
                 bottomRight: radii.bottomRight,
-                bottomLeft: radii.bottomLeft
+                bottomLeft: radii.bottomLeft,
+                exponent: 5.0
             )
             bubbleBackgroundView.layer.cornerRadius = 0
             bubbleBackgroundView.layer.cornerCurve = .continuous
@@ -1010,47 +1011,77 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         return path
     }
 
-    private func continuousRoundedRectPath(rect: CGRect,
-                                           topLeft: CGFloat,
-                                           topRight: CGFloat,
-                                           bottomRight: CGFloat,
-                                           bottomLeft: CGFloat) -> UIBezierPath {
+    private func superellipseRoundedRectPath(rect: CGRect,
+                                             topLeft: CGFloat,
+                                             topRight: CGFloat,
+                                             bottomRight: CGFloat,
+                                             bottomLeft: CGFloat,
+                                             exponent: CGFloat) -> UIBezierPath {
         let path = UIBezierPath()
         let tl = min(topLeft, min(rect.width, rect.height) / 2)
         let tr = min(topRight, min(rect.width, rect.height) / 2)
         let br = min(bottomRight, min(rect.width, rect.height) / 2)
         let bl = min(bottomLeft, min(rect.width, rect.height) / 2)
 
-        // Continuous corner approximation constant.
-        let k: CGFloat = 0.447715
+        let steps = 12
+        let quarterPoints = superellipseQuarterPoints(radius: 1, exponent: exponent, steps: steps)
 
         path.move(to: CGPoint(x: rect.minX + tl, y: rect.minY))
         path.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.minY))
-        path.addCurve(
-            to: CGPoint(x: rect.maxX, y: rect.minY + tr),
-            controlPoint1: CGPoint(x: rect.maxX - tr + tr * k, y: rect.minY),
-            controlPoint2: CGPoint(x: rect.maxX, y: rect.minY + tr - tr * k)
-        )
+        appendCorner(path: path,
+                     center: CGPoint(x: rect.maxX - tr, y: rect.minY + tr),
+                     radius: tr,
+                     points: quarterPoints,
+                     transform: { CGPoint(x: $0.y, y: -$0.x) })
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br))
-        path.addCurve(
-            to: CGPoint(x: rect.maxX - br, y: rect.maxY),
-            controlPoint1: CGPoint(x: rect.maxX, y: rect.maxY - br + br * k),
-            controlPoint2: CGPoint(x: rect.maxX - br + br * k, y: rect.maxY)
-        )
+        appendCorner(path: path,
+                     center: CGPoint(x: rect.maxX - br, y: rect.maxY - br),
+                     radius: br,
+                     points: quarterPoints,
+                     transform: { CGPoint(x: $0.x, y: $0.y) })
         path.addLine(to: CGPoint(x: rect.minX + bl, y: rect.maxY))
-        path.addCurve(
-            to: CGPoint(x: rect.minX, y: rect.maxY - bl),
-            controlPoint1: CGPoint(x: rect.minX + bl - bl * k, y: rect.maxY),
-            controlPoint2: CGPoint(x: rect.minX, y: rect.maxY - bl + bl * k)
-        )
+        appendCorner(path: path,
+                     center: CGPoint(x: rect.minX + bl, y: rect.maxY - bl),
+                     radius: bl,
+                     points: quarterPoints,
+                     transform: { CGPoint(x: -$0.y, y: $0.x) })
         path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tl))
-        path.addCurve(
-            to: CGPoint(x: rect.minX + tl, y: rect.minY),
-            controlPoint1: CGPoint(x: rect.minX, y: rect.minY + tl - tl * k),
-            controlPoint2: CGPoint(x: rect.minX + tl - tl * k, y: rect.minY)
-        )
+        appendCorner(path: path,
+                     center: CGPoint(x: rect.minX + tl, y: rect.minY + tl),
+                     radius: tl,
+                     points: quarterPoints,
+                     transform: { CGPoint(x: -$0.x, y: -$0.y) })
         path.close()
         return path
+    }
+
+    private func superellipseQuarterPoints(radius: CGFloat,
+                                           exponent: CGFloat,
+                                           steps: Int) -> [CGPoint] {
+        guard steps > 1 else { return [CGPoint(x: radius, y: 0), CGPoint(x: 0, y: radius)] }
+        let n = max(2, exponent)
+        let power = 2.0 / n
+        let step = (.pi / 2) / CGFloat(steps - 1)
+        return (0..<steps).map { idx in
+            let theta = CGFloat(idx) * step
+            let cosv = max(0, cos(theta))
+            let sinv = max(0, sin(theta))
+            let x = radius * pow(cosv, power)
+            let y = radius * pow(sinv, power)
+            return CGPoint(x: x, y: y)
+        }
+    }
+
+    private func appendCorner(path: UIBezierPath,
+                              center: CGPoint,
+                              radius: CGFloat,
+                              points: [CGPoint],
+                              transform: (CGPoint) -> CGPoint) {
+        guard radius > 0 else { return }
+        for point in points {
+            let p = transform(CGPoint(x: point.x * radius, y: point.y * radius))
+            path.addLine(to: CGPoint(x: center.x + p.x, y: center.y + p.y))
+        }
     }
 }
 
