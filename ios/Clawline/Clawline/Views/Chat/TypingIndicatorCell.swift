@@ -13,7 +13,7 @@ final class TypingIndicatorCell: UICollectionViewCell {
     /// Fixed ID used in the diffable data source for the typing indicator item.
     static let itemId = "__typing_indicator__"
 
-    private static let indicatorText = "   "
+    private static let indicatorText = "Typing..."
     private let containerView = MessageBubbleUIKitContainerView()
     private let dotsView = TypingDotsView()
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
@@ -70,18 +70,16 @@ final class TypingIndicatorCell: UICollectionViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         let bubbleFrame = containerView.bubbleFrameInContainer()
-        let dotSize = dotsView.dotSize
-        let dotsSize = dotsView.intrinsicContentSize
         let headerHeight: CGFloat = 32
         let headerSpacing: CGFloat = 10
-        let lineHeight = UIFont.systemFont(ofSize: currentMetrics.bodyFontSize).lineHeight
-        let x = bubbleFrame.minX + currentMetrics.bubblePaddingHorizontal
-        let y = bubbleFrame.minY
-            + currentMetrics.bubblePaddingVertical
-            + headerHeight
-            + headerSpacing
-            + (lineHeight - dotSize) / 2
-        dotsView.frame = CGRect(x: x, y: y, width: dotsSize.width, height: dotsSize.height)
+        let contentTop = bubbleFrame.minY + currentMetrics.bubblePaddingVertical + headerHeight + headerSpacing
+        let contentBottom = bubbleFrame.maxY - currentMetrics.bubblePaddingVertical
+        let contentHeight = max(0, contentBottom - contentTop)
+        let contentWidth = max(0, bubbleFrame.width - (currentMetrics.bubblePaddingHorizontal * 2))
+        let indicatorSize = dotsView.intrinsicContentSize
+        let centeredX = bubbleFrame.minX + currentMetrics.bubblePaddingHorizontal + (contentWidth - indicatorSize.width) / 2
+        let centeredY = contentTop + (contentHeight - indicatorSize.height) / 2
+        dotsView.frame = CGRect(x: centeredX, y: centeredY, width: indicatorSize.width, height: indicatorSize.height)
     }
 
     func startAnimating() {
@@ -119,42 +117,26 @@ final class TypingIndicatorCell: UICollectionViewCell {
 }
 
 private final class TypingDotsView: UIView {
-    private let stack = UIStackView()
-    private var dotViews: [UIView] = []
-    private(set) var dotSize: CGFloat = 6
-    private let dotSpacing: CGFloat = 6
-    private let bounceHeight: CGFloat = 4
+    private let label = UILabel()
+    private let bounceHeight: CGFloat = 6
     private let duration: CFTimeInterval = 0.9
     private var isAnimating = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
-
-        stack.axis = .horizontal
-        stack.alignment = .center
-        stack.spacing = dotSpacing
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = "Typing..."
+        label.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        label.textColor = .label
+        label.textAlignment = .center
+        addSubview(label)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor)
+            label.leadingAnchor.constraint(equalTo: leadingAnchor),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor),
+            label.topAnchor.constraint(equalTo: topAnchor),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-
-        for _ in 0..<3 {
-            let dot = UIView()
-            dot.translatesAutoresizingMaskIntoConstraints = false
-            dot.layer.cornerRadius = dotSize / 2
-            dot.backgroundColor = .label
-            NSLayoutConstraint.activate([
-                dot.widthAnchor.constraint(equalToConstant: dotSize),
-                dot.heightAnchor.constraint(equalToConstant: dotSize)
-            ])
-            stack.addArrangedSubview(dot)
-            dotViews.append(dot)
-        }
     }
 
     required init?(coder: NSCoder) {
@@ -162,41 +144,35 @@ private final class TypingDotsView: UIView {
     }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: (dotSize * 3) + (dotSpacing * 2), height: dotSize)
+        label.intrinsicContentSize
     }
 
     func updateColor(_ color: UIColor) {
-        for dot in dotViews {
-            dot.backgroundColor = color
-        }
+        label.textColor = color
     }
 
     func startAnimating() {
         guard !isAnimating else { return }
         isAnimating = true
         let baseTime = CACurrentMediaTime()
-        for (index, dot) in dotViews.enumerated() {
-            let animation = CAKeyframeAnimation(keyPath: "transform.translation.y")
-            animation.values = [0, -bounceHeight, 0]
-            animation.keyTimes = [0, 0.4, 1]
-            animation.duration = duration
-            animation.repeatCount = .infinity
-            animation.timingFunctions = [
-                CAMediaTimingFunction(name: .easeInEaseOut),
-                CAMediaTimingFunction(name: .easeInEaseOut)
-            ]
-            animation.beginTime = baseTime + (Double(index) * 0.12)
-            animation.isRemovedOnCompletion = false
-            dot.layer.add(animation, forKey: "typingBounce")
-        }
+        let animation = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        animation.values = [0, -bounceHeight, 0]
+        animation.keyTimes = [0, 0.4, 1]
+        animation.duration = duration
+        animation.repeatCount = .infinity
+        animation.timingFunctions = [
+            CAMediaTimingFunction(name: .easeInEaseOut),
+            CAMediaTimingFunction(name: .easeInEaseOut)
+        ]
+        animation.beginTime = baseTime
+        animation.isRemovedOnCompletion = false
+        label.layer.add(animation, forKey: "typingBounce")
     }
 
     func stopAnimating() {
         guard isAnimating else { return }
         isAnimating = false
-        for dot in dotViews {
-            dot.layer.removeAnimation(forKey: "typingBounce")
-            dot.transform = .identity
-        }
+        label.layer.removeAnimation(forKey: "typingBounce")
+        label.transform = .identity
     }
 }
