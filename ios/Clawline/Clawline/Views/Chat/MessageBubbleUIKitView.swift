@@ -60,6 +60,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    paddingScale: CGFloat = 1,
                    minWidthOverride: CGFloat? = nil,
                    maxWidthOverride: CGFloat? = nil,
+                   useContinuousCorners: Bool = false,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRetry: (() -> Void)?) {
@@ -75,6 +76,7 @@ final class MessageBubbleUIKitContainerView: UIView {
             paddingScale: paddingScale,
             minWidthOverride: minWidthOverride,
             maxWidthOverride: maxWidthOverride,
+            useContinuousCorners: useContinuousCorners,
             isDark: isDark,
             onRequestExpand: onRequestExpand
         )
@@ -147,6 +149,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var isChromeless = false
     private var showsHeader = true
     private var contentPaddingScale: CGFloat = 1
+    private var useContinuousCorners = false
 
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -320,7 +323,19 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         super.layoutSubviews()
         gradientLayer.frame = bubbleBackgroundView.bounds
         maskLayer.frame = bubbleBackgroundView.bounds
-        let path = bubblePath(in: bubbleBackgroundView.bounds)
+        let path: UIBezierPath
+        if useContinuousCorners {
+            let minSide = min(bubbleBackgroundView.bounds.width, bubbleBackgroundView.bounds.height)
+            let rawRadius = min(24, max(12, minSide / 2))
+            let radius = round(rawRadius)
+            path = UIBezierPath(roundedRect: bubbleBackgroundView.bounds, cornerRadius: radius)
+            bubbleBackgroundView.layer.cornerRadius = radius
+            bubbleBackgroundView.layer.cornerCurve = .continuous
+        } else {
+            path = bubblePath(in: bubbleBackgroundView.bounds)
+            bubbleBackgroundView.layer.cornerRadius = 0
+            bubbleBackgroundView.layer.cornerCurve = .circular
+        }
         maskLayer.path = path.cgPath
 
         // Shadow container: use bubble path for accurate shadow shape
@@ -347,7 +362,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             height: bubbleBackgroundView.bounds.height
         ))
         topHighlightMask.frame = CGRect(x: 0, y: 0, width: bubbleBackgroundView.bounds.width, height: highlightHeight)
-        topHighlightMask.path = highlightMaskPath.cgPath
+        topHighlightMask.path = useContinuousCorners ? path.cgPath : highlightMaskPath.cgPath
     }
 
     func configure(message: Message,
@@ -359,6 +374,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    paddingScale: CGFloat = 1,
                    minWidthOverride: CGFloat? = nil,
                    maxWidthOverride: CGFloat? = nil,
+                   useContinuousCorners: Bool = false,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?) {
         // Store for trait collection updates
@@ -366,6 +382,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         currentChannelType = message.channelType
         self.showsHeader = showsHeader
         contentPaddingScale = paddingScale
+        self.useContinuousCorners = useContinuousCorners
 
         // Reset width constraints per size class.
         currentMetrics = metrics
@@ -464,8 +481,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         let basePaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
         let basePaddingVertical = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingVertical
-        currentContentPaddingHorizontal = basePaddingHorizontal * contentPaddingScale
-        currentContentPaddingVertical = basePaddingVertical * contentPaddingScale
+        currentContentPaddingHorizontal = round(basePaddingHorizontal * contentPaddingScale)
+        currentContentPaddingVertical = round(basePaddingVertical * contentPaddingScale)
         contentLeadingConstraint.constant = currentContentPaddingHorizontal
         contentTrailingConstraint.constant = -currentContentPaddingHorizontal
         contentTopConstraint.constant = currentContentPaddingVertical
