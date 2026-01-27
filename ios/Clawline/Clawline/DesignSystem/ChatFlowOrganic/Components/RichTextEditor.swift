@@ -28,6 +28,9 @@ struct RichTextEditor: UIViewRepresentable {
         textView.onPasteImages = { images in
             coordinator.parent.onPasteImages?(images)
         }
+        textView.onLayout = { _ in
+            coordinator.updateHeight(for: textView)
+        }
         textView.isScrollEnabled = false
         textView.backgroundColor = .clear
         textView.textContainerInset = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: trailingPadding)
@@ -54,6 +57,9 @@ struct RichTextEditor: UIViewRepresentable {
         let coordinator = context.coordinator
         textView.onPasteImages = { images in
             coordinator.parent.onPasteImages?(images)
+        }
+        textView.onLayout = { _ in
+            coordinator.updateHeight(for: textView)
         }
 
         if !(textView.attributedText?.isEqual(attributedText) ?? false) {
@@ -122,9 +128,14 @@ struct RichTextEditor: UIViewRepresentable {
 
         func updateHeight(for textView: UITextView) {
             let targetWidth = textView.bounds.width
-            let screenWidth = textView.window?.windowScene?.screen.bounds.width ?? textView.bounds.width
-            let fallbackWidth = screenWidth > 0 ? screenWidth : 390
-            let referenceWidth = targetWidth > 0 ? targetWidth : fallbackWidth - 48
+            guard targetWidth > 1 else {
+                DispatchQueue.main.async { [weak self, weak textView] in
+                    guard let self, let textView else { return }
+                    self.updateHeight(for: textView)
+                }
+                return
+            }
+            let referenceWidth = targetWidth
             let fittingSize = CGSize(width: referenceWidth,
                                      height: .greatestFiniteMagnitude)
             let size = textView.sizeThatFits(fittingSize)
@@ -182,6 +193,12 @@ struct RichTextEditor: UIViewRepresentable {
 /// A UITextView subclass that supports pasting images from the clipboard.
 final class PastableTextView: UITextView {
     var onPasteImages: (([UIImage]) -> Void)?
+    var onLayout: ((CGFloat) -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?(bounds.width)
+    }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(paste(_:)) {
