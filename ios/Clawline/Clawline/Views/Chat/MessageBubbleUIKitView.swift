@@ -255,8 +255,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         bodyLabel.textContainer.lineFragmentPadding = 0
         bodyLabel.dataDetectorTypes = [.link]
         bodyLabel.delegate = self
+        let bodyTap = UITapGestureRecognizer(target: self, action: #selector(handleBubbleTap))
+        bodyTap.cancelsTouchesInView = false
+        bodyTap.delaysTouchesBegan = false
+        bodyTap.delaysTouchesEnded = false
+        bodyLabel.addGestureRecognizer(bodyTap)
         if let longPress = bodyLabel.gestureRecognizers?.first(where: { $0 is UILongPressGestureRecognizer }) {
             bubbleTap.require(toFail: longPress)
+            bodyTap.require(toFail: longPress)
         }
 
         contentStack.addArrangedSubview(headerStack)
