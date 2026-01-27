@@ -325,11 +325,15 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         maskLayer.frame = bubbleBackgroundView.bounds
         let path: UIBezierPath
         if useContinuousCorners {
-            let minSide = min(bubbleBackgroundView.bounds.width, bubbleBackgroundView.bounds.height)
-            let rawRadius = min(24, max(12, minSide / 2))
-            let radius = round(rawRadius)
-            path = UIBezierPath(roundedRect: bubbleBackgroundView.bounds, cornerRadius: radius)
-            bubbleBackgroundView.layer.cornerRadius = radius
+            let radii = bubbleCornerRadii(messageId: messageIdForCorners())
+            path = continuousRoundedRectPath(
+                rect: bubbleBackgroundView.bounds,
+                topLeft: radii.topLeft,
+                topRight: radii.topRight,
+                bottomRight: radii.bottomRight,
+                bottomLeft: radii.bottomLeft
+            )
+            bubbleBackgroundView.layer.cornerRadius = 0
             bubbleBackgroundView.layer.cornerCurve = .continuous
         } else {
             path = bubblePath(in: bubbleBackgroundView.bounds)
@@ -1002,6 +1006,49 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         path.addArc(withCenter: CGPoint(x: rect.minX + bl, y: rect.maxY - bl), radius: bl, startAngle: .pi / 2, endAngle: .pi, clockwise: true)
         path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tl))
         path.addArc(withCenter: CGPoint(x: rect.minX + tl, y: rect.minY + tl), radius: tl, startAngle: .pi, endAngle: -.pi / 2, clockwise: true)
+        path.close()
+        return path
+    }
+
+    private func continuousRoundedRectPath(rect: CGRect,
+                                           topLeft: CGFloat,
+                                           topRight: CGFloat,
+                                           bottomRight: CGFloat,
+                                           bottomLeft: CGFloat) -> UIBezierPath {
+        let path = UIBezierPath()
+        let tl = min(topLeft, min(rect.width, rect.height) / 2)
+        let tr = min(topRight, min(rect.width, rect.height) / 2)
+        let br = min(bottomRight, min(rect.width, rect.height) / 2)
+        let bl = min(bottomLeft, min(rect.width, rect.height) / 2)
+
+        // Continuous corner approximation constant.
+        let k: CGFloat = 0.447715
+
+        path.move(to: CGPoint(x: rect.minX + tl, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - tr, y: rect.minY))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY + tr),
+            controlPoint1: CGPoint(x: rect.maxX - tr + tr * k, y: rect.minY),
+            controlPoint2: CGPoint(x: rect.maxX, y: rect.minY + tr - tr * k)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - br, y: rect.maxY),
+            controlPoint1: CGPoint(x: rect.maxX, y: rect.maxY - br + br * k),
+            controlPoint2: CGPoint(x: rect.maxX - br + br * k, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + bl, y: rect.maxY))
+        path.addCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - bl),
+            controlPoint1: CGPoint(x: rect.minX + bl - bl * k, y: rect.maxY),
+            controlPoint2: CGPoint(x: rect.minX, y: rect.maxY - bl + bl * k)
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + tl))
+        path.addCurve(
+            to: CGPoint(x: rect.minX + tl, y: rect.minY),
+            controlPoint1: CGPoint(x: rect.minX, y: rect.minY + tl - tl * k),
+            controlPoint2: CGPoint(x: rect.minX + tl - tl * k, y: rect.minY)
+        )
         path.close()
         return path
     }
