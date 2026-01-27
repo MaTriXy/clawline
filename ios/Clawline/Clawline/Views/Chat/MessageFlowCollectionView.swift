@@ -81,6 +81,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var wasShowingTypingIndicator = false
     private var onExpand: ((Message) -> Void)?
 
+    func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
+        false
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
@@ -331,6 +335,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
         collectionView.keyboardDismissMode = .interactive
+        collectionView.allowsSelection = false
+        collectionView.allowsMultipleSelection = false
         collectionView.clipsToBounds = false  // Allow content to render past bounds during scroll
         collectionView.delegate = self
         collectionView.register(MessageBubbleUIKitCell.self, forCellWithReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier)
@@ -482,15 +488,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 containerWidth: availableWidth
             )
-            let maxWidthOverride = round(maxWidth * 0.2962962)
+            let maxWidthOverride = round(maxWidth * 0.2222222)
             return measureUIKitBubbleSize(
                 message: message,
                 presentation: presentation,
                 failureReason: nil,
                 maxWidth: maxWidth,
                 showsHeader: false,
-                paddingScale: 0.2666666,
-                minWidthOverride: 22,
+                paddingScale: 0.2,
+                minWidthOverride: 16,
                 maxWidthOverride: maxWidthOverride,
                 minHeightOverride: round(maxWidthOverride * 0.48)
             )
@@ -781,6 +787,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             hasher.combine(attachment.type.rawValue)
             hasher.combine(attachment.mimeType ?? "")
             hasher.combine(attachment.assetId ?? "")
+            hasher.combine(attachment.data?.count ?? 0)
         }
         return hasher.finalize()
     }

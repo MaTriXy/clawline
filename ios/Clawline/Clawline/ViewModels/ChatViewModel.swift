@@ -84,6 +84,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var presentationCache: [PresentationCacheKey: PresentationCacheEntry] = [:]
     private var tableParseStates: [String: StreamingTableParseState] = [:]
     private var uploadedAssetIds: [UUID: String] = [:]
+    private var downloadedAssetData: [String: Data] = [:]
 
     private struct PendingLocalMessage: Equatable {
         let id: String
@@ -395,6 +396,83 @@ final class ChatViewModel: ChatViewModelHosting {
         setMessages(channelList, for: message.channelType)
 
         updateLastServerMessageIdIfNeeded(with: message)
+        resolveAssetAttachmentsIfNeeded(for: message)
+    }
+
+    private func resolveAssetAttachmentsIfNeeded(for message: Message) {
+        let needsDownload = message.attachments.contains { attachment in
+            guard attachment.data == nil else { return false }
+            guard let assetId = attachment.assetId else { return false }
+            if downloadedAssetData[assetId] != nil { return true }
+            if attachment.type == .image { return true }
+            return attachment.mimeType?.lowercased().hasPrefix("image/") == true
+        }
+        guard needsDownload else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            var updatedAttachments = message.attachments
+            var didUpdate = false
+
+            for (index, attachment) in updatedAttachments.enumerated() {
+                guard attachment.data == nil else { continue }
+                guard let assetId = attachment.assetId else { continue }
+                let isImage = attachment.type == .image
+                    || (attachment.mimeType?.lowercased().hasPrefix("image/") == true)
+                guard isImage else { continue }
+
+                if let cached = downloadedAssetData[assetId] {
+                    updatedAttachments[index] = Attachment(
+                        id: attachment.id,
+                        type: attachment.type,
+                        mimeType: attachment.mimeType,
+                        data: cached,
+                        assetId: attachment.assetId
+                    )
+                    didUpdate = true
+                    continue
+                }
+
+                do {
+                    let data = try await uploadService.download(assetId: assetId)
+                    guard !data.isEmpty else { continue }
+                    downloadedAssetData[assetId] = data
+                    updatedAttachments[index] = Attachment(
+                        id: attachment.id,
+                        type: attachment.type,
+                        mimeType: attachment.mimeType,
+                        data: data,
+                        assetId: attachment.assetId
+                    )
+                    didUpdate = true
+                } catch {
+                    logger.error("attachment download failed id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                }
+            }
+
+            guard didUpdate else { return }
+            let updatedMessage = Message(
+                id: message.id,
+                role: message.role,
+                content: message.content,
+                timestamp: message.timestamp,
+                streaming: message.streaming,
+                attachments: updatedAttachments,
+                deviceId: message.deviceId,
+                channelType: message.channelType
+            )
+
+            await MainActor.run {
+                self.ensureChannelStorage(for: updatedMessage.channelType)
+                var channelList = self.channelMessages[updatedMessage.channelType] ?? []
+                if let existingIndex = channelList.firstIndex(where: { $0.id == updatedMessage.id }) {
+                    channelList[existingIndex] = updatedMessage
+                } else {
+                    channelList.append(updatedMessage)
+                }
+                self.setMessages(channelList, for: updatedMessage.channelType)
+            }
+        }
     }
 
     private func replacePendingMessageIfNeeded(with message: Message) -> Bool {
@@ -1025,6 +1103,7 @@ final class ChatViewModel: ChatViewModelHosting {
             hasher.combine(attachment.mimeType ?? "")
             hasher.combine(attachment.assetId ?? "")
             hasher.combine(attachment.type.rawValue)
+            hasher.combine(attachment.data?.count ?? 0)
         }
         return hasher.finalize()
     }

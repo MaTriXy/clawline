@@ -500,6 +500,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Add image/gallery views to dynamicContentStack (inline data only)
         let maxImageWidth = effectiveMaxWidth - (metrics.bubblePaddingHorizontal * 2)
+        var didRenderImages = false
         for part in presentation.parts {
             switch part {
             case .image(let attachment):
@@ -511,6 +512,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 ) {
                     dynamicContentStack.addArrangedSubview(imageView)
                     dynamicContentViews.append(imageView)
+                    didRenderImages = true
                 }
             case .gallery(let attachments):
                 for attachment in attachments {
@@ -522,11 +524,16 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     ) {
                         dynamicContentStack.addArrangedSubview(imageView)
                         dynamicContentViews.append(imageView)
+                        didRenderImages = true
                     }
                 }
             default:
                 continue
             }
+        }
+
+        if didRenderImages {
+            stripAttachmentSummaryIfNeeded()
         }
 
         let basePaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
@@ -754,6 +761,26 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     @objc private func handleBubbleTap() {
         guard shouldTruncate else { return }
         onRequestExpand?()
+    }
+
+    private func stripAttachmentSummaryIfNeeded() {
+        guard let text = bodyLabel.attributedText?.string else { return }
+        let lines = text.components(separatedBy: .newlines)
+        let trimmed = lines.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let nonSummary = trimmed.filter { line in
+            guard !line.isEmpty else { return false }
+            let lower = line.lowercased()
+            return !(lower.hasPrefix("attachments:") || lower.hasPrefix("attachment:"))
+        }
+        guard nonSummary.isEmpty else { return }
+        removeBodyLabelFromStack()
+    }
+
+    private func removeBodyLabelFromStack() {
+        guard dynamicContentStack.arrangedSubviews.contains(bodyLabel) else { return }
+        dynamicContentStack.removeArrangedSubview(bodyLabel)
+        bodyLabel.removeFromSuperview()
+        dynamicContentViews.removeAll { $0 == bodyLabel }
     }
 
     @available(iOS 17.0, *)
