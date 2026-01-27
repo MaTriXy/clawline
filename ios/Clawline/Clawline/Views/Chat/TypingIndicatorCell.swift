@@ -18,7 +18,7 @@ final class TypingIndicatorCell: UICollectionViewCell {
     private let dotsView = TypingDotsView()
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private let showsHeader = false
-    private let paddingScale: CGFloat = 0.2
+    private let paddingScale: CGFloat = 0.1333333
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -55,8 +55,8 @@ final class TypingIndicatorCell: UICollectionViewCell {
             maxWidth: maxWidth,
             showsHeader: showsHeader,
             paddingScale: paddingScale,
-            minWidthOverride: 32,
-            maxWidthOverride: round(maxWidth * 0.2222222),
+            minWidthOverride: 22,
+            maxWidthOverride: round(maxWidth * 0.1481481),
             isDark: isDark,
             onRequestExpand: nil,
             onRetry: nil
