@@ -422,6 +422,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 guard isImage else { continue }
 
                 if let cached = downloadedAssetData[assetId] {
+                    logger.info("attachment cache hit id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(cached.count, privacy: .public)")
                     updatedAttachments[index] = Attachment(
                         id: attachment.id,
                         type: attachment.type,
@@ -434,9 +435,11 @@ final class ChatViewModel: ChatViewModelHosting {
                 }
 
                 do {
+                    logger.info("attachment download start id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public)")
                     let data = try await uploadService.download(assetId: assetId)
                     guard !data.isEmpty else { continue }
                     downloadedAssetData[assetId] = data
+                    logger.info("attachment download ok id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(data.count, privacy: .public)")
                     updatedAttachments[index] = Attachment(
                         id: attachment.id,
                         type: attachment.type,
@@ -820,6 +823,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 && contentBytes + inlineBytes + attachment.size <= PendingAttachment.totalPayloadByteLimit
 
             if canInline {
+                logger.info("attachment inline id=\(attachment.id.uuidString, privacy: .public) bytes=\(attachment.size, privacy: .public)")
                 results.append(.image(mimeType: attachment.mimeType, data: attachment.data))
                 inlineBytes += attachment.size
                 continue
@@ -840,6 +844,8 @@ final class ChatViewModel: ChatViewModelHosting {
                 filename: attachment.filename
             )
             uploadedAssetIds[attachment.id] = assetId
+            downloadedAssetData[assetId] = attachment.data
+            logger.info("attachment uploaded id=\(attachment.id.uuidString, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(attachment.size, privacy: .public)")
             results.append(.asset(assetId: assetId))
         }
         return results
@@ -858,6 +864,10 @@ final class ChatViewModel: ChatViewModelHosting {
             try Task.checkCancellation()
 
             if let assetId = attachment.assetId {
+                if let data = attachment.data {
+                    downloadedAssetData[assetId] = data
+                    logger.info("attachment reuse cache id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(data.count, privacy: .public)")
+                }
                 results.append(.asset(assetId: assetId))
                 continue
             }
