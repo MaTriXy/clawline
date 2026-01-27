@@ -1042,7 +1042,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     private func bubbleCornerRadii(messageId: String) -> (topLeft: CGFloat, topRight: CGFloat, bottomRight: CGFloat, bottomLeft: CGFloat) {
-        let sharp: CGFloat = 5
+        let sharp: CGFloat = 3
         let variationsSelf: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
             (40, 38, sharp, 38),
             (38, 40, sharp, 40),
