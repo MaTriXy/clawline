@@ -123,6 +123,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private let truncationLabel = UILabel()
     private let truncationBorder = UIView()
     private let fadeView = TruncationFadeView()
+    private static let mediaMaxHeight: CGFloat = 300
+    private static let mediaCornerRadius: CGFloat = 12
 
     private let gradientLayer = CAGradientLayer()
     private let maskLayer = CAShapeLayer()
@@ -488,6 +490,37 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             )
             dynamicContentStack.addArrangedSubview(tableView)
             dynamicContentViews.append(tableView)
+        }
+
+        // Add image/gallery views to dynamicContentStack (inline data only)
+        let maxImageWidth = effectiveMaxWidth - (metrics.bubblePaddingHorizontal * 2)
+        for part in presentation.parts {
+            switch part {
+            case .image(let attachment):
+                if let imageView = Self.makeImageView(
+                    attachment: attachment,
+                    maxWidth: maxImageWidth,
+                    maxHeight: Self.mediaMaxHeight,
+                    cornerRadius: Self.mediaCornerRadius
+                ) {
+                    dynamicContentStack.addArrangedSubview(imageView)
+                    dynamicContentViews.append(imageView)
+                }
+            case .gallery(let attachments):
+                for attachment in attachments {
+                    if let imageView = Self.makeImageView(
+                        attachment: attachment,
+                        maxWidth: maxImageWidth,
+                        maxHeight: Self.mediaMaxHeight,
+                        cornerRadius: Self.mediaCornerRadius
+                    ) {
+                        dynamicContentStack.addArrangedSubview(imageView)
+                        dynamicContentViews.append(imageView)
+                    }
+                }
+            default:
+                continue
+            }
         }
 
         let basePaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
@@ -879,6 +912,28 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         }
 
         return nsAttributed
+    }
+
+    private static func makeImageView(attachment: Attachment,
+                                      maxWidth: CGFloat,
+                                      maxHeight: CGFloat,
+                                      cornerRadius: CGFloat) -> UIImageView? {
+        guard let data = attachment.data,
+              let image = UIImage(data: data) else {
+            return nil
+        }
+
+        let imageView = UIImageView(image: image)
+        imageView.contentMode = .scaleAspectFit
+        imageView.clipsToBounds = true
+        imageView.layer.cornerRadius = cornerRadius
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        let aspectRatio = image.size.height / max(image.size.width, 1)
+        let height = min(maxHeight, maxWidth * aspectRatio)
+        imageView.heightAnchor.constraint(equalToConstant: height).isActive = true
+        imageView.widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth).isActive = true
+        return imageView
     }
 
     // MARK: - UIKit-Native Text Measurement
