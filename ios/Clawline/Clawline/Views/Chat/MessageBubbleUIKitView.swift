@@ -56,6 +56,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    failureReason: String?,
                    isCompact: Bool,
                    maxWidth: CGFloat,
+                   showsHeader: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRetry: (() -> Void)?) {
@@ -67,6 +68,7 @@ final class MessageBubbleUIKitContainerView: UIView {
             sizeClass: sizeClass,
             metrics: metrics,
             maxWidth: maxWidth,
+            showsHeader: showsHeader,
             isDark: isDark,
             onRequestExpand: onRequestExpand
         )
@@ -137,6 +139,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var fadeConstraints: [NSLayoutConstraint] = []
     private var dynamicContentViews: [UIView] = []
     private var isChromeless = false
+    private var showsHeader = true
 
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -345,11 +348,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    sizeClass: MessageSizeClass,
                    metrics: ChatFlowTheme.Metrics,
                    maxWidth: CGFloat,
+                   showsHeader: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?) {
         // Store for trait collection updates
         currentMessageRole = message.role
         currentChannelType = message.channelType
+        self.showsHeader = showsHeader
 
         // Reset width constraints per size class.
         currentMetrics = metrics
@@ -367,6 +372,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         senderLabel.font = UIFont.systemFont(ofSize: metrics.senderFontSize, weight: .semibold)
         senderLabel.textColor = senderColor.withAlphaComponent(message.channelType == .admin ? 1.0 : 0.7)
         senderLabel.text = (message.role == .user) ? "You" : "Assistant"
+        headerStack.isHidden = !showsHeader
         bodyLabel.linkTextAttributes = [
             .foregroundColor: palette.ink,
             .underlineStyle: NSUnderlineStyle.single.rawValue
@@ -640,7 +646,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     func preferredWidth(maxWidth: CGFloat) -> CGFloat {
-        let headerWidth = 32 + 10 + senderLabel.intrinsicContentSize.width
+        let headerWidth: CGFloat = showsHeader ? (32 + 10 + senderLabel.intrinsicContentSize.width) : 0
         let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
         let bodySize = bodyLabel.sizeThatFits(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
         let contentMax = max(headerWidth, bodySize.width)
