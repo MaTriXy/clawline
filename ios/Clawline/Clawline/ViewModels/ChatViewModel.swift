@@ -405,6 +405,7 @@ final class ChatViewModel: ChatViewModelHosting {
             guard let assetId = attachment.assetId else { return false }
             if downloadedAssetData[assetId] != nil { return true }
             if attachment.type == .image { return true }
+            if attachment.type == .asset { return true }
             return attachment.mimeType?.lowercased().hasPrefix("image/") == true
         }
         guard needsDownload else { return }
@@ -417,10 +418,6 @@ final class ChatViewModel: ChatViewModelHosting {
             for (index, attachment) in updatedAttachments.enumerated() {
                 guard attachment.data == nil else { continue }
                 guard let assetId = attachment.assetId else { continue }
-                let isImage = attachment.type == .image
-                    || (attachment.mimeType?.lowercased().hasPrefix("image/") == true)
-                guard isImage else { continue }
-
                 if let cached = downloadedAssetData[assetId] {
                     logger.info("attachment cache hit id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(cached.count, privacy: .public)")
                     updatedAttachments[index] = Attachment(
@@ -438,6 +435,11 @@ final class ChatViewModel: ChatViewModelHosting {
                     logger.info("attachment download start id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public)")
                     let data = try await uploadService.download(assetId: assetId)
                     guard !data.isEmpty else { continue }
+                    // Only attach data if it decodes as an image to avoid corrupt assets.
+                    guard UIImage(data: data) != nil else {
+                        logger.error("attachment download non-image id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(data.count, privacy: .public)")
+                        continue
+                    }
                     downloadedAssetData[assetId] = data
                     logger.info("attachment download ok id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(data.count, privacy: .public)")
                     updatedAttachments[index] = Attachment(
