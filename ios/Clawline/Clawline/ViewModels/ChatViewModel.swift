@@ -382,6 +382,7 @@ final class ChatViewModel: ChatViewModelHosting {
         if replacePendingMessageIfNeeded(with: message) {
             logger.info("incoming replacePending id=\(message.id, privacy: .public)")
             updateLastServerMessageIdIfNeeded(with: message)
+            resolveAssetAttachmentsIfNeeded(for: message)
             return
         }
 
