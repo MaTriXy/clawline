@@ -482,17 +482,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 containerWidth: availableWidth
             )
-            let maxWidthOverride = round(maxWidth * 0.0592592)
+            let maxWidthOverride = round(maxWidth * 0.2962962)
             return measureUIKitBubbleSize(
                 message: message,
                 presentation: presentation,
                 failureReason: nil,
                 maxWidth: maxWidth,
                 showsHeader: false,
-                paddingScale: 0.0533333,
-                minWidthOverride: 4,
+                paddingScale: 0.2666666,
+                minWidthOverride: 22,
                 maxWidthOverride: maxWidthOverride,
-                minHeightOverride: round(maxWidthOverride * 1.2)
+                minHeightOverride: round(maxWidthOverride * 2.4)
             )
         }
 
