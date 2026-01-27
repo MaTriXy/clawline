@@ -844,7 +844,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 filename: attachment.filename
             )
             uploadedAssetIds[attachment.id] = assetId
-            downloadedAssetData[assetId] = attachment.data
             logger.info("attachment uploaded id=\(attachment.id.uuidString, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(attachment.size, privacy: .public)")
             results.append(.asset(assetId: assetId))
         }
@@ -864,10 +863,6 @@ final class ChatViewModel: ChatViewModelHosting {
             try Task.checkCancellation()
 
             if let assetId = attachment.assetId {
-                if let data = attachment.data {
-                    downloadedAssetData[assetId] = data
-                    logger.info("attachment reuse cache id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(data.count, privacy: .public)")
-                }
                 results.append(.asset(assetId: assetId))
                 continue
             }

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 final class UploadService: UploadServicing {
     private struct UploadResponse: Decodable {
@@ -15,6 +16,7 @@ final class UploadService: UploadServicing {
     private let session: URLSession
     private let auth: any AuthManaging
     private let baseURLProvider: () -> URL?
+    private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "UploadService")
 
     init(auth: any AuthManaging,
          baseURLProvider: @escaping () -> URL? = { ProviderBaseURLStore.baseURL },
@@ -74,6 +76,7 @@ final class UploadService: UploadServicing {
         }
 
         let downloadURL = try makeDownloadURL(baseURL: baseURL, assetId: assetId)
+        logger.info("asset download url=\(downloadURL.absoluteString, privacy: .public)")
 
         var request = URLRequest(url: downloadURL)
         request.httpMethod = "GET"
@@ -83,6 +86,7 @@ final class UploadService: UploadServicing {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AttachmentError.networkFailure
         }
+        logger.info("asset download status=\(httpResponse.statusCode, privacy: .public) bytes=\(data.count, privacy: .public)")
         guard (200..<300).contains(httpResponse.statusCode) else {
             if httpResponse.statusCode == 404 {
                 throw AttachmentError.invalidData
