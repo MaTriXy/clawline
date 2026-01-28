@@ -139,7 +139,7 @@ struct MessageInputBar: View {
     }
 
     private var sendButtonWidth: CGFloat {
-        isSending ? metrics.sendingButtonWidth : metrics.inputBarHeight
+        max(metrics.sendingButtonWidth, metrics.inputBarHeight)
     }
 
     var body: some View {
@@ -210,13 +210,15 @@ struct MessageInputBar: View {
 
             // Send button - separate glass circle, same height as input bar
             Button(action: isSending ? onCancel : onSend) {
-                if isSending {
-                    Text("Cancel")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 18, weight: .semibold))
+                ZStack {
+                    if isSending {
+                        Text("Cancel")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                    }
                 }
             }
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
@@ -225,6 +227,10 @@ struct MessageInputBar: View {
             .disabled(!isSending && !canSend)
             .opacity(connectionAlertColor == nil ? 1 : 0.65)
             .accessibilityHint(connectionAlertHint ?? "")
+            .id("send-button")
+            .transaction { $0.animation = nil }
+            .animation(nil, value: isSending)
+            .animation(nil, value: canSend)
         }
         .padding(.horizontal, metrics.concentricPadding)
         .padding(.bottom, metrics.bottomPadding)
