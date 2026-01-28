@@ -196,6 +196,8 @@ enum MessagePresentationBuilder {
         streamingState: inout StreamingTableParseState
     ) -> MessagePresentation {
         let segments = Segmenter.split(message.content)
+        let imageAttachments = imageAttachments(from: message.attachments)
+        let hasImageAttachments = !imageAttachments.isEmpty
         var parts: [MessagePart] = []
         var collectedPlainText: [String] = []
         var hasTextual = false
@@ -216,6 +218,7 @@ enum MessagePresentationBuilder {
                     segment.content,
                     message: message,
                     metrics: metrics,
+                    hasImageAttachments: hasImageAttachments,
                     parts: &parts,
                     collectedPlainText: &collectedPlainText,
                     hasTextual: &hasTextual,
@@ -226,7 +229,6 @@ enum MessagePresentationBuilder {
             }
         }
 
-        let imageAttachments = imageAttachments(from: message.attachments)
         var hasMedia = false
         if !imageAttachments.isEmpty {
             hasMedia = true
@@ -256,6 +258,7 @@ enum MessagePresentationBuilder {
         _ text: String,
         message: Message,
         metrics: ChatFlowTheme.Metrics,
+        hasImageAttachments: Bool,
         parts: inout [MessagePart],
         collectedPlainText: inout [String],
         hasTextual: inout Bool,
@@ -306,6 +309,9 @@ enum MessagePresentationBuilder {
             let trimmedLine = lines[index].trimmingCharacters(in: .whitespaces)
             index += 1
             guard !trimmedLine.isEmpty else { continue }
+            if hasImageAttachments, isAttachmentSummaryLine(trimmedLine) {
+                continue
+            }
 
             collectedPlainText.append(trimmedLine)
 
@@ -329,6 +335,11 @@ enum MessagePresentationBuilder {
             }
         }
 
+    }
+
+    private static func isAttachmentSummaryLine(_ line: String) -> Bool {
+        let lower = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower.hasPrefix("attachment:") || lower.hasPrefix("attachments:")
     }
 
     private enum TableParseOutcome {
