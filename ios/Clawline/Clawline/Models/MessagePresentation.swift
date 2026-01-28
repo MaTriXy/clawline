@@ -117,6 +117,7 @@ enum MessagePart: Equatable {
     case linkPreview(URL)
     case image(Attachment)
     case gallery([Attachment])
+    case file(Attachment)
     case inlineEmoji(String)
 }
 
@@ -136,7 +137,7 @@ extension MessagePart {
             return true
         case .linkPreview:
             return true
-        case .image, .gallery:
+        case .image, .gallery, .file:
             return false
         }
     }
@@ -197,7 +198,8 @@ enum MessagePresentationBuilder {
     ) -> MessagePresentation {
         let segments = Segmenter.split(message.content)
         let imageAttachments = imageAttachments(from: message.attachments)
-        let hasImageAttachments = !imageAttachments.isEmpty
+        let fileAttachments = fileAttachments(from: message.attachments)
+        let hasAttachments = !imageAttachments.isEmpty || !fileAttachments.isEmpty
         var parts: [MessagePart] = []
         var collectedPlainText: [String] = []
         var hasTextual = false
@@ -218,7 +220,7 @@ enum MessagePresentationBuilder {
                     segment.content,
                     message: message,
                     metrics: metrics,
-                    hasImageAttachments: hasImageAttachments,
+                    hasAttachments: hasAttachments,
                     parts: &parts,
                     collectedPlainText: &collectedPlainText,
                     hasTextual: &hasTextual,
@@ -236,6 +238,11 @@ enum MessagePresentationBuilder {
                 parts.append(.image(imageAttachments[0]))
             } else {
                 parts.append(.gallery(imageAttachments))
+            }
+        }
+        if !fileAttachments.isEmpty {
+            for attachment in fileAttachments {
+                parts.append(.file(attachment))
             }
         }
 
@@ -258,7 +265,7 @@ enum MessagePresentationBuilder {
         _ text: String,
         message: Message,
         metrics: ChatFlowTheme.Metrics,
-        hasImageAttachments: Bool,
+        hasAttachments: Bool,
         parts: inout [MessagePart],
         collectedPlainText: inout [String],
         hasTextual: inout Bool,
@@ -309,7 +316,7 @@ enum MessagePresentationBuilder {
             let trimmedLine = lines[index].trimmingCharacters(in: .whitespaces)
             index += 1
             guard !trimmedLine.isEmpty else { continue }
-            if hasImageAttachments, isAttachmentSummaryLine(trimmedLine) {
+            if hasAttachments, isAttachmentSummaryLine(trimmedLine) {
                 continue
             }
 
@@ -798,6 +805,22 @@ enum MessagePresentationBuilder {
                 }
                 return attachment.mimeType?.lowercased().hasPrefix("image/") == true
             case .document:
+                return false
+            }
+        }
+    }
+
+    private static func fileAttachments(from attachments: [Attachment]) -> [Attachment] {
+        attachments.filter { attachment in
+            switch attachment.type {
+            case .document:
+                return true
+            case .asset:
+                if attachment.data != nil {
+                    return false
+                }
+                return attachment.mimeType?.lowercased().hasPrefix("image/") != true
+            case .image:
                 return false
             }
         }

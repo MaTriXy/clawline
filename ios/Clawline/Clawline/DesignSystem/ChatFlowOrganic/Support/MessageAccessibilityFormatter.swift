@@ -47,21 +47,31 @@ enum MessageAccessibilityFormatter {
 
     private static func mediaDescription(from presentation: MessagePresentation) -> String {
         var imageCount = 0
+        var fileCount = 0
         for part in presentation.parts {
             switch part {
             case .image:
                 imageCount += 1
             case .gallery(let attachments):
                 imageCount += attachments.count
+            case .file:
+                fileCount += 1
             default:
                 break
             }
         }
 
-        guard imageCount > 0 else { return "" }
+        var pieces: [String] = []
         if imageCount == 1 {
-            return "one image attachment"
+            pieces.append("one image attachment")
+        } else if imageCount > 1 {
+            pieces.append("\(imageCount) image attachments")
         }
-        return "\(imageCount) image attachments"
+        if fileCount == 1 {
+            pieces.append("one file attachment")
+        } else if fileCount > 1 {
+            pieces.append("\(fileCount) file attachments")
+        }
+        return pieces.joined(separator: ", ")
     }
 }

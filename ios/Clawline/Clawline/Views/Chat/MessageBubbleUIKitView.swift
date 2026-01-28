@@ -5,6 +5,7 @@
 //  UIKit-only bubble view for layout debugging.
 //
 
+import Foundation
 import HighlightSwift
 import OSLog
 import SwiftUI
@@ -527,6 +528,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             return max(120, metrics.truncationHeight - (headerHeight + headerSpacing + padding))
         }()
         var didRenderImages = false
+        var didRenderAttachments = false
         for part in presentation.parts {
             switch part {
             case .image(let attachment):
@@ -539,6 +541,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     dynamicContentStack.addArrangedSubview(imageView)
                     dynamicContentViews.append(imageView)
                     didRenderImages = true
+                    didRenderAttachments = true
                 }
             case .gallery(let attachments):
                 for attachment in attachments {
@@ -551,14 +554,26 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                         dynamicContentStack.addArrangedSubview(imageView)
                         dynamicContentViews.append(imageView)
                         didRenderImages = true
+                        didRenderAttachments = true
                     }
+                }
+            case .file(let attachment):
+                if let fileView = makeFilePreviewView(
+                    attachment: attachment,
+                    maxWidth: maxImageWidth,
+                    palette: palette,
+                    metrics: metrics
+                ) {
+                    dynamicContentStack.addArrangedSubview(fileView)
+                    dynamicContentViews.append(fileView)
+                    didRenderAttachments = true
                 }
             default:
                 continue
             }
         }
 
-        if didRenderImages {
+        if didRenderAttachments {
             stripAttachmentSummaryIfNeeded()
         }
 
@@ -824,7 +839,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 return "Table (\(model.rows.count) rows)"
             case .linkPreview(let url):
                 return url.absoluteString
-            case .image, .gallery:
+            case .image, .gallery, .file:
                 return ""
             }
         }
@@ -867,7 +882,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             switch $0 {
             case .text, .markdown, .inlineEmoji, .linkPreview:
                 return true
-            case .code, .table, .image, .gallery:
+            case .code, .table, .image, .gallery, .file:
                 return false
             }
         }
@@ -898,7 +913,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 linkAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 result.append(NSAttributedString(string: url.absoluteString, attributes: linkAttributes))
 
-            case .code, .table, .image, .gallery:
+            case .code, .table, .image, .gallery, .file:
                 break
             }
         }
@@ -983,6 +998,75 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         imageView.heightAnchor.constraint(equalToConstant: height).isActive = true
         imageView.widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth).isActive = true
         return imageView
+    }
+
+    private func makeFilePreviewView(attachment: Attachment,
+                                     maxWidth: CGFloat,
+                                     palette: ChatFlowUIKitTheme.Palette,
+                                     metrics: ChatFlowTheme.Metrics) -> UIView? {
+        let name = attachment.filename ?? attachment.assetId ?? attachment.mimeType ?? "Attachment"
+        let sizeValue = attachment.size ?? attachment.data?.count
+
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.backgroundColor = palette.borderSubtle
+        container.layer.cornerRadius = 12
+
+        let icon = UIImageView(image: UIImage(systemName: "doc.fill"))
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.tintColor = palette.ink.withAlphaComponent(0.7)
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+        icon.setContentCompressionResistancePriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 22),
+            icon.heightAnchor.constraint(equalToConstant: 26)
+        ])
+
+        let nameLabel = UILabel()
+        nameLabel.font = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .semibold)
+        nameLabel.textColor = palette.ink
+        nameLabel.numberOfLines = 1
+        nameLabel.lineBreakMode = .byTruncatingMiddle
+        nameLabel.text = name
+
+        let sizeLabel = UILabel()
+        sizeLabel.font = UIFont.systemFont(ofSize: metrics.senderFontSize, weight: .regular)
+        sizeLabel.textColor = palette.ink.withAlphaComponent(0.7)
+        sizeLabel.numberOfLines = 1
+        sizeLabel.text = sizeValue.map(Self.formatFileSize)
+        sizeLabel.isHidden = sizeLabel.text?.isEmpty ?? true
+
+        let textStack = UIStackView(arrangedSubviews: [nameLabel, sizeLabel])
+        textStack.axis = .vertical
+        textStack.spacing = 2
+        textStack.alignment = .leading
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView(arrangedSubviews: [icon, textStack])
+        stack.axis = .horizontal
+        stack.spacing = 10
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(stack)
+        container.layoutMargins = UIEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.layoutMarginsGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: container.layoutMarginsGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: container.layoutMarginsGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.layoutMarginsGuide.bottomAnchor),
+            container.widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth)
+        ])
+
+        container.accessibilityLabel = sizeLabel.text.map { "\(name), \($0)" } ?? name
+        return container
+    }
+
+    private static func formatFileSize(_ bytes: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(bytes))
     }
 
     // MARK: - UIKit-Native Text Measurement

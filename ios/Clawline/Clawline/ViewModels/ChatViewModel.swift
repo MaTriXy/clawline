@@ -455,7 +455,9 @@ final class ChatViewModel: ChatViewModelHosting {
                         type: attachment.type,
                         mimeType: attachment.mimeType,
                         data: cached,
-                        assetId: attachment.assetId
+                        assetId: attachment.assetId,
+                        filename: attachment.filename,
+                        size: attachment.size ?? cached.count
                     )
                     didUpdate = true
                     continue
@@ -477,7 +479,9 @@ final class ChatViewModel: ChatViewModelHosting {
                         type: attachment.type,
                         mimeType: attachment.mimeType,
                         data: data,
-                        assetId: attachment.assetId
+                        assetId: attachment.assetId,
+                        filename: attachment.filename,
+                        size: attachment.size ?? data.count
                     )
                     didUpdate = true
                 } catch {
@@ -952,7 +956,9 @@ final class ChatViewModel: ChatViewModelHosting {
                 type: type,
                 mimeType: pending.mimeType,
                 data: type == .image ? pending.data : nil,
-                assetId: nil
+                assetId: nil,
+                filename: pending.filename,
+                size: pending.data.count
             )
         }
     }

@@ -472,6 +472,7 @@ struct ChatFlowOrganicComplianceTests {
         #expect(MessagePart.code(language: "swift", code: "print()").isTextual)
         #expect(!MessagePart.image(sampleAttachment(id: "img")).isTextual)
         #expect(!MessagePart.gallery([sampleAttachment(id: "img")]).isTextual)
+        #expect(!MessagePart.file(sampleAttachment(id: "file")).isTextual)
     }
 
     // MARK: Input bar & accessibility (§9/§10)

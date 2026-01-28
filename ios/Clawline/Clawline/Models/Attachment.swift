@@ -13,6 +13,8 @@ struct Attachment: Identifiable, Equatable, Codable {
     let mimeType: String?
     let data: Data?
     let assetId: String?
+    let filename: String?
+    let size: Int?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -35,12 +37,16 @@ struct Attachment: Identifiable, Equatable, Codable {
          type: AttachmentType,
          mimeType: String?,
          data: Data?,
-         assetId: String?) {
+         assetId: String?,
+         filename: String? = nil,
+         size: Int? = nil) {
         self.id = id
         self.type = type
         self.mimeType = mimeType
         self.data = data
         self.assetId = assetId
+        self.filename = filename
+        self.size = size
     }
 
     init(from decoder: Decoder) throws {
@@ -56,6 +62,8 @@ struct Attachment: Identifiable, Equatable, Codable {
         mimeType = decodedMimeType ?? metadata?.mimeType
         data = decodedData
         assetId = decodedAssetId
+        filename = metadata?.filename
+        size = metadata?.size ?? decodedData?.count
 
         if let decodedId {
             id = decodedId

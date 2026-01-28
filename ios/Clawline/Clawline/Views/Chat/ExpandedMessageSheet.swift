@@ -5,6 +5,7 @@
 //  Created by Codex on 1/8/26.
 //
 
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -133,12 +134,57 @@ struct ExpandedMessageSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
             }
+        case .file(let attachment):
+            FileAttachmentRow(
+                filename: attachment.filename ?? attachment.assetId ?? attachment.mimeType ?? "Attachment",
+                sizeText: attachment.size.map(Self.formatFileSize),
+                colorScheme: colorScheme
+            )
         }
+    }
+
+    private static func formatFileSize(_ bytes: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(bytes))
     }
 
     private var sheetBackground: Color {
         colorScheme == .dark
             ? Color(red: 0.1, green: 0.1, blue: 0.1)
             : ChatFlowTheme.cream(colorScheme)
+    }
+}
+
+private struct FileAttachmentRow: View {
+    let filename: String
+    let sizeText: String?
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "doc.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(ChatFlowTheme.ink(colorScheme).opacity(0.7))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(filename)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(ChatFlowTheme.ink(colorScheme))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let sizeText {
+                    Text(sizeText)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(ChatFlowTheme.ink(colorScheme).opacity(0.7))
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(ChatFlowTheme.ink(colorScheme).opacity(colorScheme == .dark ? 0.08 : 0.06))
+        )
     }
 }
