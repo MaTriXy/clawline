@@ -25,7 +25,6 @@ This document separates binding architectural/technology choices from guidance.
 - Server keepalives MUST follow the WebSocket ping every 30s / timeout at 90s rules defined below; clients MUST treat the connection as dead after missing three server pings.
 - The provider MUST persist allowlist/denylist/token state under `statePath` and MAY drop in-flight message queues on crash (documented durability trade-off).
 
-
 ### Rate limits (Normative)
 
 The provider MUST enforce the configured rate limits for each category (defaults summarized below; `provider/README.md` is canonical):
@@ -37,31 +36,30 @@ The provider MUST enforce the configured rate limits for each category (defaults
 
 Clients MUST treat `rate_limited` responses as backoff signals and retry later with the same payload.
 
-
 ### Default limits (Normative)
 
 These defaults are summarized for v1 implementations. Operators MAY tune them (see `docs/provider-architecture.md`), but deviations MUST be called out in deployment docs. The canonical default list lives in `provider/README.md`.
 
-| Lever | Default |
-| --- | --- |
-| Pairing requests per device | 5 per minute |
-| Auth attempts per device | 5 per minute |
+| Lever                            | Default      |
+| -------------------------------- | ------------ |
+| Pairing requests per device      | 5 per minute |
+| Auth attempts per device         | 5 per minute |
 | User `message` events per device | 5 per second |
-| `typing` events per device | 2 per second |
-| Pending pairing TTL | 5 minutes |
-| `maxReplayMessages` | 500 messages |
-| `maxQueuedMessages` | 20 messages |
+| `typing` events per device       | 2 per second |
+| Pending pairing TTL              | 5 minutes    |
+| `maxReplayMessages`              | 500 messages |
+| `maxQueuedMessages`              | 20 messages  |
 
 ### Explicitly Not MVP (v1)
 
 These items were considered and explicitly deferred as non‑MVP:
+
 - Automatic pruning/quotas or tombstones.
 - Automatic database recovery/migrations beyond fail‑fast on corruption.
 - Stream resume across reconnects/restarts.
 - Push notifications.
 - TLS termination or built‑in reverse proxying.
 - Multi‑connection grace windows (new connection replaces old immediately).
-
 
 ### Deployment model
 
@@ -80,51 +78,38 @@ These items were considered and explicitly deferred as non‑MVP:
 - Session management (keepalives, local send queue, retries) remains per `deviceId`. The provider MUST de-duplicate client sends using `(deviceId, clientMessageId)` so collisions between devices cannot corrupt the shared history.
 - Revocation operates per device. Removing the final device for a `userId` leaves history intact but inaccessible until an operator reassigns a new device to that account.
 
-
 ## Clawdbot Channel Mapping
 
-Clawline integrates with Clawdbot's session/routing model. Understanding this mapping is essential:
+### Core Concepts
 
-**Core concept**: SESSION = conversation memory, CHANNEL = delivery pipe.
+- **SESSION** = conversation memory identified by session key. The LLM sees history. Sessions are isolated.
+- **CHANNEL** = chat client identifier (discord, telegram, clawline). Which app the message came through.
 
-Conversation continuity comes from the SESSION, not the channel. The channel just determines where replies get delivered.
+### Session Key Format
 
-### Channel Types
+- **DM stream**: `agent:main:main` (admins only, shared with Discord/Telegram/gateway)
+- **Personal stream**: `agent:main:clawline:USER:main` (e.g. `agent:main:clawline:flynn:main`)
 
-| Clawline Channel | Clawdbot Equivalent | Session Key | Access |
-|------------------|---------------------|-------------|--------|
-| DM channel | Discord/Telegram DM | `agent:main:main` | `isAdmin: true` users only |
-| Personal channel | Discord channel | `agent:main:clawline:dm:{userId}` | All registered users |
+### Message Structure
 
-### DM Channel (Main Session)
+Messages carry routing via `sessionKey` plus standard metadata:
 
-The DM channel (`channelType: "admin"`) routes to Clawdbot's **main session**:
+```json
+{
+  "id": "s_abcdef123",
+  "content": "hello",
+  "timestamp": 1735600000000,
+  "sessionKey": "agent:main:clawline:flynn:main",
+  "sender": "assistant"
+}
+```
 
-- Equivalent to DMing the Discord bot or Telegram bot
-- Same conversation memory whether you message via Discord, Telegram, or Clawline
-- Only users with `isAdmin: true` in the allowlist can access
-- Replies go to the originating user's devices (not broadcast to all admins)
-- Continuity comes from the shared session, not from special delivery
+### Client Routing
 
-This matches Clawdbot's default `dmScope: "main"` behavior.
-
-### Personal Channels (Per-User Sessions)
-
-Personal channels (`channelType: "personal"`) route to isolated per-user sessions:
-
-- Each registered user (family member, etc.) gets their own conversation
-- Agent doesn't mix conversations between users
-- Similar to Discord channels where each has separate memory
-
-### Reply Routing
-
-All channels use the same pattern:
-- `OriginatingTo: "{userId}"` → `broadcastToUser(userId)` (all user's devices)
-
-No special handling for DM channel. The only differences are:
-1. Access control (`isAdmin: true` required)
-2. Session routing (main vs per-user)
-
+- Single WebSocket per user
+- Filter messages by `sessionKey`
+- `agent:main:main` = DM stream
+- `agent:main:clawline:USER:main` = Personal stream
 
 ## Related docs
 
@@ -150,9 +135,11 @@ No special handling for DM channel. The only differences are:
 ### 1. Clawline App (Client)
 
 **Platforms:**
+
 - iOS (Swift, SwiftUI)
 
 **Responsibilities:**
+
 - Present chat UI with native animations
 - Manage WebSocket connection to provider
 - Store authentication token securely (Keychain)
@@ -162,15 +149,18 @@ No special handling for DM channel. The only differences are:
 ### 2. Clawline Provider (Server)
 
 A provider plugin running inside clawd that:
+
 - Listens on a WebSocket port
 - Authenticates devices via signed tokens
 - Routes messages to/from the clawd assistant
 - Handles session management
 
 **Connection options:**
+
 - Local network / trusted network
 
 Security note:
+
 - The provider does not ship network security by default. Operators are responsible for securing transport (VPN/reverse proxy/firewall).
 - Transport is intentionally plaintext (`ws://` + `http://`) in v1 to match clawd behavior. The provider does not terminate TLS.
 - WARNING: bearer tokens are sent over the transport; do not expose the provider on untrusted networks without protection.
@@ -190,6 +180,7 @@ Keepalive: rely on WebSocket ping/pong frames (not JSON messages). Server sends 
 Clients MUST include `protocolVersion: 1` in `pair_request` and `auth`. Missing or unknown versions are rejected with `invalid_message`, and the server closes the connection.
 
 Version discovery:
+
 - `GET /version` returns protocol metadata (no auth required), e.g.:
   ```json
   {
@@ -205,10 +196,26 @@ type ClientMessage =
       protocolVersion: 1;
       deviceId: string;
       claimedName?: string;
-      deviceInfo: { platform: string; model: string; osVersion?: string; appVersion?: string };
+      deviceInfo: {
+        platform: string;
+        model: string;
+        osVersion?: string;
+        appVersion?: string;
+      };
     }
-  | { type: "pair_decision"; deviceId: string; approve: boolean; userId?: string }
-  | { type: "auth"; protocolVersion: 1; token: string; deviceId: string; lastMessageId?: string | null }
+  | {
+      type: "pair_decision";
+      deviceId: string;
+      approve: boolean;
+      userId?: string;
+    }
+  | {
+      type: "auth";
+      protocolVersion: 1;
+      token: string;
+      deviceId: string;
+      lastMessageId?: string | null;
+    }
   | { type: "message"; id: string; content: string; attachments?: Attachment[] }
   | { type: "typing"; active: boolean };
 
@@ -218,13 +225,41 @@ type ServerMessage =
       type: "pair_approval_request";
       deviceId: string;
       claimedName?: string;
-      deviceInfo: { platform: string; model: string; osVersion?: string; appVersion?: string };
+      deviceInfo: {
+        platform: string;
+        model: string;
+        osVersion?: string;
+        appVersion?: string;
+      };
     }
-  | { type: "pair_result"; success: boolean; token?: string; userId?: string; reason?: "pair_rejected" | "pair_denied" | "pair_timeout" }
-  | { type: "auth_result"; success: true; userId: string; sessionId: string; replayCount: number; replayTruncated: boolean; historyReset?: boolean }
+  | {
+      type: "pair_result";
+      success: boolean;
+      token?: string;
+      userId?: string;
+      reason?: "pair_rejected" | "pair_denied" | "pair_timeout";
+    }
+  | {
+      type: "auth_result";
+      success: true;
+      userId: string;
+      sessionId: string;
+      replayCount: number;
+      replayTruncated: boolean;
+      historyReset?: boolean;
+    }
   | { type: "auth_result"; success: false; reason?: string }
   | { type: "ack"; id: string }
-  | { type: "message"; id: string; role: "assistant" | "user"; content: string; timestamp: number; streaming: boolean; attachments?: Attachment[]; deviceId?: string }
+  | {
+      type: "message";
+      id: string;
+      role: "assistant" | "user";
+      content: string;
+      timestamp: number;
+      streaming: boolean;
+      attachments?: Attachment[];
+      deviceId?: string;
+    }
   | { type: "typing"; role: "assistant"; active: boolean }
   | { type: "error"; code: string; message: string; messageId?: string };
 
@@ -234,15 +269,18 @@ type Attachment =
   | { type: "image"; mimeType: string; data: string }
   | { type: "asset"; assetId: string };
 ```
+
 The TypeScript-style definitions above are the canonical schema; JSON snippets that follow are illustrative examples only.
 
 Pre-auth handling:
+
 - Before `auth` succeeds, only `pair_request`, `pair_decision`, and `auth` are accepted.
 - Any `message` or `typing` sent before auth returns `error` `auth_failed` and the server closes the connection.
 
 ### Message Types
 
 #### Pairing
+
 ```json
 // Client sends to request pairing
 {
@@ -284,6 +322,7 @@ Pre-auth handling:
   "reason": "pair_denied"
 }
 ```
+
 Pending `pair_request` expires after 5 minutes with `pair_result` `success: false` and `reason: pair_timeout`.
 Admin denial uses `reason: pair_denied`; denylisted devices use `reason: pair_rejected`.
 `deviceInfo.platform` and `deviceInfo.model` are required; missing fields return `invalid_message`.
@@ -292,6 +331,7 @@ When `approve: true`, `pair_decision.userId` is required so the provider can att
 If no admins are connected, requests remain queued until an admin connects or the timeout expires. When an admin connects, the provider should emit `pair_approval_request` events for any pending requests still within TTL.
 
 `pair_request` handling decision order (v1):
+
 1. If `deviceId` is on the denylist → respond `pair_result` `success: false` `reason: pair_rejected`, then close.
 2. If an allowlist entry exists for `deviceId`:
    - If `tokenDelivered` is false → treat as reconnect and re-issue `pair_result` success (preserve `isAdmin` flag).
@@ -300,6 +340,7 @@ If no admins are connected, requests remain queued until an admin connects or th
 4. Otherwise → queue the request and send `pair_approval_request` to admins (now or when they connect).
 
 Allowlist entry timing:
+
 - When a request is approved, the provider creates the allowlist entry immediately with `tokenDelivered: false`. It flips to `true` only after `pair_result` is sent successfully.
 - Allowlist entry schema (persisted under `statePath`):
   ```json
@@ -320,20 +361,24 @@ Allowlist entry timing:
 - Denylist entries reuse the same shape but live in a separate file/table and omit `tokenDelivered`.
 
 Admin decision races:
+
 - First `pair_decision` wins. Once a request is resolved, subsequent `pair_decision` messages for that `deviceId` return `error` `invalid_message` without closing the admin connection.
 - The provider drops the pending request immediately after resolution; admins should remove the request from UI after sending a decision (no extra broadcast is required in v1).
 - `pair_decision` for an unknown `deviceId` returns `error` `invalid_message` without closing the admin connection.
 
 Pairing rate limits:
+
 - Rate limit `pair_request` according to the configured per-device limit (optionally also per IP). Excess requests return `rate_limited` and the connection is closed.
 - Cap pending pairing requests at the configured `maxPendingRequests` limit. If the queue is full, reject new `pair_request` with `rate_limited`.
 
 On `pair_result` failure, the server closes the WebSocket; the client should open a new connection to retry.
 
 Re-pairing policy:
+
 - Re-pairing a device with an existing allowlist entry is blocked by design. If a token is lost, an operator MUST remove the allowlist entry (or revoke the device) to permit re-pairing.
 
 Bootstrap behavior (v1):
+
 - If no admin devices exist, the first `pair_request` is auto-approved and becomes an admin device.
 - The provider MUST perform an atomic check-and-set so only one device can claim the first-admin slot.
 - Implementation guidance: acquire an exclusive lock on the allowlist store (5s timeout per attempt), check for existing admins, then write the new admin entry in a single critical section. If the lock cannot be acquired, keep the request pending and retry lock acquisition every 500ms until TTL; if TTL expires, return `pair_timeout`.
@@ -351,6 +396,7 @@ Bootstrap behavior (v1):
 - `tokenDelivered` defaults to `false`. If the server restarts and finds an admin entry with `tokenDelivered: false`, it MUST allow re-issuing the token to the same `deviceId`.
 
 #### Authentication
+
 ```json
 // Client sends on connect
 {
@@ -379,6 +425,7 @@ Bootstrap behavior (v1):
   "reason": "auth_failed"
 }
 ```
+
 Auth failure reasons use the same error code list (e.g., `auth_failed`, `token_revoked`).
 `sessionId` is a per-connection identifier for diagnostics; clients may ignore it.
 On auth failure, the server closes the WebSocket after sending `auth_result`. The client should open a new connection to retry after backoff.
@@ -393,10 +440,11 @@ After `auth_result` success, the server replays any missed messages after `lastM
 - If `lastMessageId` points to an unfinished stream, replay starts from the next finalized message. If an unfinished stream appears with no final message, replay stops before that stream (partials are never replayed).
 - The server drops duplicate message IDs during replay. Assets are deleted only when no remaining messages reference them.
 - Replay is capped at the configured `maxReplayMessages`: if more than the cap are available after `lastMessageId`, replay the newest `maxReplayMessages` in that missing range and set `replayTruncated: true`. Messages beyond the cap are not replayed; this is a recent-only history window in v1.
-`auth_result` includes `replayCount` (number of replay messages the server will send before live messages) and `replayTruncated` so clients can indicate history truncation. When the server cannot honor the provided `lastMessageId` and falls back to the most recent window, it MUST set `replayTruncated: true` and `historyReset: true` so clients know to discard any local conversation state beyond the replay window.
-Replay phase begins immediately after `auth_result`; the provider sends replay messages first and does not interleave new live messages until replay completes. Queued user messages are processed only after replay completes. Clients can consider replay complete after receiving `replayCount` messages.
-If `replayCount` is 0, replay ends immediately. If the connection drops before `replayCount` messages are received, the client reconnects with the last received message ID; the provider resumes replay from that point.
-Configuration defaults and limits (e.g., `maxReplayMessages`) are summarized in the Default limits table above; `docs/provider-architecture.md` describes how to tune them. `provider/README.md` is illustrative.
+  `auth_result` includes `replayCount` (number of replay messages the server will send before live messages) and `replayTruncated` so clients can indicate history truncation. When the server cannot honor the provided `lastMessageId` and falls back to the most recent window, it MUST set `replayTruncated: true` and `historyReset: true` so clients know to discard any local conversation state beyond the replay window.
+  Replay phase begins immediately after `auth_result`; the provider sends replay messages first and does not interleave new live messages until replay completes. Queued user messages are processed only after replay completes. Clients can consider replay complete after receiving `replayCount` messages.
+  If `replayCount` is 0, replay ends immediately. If the connection drops before `replayCount` messages are received, the client reconnects with the last received message ID; the provider resumes replay from that point.
+  Configuration defaults and limits (e.g., `maxReplayMessages`) are summarized in the Default limits table above; `docs/provider-architecture.md` describes how to tune them. `provider/README.md` is illustrative.
+
 #### Session takeover (normative)
 
 - If the same `deviceId` authenticates again, the new connection wins. The server sends `error` `session_replaced` to the old connection and closes it immediately.
@@ -406,6 +454,7 @@ Configuration defaults and limits (e.g., `maxReplayMessages`) are summarized in 
 - Any messages from the old connection after `session_replaced` are ignored. Unacked messages from the old connection are treated as not received; the server does not replay them and the client MUST resend after reconnect.
 
 #### Chat Messages
+
 ```json
 // Client -> Server (user message)
 {
@@ -441,6 +490,7 @@ Configuration defaults and limits (e.g., `maxReplayMessages`) are summarized in 
   "streaming": true
 }
 ```
+
 Note: client messages have implicit role "user".
 Server rate limits inbound `message` events to the configured per-device throughput; excess messages are rejected with `rate_limited`.
 Server assigns `timestamp` (Unix epoch ms) on all server-sent `message` events.
@@ -451,19 +501,21 @@ Server sends `ack` immediately upon accepting a user message. If no `ack` is rec
 Clients MUST track pending message IDs awaiting `ack` and resend them after reconnect if no `ack` was received.
 For crash safety, clients should persist pending message IDs to disk before sending, so they can be resent after a process restart.
 The provider MUST record message receipt (id + content hash) before sending `ack`, and MUST treat any later duplicate with the same `id` as an idempotent retry (no double generation), even if the original `ack` was lost.
+
 ##### Message queue and durability (normative)
 
 - There MUST be at most one assistant stream active per `deviceId`; additional user messages are queued FIFO (shared across any concurrent connections for that device) and processed sequentially after the current stream finishes.
 - The queue is in-memory (not persisted), bounded by the configured `maxQueuedMessages`. If the queue is full, the provider MUST reject new messages with `rate_limited`; clients SHOULD back off and retry with the same message `id`.
 - Queued messages persist across session replacement but are dropped when no active connection remains (or on provider crash); clients MUST resend all unacked messages after reconnect. This is an intentional v1 durability trade-off (simplicity over guaranteed delivery).
 - Message loss across simultaneous client/provider crashes is acceptable in v1; clients SHOULD persist outgoing messages and retry.
+
 ##### Streaming semantics
 
 - If the connection drops mid-stream, the client keeps the partial content but marks it incomplete. The provider never replays partials and never resumes streams across reconnects/restarts. Clients MUST discard any incomplete streaming message and retry with a new `id`.
 - Provider does not persist partial streams across restarts. If the server crashes mid-stream, the client SHOULD resend the original message with a new `id` to retry generation (fresh generation, no resume).
 - Stream finalized while disconnected: replay the final message (no resume needed).
-If the LLM fails mid-stream, the provider sends `error` with `code: server_error` and includes `messageId` for the failed stream; no final `message` is sent.
-Client message IDs MUST start with `c_`. Server-assigned message IDs MUST start with `s_`. Any other prefix should be rejected as `invalid_message`. If a client `message` is missing an `id`, reject with `invalid_message` (no auto-assign). Duplicate handling rules:
+  If the LLM fails mid-stream, the provider sends `error` with `code: server_error` and includes `messageId` for the failed stream; no final `message` is sent.
+  Client message IDs MUST start with `c_`. Server-assigned message IDs MUST start with `s_`. Any other prefix should be rejected as `invalid_message`. If a client `message` is missing an `id`, reject with `invalid_message` (no auto-assign). Duplicate handling rules:
 
 - The server persists a content hash per `id` (SHA-256 of UTF-8 `content`, hex-encoded). If a duplicate `id` arrives with different `content` while a record exists, reject with `invalid_message`.
 - If a record exists with matching content, treat the retry as idempotent: resend `ack`, do not double-generate. If the record is marked failed, return `invalid_message` and require a new `id`.
@@ -473,6 +525,7 @@ Client message IDs are scoped per `deviceId`; the server namespaces lookups by `
 Cancellation: v1 does not support canceling assistant responses. If a client sends a cancel request, the server returns `invalid_message`.
 
 #### Typing Indicators
+
 ```json
 // Client typing
 { "type": "typing", "active": true }
@@ -480,11 +533,13 @@ Cancellation: v1 does not support canceling assistant responses. If a client sen
 // Server (assistant processing)
 { "type": "typing", "role": "assistant", "active": true }
 ```
+
 Server auto-clears `typing: true` after 10 seconds of inactivity (no new typing or message events).
 Client typing implies `role: user`.
 Typing events are rate limited according to the configured per-device typing limit; excess events return `rate_limited`.
 
 #### Errors
+
 ```json
 {
   "type": "error",
@@ -493,10 +548,12 @@ Typing events are rate limited according to the configured per-device typing lim
   "messageId": "s_456"
 }
 ```
+
 Errors do not close the connection unless explicitly stated. The following errors close the connection: `auth_failed`, `token_revoked`, `session_replaced`, and `invalid_message` in the protocolVersion/allowlist-violation cases described above.
 Malformed JSON (parse failure) closes the connection. Structurally valid JSON with invalid fields returns `error` `invalid_message` without closing.
 `messageId` is optional and is included for message-specific failures (e.g., stream errors).
 Error codes (v1):
+
 - `auth_failed`
 - `token_revoked`
 - `invalid_message`
@@ -509,25 +566,25 @@ Error codes (v1):
 
 `pair_result` reasons:
 
-| Reason | Meaning |
-| --- | --- |
-| `pair_rejected` | Device is on the denylist |
-| `pair_denied` | Admin explicitly declined the request |
-| `pair_timeout` | Pending request exceeded the 5-minute TTL |
+| Reason          | Meaning                                   |
+| --------------- | ----------------------------------------- |
+| `pair_rejected` | Device is on the denylist                 |
+| `pair_denied`   | Admin explicitly declined the request     |
+| `pair_timeout`  | Pending request exceeded the 5-minute TTL |
 
 Error/HTTP mapping:
 
-| Code | HTTP status (if over HTTP) | Connection closed? | Client action |
-| --- | --- | --- | --- |
-| `auth_failed` | 401 | Yes | Re-authenticate / re-pair |
-| `token_revoked` | 403 | Yes | Re-pair |
-| `invalid_message` | 400 | Sometimes (see text) | Fix payload and retry |
-| `payload_too_large` | 413 | No | Reduce payload size |
-| `asset_not_found` | 404 | No | Re-upload/re-attach |
-| `rate_limited` | 429 | No | Back off and retry |
-| `session_replaced` | n/a | Yes (immediately) | Drop old connection |
-| `upload_failed_retryable` | 503 | No | Retry upload |
-| `server_error` | 500 | No | Retry / surface error |
+| Code                      | HTTP status (if over HTTP) | Connection closed?   | Client action             |
+| ------------------------- | -------------------------- | -------------------- | ------------------------- |
+| `auth_failed`             | 401                        | Yes                  | Re-authenticate / re-pair |
+| `token_revoked`           | 403                        | Yes                  | Re-pair                   |
+| `invalid_message`         | 400                        | Sometimes (see text) | Fix payload and retry     |
+| `payload_too_large`       | 413                        | No                   | Reduce payload size       |
+| `asset_not_found`         | 404                        | No                   | Re-upload/re-attach       |
+| `rate_limited`            | 429                        | No                   | Back off and retry        |
+| `session_replaced`        | n/a                        | Yes (immediately)    | Drop old connection       |
+| `upload_failed_retryable` | 503                        | No                   | Retry upload              |
+| `server_error`            | 500                        | No                   | Retry / surface error     |
 
 ## Security
 
@@ -545,7 +602,9 @@ Error/HTTP mapping:
      "deviceInfo": { "platform": "iOS", "model": "iPhone 15" }
    }
    ```
-  - If no admin devices exist yet, this first request is auto-approved and marked as admin (provider MUST enforce an atomic first-admin claim).
+
+- If no admin devices exist yet, this first request is auto-approved and marked as admin (provider MUST enforce an atomic first-admin claim).
+
 4. Provider sends `pair_approval_request` to all connected admin devices (and delivers any pending requests to an admin on connect).
 5. Admin approves in-app -> Provider issues signed JWT token
 6. App receives and stores token:
@@ -614,11 +673,11 @@ Error/HTTP mapping:
   ]
 }
 ```
+
 Inline attachments MUST be <= 256KB raw bytes. Base64 adds ~33% overhead. Larger files MUST use /upload (otherwise `payload_too_large`).
 Total inline attachment bytes per message MUST be <= 256KB. Total message payload (content bytes + inline attachment bytes) MUST be <= 320KB. Allowed inline image types: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
 Inline attachments are only for image payloads; non-image files MUST be uploaded via `/upload` and referenced as `asset`. Allowed inline `mimeType` values: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
 Assistant responses may include `attachments` as either inline images or `asset` references; clients MUST handle downloading `asset` attachments.
-
 
 ### Large File Upload (v1)
 
@@ -636,14 +695,15 @@ Assistant responses may include `attachments` as either inline images or `asset`
    }
    ```
 4. Client downloads via HTTP `GET /download/:assetId` (auth required). Use `Authorization: Bearer <token>`.
-Asset IDs are unguessable; any authenticated device may download any asset in v1 (no per-device ACLs).
-Security note: because asset download auth is device-scoped (not per-message), operators MUST deploy in environments where all authenticated devices are trusted (e.g., a single household).
+   Asset IDs are unguessable; any authenticated device may download any asset in v1 (no per-device ACLs).
+   Security note: because asset download auth is device-scoped (not per-message), operators MUST deploy in environments where all authenticated devices are trusted (e.g., a single household).
 
 Unreferenced uploads (assets that are never attached to a message) are deleted after 1 hour.
 Assets referenced by partial/in-progress messages are treated as referenced until the stream finalizes or fails; if no streaming `message` updates occur for 5 minutes, the stream is considered failed and the asset becomes unreferenced (1-hour TTL applies).
 Unreferenced uploads remain attachable by the same device while within the TTL.
 
 HTTP error responses return JSON matching the `error` schema:
+
 - Missing or malformed `Authorization` header, or invalid token signature → `401` `auth_failed`.
 - Revoked token → `403` `token_revoked`.
 - `400` → `invalid_message`
@@ -662,4 +722,4 @@ HTTP error responses return JSON matching the `error` schema:
 
 ---
 
-*Last updated: 2026-01-07*
+_Last updated: 2026-01-07_
