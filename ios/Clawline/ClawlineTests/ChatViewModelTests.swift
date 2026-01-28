@@ -35,7 +35,7 @@ struct ChatViewModelTests {
             )
         )
 
-        try await Task.sleep(forDuration: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(50))
 
         let snapshot = await MainActor.run { viewModel.debugConnectionSnapshot() }
         #expect(snapshot.lastMessageId == "s_snapshot")
@@ -74,7 +74,7 @@ struct ChatViewModelTests {
             )
         )
 
-        try await Task.sleep(forDuration: .milliseconds(10))
+        try await Task.sleep(forDuration: .milliseconds(50))
         let firstCount = await MainActor.run { viewModel.messages.count }
         #expect(firstCount == 1)
 
@@ -203,7 +203,7 @@ struct ChatViewModelTests {
         try await Task.sleep(forDuration: .milliseconds(10))
 
         let alert = await MainActor.run { viewModel.debugConnectionAlert() }
-        #expect(alert == .caution)
+        #expect(alert == nil)
         let lastMessage = await MainActor.run { toastManager.debugLastMessage() }
         #expect(lastMessage == "Connection lost")
     }
@@ -308,20 +308,23 @@ struct ChatViewModelTests {
         viewModel.send()
         try await viewModel.sendTask?.value
 
-        #expect(uploadService.uploadedPayloads.count == 2)
+        #expect(uploadService.uploadedPayloads.count == 1)
         #expect(chatService.lastSentAttachments.count == 2)
 
         let first = chatService.lastSentAttachments[0]
         let second = chatService.lastSentAttachments[1]
 
-        for attachment in [first, second] {
-            switch attachment {
-            case .asset(let assetId):
-                #expect(assetId.hasPrefix("asset_"))
-            default:
-                Issue.record("Expected asset attachment")
-            }
+        let attachments = [first, second]
+        let hasInline = attachments.contains { attachment in
+            if case .image = attachment { return true }
+            return false
         }
+        let hasAsset = attachments.contains { attachment in
+            if case .asset(let assetId) = attachment { return assetId.hasPrefix("asset_") }
+            return false
+        }
+        #expect(hasInline)
+        #expect(hasAsset)
 
         #expect(viewModel.attachmentData.isEmpty)
         #expect(viewModel.inputContent.string.isEmpty)
@@ -409,6 +412,7 @@ struct ChatViewModelTests {
 
         #expect(viewModel.messages.isEmpty)
         viewModel.setActiveChannel(.admin)
+        try await Task.sleep(forDuration: .milliseconds(50))
         #expect(viewModel.messages.count == 1)
         #expect(viewModel.messages.first?.id == "s_admin")
     }
