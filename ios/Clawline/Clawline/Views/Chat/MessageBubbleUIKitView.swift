@@ -589,7 +589,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         NSLayoutConstraint.deactivate(fadeConstraints)
         fadeConstraints.removeAll()
 
-        if sizeClass == .long, !isSingleImageOnly {
+        let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
+        if sizeClass == .long, !isSingleImageOnly, hasNonMediaContent {
             let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
             let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
             let measureWidth = min(contentWidth, maxLineWidth)
