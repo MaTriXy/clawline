@@ -632,13 +632,6 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func scheduleReconnect(immediate: Bool = false, reason: ReconnectTrigger = .connectionStateFailed) {
         let now = Date()
-        if let lastRequest = lastReconnectRequestAt {
-            let elapsed = now.timeIntervalSince(lastRequest)
-            if elapsed < minimumReconnectInterval {
-                logger.info("reconnect debounced reason=\(reason.rawValue, privacy: .public) elapsed=\(elapsed, privacy: .public)")
-                return
-            }
-        }
         lastReconnectRequestAt = now
         guard reconnectTask == nil, auth.token != nil else {
             logger.info("reconnect suppressed reason=\(reason.rawValue, privacy: .public) reconnectTask=\(self.reconnectTask != nil, privacy: .public) hasToken=\(self.auth.token != nil, privacy: .public)")
