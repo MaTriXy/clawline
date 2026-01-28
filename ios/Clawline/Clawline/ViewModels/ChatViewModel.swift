@@ -685,7 +685,7 @@ final class ChatViewModel: ChatViewModelHosting {
                     } else {
                         self.beginConnectionAlert(message: "Failed to connect: \(error.localizedDescription)")
                     }
-                    self.reconnectBackoff = min(self.reconnectBackoff * 2, .seconds(30))
+                    self.reconnectBackoff = min(self.reconnectBackoff * 2, .seconds(10))
                     self.reconnectTask = nil
                     self.scheduleReconnect(reason: .connectionStateFailed)
                 }
