@@ -142,10 +142,11 @@ struct MessageInputBar: View {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
             }
             .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
             .glassEffect(.regular.interactive(), in: Circle())
-            .contentShape(Rectangle())
             .accessibilityLabel("Add attachment")
             .disabled(isSending)
 
@@ -215,10 +216,10 @@ struct MessageInputBar: View {
                         .opacity(isSending ? 0 : 1)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
             }
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
             .glassEffect(.regular.interactive(), in: Capsule())
-            .contentShape(Rectangle())
             .buttonStyle(.plain)
             .allowsHitTesting(isSendEnabled)
             .opacity((connectionAlertColor == nil ? 1 : 0.65) * (isSendEnabled ? 1 : 0.4))
