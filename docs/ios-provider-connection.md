@@ -185,6 +185,39 @@ Provider may emit typing events (assistant only in v1; user typing is not relaye
 
 Typing events are rate-limited to 2 per second per device; excess events receive `rate_limited`.
 
+## Session routing
+
+Messages carry a `sessionKey` field that identifies which conversation stream they belong to. See `docs/architecture.md` for the full session key architecture.
+
+### Session key format
+
+- **DM stream**: `agent:main:main` — shared main session (admins only)
+- **Personal stream**: `agent:main:clawline:{userId}:main` — per-user isolated session
+
+### Message structure
+
+```json
+{
+  "id": "s_abc123",
+  "content": "Hello",
+  "timestamp": 1735600000000,
+  "sessionKey": "agent:main:clawline:flynn:main",
+  "sender": "flynn"
+}
+```
+
+- `sessionKey`: Which session this message belongs to (used for routing)
+- `sender`: Who sent it (username or `"assistant"`)
+
+### Client routing
+
+- Single WebSocket connection per user
+- Filter incoming messages by `sessionKey` to route to correct UI stream
+- `agent:main:main` → DM stream (admins only)
+- `agent:main:clawline:{userId}:main` → Personal stream
+
+Admin users receive messages from both streams. Non-admin users receive only their personal stream.
+
 ## Errors & status codes
 
 - WebSocket `error.code` values come from `docs/architecture.md` (`auth_failed`, `token_revoked`, `invalid_message`, `payload_too_large`, `asset_not_found`, `rate_limited`, `session_replaced`, `upload_failed_retryable`, `server_error`). Display them or map to user-friendly text.
