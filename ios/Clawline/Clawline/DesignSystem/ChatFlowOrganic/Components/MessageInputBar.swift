@@ -198,7 +198,8 @@ struct MessageInputBar: View {
                 }
             }
 
-            // Send button - separate glass circle, same height as input bar
+            // Send button - stable container + stable glass background
+            let isSendEnabled = isSending || canSend
             Button(action: isSending ? onCancel : onSend) {
                 ZStack {
                     Text("Cancel")
@@ -209,12 +210,17 @@ struct MessageInputBar: View {
                         .font(.system(size: 18, weight: .semibold))
                         .opacity(isSending ? 0 : 1)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(.primary)
             }
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
-            .glassEffect(.regular.interactive(), in: Capsule())
+            .background {
+                Capsule().glassEffect(.regular.interactive())
+            }
             .contentShape(Rectangle())
-            .disabled(!isSending && !canSend)
-            .opacity(connectionAlertColor == nil ? 1 : 0.65)
+            .buttonStyle(.plain)
+            .allowsHitTesting(isSendEnabled)
+            .opacity((connectionAlertColor == nil ? 1 : 0.65) * (isSendEnabled ? 1 : 0.4))
             .accessibilityHint(connectionAlertHint ?? "")
             .id("send-button")
             .transaction { $0.animation = nil }
