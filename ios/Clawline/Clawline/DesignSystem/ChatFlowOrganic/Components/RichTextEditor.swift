@@ -213,14 +213,8 @@ final class PastableTextView: UITextView {
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(paste(_:)) {
-            // Allow paste if there's text or images in pasteboard
-            let pasteboard = UIPasteboard.general
-            if pasteboard.hasImages || pasteboard.hasStrings {
-                return true
-            }
-        }
-        return super.canPerformAction(action, withSender: sender)
+        // Suppress the edit menu bubble (copy/undo/etc.) in the compose bar.
+        return false
     }
 
     override func paste(_ sender: Any?) {
