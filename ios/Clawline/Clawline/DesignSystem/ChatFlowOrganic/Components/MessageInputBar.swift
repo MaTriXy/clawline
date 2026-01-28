@@ -117,16 +117,6 @@ struct MessageInputBar: View {
         }
     }
 
-    private var sendButtonShape: AnyShape {
-        if isSending {
-            // Pill shape for "Cancel" text
-            return AnyShape(Capsule())
-        } else {
-            // Circle for send icon
-            return AnyShape(Circle())
-        }
-    }
-
     private var connectionAlertHint: String? {
         switch connectionAlert {
         case .caution:
@@ -211,18 +201,17 @@ struct MessageInputBar: View {
             // Send button - separate glass circle, same height as input bar
             Button(action: isSending ? onCancel : onSend) {
                 ZStack {
-                    if isSending {
-                        Text("Cancel")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                    }
+                    Text("Cancel")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .opacity(isSending ? 1 : 0)
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .opacity(isSending ? 0 : 1)
                 }
             }
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
-            .glassEffect(.regular.interactive(), in: sendButtonShape)
+            .glassEffect(.regular.interactive(), in: Capsule())
             .contentShape(Rectangle())
             .disabled(!isSending && !canSend)
             .opacity(connectionAlertColor == nil ? 1 : 0.65)
