@@ -214,9 +214,7 @@ struct MessageInputBar: View {
                 .foregroundStyle(.primary)
             }
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
-            .background {
-                Capsule().glassEffect(.regular.interactive())
-            }
+            .glassEffect(.regular.interactive(), in: Capsule())
             .contentShape(Rectangle())
             .buttonStyle(.plain)
             .allowsHitTesting(isSendEnabled)
