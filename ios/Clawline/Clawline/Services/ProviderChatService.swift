@@ -121,6 +121,14 @@ final class ProviderChatService: ChatServicing {
         let event: String
     }
 
+    private struct TypingEventPayload: Decodable {
+        let type: String
+        let role: Message.Role?
+        let active: Bool
+        let sessionKey: String?
+        let channelType: String?
+    }
+
     private struct ActivityEventPayload: Decodable {
         let type: String
         let event: String
@@ -317,6 +325,8 @@ final class ProviderChatService: ChatServicing {
                 handleServerError(data: data)
             case "user_info":
                 handleUserInfo(data: data)
+            case "typing":
+                handleTyping(data: data)
             case "event":
                 handleEvent(data: data)
             default:
@@ -359,6 +369,22 @@ final class ProviderChatService: ChatServicing {
         )
         let message = Message(payload: payload, sessionKey: sessionKey)
         messageBroadcaster.send(message)
+    }
+
+    private func handleTyping(data: Data) {
+        guard let payload = try? decoder.decode(TypingEventPayload.self, from: data) else {
+            logger.warning("Failed to decode typing event payload")
+            return
+        }
+        if let role = payload.role, role != .assistant {
+            logger.info("Ignoring typing event for role=\(role.rawValue, privacy: .public)")
+            return
+        }
+        let sessionKey = resolveSessionKey(from: payload)
+        logger.info("typing event active=\(payload.active, privacy: .public) sessionKey=\(sessionKey ?? "nil", privacy: .public)")
+        if let sessionKey {
+            emitServiceEvent(.typingStateChanged(isTyping: payload.active, sessionKey: sessionKey))
+        }
     }
 
     private func handleAck(data: Data) {
@@ -448,6 +474,28 @@ final class ProviderChatService: ChatServicing {
         default:
             logger.debug("Unknown event type: \(envelope.event, privacy: .public)")
         }
+    }
+
+    private func resolveSessionKey(from payload: TypingEventPayload) -> String? {
+        if let sessionKey = payload.sessionKey {
+            return sessionKey
+        }
+        guard let raw = payload.channelType?.lowercased() else { return nil }
+        let channelType: ChatChannelType
+        switch raw {
+        case "admin":
+            channelType = .admin
+        case "personal":
+            channelType = .personal
+        default:
+            logger.warning("Unknown channelType: \(payload.channelType ?? "nil", privacy: .public)")
+            return nil
+        }
+        if let sessionKey = SessionKey.sessionKey(for: channelType, userId: userIdProvider()) {
+            return sessionKey
+        }
+        logger.warning("Unable to derive sessionKey from channelType=\(channelType.rawValue, privacy: .public)")
+        return nil
     }
 
     private func resolveSessionKey(from payload: ServerMessagePayload) -> String? {

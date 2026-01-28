@@ -23,6 +23,7 @@ struct ServerMessagePayload: Codable, Equatable {
         case type
         case id
         case role
+        case sender
         case content
         case timestamp
         case streaming
@@ -58,7 +59,16 @@ struct ServerMessagePayload: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         type = try container.decode(String.self, forKey: .type)
         id = try container.decode(String.self, forKey: .id)
-        role = try container.decode(Message.Role.self, forKey: .role)
+        if let decodedRole = try container.decodeIfPresent(Message.Role.self, forKey: .role) {
+            role = decodedRole
+        } else if let sender = try container.decodeIfPresent(String.self, forKey: .sender) {
+            role = sender.lowercased() == Message.Role.assistant.rawValue ? .assistant : .user
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.role,
+                DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Missing role/sender")
+            )
+        }
         content = try container.decode(String.self, forKey: .content)
         let milliseconds = try container.decode(Double.self, forKey: .timestamp)
         timestamp = Date(timeIntervalSince1970: milliseconds / 1000)
