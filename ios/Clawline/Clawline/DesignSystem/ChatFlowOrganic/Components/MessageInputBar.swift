@@ -38,6 +38,7 @@ private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
 struct MessageInputBar: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var content: NSAttributedString
     @Binding var selectionRange: NSRange
     let canSend: Bool
@@ -140,6 +141,7 @@ struct MessageInputBar: View {
             }) {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
             }
             .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
             .glassEffect(.regular.interactive(), in: Circle())
@@ -205,13 +207,14 @@ struct MessageInputBar: View {
                     Text("Cancel")
                         .font(.system(size: 15, weight: .semibold))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .foregroundStyle(.primary)
                         .opacity(isSending ? 1 : 0)
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(ChatFlowTheme.sage(colorScheme))
                         .opacity(isSending ? 0 : 1)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .foregroundStyle(.primary)
             }
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
             .glassEffect(.regular.interactive(), in: Capsule())
