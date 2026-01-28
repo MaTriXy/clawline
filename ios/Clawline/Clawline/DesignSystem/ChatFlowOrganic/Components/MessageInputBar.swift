@@ -159,6 +159,10 @@ struct MessageInputBar: View {
                     focusTrigger: focusTrigger,
                     isEditable: true,
                     onFocusChange: onFocusChange,
+                    onSubmit: {
+                        guard !isSending, canSend else { return }
+                        onSend()
+                    },
                     onPasteImages: onPasteImages,
                     trailingPadding: 20
                 )

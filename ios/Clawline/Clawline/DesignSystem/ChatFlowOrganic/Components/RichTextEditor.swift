@@ -18,6 +18,7 @@ struct RichTextEditor: UIViewRepresentable {
     var focusTrigger: Int
     var isEditable: Bool
     var onFocusChange: (Bool) -> Void
+    var onSubmit: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
     var trailingPadding: CGFloat = 20
 
@@ -39,6 +40,7 @@ struct RichTextEditor: UIViewRepresentable {
         textView.font = UIFont.preferredFont(forTextStyle: .body)
         textView.allowsEditingTextAttributes = true
         textView.keyboardDismissMode = .interactive
+        textView.returnKeyType = .send
         textView.tintColor = UIColor.label
         textView.autocorrectionType = .yes
         textView.smartQuotesType = .yes
@@ -124,6 +126,16 @@ struct RichTextEditor: UIViewRepresentable {
             parent.selectionRange = textView.selectedRange
             ensureCaretVisible(in: textView)
             ensureTypingAttributes(on: textView)
+        }
+
+        func textView(_ textView: UITextView,
+                      shouldChangeTextIn range: NSRange,
+                      replacementText text: String) -> Bool {
+            if text == "\n" {
+                parent.onSubmit?()
+                return false
+            }
+            return true
         }
 
         func updateHeight(for textView: UITextView) {
