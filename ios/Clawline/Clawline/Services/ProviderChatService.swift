@@ -50,6 +50,7 @@ final class ProviderChatService: ChatServicing {
         case missingBaseURL
         case notConnected
         case authFailed(String)
+        case authTimeout
         case tokenRevoked(String)
         case sessionReplaced
         case invalidMessageId
@@ -63,6 +64,8 @@ final class ProviderChatService: ChatServicing {
                 return "Could not send; not connected."
             case .authFailed(let reason):
                 return "Authentication failed: \(reason)"
+            case .authTimeout:
+                return "Authentication timed out. Retrying..."
             case .tokenRevoked(let reason):
                 return "Access revoked: \(reason)"
             case .sessionReplaced:
@@ -153,6 +156,7 @@ final class ProviderChatService: ChatServicing {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let ackInterval: Duration = .seconds(5)
+    private let authTimeout: Duration = .seconds(12)
 
     private let messageBroadcaster = AsyncStreamBroadcaster<Message>()
     private let stateBroadcaster = AsyncStreamBroadcaster<ConnectionState>()
@@ -209,25 +213,13 @@ final class ProviderChatService: ChatServicing {
         socket = client
         startListening(on: client)
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Swift.Error>) in
-            authContinuation = continuation
-            Task {
-                do {
-                    let authPayload = AuthPayload(
-                        token: token,
-                        deviceId: deviceId,
-                        lastMessageId: lastMessageId
-                    )
-                    let data = try encoder.encode(authPayload)
-                    guard let text = String(data: data, encoding: .utf8) else {
-                        self.resolveAuthContinuation(with: .failure(Error.notConnected))
-                        return
-                    }
-                    try await client.send(text: text)
-                } catch {
-                    self.resolveAuthContinuation(with: .failure(error))
-                }
-            }
+        do {
+            try await awaitAuthResult(client: client, token: token, lastMessageId: lastMessageId)
+        } catch {
+            logger.info("state -> failed (auth timeout) error=\(error.localizedDescription, privacy: .public)")
+            updateState(.failed(error))
+            performDisconnect(shouldNotify: false, reason: error.localizedDescription)
+            throw error
         }
     }
 
@@ -592,6 +584,44 @@ final class ProviderChatService: ChatServicing {
             continuation.resume()
         case .failure(let error):
             continuation.resume(throwing: error)
+        }
+    }
+
+    private func awaitAuthResult(client: any WebSocketClient, token: String, lastMessageId: String?) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return }
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Swift.Error>) in
+                    self.authContinuation = continuation
+                    Task {
+                        do {
+                            let authPayload = AuthPayload(
+                                token: token,
+                                deviceId: self.deviceId,
+                                lastMessageId: lastMessageId
+                            )
+                            let data = try self.encoder.encode(authPayload)
+                            guard let text = String(data: data, encoding: .utf8) else {
+                                self.resolveAuthContinuation(with: .failure(Error.notConnected))
+                                return
+                            }
+                            try await client.send(text: text)
+                        } catch {
+                            self.resolveAuthContinuation(with: .failure(error))
+                        }
+                    }
+                }
+            }
+
+            group.addTask { [authTimeout] in
+                try await Task.sleep(forDuration: authTimeout)
+                throw Error.authTimeout
+            }
+
+            guard let _ = try await group.next() else {
+                throw Error.authTimeout
+            }
+            group.cancelAll()
         }
     }
 }
