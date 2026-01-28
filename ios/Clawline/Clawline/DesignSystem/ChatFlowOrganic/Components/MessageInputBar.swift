@@ -130,7 +130,7 @@ struct MessageInputBar: View {
     }
 
     private var sendButtonWidth: CGFloat {
-        max(metrics.sendingButtonWidth, metrics.inputBarHeight)
+        metrics.inputBarHeight
     }
 
     var body: some View {
@@ -205,10 +205,9 @@ struct MessageInputBar: View {
             let isSendEnabled = isSending || canSend
             Button(action: isSending ? onCancel : onSend) {
                 ZStack {
-                    Text("Cancel")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .foregroundStyle(.primary)
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
                         .opacity(isSending ? 1 : 0)
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 18, weight: .semibold))
