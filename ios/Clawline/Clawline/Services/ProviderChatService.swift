@@ -260,7 +260,13 @@ final class ProviderChatService: ChatServicing {
             throw Error.invalidMessageId
         }
 
-        let payload = ClientMessagePayload(id: id, content: content, attachments: attachments, sessionKey: sessionKey)
+        let payload = ClientMessagePayload(
+            id: id,
+            content: content,
+            attachments: attachments,
+            sessionKey: sessionKey,
+            channelType: SessionKey.channelType(for: sessionKey)
+        )
         let data = try encoder.encode(payload)
         guard let text = String(data: data, encoding: .utf8) else { return }
 

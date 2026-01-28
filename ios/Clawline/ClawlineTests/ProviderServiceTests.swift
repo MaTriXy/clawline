@@ -152,6 +152,7 @@ struct ProviderServiceTests {
             $0.contains("\"type\":\"message\"")
             && $0.contains("\"content\":\"Hello\"")
             && $0.contains("\"sessionKey\":\"agent:main:main\"")
+            && $0.contains("\"channelType\":\"admin\"")
         })
     }
 }

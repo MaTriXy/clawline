@@ -156,6 +156,12 @@ extension Message {
             }
             return nil
         }
-        return ClientMessagePayload(id: id, content: content, attachments: wireAttachments, sessionKey: sessionKey)
+        return ClientMessagePayload(
+            id: id,
+            content: content,
+            attachments: wireAttachments,
+            sessionKey: sessionKey,
+            channelType: channelType
+        )
     }
 }

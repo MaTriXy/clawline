@@ -407,7 +407,7 @@ struct ChatFlowOrganicComplianceTests {
         #expect(json?["content"] as? String == "Hello world")
         #expect(json?["attachments"] != nil)
         #expect(json?["sessionKey"] != nil)
-        #expect(json?["channelType"] == nil)
+        #expect(json?["channelType"] as? String == "personal")
         #expect(json?["role"] == nil)
         #expect(json?["timestamp"] == nil)
         #expect(json?["streaming"] == nil)
@@ -434,7 +434,7 @@ struct ChatFlowOrganicComplianceTests {
             return
         }
         #expect(decoded.sessionKey == SessionKey.personal(userId: "user"))
-        #expect(decoded.channelType == nil)
+        #expect(decoded.channelType == .personal)
         switch first {
         case .image(let mimeType, let data):
             #expect(mimeType == "image/png")
