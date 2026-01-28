@@ -44,7 +44,8 @@ struct ClawlineApp: App {
         self.connectionService = ProviderConnectionService(connector: connector)
         self.chatService = ProviderChatService(
             connector: connector,
-            deviceId: device.deviceId
+            deviceId: device.deviceId,
+            userIdProvider: { authManager.currentUserId }
         )
         self.uploadService = UploadService(auth: authManager)
     }

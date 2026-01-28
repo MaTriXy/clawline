@@ -15,8 +15,9 @@ struct ServerMessagePayload: Codable, Equatable {
     let timestamp: Date
     let streaming: Bool
     let deviceId: String?
+    let sessionKey: String?
     let attachments: [Attachment]
-    let channelType: ChatChannelType
+    let channelType: ChatChannelType?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -26,6 +27,7 @@ struct ServerMessagePayload: Codable, Equatable {
         case timestamp
         case streaming
         case deviceId
+        case sessionKey
         case attachments
         case channelType
     }
@@ -37,8 +39,9 @@ struct ServerMessagePayload: Codable, Equatable {
          timestamp: Date,
          streaming: Bool,
          deviceId: String?,
+         sessionKey: String?,
          attachments: [Attachment],
-         channelType: ChatChannelType = .personal) {
+         channelType: ChatChannelType? = nil) {
         self.type = type
         self.id = id
         self.role = role
@@ -46,6 +49,7 @@ struct ServerMessagePayload: Codable, Equatable {
         self.timestamp = timestamp
         self.streaming = streaming
         self.deviceId = deviceId
+        self.sessionKey = sessionKey
         self.attachments = attachments
         self.channelType = channelType
     }
@@ -60,8 +64,9 @@ struct ServerMessagePayload: Codable, Equatable {
         timestamp = Date(timeIntervalSince1970: milliseconds / 1000)
         streaming = try container.decode(Bool.self, forKey: .streaming)
         deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
+        sessionKey = try container.decodeIfPresent(String.self, forKey: .sessionKey)
         attachments = try container.decodeIfPresent([Attachment].self, forKey: .attachments) ?? []
-        channelType = (try? container.decode(ChatChannelType.self, forKey: .channelType)) ?? .personal
+        channelType = try container.decodeIfPresent(ChatChannelType.self, forKey: .channelType)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -73,8 +78,9 @@ struct ServerMessagePayload: Codable, Equatable {
         try container.encode(timestamp.timeIntervalSince1970 * 1000, forKey: .timestamp)
         try container.encode(streaming, forKey: .streaming)
         try container.encodeIfPresent(deviceId, forKey: .deviceId)
+        try container.encodeIfPresent(sessionKey, forKey: .sessionKey)
         try container.encode(attachments, forKey: .attachments)
-        try container.encode(channelType, forKey: .channelType)
+        try container.encodeIfPresent(channelType, forKey: .channelType)
     }
 }
 
@@ -83,21 +89,24 @@ struct ClientMessagePayload: Codable, Equatable {
     let id: String
     let content: String
     let attachments: [WireAttachment]
-    let channelType: ChatChannelType
+    let sessionKey: String
+    let channelType: ChatChannelType?
 
     enum CodingKeys: String, CodingKey {
         case type
         case id
         case content
         case attachments
+        case sessionKey
         case channelType
     }
 
-    init(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType, type: String = "message") {
+    init(id: String, content: String, attachments: [WireAttachment], sessionKey: String, channelType: ChatChannelType? = nil, type: String = "message") {
         self.type = type
         self.id = id
         self.content = content
         self.attachments = attachments
+        self.sessionKey = sessionKey
         self.channelType = channelType
     }
 
@@ -107,7 +116,8 @@ struct ClientMessagePayload: Codable, Equatable {
         self.id = try container.decode(String.self, forKey: .id)
         self.content = try container.decode(String.self, forKey: .content)
         self.attachments = try container.decodeIfPresent([WireAttachment].self, forKey: .attachments) ?? []
-        self.channelType = try container.decodeIfPresent(ChatChannelType.self, forKey: .channelType) ?? .personal
+        self.sessionKey = try container.decode(String.self, forKey: .sessionKey)
+        self.channelType = try container.decodeIfPresent(ChatChannelType.self, forKey: .channelType)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -116,12 +126,13 @@ struct ClientMessagePayload: Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(content, forKey: .content)
         try container.encode(attachments, forKey: .attachments)
-        try container.encode(channelType, forKey: .channelType)
+        try container.encode(sessionKey, forKey: .sessionKey)
+        try container.encodeIfPresent(channelType, forKey: .channelType)
     }
 }
 
 extension Message {
-    init(payload: ServerMessagePayload) {
+    init(payload: ServerMessagePayload, sessionKey: String) {
         self.init(
             id: payload.id,
             role: payload.role,
@@ -130,7 +141,8 @@ extension Message {
             streaming: payload.streaming,
             attachments: payload.attachments,
             deviceId: payload.deviceId,
-            channelType: payload.channelType
+            sessionKey: sessionKey,
+            channelType: SessionKey.channelType(for: sessionKey)
         )
     }
 
@@ -144,6 +156,6 @@ extension Message {
             }
             return nil
         }
-        return ClientMessagePayload(id: id, content: content, attachments: wireAttachments, channelType: channelType)
+        return ClientMessagePayload(id: id, content: content, attachments: wireAttachments, sessionKey: sessionKey)
     }
 }

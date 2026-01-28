@@ -498,8 +498,34 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentViews.append(tableView)
         }
 
+        let basePaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
+        let basePaddingVertical = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingVertical
+        currentContentPaddingHorizontal = round(basePaddingHorizontal * contentPaddingScale)
+        currentContentPaddingVertical = round(basePaddingVertical * contentPaddingScale)
+        contentLeadingConstraint.constant = currentContentPaddingHorizontal
+        contentTrailingConstraint.constant = -currentContentPaddingHorizontal
+        contentTopConstraint.constant = currentContentPaddingVertical
+        contentBottomConstraint.constant = -currentContentPaddingVertical
+
+        let isSingleImageOnly: Bool = {
+            guard presentation.hasMediaOnly, presentation.parts.count == 1 else { return false }
+            switch presentation.parts[0] {
+            case .image, .gallery:
+                return true
+            default:
+                return false
+            }
+        }()
+
         // Add image/gallery views to dynamicContentStack (inline data only)
         let maxImageWidth = effectiveMaxWidth - (metrics.bubblePaddingHorizontal * 2)
+        let maxImageHeight: CGFloat = {
+            guard isSingleImageOnly else { return Self.mediaMaxHeight }
+            let headerHeight: CGFloat = showsHeader ? 32 : 0
+            let headerSpacing: CGFloat = showsHeader ? contentStack.spacing : 0
+            let padding = currentContentPaddingVertical * 2
+            return max(120, metrics.truncationHeight - (headerHeight + headerSpacing + padding))
+        }()
         var didRenderImages = false
         for part in presentation.parts {
             switch part {
@@ -507,7 +533,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 if let imageView = Self.makeImageView(
                     attachment: attachment,
                     maxWidth: maxImageWidth,
-                    maxHeight: Self.mediaMaxHeight,
+                    maxHeight: maxImageHeight,
                     cornerRadius: Self.mediaCornerRadius
                 ) {
                     dynamicContentStack.addArrangedSubview(imageView)
@@ -519,7 +545,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     if let imageView = Self.makeImageView(
                         attachment: attachment,
                         maxWidth: maxImageWidth,
-                        maxHeight: Self.mediaMaxHeight,
+                        maxHeight: maxImageHeight,
                         cornerRadius: Self.mediaCornerRadius
                     ) {
                         dynamicContentStack.addArrangedSubview(imageView)
@@ -535,15 +561,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         if didRenderImages {
             stripAttachmentSummaryIfNeeded()
         }
-
-        let basePaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
-        let basePaddingVertical = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingVertical
-        currentContentPaddingHorizontal = round(basePaddingHorizontal * contentPaddingScale)
-        currentContentPaddingVertical = round(basePaddingVertical * contentPaddingScale)
-        contentLeadingConstraint.constant = currentContentPaddingHorizontal
-        contentTrailingConstraint.constant = -currentContentPaddingHorizontal
-        contentTopConstraint.constant = currentContentPaddingVertical
-        contentBottomConstraint.constant = -currentContentPaddingVertical
 
         switch sizeClass {
         case .short:
@@ -572,7 +589,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         NSLayoutConstraint.deactivate(fadeConstraints)
         fadeConstraints.removeAll()
 
-        if sizeClass == .long {
+        if sizeClass == .long, !isSingleImageOnly {
             let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
             let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
             let measureWidth = min(contentWidth, maxLineWidth)
@@ -632,7 +649,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Chromeless mode: hide bubble chrome but keep padding
         // Truncated content must keep chrome (provides container for "Show more")
-        isChromeless = presentation.isChromeless && !shouldTruncate
+        isChromeless = isSingleImageOnly || (presentation.isChromeless && !shouldTruncate)
         gradientLayer.isHidden = isChromeless
         borderGradientLayer.isHidden = isChromeless
         topHighlightLayer.isHidden = isChromeless

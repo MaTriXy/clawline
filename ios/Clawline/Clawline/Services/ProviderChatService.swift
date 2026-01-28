@@ -141,6 +141,7 @@ final class ProviderChatService: ChatServicing {
     private let connector: any WebSocketConnecting
     private let deviceId: String
     private let baseURLProvider: () -> URL?
+    private let userIdProvider: () -> String?
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let ackInterval: Duration = .seconds(5)
@@ -161,11 +162,13 @@ final class ProviderChatService: ChatServicing {
     init(connector: any WebSocketConnecting,
          deviceId: String,
          baseURLProvider: @escaping () -> URL? = { ProviderBaseURLStore.baseURL },
+         userIdProvider: @escaping () -> String? = { nil },
          encoder: JSONEncoder = JSONEncoder(),
          decoder: JSONDecoder = JSONDecoder()) {
         self.connector = connector
         self.deviceId = deviceId
         self.baseURLProvider = baseURLProvider
+        self.userIdProvider = userIdProvider
         self.encoder = encoder
         self.decoder = decoder
     }
@@ -249,7 +252,7 @@ final class ProviderChatService: ChatServicing {
         updateState(.disconnected)
     }
 
-    func send(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType) async throws {
+    func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String) async throws {
         guard let socket else {
             throw Error.notConnected
         }
@@ -257,7 +260,7 @@ final class ProviderChatService: ChatServicing {
             throw Error.invalidMessageId
         }
 
-        let payload = ClientMessagePayload(id: id, content: content, attachments: attachments, channelType: channelType)
+        let payload = ClientMessagePayload(id: id, content: content, attachments: attachments, sessionKey: sessionKey)
         let data = try encoder.encode(payload)
         guard let text = String(data: data, encoding: .utf8) else { return }
 
@@ -340,11 +343,15 @@ final class ProviderChatService: ChatServicing {
 
     private func handleMessage(data: Data) {
         guard let payload = try? decoder.decode(ServerMessagePayload.self, from: data) else { return }
+        guard let sessionKey = resolveSessionKey(from: payload) else {
+            logger.warning("Dropping message: missing sessionKey id=\(payload.id, privacy: .public)")
+            return
+        }
         let snippet = String(payload.content.prefix(80))
         messageLogger.info(
-            "recv message id=\(payload.id, privacy: .public) channel=\(payload.channelType.rawValue, privacy: .public) role=\(String(describing: payload.role), privacy: .public) streaming=\(payload.streaming, privacy: .public) deviceId=\(payload.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
+            "recv message id=\(payload.id, privacy: .public) sessionKey=\(sessionKey, privacy: .public) role=\(String(describing: payload.role), privacy: .public) streaming=\(payload.streaming, privacy: .public) deviceId=\(payload.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
         )
-        let message = Message(payload: payload)
+        let message = Message(payload: payload, sessionKey: sessionKey)
         messageBroadcaster.send(message)
     }
 
@@ -427,21 +434,48 @@ final class ProviderChatService: ChatServicing {
             }
             // Map server channelType to iOS channel type
             // Server sends channelType: "admin" or "personal"
-            let channel: ChatChannelType
-            switch payload.payload.channelType?.lowercased() {
-            case "admin":
-                channel = .admin
-            case "personal", .none:
-                channel = .personal
-            default:
-                logger.warning("Unknown channelType: \(payload.payload.channelType ?? "nil", privacy: .public), defaulting to personal")
-                channel = .personal
+            let sessionKey = resolveSessionKey(from: payload.payload)
+            logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public) sessionKey=\(sessionKey ?? "nil", privacy: .public)")
+            if let sessionKey {
+                emitServiceEvent(.typingStateChanged(isTyping: payload.payload.isActive, sessionKey: sessionKey))
             }
-            logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public) channelType=\(payload.payload.channelType ?? "nil", privacy: .public) channel=\(channel.rawValue, privacy: .public)")
-            emitServiceEvent(.typingStateChanged(isTyping: payload.payload.isActive, channel: channel))
         default:
             logger.debug("Unknown event type: \(envelope.event, privacy: .public)")
         }
+    }
+
+    private func resolveSessionKey(from payload: ServerMessagePayload) -> String? {
+        if let sessionKey = payload.sessionKey {
+            return sessionKey
+        }
+        guard let channelType = payload.channelType else { return nil }
+        if let sessionKey = SessionKey.sessionKey(for: channelType, userId: userIdProvider()) {
+            return sessionKey
+        }
+        logger.warning("Unable to derive sessionKey from channelType=\(channelType.rawValue, privacy: .public)")
+        return nil
+    }
+
+    private func resolveSessionKey(from payload: ActivityEventPayload.ActivityPayload) -> String? {
+        if let sessionKey = payload.sessionKey {
+            return sessionKey
+        }
+        guard let raw = payload.channelType?.lowercased() else { return nil }
+        let channelType: ChatChannelType
+        switch raw {
+        case "admin":
+            channelType = .admin
+        case "personal":
+            channelType = .personal
+        default:
+            logger.warning("Unknown channelType: \(payload.channelType ?? "nil", privacy: .public)")
+            return nil
+        }
+        if let sessionKey = SessionKey.sessionKey(for: channelType, userId: userIdProvider()) {
+            return sessionKey
+        }
+        logger.warning("Unable to derive sessionKey from channelType=\(channelType.rawValue, privacy: .public)")
+        return nil
     }
 
     private func updateState(_ state: ConnectionState) {

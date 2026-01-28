@@ -29,7 +29,18 @@ final class ChatViewModel: ChatViewModelHosting {
 
     /// Returns messages for a specific channel (used by paged channel views)
     func messages(for channel: ChatChannelType) -> [Message] {
-        channelMessages[channel] ?? []
+        guard let sessionKey = sessionKey(for: channel) else { return [] }
+        return sessionMessages[sessionKey] ?? []
+    }
+    func sessionKey(for channel: ChatChannelType) -> String? {
+        if channel == .admin, auth.isAdmin == false {
+            return nil
+        }
+        let key = SessionKey.sessionKey(for: channel, userId: auth.currentUserId)
+        if key == nil {
+            self.logger.warning("Missing session key for channel=\(channel.rawValue, privacy: .public) userId=\(self.auth.currentUserId ?? "nil", privacy: .public)")
+        }
+        return key
     }
     private(set) var lastServerMessageId: String?
     var inputContent: NSAttributedString = NSAttributedString() {
@@ -41,7 +52,7 @@ final class ChatViewModel: ChatViewModelHosting {
     var attachmentData: [UUID: PendingAttachment] = [:]
     private(set) var isSending: Bool = false
     private(set) var isAssistantTyping: Bool = false
-    private(set) var typingChannel: ChatChannelType?
+    private(set) var typingSessionKey: String?
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var connectionAlert: ConnectionAlertSeverity? {
         didSet {
@@ -65,7 +76,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private let settings: SettingsManager
     private let deviceId: String
     private var observationTask: Task<Void, Never>?
-    private var channelMessages: [ChatChannelType: [Message]] = [.personal: []]
+    private var sessionMessages: [String: [Message]] = [:]
     private var pendingLocalMessages: [PendingLocalMessage] = []
     private var reconnectTask: Task<Void, Never>?
     private var reconnectBackoff: Duration = .seconds(1)
@@ -88,7 +99,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private struct PendingLocalMessage: Equatable {
         let id: String
-        let channel: ChatChannelType
+        let sessionKey: String
     }
 
     init(auth: any AuthManaging,
@@ -179,8 +190,12 @@ final class ChatViewModel: ChatViewModelHosting {
         }
         guard activeChannel != channel else { return }
         activeChannel = channel
-        ensureChannelStorage(for: channel)
-        messages = channelMessages[channel] ?? []
+        if let sessionKey = sessionKey(for: channel) {
+            ensureSessionStorage(for: sessionKey)
+            messages = sessionMessages[sessionKey] ?? []
+        } else {
+            messages = []
+        }
     }
 
     func handleSceneDidBecomeActive() {
@@ -265,6 +280,11 @@ final class ChatViewModel: ChatViewModelHosting {
         activeClientMessageId = clientId
 
         let channel = activeChannel
+        guard let sessionKey = sessionKey(for: channel) else {
+            toastManager.show("Missing session key. Please reconnect.")
+            isSending = false
+            return
+        }
         let placeholder = Message(
             id: clientId,
             role: .user,
@@ -273,10 +293,11 @@ final class ChatViewModel: ChatViewModelHosting {
             streaming: false,
             attachments: makeDisplayAttachments(from: pendingAttachments),
             deviceId: deviceId,
+            sessionKey: sessionKey,
             channelType: channel
         )
         appendMessage(placeholder)
-        pendingLocalMessages.append(PendingLocalMessage(id: clientId, channel: channel))
+        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
 
         error = nil
 
@@ -285,14 +306,14 @@ final class ChatViewModel: ChatViewModelHosting {
                 clientId: clientId,
                 content: text,
                 pendingAttachments: pendingAttachments,
-                channelType: channel
+                sessionKey: sessionKey
             )
         }
     }
 
     func retryMessage(messageId: String) {
         guard !isSending else { return }
-        guard let (message, channel, index) = findMessage(id: messageId) else { return }
+        guard let (message, sessionKey, index) = findMessage(id: messageId) else { return }
 
         let clientId = "c_\(UUID().uuidString)"
         let retryMessage = Message(
@@ -303,15 +324,16 @@ final class ChatViewModel: ChatViewModelHosting {
             streaming: false,
             attachments: message.attachments,
             deviceId: deviceId,
-            channelType: channel
+            sessionKey: sessionKey,
+            channelType: message.channelType
         )
 
-        var channelList = channelMessages[channel] ?? []
-        channelList[index] = retryMessage
-        setMessages(channelList, for: channel)
+        var messageList = sessionMessages[sessionKey] ?? []
+        messageList[index] = retryMessage
+        setMessages(messageList, for: sessionKey)
 
         pendingLocalMessages.removeAll { $0.id == messageId }
-        pendingLocalMessages.append(PendingLocalMessage(id: clientId, channel: channel))
+        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
         messageFailures.removeValue(forKey: messageId)
 
         isSending = true
@@ -322,7 +344,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 clientId: clientId,
                 content: retryMessage.content,
                 attachments: retryMessage.attachments,
-                channelType: channel
+                sessionKey: sessionKey
             )
         }
     }
@@ -352,10 +374,13 @@ final class ChatViewModel: ChatViewModelHosting {
         messageFailures.removeAll()
         error = nil
         clearInput()
-        channelMessages = [.personal: []]
+        sessionMessages = [:]
         messages = []
         activeChannel = .personal
         pendingLocalMessages.removeAll()
+        isAssistantTyping = false
+        typingSessionKey = nil
+        shouldMorphTypingIndicator = false
         connectionStableTask?.cancel()
         connectionStableTask = nil
     }
@@ -367,14 +392,18 @@ final class ChatViewModel: ChatViewModelHosting {
     private func handleIncoming(_ message: Message) {
         let snippet = String(message.content.prefix(80))
         logger.info(
-            "incoming id=\(message.id, privacy: .public) channel=\(message.channelType.rawValue, privacy: .public) role=\(String(describing: message.role), privacy: .public) streaming=\(message.streaming, privacy: .public) deviceId=\(message.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
+            "incoming id=\(message.id, privacy: .public) sessionKey=\(message.sessionKey, privacy: .public) channel=\(message.channelType.rawValue, privacy: .public) role=\(String(describing: message.role), privacy: .public) streaming=\(message.streaming, privacy: .public) deviceId=\(message.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
         )
 
         // Check if this is an assistant message arriving while typing indicator is visible.
         // If so, the UI should morph the typing indicator into this message instead of inserting new.
-        if message.role == .assistant && isAssistantTyping {
+        if message.role == .assistant,
+           isAssistantTyping,
+           let typingSessionKey,
+           typingSessionKey == message.sessionKey {
             shouldMorphTypingIndicator = true
             isAssistantTyping = false
+            self.typingSessionKey = nil
         } else {
             shouldMorphTypingIndicator = false
         }
@@ -386,15 +415,15 @@ final class ChatViewModel: ChatViewModelHosting {
             return
         }
 
-        ensureChannelStorage(for: message.channelType)
-        var channelList = channelMessages[message.channelType] ?? []
-        if let existingIndex = channelList.firstIndex(where: { $0.id == message.id }) {
-            logger.info("incoming duplicate id=\(message.id, privacy: .public) index=\(existingIndex, privacy: .public) channel=\(message.channelType.rawValue, privacy: .public)")
-            channelList[existingIndex] = message
+        ensureSessionStorage(for: message.sessionKey)
+        var messageList = sessionMessages[message.sessionKey] ?? []
+        if let existingIndex = messageList.firstIndex(where: { $0.id == message.id }) {
+            logger.info("incoming duplicate id=\(message.id, privacy: .public) index=\(existingIndex, privacy: .public) sessionKey=\(message.sessionKey, privacy: .public)")
+            messageList[existingIndex] = message
         } else {
-            channelList.append(message)
+            messageList.append(message)
         }
-        setMessages(channelList, for: message.channelType)
+        setMessages(messageList, for: message.sessionKey)
 
         updateLastServerMessageIdIfNeeded(with: message)
         resolveAssetAttachmentsIfNeeded(for: message)
@@ -465,18 +494,19 @@ final class ChatViewModel: ChatViewModelHosting {
                 streaming: message.streaming,
                 attachments: updatedAttachments,
                 deviceId: message.deviceId,
+                sessionKey: message.sessionKey,
                 channelType: message.channelType
             )
 
             await MainActor.run {
-                self.ensureChannelStorage(for: updatedMessage.channelType)
-                var channelList = self.channelMessages[updatedMessage.channelType] ?? []
-                if let existingIndex = channelList.firstIndex(where: { $0.id == updatedMessage.id }) {
-                    channelList[existingIndex] = updatedMessage
+                self.ensureSessionStorage(for: updatedMessage.sessionKey)
+                var messageList = self.sessionMessages[updatedMessage.sessionKey] ?? []
+                if let existingIndex = messageList.firstIndex(where: { $0.id == updatedMessage.id }) {
+                    messageList[existingIndex] = updatedMessage
                 } else {
-                    channelList.append(updatedMessage)
+                    messageList.append(updatedMessage)
                 }
-                self.setMessages(channelList, for: updatedMessage.channelType)
+                self.setMessages(messageList, for: updatedMessage.sessionKey)
             }
         }
     }
@@ -487,19 +517,19 @@ final class ChatViewModel: ChatViewModelHosting {
             return false
         }
 
-        guard let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.channel == message.channelType }) else {
+        guard let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.sessionKey == message.sessionKey }) else {
             return false
         }
 
         let pending = pendingLocalMessages.remove(at: pendingIndex)
-        ensureChannelStorage(for: pending.channel)
-        var channelList = channelMessages[pending.channel] ?? []
-        guard let placeholderIndex = channelList.firstIndex(where: { $0.id == pending.id }) else {
+        ensureSessionStorage(for: pending.sessionKey)
+        var messageList = sessionMessages[pending.sessionKey] ?? []
+        guard let placeholderIndex = messageList.firstIndex(where: { $0.id == pending.id }) else {
             return false
         }
 
-        channelList[placeholderIndex] = message
-        setMessages(channelList, for: pending.channel)
+        messageList[placeholderIndex] = message
+        setMessages(messageList, for: pending.sessionKey)
         if activeClientMessageId == pending.id {
             activeClientMessageId = nil
         }
@@ -508,27 +538,27 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func appendMessage(_ message: Message) {
-        ensureChannelStorage(for: message.channelType)
-        var channelList = channelMessages[message.channelType] ?? []
-        channelList.append(message)
-        setMessages(channelList, for: message.channelType)
+        ensureSessionStorage(for: message.sessionKey)
+        var messageList = sessionMessages[message.sessionKey] ?? []
+        messageList.append(message)
+        setMessages(messageList, for: message.sessionKey)
     }
 
-    private func setMessages(_ newMessages: [Message], for channel: ChatChannelType) {
-        channelMessages[channel] = newMessages
-        if channel == activeChannel {
+    private func setMessages(_ newMessages: [Message], for sessionKey: String) {
+        sessionMessages[sessionKey] = newMessages
+        if sessionKey == self.sessionKey(for: activeChannel) {
             messages = newMessages
             let total = newMessages.count
             let uniqueCount = Set(newMessages.map(\.id)).count
             if uniqueCount != total {
-                logger.info("message list duplicate ids detected channel=\(channel.rawValue, privacy: .public) total=\(total, privacy: .public) unique=\(uniqueCount, privacy: .public)")
+                logger.info("message list duplicate ids detected sessionKey=\(sessionKey, privacy: .public) total=\(total, privacy: .public) unique=\(uniqueCount, privacy: .public)")
             }
         }
     }
 
-    private func ensureChannelStorage(for channel: ChatChannelType) {
-        if channelMessages[channel] == nil {
-            channelMessages[channel] = []
+    private func ensureSessionStorage(for sessionKey: String) {
+        if sessionMessages[sessionKey] == nil {
+            sessionMessages[sessionKey] = []
         }
     }
 
@@ -539,12 +569,12 @@ final class ChatViewModel: ChatViewModelHosting {
 
 
     private func removePlaceholder(withId id: String) {
-        let channels = Array(channelMessages.keys)
-        for channel in channels {
-            var list = channelMessages[channel] ?? []
+        let keys = Array(sessionMessages.keys)
+        for key in keys {
+            var list = sessionMessages[key] ?? []
             if let index = list.firstIndex(where: { $0.id == id }) {
                 list.remove(at: index)
-                setMessages(list, for: channel)
+                setMessages(list, for: key)
                 break
             }
         }
@@ -729,7 +759,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func performSend(clientId: String,
                               content: String,
                               pendingAttachments: [PendingAttachment],
-                              channelType: ChatChannelType) async {
+                              sessionKey: String) async {
         defer { sendTask = nil }
         do {
             let wireAttachments = try await buildWireAttachments(from: pendingAttachments, content: content)
@@ -738,7 +768,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 id: clientId,
                 content: content,
                 attachments: wireAttachments,
-                channelType: channelType
+                sessionKey: sessionKey
             )
             await MainActor.run {
                 clearInput()
@@ -771,7 +801,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func performRetrySend(clientId: String,
                                   content: String,
                                   attachments: [Attachment],
-                                  channelType: ChatChannelType) async {
+                                  sessionKey: String) async {
         defer { sendTask = nil }
         do {
             let wireAttachments = try await buildWireAttachments(from: attachments, content: content)
@@ -780,7 +810,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 id: clientId,
                 content: content,
                 attachments: wireAttachments,
-                channelType: channelType
+                sessionKey: sessionKey
             )
             await MainActor.run {
                 isSending = false
@@ -900,10 +930,10 @@ final class ChatViewModel: ChatViewModelHosting {
         return results
     }
 
-    private func findMessage(id: String) -> (message: Message, channel: ChatChannelType, index: Int)? {
-        for (channel, list) in channelMessages {
+    private func findMessage(id: String) -> (message: Message, sessionKey: String, index: Int)? {
+        for (sessionKey, list) in sessionMessages {
             if let index = list.firstIndex(where: { $0.id == id }) {
-                return (list[index], channel, index)
+                return (list[index], sessionKey, index)
             }
         }
         return nil
@@ -1016,7 +1046,7 @@ final class ChatViewModel: ChatViewModelHosting {
             let wasAdmin = auth.isAdmin
             auth.updateAdminStatus(info.isAdmin)
             if info.isAdmin {
-                ensureChannelStorage(for: .admin)
+                ensureSessionStorage(for: SessionKey.dm)
                 if !wasAdmin {
                     toastManager.show("DM channel unlocked")
                 }
@@ -1026,17 +1056,17 @@ final class ChatViewModel: ChatViewModelHosting {
                     setActiveChannel(.personal)
                 }
             }
-        case .typingStateChanged(let isTyping, let channel):
-            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) channel=\(channel.rawValue, privacy: .public) activeChannel=\(self.activeChannel.rawValue, privacy: .public)")
-            // Track which channel has the typing indicator
+        case .typingStateChanged(let isTyping, let sessionKey):
+            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) sessionKey=\(sessionKey, privacy: .public) activeChannel=\(self.activeChannel.rawValue, privacy: .public)")
+            // Track which session has the typing indicator
             // (used by paged TabView to show indicator only on the correct page)
             if isTyping {
                 self.isAssistantTyping = true
-                self.typingChannel = channel
-            } else if self.typingChannel == channel {
-                // Only clear if the stop event is for the same channel we're tracking
+                self.typingSessionKey = sessionKey
+            } else if self.typingSessionKey == sessionKey {
+                // Only clear if the stop event is for the same session we're tracking
                 self.isAssistantTyping = false
-                self.typingChannel = nil
+                self.typingSessionKey = nil
             }
         }
     }

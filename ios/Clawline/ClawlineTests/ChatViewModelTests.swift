@@ -30,6 +30,7 @@ struct ChatViewModelTests {
                 streaming: false,
                 attachments: [],
                 deviceId: nil,
+                sessionKey: SessionKey.personal(userId: "user"),
                 channelType: .personal
             )
         )
@@ -68,6 +69,7 @@ struct ChatViewModelTests {
                 streaming: true,
                 attachments: [],
                 deviceId: nil,
+                sessionKey: SessionKey.personal(userId: "user"),
                 channelType: .personal
             )
         )
@@ -85,6 +87,7 @@ struct ChatViewModelTests {
                 streaming: false,
                 attachments: [],
                 deviceId: nil,
+                sessionKey: SessionKey.personal(userId: "user"),
                 channelType: .personal
             )
         )
@@ -129,6 +132,7 @@ struct ChatViewModelTests {
                 streaming: false,
                 attachments: [],
                 deviceId: "device",
+                sessionKey: SessionKey.personal(userId: "user"),
                 channelType: .personal
             )
         )
@@ -252,6 +256,7 @@ struct ChatViewModelTests {
             streaming: false,
             attachments: [],
             deviceId: nil,
+            sessionKey: SessionKey.personal(userId: "user"),
             channelType: .personal
         )
 
@@ -345,9 +350,9 @@ struct ChatViewModelTests {
         #expect(viewModel.attachmentData.isEmpty)
     }
     
-    @Test("Outbound sends respect active channel selection")
+    @Test("Outbound sends respect active session selection")
     @MainActor
-    func sendUsesActiveChannelType() async throws {
+    func sendUsesActiveSessionKey() async throws {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         auth.updateAdminStatus(true)
@@ -366,7 +371,7 @@ struct ChatViewModelTests {
         viewModel.send()
         try await Task.sleep(for: .milliseconds(10))
 
-        #expect(chatService.lastChannelType == .admin)
+        #expect(chatService.lastSessionKey == SessionKey.dm)
     }
 
     @Test("Incoming messages route to matching channel")
@@ -395,6 +400,7 @@ struct ChatViewModelTests {
             streaming: false,
             attachments: [],
             deviceId: nil,
+            sessionKey: SessionKey.dm,
             channelType: .admin
         )
 
@@ -431,13 +437,13 @@ struct ChatViewModelTests {
 
         #expect(auth.isAdmin)
         let unlockMessages = await MainActor.run { toastManager.debugMessages }
-        #expect(unlockMessages.contains("Admin channel unlocked"))
+        #expect(unlockMessages.contains("DM channel unlocked"))
 
         chatService.emitServiceEvent(.userInfo(ChatUserInfo(userId: "user", isAdmin: false)))
         try await Task.sleep(for: .milliseconds(10))
         #expect(auth.isAdmin == false)
         let revokeMessages = await MainActor.run { toastManager.debugMessages }
-        #expect(revokeMessages.contains("Admin access revoked"))
+        #expect(revokeMessages.contains("DM access revoked"))
     }
 }
 
@@ -475,7 +481,7 @@ private final class TestChatService: ChatServicing {
     private var bufferedEvents: [ChatServiceEvent] = []
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
-    private(set) var lastChannelType: ChatChannelType?
+    private(set) var lastSessionKey: String?
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -508,10 +514,10 @@ private final class TestChatService: ChatServicing {
         stateContinuation?.yield(.disconnected)
     }
 
-    func send(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType) async throws {
+    func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String) async throws {
         lastSentId = id
         lastSentAttachments = attachments
-        lastChannelType = channelType
+        lastSessionKey = sessionKey
     }
 
     func emit(_ message: Message) {

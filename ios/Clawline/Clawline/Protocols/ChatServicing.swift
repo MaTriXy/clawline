@@ -33,7 +33,7 @@ enum ChatServiceEvent: Equatable {
     case messageError(messageId: String?, code: String, message: String?)
     case connectionInterrupted(reason: String?)
     case userInfo(ChatUserInfo)
-    case typingStateChanged(isTyping: Bool, channel: ChatChannelType)
+    case typingStateChanged(isTyping: Bool, sessionKey: String)
 }
 
 protocol ChatServicing {
@@ -47,6 +47,6 @@ protocol ChatServicing {
         id: String,
         content: String,
         attachments: [WireAttachment],
-        channelType: ChatChannelType
+        sessionKey: String
     ) async throws
 }

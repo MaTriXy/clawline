@@ -12,13 +12,16 @@ final class TypingIndicatorCell: UICollectionViewCell {
     static let reuseIdentifier = "TypingIndicatorCell"
     /// Fixed ID used in the diffable data source for the typing indicator item.
     static let itemId = "__typing_indicator__"
+    static let bubbleWidth: CGFloat = 96
+    static let bubbleHeight: CGFloat = 90
+    static let bubblePaddingScale: CGFloat = 0.2
 
     private static let indicatorText = ""
     private let containerView = MessageBubbleUIKitContainerView()
     private let dotsView = TypingDotsView()
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private let showsHeader = false
-    private let paddingScale: CGFloat = 0.1333333
+    private let paddingScale: CGFloat = bubblePaddingScale
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -55,8 +58,8 @@ final class TypingIndicatorCell: UICollectionViewCell {
             maxWidth: maxWidth,
             showsHeader: showsHeader,
             paddingScale: paddingScale,
-            minWidthOverride: 22,
-            maxWidthOverride: round(maxWidth * 0.1481481),
+            minWidthOverride: Self.bubbleWidth,
+            maxWidthOverride: Self.bubbleWidth,
             isDark: isDark,
             onRequestExpand: nil,
             onRetry: nil
@@ -79,8 +82,9 @@ final class TypingIndicatorCell: UICollectionViewCell {
         dotsView.stopAnimating()
     }
 
-    static func makeMessage(channelType: ChatChannelType) -> Message {
-        Message(
+    static func makeMessage(sessionKey: String) -> Message {
+        let channelType = SessionKey.channelType(for: sessionKey)
+        return Message(
             id: itemId,
             role: .assistant,
             content: indicatorText,
@@ -88,6 +92,7 @@ final class TypingIndicatorCell: UICollectionViewCell {
             streaming: false,
             attachments: [],
             deviceId: nil,
+            sessionKey: sessionKey,
             channelType: channelType
         )
     }

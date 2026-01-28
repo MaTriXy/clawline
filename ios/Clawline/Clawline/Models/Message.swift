@@ -34,6 +34,7 @@ struct Message: Identifiable, Equatable {
     var streaming: Bool
     let attachments: [Attachment]
     let deviceId: String?
+    let sessionKey: String
     let channelType: ChatChannelType
 
     enum Role: String, Codable {

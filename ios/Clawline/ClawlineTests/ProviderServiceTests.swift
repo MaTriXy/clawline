@@ -116,7 +116,7 @@ struct ProviderServiceTests {
             try await Task.sleep(forDuration: .milliseconds(20))
             mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
             try await Task.sleep(forDuration: .milliseconds(20))
-            mockSocket.enqueue(text: #"{ "type": "message", "id": "s_1", "role": "assistant", "content": "Hi", "timestamp": 1700000000000, "streaming": false, "attachments": [] }"#)
+            mockSocket.enqueue(text: #"{ "type": "message", "id": "s_1", "role": "assistant", "content": "Hi", "timestamp": 1700000000000, "streaming": false, "sessionKey": "agent:main:main", "attachments": [] }"#)
         }
 
         async let connectResult = service.connect(token: "jwt", lastMessageId: "s_0")
@@ -146,12 +146,12 @@ struct ProviderServiceTests {
         }
 
         try await service.connect(token: "jwt", lastMessageId: nil)
-        try await service.send(id: "c_test", content: "Hello", attachments: [], channelType: .personal)
+        try await service.send(id: "c_test", content: "Hello", attachments: [], sessionKey: SessionKey.dm)
 
         #expect(mockSocket.sentTexts.contains {
             $0.contains("\"type\":\"message\"")
             && $0.contains("\"content\":\"Hello\"")
-            && $0.contains("\"channelType\":\"personal\"")
+            && $0.contains("\"sessionKey\":\"agent:main:main\"")
         })
     }
 }

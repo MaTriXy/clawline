@@ -234,6 +234,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [sampleAttachment(id: "img1"), sampleAttachment(id: "img2")],
             deviceId: nil,
+            sessionKey: SessionKey.personal(userId: "user"),
             channelType: .personal
         )
         let presentation = buildPresentation(message)
@@ -271,6 +272,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [sampleAttachment(id: "img")],
             deviceId: nil,
+            sessionKey: SessionKey.personal(userId: "user"),
             channelType: .personal
         )
         let presentation = buildPresentation(message)
@@ -381,16 +383,18 @@ struct ChatFlowOrganicComplianceTests {
             "timestamp": 1704672000000,
             "streaming": false,
             "deviceId": "ABC123",
+            "sessionKey": "agent:main:clawline:user:main",
             "attachments": []
         }
         """
         let payload = try! JSONDecoder().decode(ServerMessagePayload.self, from: Data(json.utf8))
-        let message = Message(payload: payload)
+        let message = Message(payload: payload, sessionKey: payload.sessionKey ?? SessionKey.personal(userId: "user"))
         #expect(message.id == "s_789")
         #expect(message.role == .assistant)
         #expect(message.content == "Hello")
         #expect(message.timestamp.timeIntervalSince1970 == 1704672000)
         #expect(message.streaming == false)
+        #expect(message.sessionKey == "agent:main:clawline:user:main")
         #expect(message.channelType == .personal)
     }
 
@@ -402,7 +406,8 @@ struct ChatFlowOrganicComplianceTests {
         #expect(json?["id"] != nil)
         #expect(json?["content"] as? String == "Hello world")
         #expect(json?["attachments"] != nil)
-        #expect(json?["channelType"] as? String == "personal")
+        #expect(json?["sessionKey"] != nil)
+        #expect(json?["channelType"] == nil)
         #expect(json?["role"] == nil)
         #expect(json?["timestamp"] == nil)
         #expect(json?["streaming"] == nil)
@@ -419,6 +424,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [attachment],
             deviceId: nil,
+            sessionKey: SessionKey.personal(userId: "user"),
             channelType: .personal
         )
         let payload = message.toClientPayload()
@@ -427,7 +433,8 @@ struct ChatFlowOrganicComplianceTests {
             Issue.record("Expected attachment entry")
             return
         }
-        #expect(decoded.channelType == .personal)
+        #expect(decoded.sessionKey == SessionKey.personal(userId: "user"))
+        #expect(decoded.channelType == nil)
         switch first {
         case .image(let mimeType, let data):
             #expect(mimeType == "image/png")
@@ -446,14 +453,16 @@ struct ChatFlowOrganicComplianceTests {
             timestamp: Date(),
             streaming: true,
             deviceId: "device",
+            sessionKey: SessionKey.personal(userId: "user"),
             attachments: []
         )
-        let message = Message(payload: payload)
+        let message = Message(payload: payload, sessionKey: payload.sessionKey ?? SessionKey.personal(userId: "user"))
         #expect(message.id == payload.id)
         #expect(message.role == payload.role)
         #expect(message.streaming == payload.streaming)
         #expect(message.attachments == payload.attachments)
-        #expect(message.channelType == payload.channelType)
+        #expect(message.sessionKey == payload.sessionKey)
+        #expect(message.channelType == SessionKey.channelType(for: payload.sessionKey ?? SessionKey.dm))
     }
 
     @Test("Doc §5: MessagePart.isTextual lives with model")
@@ -477,6 +486,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [sampleAttachment(id: "img1"), sampleAttachment(id: "img2")],
             deviceId: nil,
+            sessionKey: SessionKey.personal(userId: "user"),
             channelType: .personal
         )
         let presentation = buildPresentation(message)
@@ -504,6 +514,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [],
             deviceId: nil,
+            sessionKey: SessionKey.personal(userId: "user"),
             channelType: .personal
         )
     }

@@ -271,7 +271,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Add typing indicator when assistant is typing (server-controlled)
         // Only show on the matching channel page (for paged TabView)
         let effectiveChannel = channel ?? viewModel.activeChannel
-        let showTypingIndicator = viewModel.isAssistantTyping && viewModel.typingChannel == effectiveChannel
+        let effectiveSessionKey = viewModel.sessionKey(for: effectiveChannel)
+        let showTypingIndicator = effectiveSessionKey != nil
+            && viewModel.isAssistantTyping
+            && viewModel.typingSessionKey == effectiveSessionKey
         let typingIndicatorJustAppeared = showTypingIndicator && !wasShowingTypingIndicator
         let shouldMorph = viewModel.shouldMorphTypingIndicator && wasShowingTypingIndicator
         if showTypingIndicator != wasShowingTypingIndicator {
@@ -359,8 +362,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     for: indexPath
                 ) as? TypingIndicatorCell
                 let metrics = ChatFlowTheme.Metrics(isCompact: self.isCompact)
-                let channel = viewModel.typingChannel ?? viewModel.activeChannel
-                let message = TypingIndicatorCell.makeMessage(channelType: channel)
+                guard let sessionKey = viewModel.typingSessionKey
+                    ?? viewModel.sessionKey(for: viewModel.activeChannel) else {
+                    return cell
+                }
+                let message = TypingIndicatorCell.makeMessage(sessionKey: sessionKey)
                 let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
                 let sizeClass = MessageFlowRules.sizeClass(for: presentation)
                 let maxWidth = self.maxItemWidth(
@@ -476,8 +482,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Handle typing indicator size
         if id == TypingIndicatorCell.itemId {
             let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-            let channel = viewModel.typingChannel ?? viewModel.activeChannel
-            let message = TypingIndicatorCell.makeMessage(channelType: channel)
+            guard let sessionKey = viewModel.typingSessionKey
+                ?? viewModel.sessionKey(for: viewModel.activeChannel) else {
+                return .zero
+            }
+            let message = TypingIndicatorCell.makeMessage(sessionKey: sessionKey)
             let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
             let sizeClass = MessageFlowRules.sizeClass(for: presentation)
             let availableWidth = availableContentWidth()
@@ -488,17 +497,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 containerWidth: availableWidth
             )
-            let maxWidthOverride = round(maxWidth * 0.2222222)
             return measureUIKitBubbleSize(
                 message: message,
                 presentation: presentation,
                 failureReason: nil,
                 maxWidth: maxWidth,
                 showsHeader: false,
-                paddingScale: 0.2,
-                minWidthOverride: 16,
-                maxWidthOverride: maxWidthOverride,
-                minHeightOverride: round(maxWidthOverride * 0.48)
+                paddingScale: TypingIndicatorCell.bubblePaddingScale,
+                minWidthOverride: TypingIndicatorCell.bubbleWidth,
+                maxWidthOverride: TypingIndicatorCell.bubbleWidth,
+                minHeightOverride: TypingIndicatorCell.bubbleHeight
             )
         }
 
