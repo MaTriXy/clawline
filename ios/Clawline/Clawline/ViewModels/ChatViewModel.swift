@@ -607,18 +607,26 @@ final class ChatViewModel: ChatViewModelHosting {
             clearConnectionAlert()
             error = nil
             lastForegroundReconnectTrigger = nil
+            isAssistantTyping = false
+            typingSessionKey = nil
         case .disconnected:
             connectionStableTask?.cancel()
             connectionStableTask = nil
             beginConnectionAlert(message: "Not connected to provider.")
             scheduleReconnect(reason: .connectionStateDisconnected)
+            isAssistantTyping = false
+            typingSessionKey = nil
         case .failed(let err):
             connectionStableTask?.cancel()
             connectionStableTask = nil
             handleConnectionFailure(err)
             scheduleReconnect(reason: .connectionStateFailed)
+            isAssistantTyping = false
+            typingSessionKey = nil
         case .connecting, .reconnecting:
             beginConnectionAlert(message: "Reconnecting…", shouldAnnounce: false)
+            isAssistantTyping = false
+            typingSessionKey = nil
         }
     }
 
