@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -u
+
+# Deterministic build number: commit_count*10 + dirty(0/1).
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT="$SCRIPT_DIR/../.."
+commit_count=0
+dirty=0
+
+if command -v git >/dev/null 2>&1; then
+  REPO_ROOT=$(git -C "$SCRIPT_DIR/../.." rev-parse --show-toplevel 2>/dev/null || echo "$REPO_ROOT")
+  commit_count=$(git -C "$REPO_ROOT" rev-list --count HEAD 2>/dev/null || echo 0)
+  if ! git -C "$REPO_ROOT" diff --quiet 2>/dev/null \
+    || ! git -C "$REPO_ROOT" diff --cached --quiet 2>/dev/null \
+    || [[ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard 2>/dev/null)" ]]; then
+    dirty=1
+  fi
+fi
+
+build_number=$((commit_count * 10 + dirty))
+echo "Setting build number to $build_number (commit_count=$commit_count, dirty=$dirty)"
+
+cd "$REPO_ROOT/ios/Clawline" || exit 0
+
+if command -v xcrun >/dev/null 2>&1; then
+  xcrun agvtool new-version -all "$build_number" || {
+    echo "warning: agvtool failed; continuing without updating build number"
+    exit 0
+  }
+elif command -v agvtool >/dev/null 2>&1; then
+  agvtool new-version -all "$build_number" || {
+    echo "warning: agvtool failed; continuing without updating build number"
+    exit 0
+  }
+else
+  echo "warning: agvtool not found; continuing without updating build number"
+fi

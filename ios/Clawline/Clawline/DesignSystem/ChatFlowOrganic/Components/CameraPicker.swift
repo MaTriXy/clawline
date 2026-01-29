@@ -5,6 +5,7 @@
 //  Created by Codex on 1/15/26.
 //
 
+#if !os(visionOS)
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -56,3 +57,4 @@ struct CameraPicker: UIViewControllerRepresentable {
         }
     }
 }
+#endif

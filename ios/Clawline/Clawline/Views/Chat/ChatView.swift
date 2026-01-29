@@ -150,6 +150,7 @@ struct ChatView: View {
             guard phase == .active else { return }
             viewModel.handleSceneDidBecomeActive()
         }
+#if !os(visionOS)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
             handleKeyboardFrameChange(notification)
         }
@@ -158,6 +159,7 @@ struct ChatView: View {
                 keyboardHeight = 0
             }
         }
+#endif
         .sheet(item: $activeSheet, content: sheetView)
         .photosPicker(
             isPresented: $isPhotosPickerPresented,
@@ -368,6 +370,13 @@ struct ChatView: View {
             let presentation = viewModel.presentation(for: message, metrics: metrics)
             ExpandedMessageSheet(message: message, presentation: presentation)
         case .camera:
+            #if os(visionOS)
+            Color.clear
+                .onAppear {
+                    activeSheet = nil
+                    restoreFocusIfNeeded()
+                }
+            #else
             CameraPicker(
                 onImage: { image in
                     activeSheet = nil
@@ -381,6 +390,7 @@ struct ChatView: View {
                     restoreFocusIfNeeded()
                 }
             )
+            #endif
         }
     }
 
@@ -417,8 +427,10 @@ struct ChatView: View {
                 guard newChannel != viewModel.activeChannel else { return }
 
                 // Haptic feedback
+#if !os(visionOS)
                 let generator = UIImpactFeedbackGenerator(style: .medium)
                 generator.impactOccurred()
+#endif
 
                 // Switch channel and show toast
                 viewModel.setActiveChannel(newChannel)
@@ -456,12 +468,18 @@ struct ChatView: View {
     @MainActor
     private func presentCamera() {
         prepareForAttachmentPicker()
+#if os(visionOS)
+        toastManager.show(error: .cameraUnavailable)
+        restoreFocusIfNeeded()
+        return
+#else
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             toastManager.show(error: .cameraUnavailable)
             restoreFocusIfNeeded()
             return
         }
         activeSheet = .camera
+#endif
     }
 
     @MainActor
@@ -666,7 +684,14 @@ struct ChatView: View {
                 .truncationMode(.tail)
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
+#if os(visionOS)
+                .background(
+                    Capsule()
+                        .fill(Color.white.opacity(0.3))
+                )
+#else
                 .glassEffect(.regular, in: Capsule())
+#endif
                 .onTapGesture(perform: dismiss)
                 .gesture(
                     DragGesture(minimumDistance: 8)
@@ -716,7 +741,11 @@ struct ChatView: View {
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
             .first { $0.isKeyWindow }
+        #if os(visionOS)
+        let screenHeight = window?.bounds.height ?? frame.maxY
+        #else
         let screenHeight = window?.windowScene?.screen.bounds.height ?? window?.bounds.height ?? frame.maxY
+        #endif
         let overlap = max(0, screenHeight - frame.minY)
         withAnimation(.easeOut(duration: duration)) {
             keyboardHeight = overlap
@@ -782,11 +811,13 @@ private struct AttachmentSourceSheet: View {
                 .foregroundStyle(ChatFlowTheme.warmBrown(colorScheme))
 
             VStack(spacing: 12) {
+#if !os(visionOS)
                 AttachmentActionButton(
                     title: "Camera",
                     icon: "camera.fill",
                     action: onCamera
                 )
+#endif
 
                 AttachmentActionButton(
                     title: "Photos",
@@ -844,7 +875,14 @@ private struct AttachmentActionButton: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(.ultraThinMaterial)
             }
+#if os(visionOS)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
+            )
+#else
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+#endif
             .scaleEffect(isPressed ? 0.97 : 1)
             .animation(.easeOut(duration: 0.15), value: isPressed)
         }

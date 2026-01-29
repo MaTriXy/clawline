@@ -6,17 +6,21 @@
 //
 
 import SwiftUI
+#if !os(visionOS)
 import UIKit
+#endif
 
 struct ChannelSwitcherView: View {
     let activeChannel: ChatChannelType
     let onSelect: (ChatChannelType) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+#if !os(visionOS)
     @State private var feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
+#endif
 
     var body: some View {
-        HStack(spacing: 12) {
+        let base = HStack(spacing: 12) {
             switchButton(for: .personal)
             switchButton(for: .admin)
         }
@@ -26,13 +30,19 @@ struct ChannelSwitcherView: View {
             RoundedRectangle(cornerRadius: 32, style: .continuous)
                 .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
         )
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 32, style: .continuous)
                 .stroke(Color.white.opacity(colorScheme == .dark ? 0.15 : 0.2), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 12)
-        .onAppear { feedbackGenerator.prepare() }
+
+#if os(visionOS)
+        base
+#else
+        base
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+            .onAppear { feedbackGenerator.prepare() }
+#endif
     }
 
     private func switchButton(for channel: ChatChannelType) -> some View {
@@ -41,7 +51,9 @@ struct ChannelSwitcherView: View {
 
         return Button {
             guard channel != activeChannel else { return }
+#if !os(visionOS)
             feedbackGenerator.impactOccurred()
+#endif
             onSelect(channel)
         } label: {
             Text(channel.displayName)

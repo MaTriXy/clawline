@@ -135,6 +135,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func setupKeyboardTracking() {
+#if !os(visionOS)
         // Observe keyboard frame changes to adjust content inset.
         // This is the standard UIKit pattern for scroll view keyboard avoidance.
         NotificationCenter.default.addObserver(
@@ -143,9 +144,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
+#endif
     }
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+#if os(visionOS)
+        return
+#else
         guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
             return
         }
@@ -170,6 +175,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if keyboardJustAppeared && isNearBottom(extraMargin: max(24, baseBottomInset)) {
             scrollToBottom(animated: true)
         }
+#endif
     }
 
     private var baseBottomInset: CGFloat = 0
@@ -337,7 +343,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.backgroundColor = .clear
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
+#if !os(visionOS)
         collectionView.keyboardDismissMode = .interactive
+#endif
         collectionView.allowsSelection = false
         collectionView.allowsMultipleSelection = false
         collectionView.clipsToBounds = false  // Allow content to render past bounds during scroll
@@ -853,7 +861,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func snapToPixel(_ size: CGSize) -> CGSize {
+#if os(visionOS)
+        let scale = view.traitCollection.displayScale
+#else
         let scale = view.window?.windowScene?.screen.scale ?? view.traitCollection.displayScale
+#endif
         func snap(_ value: CGFloat) -> CGFloat {
             ceil(value * scale) / scale
         }

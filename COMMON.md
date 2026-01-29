@@ -29,6 +29,11 @@ xcodebuild -project ios/Clawline/Clawline.xcodeproj -scheme Clawline \
   -destination 'platform=iOS Simulator,name=iPhone 16 Pro' test
 ```
 
+### Build Number
+
+The Clawline scheme runs `ios/Clawline/scripts/set-build-number` before builds. It sets
+`CURRENT_PROJECT_VERSION`/`CFBundleVersion` deterministically from git: `commit_count*10 + dirty`.
+
 ### Device Deployment
 
 ```bash

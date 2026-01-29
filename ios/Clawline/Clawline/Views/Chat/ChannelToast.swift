@@ -20,7 +20,14 @@ struct ChannelToast: View {
             .foregroundStyle(colorScheme == .dark ? .white : .primary)
             .padding(.horizontal, 32)
             .padding(.vertical, 20)
+#if os(visionOS)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
+            )
+#else
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+#endif
             .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
     }
 }

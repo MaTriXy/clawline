@@ -171,7 +171,14 @@ struct PairingView: View {
             .padding(.horizontal, 20)
             .frame(height: inputHeight)
             .frame(maxWidth: .infinity)
+#if os(visionOS)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.3))
+            )
+#else
             .glassEffect(.regular, in: Capsule())
+#endif
 
             // Checkmark to proceed to address
             Button {
@@ -198,7 +205,14 @@ struct PairingView: View {
                     .font(.system(size: 18, weight: .semibold))
             }
             .frame(width: inputHeight, height: inputHeight)
+#if os(visionOS)
+            .background(
+                Circle()
+                    .fill(Color.white.opacity(0.3))
+            )
+#else
             .glassEffect(.regular.interactive(), in: Circle())
+#endif
 
             // Text field with server icon
             HStack(spacing: 12) {
@@ -221,7 +235,14 @@ struct PairingView: View {
             .padding(.horizontal, 20)
             .frame(height: inputHeight)
             .frame(maxWidth: .infinity)
+#if os(visionOS)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.3))
+            )
+#else
             .glassEffect(.regular, in: Capsule())
+#endif
 
             // Send button to submit
             Button {
@@ -278,7 +299,14 @@ struct PairingView: View {
             .padding(.horizontal, 20)
             .frame(height: inputHeight)
             .frame(maxWidth: .infinity)
+#if os(visionOS)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.3))
+            )
+#else
             .glassEffect(.regular, in: Capsule())
+#endif
 
             if isStalled {
                 Button {

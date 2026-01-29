@@ -39,9 +39,11 @@ struct RichTextEditor: UIViewRepresentable {
         textView.adjustsFontForContentSizeCategory = true
         textView.font = UIFont.preferredFont(forTextStyle: .body)
         textView.allowsEditingTextAttributes = true
+#if !os(visionOS)
         textView.inputAssistantItem.leadingBarButtonGroups = []
         textView.inputAssistantItem.trailingBarButtonGroups = []
         textView.keyboardDismissMode = .interactive
+#endif
         textView.returnKeyType = .send
         textView.tintColor = UIColor.label
         textView.autocorrectionType = .yes
@@ -80,12 +82,14 @@ struct RichTextEditor: UIViewRepresentable {
             textView.isEditable = isEditable
         }
 
+#if !os(visionOS)
         if !textView.inputAssistantItem.leadingBarButtonGroups.isEmpty {
             textView.inputAssistantItem.leadingBarButtonGroups = []
         }
         if !textView.inputAssistantItem.trailingBarButtonGroups.isEmpty {
             textView.inputAssistantItem.trailingBarButtonGroups = []
         }
+#endif
 
         let currentInset = textView.textContainerInset
         if abs(currentInset.right - trailingPadding) > 0.5 {

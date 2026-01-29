@@ -146,7 +146,14 @@ struct MessageInputBar: View {
                     .contentShape(Rectangle())
             }
             .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
+#if os(visionOS)
+            .background(
+                Circle()
+                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
+            )
+#else
             .glassEffect(.regular.interactive(), in: Circle())
+#endif
             .accessibilityLabel("Add attachment")
             .disabled(isSending)
 
@@ -197,7 +204,14 @@ struct MessageInputBar: View {
             }
             .frame(height: inputHeight)
             .frame(maxWidth: .infinity, alignment: .bottom)
+#if os(visionOS)
+            .background(
+                inputShape
+                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
+            )
+#else
             .glassEffect(.regular, in: inputShape)
+#endif
             .overlay {
                 if let alertColor = connectionAlertColor {
                     inputShape
@@ -222,7 +236,14 @@ struct MessageInputBar: View {
                 .contentShape(Rectangle())
             }
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
+#if os(visionOS)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
+            )
+#else
             .glassEffect(.regular.interactive(), in: Capsule())
+#endif
             .buttonStyle(.plain)
             .allowsHitTesting(isSendEnabled)
             .opacity((connectionAlertColor == nil ? 1 : 0.65) * (isSendEnabled ? 1 : 0.4))

@@ -7,11 +7,20 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2747398E2F2AE61500FEE90E /* RealityKitContent in Frameworks */ = {isa = PBXBuildFile; productRef = 2747398D2F2AE61500FEE90E /* RealityKitContent */; };
+		F679AC8CEBF54DF08B2AB80D /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 27HL00022F1000000073BF45 /* HighlightSwift */; };
 		274F7BA92F0F24F20073BF45 /* Clawline Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 274F7BA82F0F24F20073BF45 /* Clawline Watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		278B578A2F248E2C00E501B1 /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 27HL00022F1000000073BF45 /* HighlightSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		2747399B2F2AE61700FEE90E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 274F7B632F0F22B50073BF45 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 274739882F2AE61500FEE90E;
+			remoteInfo = "Clawline Spatial";
+		};
 		274F7B792F0F22B60073BF45 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 274F7B632F0F22B50073BF45 /* Project object */;
@@ -64,6 +73,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		274739892F2AE61500FEE90E /* Clawline Spatial.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Clawline Spatial.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2747398C2F2AE61500FEE90E /* RealityKitContent */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = RealityKitContent; sourceTree = "<group>"; };
+		2747399A2F2AE61700FEE90E /* Clawline SpatialTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Clawline SpatialTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		274F7B6B2F0F22B50073BF45 /* Clawline.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Clawline.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		274F7B782F0F22B60073BF45 /* ClawlineTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClawlineTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		274F7B822F0F22B60073BF45 /* ClawlineUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClawlineUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -73,7 +85,30 @@
 		274F7BC12F0F24F30073BF45 /* Clawline Watch Watch AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Clawline Watch Watch AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		274739A42F2AE61700FEE90E /* Exceptions for "Clawline Spatial" folder in "Clawline Spatial" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 274739882F2AE61500FEE90E /* Clawline Spatial */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		2747398A2F2AE61500FEE90E /* Clawline Spatial */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				274739A42F2AE61700FEE90E /* Exceptions for "Clawline Spatial" folder in "Clawline Spatial" target */,
+			);
+			path = "Clawline Spatial";
+			sourceTree = "<group>";
+		};
+		2747399D2F2AE61700FEE90E /* Clawline SpatialTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Clawline SpatialTests";
+			sourceTree = "<group>";
+		};
 		274F7B6D2F0F22B50073BF45 /* Clawline */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Clawline;
@@ -107,6 +142,22 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		274739862F2AE61500FEE90E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2747398E2F2AE61500FEE90E /* RealityKitContent in Frameworks */,
+				F679AC8CEBF54DF08B2AB80D /* HighlightSwift in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		274739972F2AE61700FEE90E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		274F7B682F0F22B50073BF45 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -153,6 +204,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2747398B2F2AE61500FEE90E /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				2747398C2F2AE61500FEE90E /* RealityKitContent */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
 		274F7B622F0F22B50073BF45 = {
 			isa = PBXGroup;
 			children = (
@@ -162,6 +221,9 @@
 				274F7BAC2F0F24F20073BF45 /* Clawline Watch Watch App */,
 				274F7BBA2F0F24F30073BF45 /* Clawline Watch Watch AppTests */,
 				274F7BC42F0F24F30073BF45 /* Clawline Watch Watch AppUITests */,
+				2747398A2F2AE61500FEE90E /* Clawline Spatial */,
+				2747398B2F2AE61500FEE90E /* Packages */,
+				2747399D2F2AE61700FEE90E /* Clawline SpatialTests */,
 				274F7B6C2F0F22B50073BF45 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -176,6 +238,8 @@
 				274F7BA82F0F24F20073BF45 /* Clawline Watch Watch App.app */,
 				274F7BB72F0F24F30073BF45 /* Clawline Watch Watch AppTests.xctest */,
 				274F7BC12F0F24F30073BF45 /* Clawline Watch Watch AppUITests.xctest */,
+				274739892F2AE61500FEE90E /* Clawline Spatial.app */,
+				2747399A2F2AE61700FEE90E /* Clawline SpatialTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -183,6 +247,54 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		274739882F2AE61500FEE90E /* Clawline Spatial */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 274739A52F2AE61700FEE90E /* Build configuration list for PBXNativeTarget "Clawline Spatial" */;
+			buildPhases = (
+				274739852F2AE61500FEE90E /* Sources */,
+				274739862F2AE61500FEE90E /* Frameworks */,
+				274739872F2AE61500FEE90E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				2747398A2F2AE61500FEE90E /* Clawline Spatial */,
+				274F7B6D2F0F22B50073BF45 /* Clawline */,
+			);
+			name = "Clawline Spatial";
+			packageProductDependencies = (
+				2747398D2F2AE61500FEE90E /* RealityKitContent */,
+				27HL00022F1000000073BF45 /* HighlightSwift */,
+			);
+			productName = "Clawline Spatial";
+			productReference = 274739892F2AE61500FEE90E /* Clawline Spatial.app */;
+			productType = "com.apple.product-type.application";
+		};
+		274739992F2AE61700FEE90E /* Clawline SpatialTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 274739A62F2AE61700FEE90E /* Build configuration list for PBXNativeTarget "Clawline SpatialTests" */;
+			buildPhases = (
+				274739962F2AE61700FEE90E /* Sources */,
+				274739972F2AE61700FEE90E /* Frameworks */,
+				274739982F2AE61700FEE90E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2747399C2F2AE61700FEE90E /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				2747399D2F2AE61700FEE90E /* Clawline SpatialTests */,
+			);
+			name = "Clawline SpatialTests";
+			packageProductDependencies = (
+			);
+			productName = "Clawline SpatialTests";
+			productReference = 2747399A2F2AE61700FEE90E /* Clawline SpatialTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		274F7B6A2F0F22B50073BF45 /* Clawline */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 274F7B8C2F0F22B60073BF45 /* Build configuration list for PBXNativeTarget "Clawline" */;
@@ -349,6 +461,13 @@
 				LastSwiftUpdateCheck = 2610;
 				LastUpgradeCheck = 2610;
 				TargetAttributes = {
+					274739882F2AE61500FEE90E = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
+					274739992F2AE61700FEE90E = {
+						CreatedOnToolsVersion = 26.1.1;
+						TestTargetID = 274739882F2AE61500FEE90E;
+					};
 					274F7B6A2F0F22B50073BF45 = {
 						CreatedOnToolsVersion = 26.1.1;
 					};
@@ -400,11 +519,27 @@
 				274F7BA72F0F24F20073BF45 /* Clawline Watch Watch App */,
 				274F7BB62F0F24F30073BF45 /* Clawline Watch Watch AppTests */,
 				274F7BC02F0F24F30073BF45 /* Clawline Watch Watch AppUITests */,
+				274739882F2AE61500FEE90E /* Clawline Spatial */,
+				274739992F2AE61700FEE90E /* Clawline SpatialTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		274739872F2AE61500FEE90E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		274739982F2AE61700FEE90E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		274F7B692F0F22B50073BF45 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -457,6 +592,20 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		274739852F2AE61500FEE90E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		274739962F2AE61700FEE90E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		274F7B672F0F22B50073BF45 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -502,6 +651,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		2747399C2F2AE61700FEE90E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 274739882F2AE61500FEE90E /* Clawline Spatial */;
+			targetProxy = 2747399B2F2AE61700FEE90E /* PBXContainerItemProxy */;
+		};
 		274F7B7A2F0F22B60073BF45 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 274F7B6A2F0F22B50073BF45 /* Clawline */;
@@ -530,6 +684,118 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		274739A02F2AE61700FEE90E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z7R59J7QV8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "$(TARGET_NAME)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Clawline;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "co.clicketyclacks.Clawline-Spatial";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				XROS_DEPLOYMENT_TARGET = 26.1;
+			};
+			name = Debug;
+		};
+		274739A12F2AE61700FEE90E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z7R59J7QV8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "$(TARGET_NAME)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Clawline;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "co.clicketyclacks.Clawline-Spatial";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				XROS_DEPLOYMENT_TARGET = 26.1;
+			};
+			name = Release;
+		};
+		274739A22F2AE61700FEE90E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z7R59J7QV8;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "co.clicketyclacks.Clawline-SpatialTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Clawline Spatial.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Clawline Spatial";
+				XROS_DEPLOYMENT_TARGET = 26.1;
+			};
+			name = Debug;
+		};
+		274739A32F2AE61700FEE90E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z7R59J7QV8;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "co.clicketyclacks.Clawline-SpatialTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = xros;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Clawline Spatial.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Clawline Spatial";
+				XROS_DEPLOYMENT_TARGET = 26.1;
+			};
+			name = Release;
+		};
 		274F7B8A2F0F22B60073BF45 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -657,7 +923,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -690,7 +956,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -722,7 +988,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
@@ -744,7 +1010,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
@@ -765,7 +1031,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -785,7 +1051,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -805,7 +1071,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				INFOPLIST_KEY_CFBundleDisplayName = "Clawline Watch";
 				MARKETING_VERSION = 1.0;
@@ -821,7 +1087,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				INFOPLIST_KEY_CFBundleDisplayName = "Clawline Watch";
 				MARKETING_VERSION = 1.0;
@@ -839,7 +1105,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -872,7 +1138,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -904,7 +1170,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -927,7 +1193,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -949,7 +1215,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -971,7 +1237,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 1561;
 				DEVELOPMENT_TEAM = Z7R59J7QV8;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
@@ -992,6 +1258,24 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		274739A52F2AE61700FEE90E /* Build configuration list for PBXNativeTarget "Clawline Spatial" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				274739A02F2AE61700FEE90E /* Debug */,
+				274739A12F2AE61700FEE90E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		274739A62F2AE61700FEE90E /* Build configuration list for PBXNativeTarget "Clawline SpatialTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				274739A22F2AE61700FEE90E /* Debug */,
+				274739A32F2AE61700FEE90E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		274F7B662F0F22B50073BF45 /* Build configuration list for PBXProject "Clawline" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1078,6 +1362,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		2747398D2F2AE61500FEE90E /* RealityKitContent */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RealityKitContent;
+		};
 		27HL00022F1000000073BF45 /* HighlightSwift */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 27HL00012F1000000073BF45 /* XCRemoteSwiftPackageReference "HighlightSwift" */;
