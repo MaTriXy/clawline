@@ -384,6 +384,7 @@ final class ProviderChatService: ChatServicing {
         if let pending = pendingMessages.removeValue(forKey: payload.id) {
             pending.retryTask?.cancel()
         }
+        emitServiceEvent(.messageAcked(id: payload.id))
     }
 
     private func handleServerError(data: Data) {
