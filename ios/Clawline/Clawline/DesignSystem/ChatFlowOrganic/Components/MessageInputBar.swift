@@ -177,7 +177,7 @@ struct MessageInputBar: View {
     private var sendIconColor: Color {
 #if os(visionOS)
         return isLightMode
-            ? Color(red: 0.42, green: 0.61, blue: 0.42)
+            ? Color(red: 0.22, green: 0.32, blue: 0.18)
             : ChatFlowTheme.sage(colorScheme)
 #else
         return ChatFlowTheme.sage(colorScheme)
