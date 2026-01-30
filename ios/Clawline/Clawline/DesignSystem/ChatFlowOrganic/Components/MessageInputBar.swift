@@ -158,16 +158,7 @@ struct MessageInputBar: View {
 #endif
     }
 
-    private var appearanceIconColor: Color {
-#if os(visionOS)
-        if isLightMode {
-            return Color(red: 0.42, green: 0.61, blue: 0.42)
-        }
-        return addButtonForeground
-#else
-        return addButtonForeground
-#endif
-    }
+    private var appearanceIconColor: Color { addButtonForeground }
 
     private var appearanceIconName: String {
         settings.appearanceMode == .dark ? "moon.stars" : "sun.max"
@@ -184,7 +175,13 @@ struct MessageInputBar: View {
     }
 
     private var sendIconColor: Color {
+#if os(visionOS)
+        return isLightMode
+            ? Color(red: 0.42, green: 0.61, blue: 0.42)
+            : ChatFlowTheme.sage(colorScheme)
+#else
         return ChatFlowTheme.sage(colorScheme)
+#endif
     }
 
     private var placeholderColor: Color {
