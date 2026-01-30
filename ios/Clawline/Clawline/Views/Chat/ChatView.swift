@@ -220,10 +220,14 @@ struct ChatView: View {
         let isKeyboardVisible = keyboardVisibleHeight > 0.5
         let desiredBottomGap: CGFloat = isKeyboardVisible ? 12 : 24
         let bottomSpacing: CGFloat = MessageInputBarMetrics.elementSpacing
+        // Use full keyboardHeight when visible: the list ignores safe areas,
+        // so its bottom inset must cover the entire keyboard including the
+        // portion that overlaps the safe area.
+        let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
         let bottomInset: CGFloat = resolvedInputHeight
             + bottomSpacing
             + desiredBottomGap
-            + keyboardVisibleHeight
+            + keyboardInset
         let concentricOffset = MessageInputBarMetrics(
             horizontalSizeClass: horizontalSizeClass,
             bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
@@ -1009,6 +1013,8 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView {
         hostingController.view.backgroundColor = .clear
         hostingController.view.isOpaque = false
 #if !os(visionOS)
+        hostingController.view.layer.borderColor = UIColor.red.cgColor
+        hostingController.view.layer.borderWidth = 1
         // When keyboard is hidden the layout guide defaults to the safe-area
         // bottom, which already accounts for the home indicator. Setting this
         // to false makes the guide collapse to the view's own bottom edge so
