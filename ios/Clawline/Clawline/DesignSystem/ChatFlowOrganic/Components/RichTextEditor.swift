@@ -157,13 +157,9 @@ struct RichTextEditor: UIViewRepresentable {
         func textViewDidChangeSelection(_ textView: UITextView) {
             guard textView.selectedRange.location != NSNotFound else { return }
             parent.selectionRange = textView.selectedRange
-#if os(visionOS)
             if isApplyingLocalEdit {
                 ensureCaretVisible(in: textView)
             }
-#else
-            ensureCaretVisible(in: textView)
-#endif
             ensureTypingAttributes(on: textView)
         }
 
@@ -213,13 +209,9 @@ struct RichTextEditor: UIViewRepresentable {
             }
             textView.isScrollEnabled = size.height > maxHeight
             if textView.isScrollEnabled {
-#if os(visionOS)
                 if allowAutoScroll {
                     ensureCaretVisible(in: textView)
                 }
-#else
-                ensureCaretVisible(in: textView)
-#endif
             }
         }
 

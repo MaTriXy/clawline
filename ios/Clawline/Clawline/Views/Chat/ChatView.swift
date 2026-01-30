@@ -936,6 +936,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                 container.addSubview(hostingView)
 
                 let minHeightConstraint = hostingView.heightAnchor.constraint(greaterThanOrEqualToConstant: height)
+                let topConstraint = hostingView.topAnchor.constraint(greaterThanOrEqualTo: container.topAnchor)
+                topConstraint.priority = .defaultLow
                 let bottomToKeyboardConstraint = hostingView.bottomAnchor.constraint(
                     equalTo: container.keyboardLayoutGuide.topAnchor,
                     constant: -desiredBottomGap
@@ -944,24 +946,24 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                     equalTo: container.bottomAnchor,
                     constant: -desiredBottomGap
                 )
+                bottomToContainerConstraint.priority = .defaultLow
 
                 NSLayoutConstraint.activate([
                     hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
                     hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
                     minHeightConstraint,
+                    topConstraint,
+                    bottomToKeyboardConstraint,
+                    bottomToContainerConstraint
                 ])
 
                 self.minHeightConstraint = minHeightConstraint
                 self.bottomToKeyboardConstraint = bottomToKeyboardConstraint
                 self.bottomToContainerConstraint = bottomToContainerConstraint
-                bottomToKeyboardConstraint.isActive = isKeyboardVisible
-                bottomToContainerConstraint.isActive = !isKeyboardVisible
             } else {
                 minHeightConstraint?.constant = height
                 bottomToKeyboardConstraint?.constant = -desiredBottomGap
                 bottomToContainerConstraint?.constant = -desiredBottomGap
-                bottomToKeyboardConstraint?.isActive = isKeyboardVisible
-                bottomToContainerConstraint?.isActive = !isKeyboardVisible
             }
 #endif
 
@@ -992,6 +994,10 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView {
         }
         hostingController.view.backgroundColor = .clear
         hostingController.view.isOpaque = false
+#if !os(visionOS)
+        hostingController.view.layer.borderColor = UIColor.red.cgColor
+        hostingController.view.layer.borderWidth = 1
+#endif
     }
 
     @available(*, unavailable)
