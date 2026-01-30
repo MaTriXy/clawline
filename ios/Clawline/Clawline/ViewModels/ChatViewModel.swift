@@ -1054,6 +1054,8 @@ final class ChatViewModel: ChatViewModelHosting {
                 activeClientMessageId = nil
             }
             isSending = false
+        case .messageAcked:
+            break
         case .connectionInterrupted(let reason):
             beginConnectionAlert(message: reason ?? "Connection interrupted.")
         case .userInfo(let info):

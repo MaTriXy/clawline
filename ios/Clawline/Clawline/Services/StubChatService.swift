@@ -51,6 +51,7 @@ final class StubChatService: ChatServicing {
 
     func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String) async throws {
         try await Task.sleep(for: .seconds(responseDelay))
+        serviceEventContinuation?.yield(.messageAcked(id: id))
 
         let response = Message(
             id: UUID().uuidString,
