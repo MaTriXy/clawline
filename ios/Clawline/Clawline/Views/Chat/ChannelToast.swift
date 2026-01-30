@@ -14,16 +14,30 @@ struct ChannelToast: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
+    private var toastTextColor: Color {
+#if os(visionOS)
+        return colorScheme == .dark ? .black : .white
+#else
+        return colorScheme == .dark ? .white : .primary
+#endif
+    }
+
+#if os(visionOS)
+    private var toastBackgroundColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.85) : Color.black.opacity(0.7)
+    }
+#endif
+
     var body: some View {
         Text(channelName)
             .font(.system(size: 32, weight: .semibold, design: .rounded))
-            .foregroundStyle(colorScheme == .dark ? .white : .primary)
+            .foregroundStyle(toastTextColor)
             .padding(.horizontal, 32)
             .padding(.vertical, 20)
 #if os(visionOS)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
+                    .fill(toastBackgroundColor)
             )
 #else
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
