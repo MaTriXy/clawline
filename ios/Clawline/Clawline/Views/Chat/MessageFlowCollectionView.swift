@@ -143,6 +143,40 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 usesExternalKeyboardInsets: usesExternalKeyboardInsets
             )
         }
+#if os(visionOS)
+        updateVisibleCellOpacity()
+#endif
+    }
+
+#if os(visionOS)
+    private func updateVisibleCellOpacity() {
+        guard collectionView.bounds.height > 1 else { return }
+        let visibleRect = collectionView.bounds
+        let fadeStartY = visibleRect.minY + (visibleRect.height * 0.2)
+        let denom = max(fadeStartY - visibleRect.minY, 1)
+        for cell in collectionView.visibleCells {
+            let cellY = cell.frame.minY
+            let alpha: CGFloat
+            if cellY >= fadeStartY {
+                alpha = 1
+            } else {
+                alpha = max(0, min(1, (cellY - visibleRect.minY) / denom))
+            }
+            cell.alpha = alpha
+        }
+    }
+#endif
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+#if os(visionOS)
+        updateVisibleCellOpacity()
+#endif
+    }
+
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+#if os(visionOS)
+        updateVisibleCellOpacity()
+#endif
     }
 
     private func setupKeyboardTracking() {

@@ -161,7 +161,6 @@ struct ChatView: View {
             guard phase == .active else { return }
             viewModel.handleSceneDidBecomeActive()
         }
-#if !os(visionOS)
         .background(
             KeyboardLayoutGuideReader { height in
                 if abs(height - keyboardHeight) > 0.5 {
@@ -171,14 +170,6 @@ struct ChatView: View {
                 }
             }
         )
-#else
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
-            handleKeyboardFrameChange(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
-            handleKeyboardWillHide(notification)
-        }
-#endif
         .sheet(item: $activeSheet, content: sheetView)
         .photosPicker(
             isPresented: $isPhotosPickerPresented,
@@ -326,6 +317,9 @@ struct ChatView: View {
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .bottom)
+#if os(visionOS)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+#endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .ignoresSafeArea(.container, edges: .bottom)
@@ -381,20 +375,6 @@ struct ChatView: View {
         .ignoresSafeArea(.keyboard, edges: .bottom)
 #if os(visionOS)
         return list
-            .mask(
-                GeometryReader { proxy in
-                    let fadeStart = max(proxy.size.height * 0.2, 1)
-                    LinearGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black, location: fadeStart / max(proxy.size.height, 1)),
-                            .init(color: .black, location: 1)
-                        ]),
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                }
-            )
 #else
         return list
 #endif
@@ -936,7 +916,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                     constant: -desiredBottomGap
                 )
                 #if os(visionOS)
-                let containerBottomAnchor = container.safeAreaLayoutGuide.bottomAnchor
+                let containerBottomAnchor = container.bottomAnchor
                 #else
                 let containerBottomAnchor = container.bottomAnchor
                 #endif
@@ -1047,8 +1027,23 @@ private struct AttachmentSourceSheet: View {
     let onFiles: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+#if os(visionOS)
+    @Environment(\.dismiss) private var dismiss
+#endif
     var body: some View {
         VStack(spacing: 24) {
+#if os(visionOS)
+            HStack {
+                Spacer()
+                Button("Close") {
+                    dismiss()
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.secondary)
+            }
+            .padding(.top, 8)
+            .padding(.horizontal, 16)
+#endif
             Capsule()
                 .fill(.secondary.opacity(0.4))
                 .frame(width: 40, height: 4)
