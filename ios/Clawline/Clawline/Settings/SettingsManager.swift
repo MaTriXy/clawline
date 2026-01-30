@@ -15,9 +15,19 @@ final class SettingsManager {
         didSet { save() }
     }
 
+    enum AppearanceMode: String, Codable {
+        case dark
+        case light
+    }
+
+    var appearanceMode: AppearanceMode {
+        didSet { saveAppearanceMode() }
+    }
+
     var isSettingsPresented: Bool = false
 
     private static let effectConfigKey = "backgroundEffectConfiguration"
+    private static let appearanceModeKey = "appearanceMode"
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.effectConfigKey),
@@ -25,6 +35,13 @@ final class SettingsManager {
             self.effectConfig = config
         } else {
             self.effectConfig = .default
+        }
+
+        if let raw = UserDefaults.standard.string(forKey: Self.appearanceModeKey),
+           let mode = AppearanceMode(rawValue: raw) {
+            self.appearanceMode = mode
+        } else {
+            self.appearanceMode = .dark
         }
     }
 
@@ -34,12 +51,25 @@ final class SettingsManager {
         }
     }
 
+    private func saveAppearanceMode() {
+        UserDefaults.standard.set(appearanceMode.rawValue, forKey: Self.appearanceModeKey)
+    }
+
     func resetToDefaults() {
         effectConfig = .default
+        appearanceMode = .dark
     }
 
     func toggleSettings() {
         isSettingsPresented.toggle()
+    }
+
+    var preferredColorScheme: ColorScheme {
+        appearanceMode == .dark ? .dark : .light
+    }
+
+    func toggleAppearanceMode() {
+        appearanceMode = appearanceMode == .dark ? .light : .dark
     }
 }
 

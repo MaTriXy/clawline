@@ -26,6 +26,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private let instanceId = UUID().uuidString
     private(set) var messages: [Message] = []
     private(set) var activeChannel: ChatChannelType = .personal
+    private var didRestoreActiveChannel = false
 
     /// Returns messages for a specific channel (used by paged channel views)
     func messages(for channel: ChatChannelType) -> [Message] {
@@ -97,6 +98,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var tableParseStates: [String: StreamingTableParseState] = [:]
     private var uploadedAssetIds: [UUID: String] = [:]
     private var downloadedAssetData: [String: Data] = [:]
+    private let channelDefaults = UserDefaults.standard
 
     private struct PendingLocalMessage: Equatable {
         let id: String
@@ -168,6 +170,7 @@ final class ChatViewModel: ChatViewModelHosting {
             if observationTask == nil {
                 startObserving()
             }
+            restoreActiveChannelIfNeeded()
             switch connectionState {
             case .connected, .connecting, .reconnecting:
                 break
@@ -175,6 +178,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 scheduleReconnect(immediate: true, reason: .authStateChange)
             }
         } else {
+            didRestoreActiveChannel = false
             observationTask?.cancel()
             observationTask = nil
             reconnectTask?.cancel()
@@ -197,6 +201,7 @@ final class ChatViewModel: ChatViewModelHosting {
         } else {
             messages = []
         }
+        persistActiveChannel(channel)
     }
 
     func handleSceneDidBecomeActive() {
@@ -1059,6 +1064,9 @@ final class ChatViewModel: ChatViewModelHosting {
                 if !wasAdmin {
                     toastManager.show("DM channel unlocked")
                 }
+                if activeChannel != .admin, persistedChannel() == .admin {
+                    setActiveChannel(.admin)
+                }
             } else if wasAdmin {
                 toastManager.show("DM access revoked")
                 if activeChannel == .admin {
@@ -1078,6 +1086,32 @@ final class ChatViewModel: ChatViewModelHosting {
                 self.typingSessionKey = nil
             }
         }
+    }
+
+    private func channelDefaultsKey() -> String {
+        if let userId = auth.currentUserId, !userId.isEmpty {
+            return "clawline.lastChannel.\(userId)"
+        }
+        return "clawline.lastChannel"
+    }
+
+    private func persistActiveChannel(_ channel: ChatChannelType) {
+        channelDefaults.set(channel.rawValue, forKey: channelDefaultsKey())
+    }
+
+    private func persistedChannel() -> ChatChannelType? {
+        guard let raw = channelDefaults.string(forKey: channelDefaultsKey()) else { return nil }
+        return ChatChannelType(rawValue: raw)
+    }
+
+    private func restoreActiveChannelIfNeeded() {
+        guard !didRestoreActiveChannel else { return }
+        didRestoreActiveChannel = true
+        guard let stored = persistedChannel() else { return }
+        if stored == .admin, auth.isAdmin == false {
+            return
+        }
+        setActiveChannel(stored)
     }
 
     private func userFacingMessage(for code: String, fallback: String?) -> String {

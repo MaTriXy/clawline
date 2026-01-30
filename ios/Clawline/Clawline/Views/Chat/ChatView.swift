@@ -317,9 +317,6 @@ struct ChatView: View {
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .bottom)
-#if os(visionOS)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-#endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .ignoresSafeArea(.container, edges: .bottom)
@@ -904,6 +901,34 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             measuredHeight: Binding<CGFloat>
         ) {
             guard let hostingView = container.hostingController.view else { return }
+#if os(visionOS)
+            if bottomToContainerConstraint == nil {
+                hostingView.translatesAutoresizingMaskIntoConstraints = false
+                hostingView.setContentHuggingPriority(.required, for: .vertical)
+                hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
+                container.addSubview(hostingView)
+
+                let bottomToContainerConstraint = hostingView.bottomAnchor.constraint(
+                    equalTo: container.bottomAnchor,
+                    constant: -desiredBottomGap
+                )
+                let topConstraint = hostingView.topAnchor.constraint(
+                    greaterThanOrEqualTo: container.topAnchor
+                )
+                topConstraint.priority = .defaultLow
+
+                NSLayoutConstraint.activate([
+                    hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                    hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                    bottomToContainerConstraint,
+                    topConstraint,
+                ])
+
+                self.bottomToContainerConstraint = bottomToContainerConstraint
+            } else {
+                bottomToContainerConstraint?.constant = -desiredBottomGap
+            }
+#else
             if minHeightConstraint == nil || bottomToKeyboardConstraint == nil || bottomToContainerConstraint == nil {
                 hostingView.translatesAutoresizingMaskIntoConstraints = false
                 hostingView.setContentHuggingPriority(.required, for: .vertical)
@@ -915,13 +940,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                     equalTo: container.keyboardLayoutGuide.topAnchor,
                     constant: -desiredBottomGap
                 )
-                #if os(visionOS)
-                let containerBottomAnchor = container.bottomAnchor
-                #else
-                let containerBottomAnchor = container.bottomAnchor
-                #endif
                 let bottomToContainerConstraint = hostingView.bottomAnchor.constraint(
-                    equalTo: containerBottomAnchor,
+                    equalTo: container.bottomAnchor,
                     constant: -desiredBottomGap
                 )
 
@@ -943,6 +963,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                 bottomToKeyboardConstraint?.isActive = isKeyboardVisible
                 bottomToContainerConstraint?.isActive = !isKeyboardVisible
             }
+#endif
 
             if container.bounds.width > 0 {
                 container.layoutIfNeeded()
@@ -966,6 +987,9 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView {
         super.init(frame: .zero)
         backgroundColor = .clear
         isOpaque = false
+        if #available(iOS 16.0, visionOS 1.0, *) {
+            hostingController.sizingOptions = [.intrinsicContentSize]
+        }
         hostingController.view.backgroundColor = .clear
         hostingController.view.isOpaque = false
     }

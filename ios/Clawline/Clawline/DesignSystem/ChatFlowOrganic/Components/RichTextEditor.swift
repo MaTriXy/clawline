@@ -19,6 +19,7 @@ struct RichTextEditor: UIViewRepresentable {
     var resetToken: Int
     var focusTrigger: Int
     var isEditable: Bool
+    var tintColor: UIColor
     var onFocusChange: (Bool) -> Void
     var onSubmit: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
@@ -47,7 +48,7 @@ struct RichTextEditor: UIViewRepresentable {
         textView.keyboardDismissMode = .interactive
 #endif
         textView.returnKeyType = .send
-        textView.tintColor = UIColor.label
+        textView.tintColor = tintColor
         textView.autocorrectionType = .yes
         textView.smartQuotesType = .yes
         textView.smartDashesType = .yes
@@ -84,6 +85,10 @@ struct RichTextEditor: UIViewRepresentable {
 
         if textView.isEditable != isEditable {
             textView.isEditable = isEditable
+        }
+
+        if textView.tintColor != tintColor {
+            textView.tintColor = tintColor
         }
 
 #if !os(visionOS)

@@ -38,6 +38,7 @@ struct RootView: View {
             }
         }
         .modifier(KeyboardSafeAreaMode(isActive: auth.isAuthenticated))
+        .preferredColorScheme(settings.preferredColorScheme)
         .task(id: auth.isAuthenticated) {
             if auth.isAuthenticated {
                 ensureChatViewModel()
@@ -47,11 +48,18 @@ struct RootView: View {
         }
         .environment(\.uploadService, uploadService)
         .background {
+#if os(visionOS)
+            Color.clear
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+#else
             backgroundColor
                 .backgroundEffect(settings.effectConfig)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
+#endif
         }
         .animation(.easeInOut(duration: 0.3), value: auth.isAuthenticated)
     }

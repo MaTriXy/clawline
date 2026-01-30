@@ -52,6 +52,7 @@ struct Clawline_SpatialApp: App {
                     SettingsView(settings: settingsManager)
                 }
         }
+        .windowStyle(.plain)
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings...") {
