@@ -153,16 +153,27 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard collectionView.bounds.height > 1 else { return }
         let visibleRect = collectionView.bounds
         let fadeStartY = visibleRect.minY + (visibleRect.height * 0.1)
-        let denom = max(fadeStartY - visibleRect.minY, 1)
+        let fadeStartBottomY = visibleRect.maxY - (visibleRect.height * 0.1)
+        let topDenom = max(fadeStartY - visibleRect.minY, 1)
+        let bottomDenom = max(visibleRect.maxY - fadeStartBottomY, 1)
         for cell in collectionView.visibleCells {
-            let cellY = cell.frame.minY
-            let alpha: CGFloat
-            if cellY >= fadeStartY {
-                alpha = 1
+            let cellMinY = cell.frame.minY
+            let cellMaxY = cell.frame.maxY
+            let topAlpha: CGFloat
+            if cellMinY >= fadeStartY {
+                topAlpha = 1
             } else {
-                alpha = max(0, min(1, (cellY - visibleRect.minY) / denom))
+                topAlpha = max(0, min(1, (cellMinY - visibleRect.minY) / topDenom))
             }
-            cell.alpha = alpha
+
+            let bottomAlpha: CGFloat
+            if cellMaxY <= fadeStartBottomY {
+                bottomAlpha = 1
+            } else {
+                bottomAlpha = max(0, min(1, (visibleRect.maxY - cellMaxY) / bottomDenom))
+            }
+
+            cell.alpha = min(topAlpha, bottomAlpha)
         }
     }
 #endif
