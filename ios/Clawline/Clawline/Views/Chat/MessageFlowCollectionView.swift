@@ -152,7 +152,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func updateVisibleCellOpacity() {
         guard collectionView.bounds.height > 1 else { return }
         let visibleRect = collectionView.bounds
-        let fadeStartY = visibleRect.minY + (visibleRect.height * 0.2)
+        let fadeStartY = visibleRect.minY + (visibleRect.height * 0.05)
         let denom = max(fadeStartY - visibleRect.minY, 1)
         for cell in collectionView.visibleCells {
             let cellY = cell.frame.minY
