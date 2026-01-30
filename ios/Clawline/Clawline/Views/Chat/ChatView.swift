@@ -1052,8 +1052,17 @@ private struct AttachmentSourceSheet: View {
 
     @Environment(\.colorScheme) private var colorScheme
 #if os(visionOS)
+    @Environment(\.settingsManager) private var settings
     @Environment(\.dismiss) private var dismiss
 #endif
+
+    private var effectiveColorScheme: ColorScheme {
+#if os(visionOS)
+        return settings.appearanceMode == .dark ? .dark : .light
+#else
+        return colorScheme
+#endif
+    }
     var body: some View {
         VStack(spacing: 24) {
 #if os(visionOS)
@@ -1075,7 +1084,7 @@ private struct AttachmentSourceSheet: View {
 
             Text("Add Attachment")
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
-                .foregroundStyle(ChatFlowTheme.warmBrown(colorScheme))
+                .foregroundStyle(ChatFlowTheme.warmBrown(effectiveColorScheme))
 
             VStack(spacing: 12) {
 #if !os(visionOS)
@@ -1103,7 +1112,7 @@ private struct AttachmentSourceSheet: View {
             Spacer(minLength: 0)
         }
         .background {
-            ChatFlowTheme.pageBackground(colorScheme)
+            ChatFlowTheme.pageBackground(effectiveColorScheme)
                 .ignoresSafeArea()
         }
         .presentationDragIndicator(.visible)
@@ -1116,25 +1125,34 @@ private struct AttachmentActionButton: View {
     let action: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.settingsManager) private var settings
     @State private var isPressed = false
+
+    private var effectiveColorScheme: ColorScheme {
+#if os(visionOS)
+        return settings.appearanceMode == .dark ? .dark : .light
+#else
+        return colorScheme
+#endif
+    }
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 14) {
                 Image(systemName: icon)
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(ChatFlowTheme.sage(colorScheme))
+                    .foregroundStyle(ChatFlowTheme.sage(effectiveColorScheme))
                     .frame(width: 28)
 
                 Text(title)
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(ChatFlowTheme.warmBrown(colorScheme))
+                    .foregroundStyle(ChatFlowTheme.warmBrown(effectiveColorScheme))
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(ChatFlowTheme.warmBrown(colorScheme).opacity(0.4))
+                    .foregroundStyle(ChatFlowTheme.warmBrown(effectiveColorScheme).opacity(0.4))
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -1145,7 +1163,7 @@ private struct AttachmentActionButton: View {
 #if os(visionOS)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
+                    .fill(Color.white.opacity(effectiveColorScheme == .dark ? 0.08 : 0.3))
             )
 #else
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))

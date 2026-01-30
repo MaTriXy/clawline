@@ -13,8 +13,16 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
+    private var effectiveColorScheme: ColorScheme {
+#if os(visionOS)
+        return settings.appearanceMode == .dark ? .dark : .light
+#else
+        return colorScheme
+#endif
+    }
+
     private var previewBackgroundColor: Color {
-        colorScheme == .dark
+        effectiveColorScheme == .dark
             ? Color(red: 0.1, green: 0.12, blue: 0.15)
             : Color(uiColor: .systemGray6)
     }

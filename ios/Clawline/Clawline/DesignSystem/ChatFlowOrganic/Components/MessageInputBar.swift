@@ -152,7 +152,7 @@ struct MessageInputBar: View {
 
     private var addButtonForeground: Color {
 #if os(visionOS)
-        return colorScheme == .dark ? .white : .black
+        return settings.appearanceMode == .dark ? .white : .black
 #else
         return .primary
 #endif

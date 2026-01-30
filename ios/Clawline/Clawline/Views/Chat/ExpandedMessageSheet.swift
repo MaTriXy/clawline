@@ -14,6 +14,7 @@ struct ExpandedMessageSheet: View {
     let presentation: MessagePresentation
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.settingsManager) private var settings
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var dragOffset: CGFloat = 0
@@ -21,6 +22,13 @@ struct ExpandedMessageSheet: View {
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
     private var metrics: ChatFlowTheme.Metrics { ChatFlowTheme.Metrics(isCompact: isCompact) }
+    private var effectiveColorScheme: ColorScheme {
+#if os(visionOS)
+        return settings.appearanceMode == .dark ? .dark : .light
+#else
+        return colorScheme
+#endif
+    }
 
     var body: some View {
         NavigationStack {
@@ -64,11 +72,11 @@ struct ExpandedMessageSheet: View {
     private var header: some View {
         HStack(spacing: 10) {
             Circle()
-                .fill(message.role == .user ? ChatFlowTheme.sage(colorScheme) : ChatFlowTheme.softCoral(colorScheme))
+                .fill(message.role == .user ? ChatFlowTheme.sage(effectiveColorScheme) : ChatFlowTheme.softCoral(effectiveColorScheme))
                 .frame(width: 8, height: 8)
             Text(message.role == .user ? "You" : "Assistant")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(ChatFlowTheme.warmBrown(colorScheme))
+                .foregroundColor(ChatFlowTheme.warmBrown(effectiveColorScheme))
         }
     }
 
@@ -79,7 +87,7 @@ struct ExpandedMessageSheet: View {
             }
         }
         .font(.system(size: metrics.bodyFontSize, weight: .regular))
-        .foregroundColor(ChatFlowTheme.ink(colorScheme))
+        .foregroundColor(ChatFlowTheme.ink(effectiveColorScheme))
         .lineSpacing(4)
     }
 
@@ -111,7 +119,7 @@ struct ExpandedMessageSheet: View {
                 role: message.role,
                 metrics: metrics,
                 maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-                colorScheme: colorScheme,
+                colorScheme: effectiveColorScheme,
                 isExpanded: true,
                 onExpand: {},
                 onCollapse: { dismiss() }
@@ -138,7 +146,7 @@ struct ExpandedMessageSheet: View {
             FileAttachmentRow(
                 filename: attachment.filename ?? attachment.assetId ?? attachment.mimeType ?? "Attachment",
                 sizeText: attachment.size.map(Self.formatFileSize),
-                colorScheme: colorScheme
+                colorScheme: effectiveColorScheme
             )
         }
     }
@@ -151,9 +159,9 @@ struct ExpandedMessageSheet: View {
     }
 
     private var sheetBackground: Color {
-        colorScheme == .dark
+        effectiveColorScheme == .dark
             ? Color(red: 0.1, green: 0.1, blue: 0.1)
-            : ChatFlowTheme.cream(colorScheme)
+            : ChatFlowTheme.cream(effectiveColorScheme)
     }
 }
 

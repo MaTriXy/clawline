@@ -13,18 +13,27 @@ struct ChannelToast: View {
     let channelName: String
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.settingsManager) private var settings
+
+    private var isDarkMode: Bool {
+#if os(visionOS)
+        return settings.appearanceMode == .dark
+#else
+        return colorScheme == .dark
+#endif
+    }
 
     private var toastTextColor: Color {
 #if os(visionOS)
-        return colorScheme == .dark ? .black : .white
+        return isDarkMode ? .black : .white
 #else
-        return colorScheme == .dark ? .white : .primary
+        return isDarkMode ? .white : .primary
 #endif
     }
 
 #if os(visionOS)
     private var toastBackgroundColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.85) : Color.black.opacity(0.7)
+        isDarkMode ? Color.white.opacity(0.85) : Color.black.opacity(0.7)
     }
 #endif
 

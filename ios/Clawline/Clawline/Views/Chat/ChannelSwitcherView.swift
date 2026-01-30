@@ -15,9 +15,18 @@ struct ChannelSwitcherView: View {
     let onSelect: (ChatChannelType) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.settingsManager) private var settings
 #if !os(visionOS)
     @State private var feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
 #endif
+
+    private var effectiveColorScheme: ColorScheme {
+#if os(visionOS)
+        return settings.appearanceMode == .dark ? .dark : .light
+#else
+        return colorScheme
+#endif
+    }
 
     var body: some View {
         let base = HStack(spacing: 12) {
@@ -28,11 +37,11 @@ struct ChannelSwitcherView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
+                .fill(Color.white.opacity(effectiveColorScheme == .dark ? 0.08 : 0.3))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .stroke(Color.white.opacity(colorScheme == .dark ? 0.15 : 0.2), lineWidth: 1)
+                .stroke(Color.white.opacity(effectiveColorScheme == .dark ? 0.15 : 0.2), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 12)
 
@@ -79,9 +88,9 @@ struct ChannelSwitcherView: View {
     private func accentColor(for channel: ChatChannelType) -> Color {
         switch channel {
         case .personal:
-            return ChatFlowTheme.terracotta(colorScheme)
+            return ChatFlowTheme.terracotta(effectiveColorScheme)
         case .admin:
-            return ChatFlowTheme.adminAccent(colorScheme)
+            return ChatFlowTheme.adminAccent(effectiveColorScheme)
         }
     }
 }
