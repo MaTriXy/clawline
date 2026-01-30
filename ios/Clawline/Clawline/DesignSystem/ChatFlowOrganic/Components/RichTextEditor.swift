@@ -292,6 +292,14 @@ final class PastableTextView: UITextView {
     var onPasteImages: (([UIImage]) -> Void)?
     var onLayout: ((CGFloat) -> Void)?
 
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         onLayout?(bounds.width)
@@ -310,14 +318,65 @@ final class PastableTextView: UITextView {
 
     override func paste(_ sender: Any?) {
         let pasteboard = UIPasteboard.general
-
-        // Check for images first
-        if pasteboard.hasImages, let images = pasteboard.images, !images.isEmpty {
-            onPasteImages?(images)
+        let imageProviders = pasteboard.itemProviders.filter { provider in
+            provider.canLoadObject(ofClass: UIImage.self)
+        }
+        guard !imageProviders.isEmpty else {
+            super.paste(sender)
             return
         }
 
-        // Fall back to default paste for text
-        super.paste(sender)
+        handleImageProviders(imageProviders, fallback: { [weak self] in
+            self?.onPasteImages?([])
+        })
+    }
+
+    override func paste(itemProviders: [NSItemProvider]) {
+        let imageProviders = itemProviders.filter { provider in
+            provider.canLoadObject(ofClass: UIImage.self)
+        }
+        guard !imageProviders.isEmpty else {
+            super.paste(itemProviders: itemProviders)
+            return
+        }
+
+        handleImageProviders(imageProviders, fallback: { [weak self] in
+            self?.onPasteImages?([])
+        })
+    }
+
+    private func handleImageProviders(_ imageProviders: [NSItemProvider], fallback: @escaping () -> Void) {
+        Task.detached { [weak self] in
+            let images = await Self.loadImages(from: imageProviders)
+            await MainActor.run {
+                guard let self else { return }
+                if !images.isEmpty {
+                    self.onPasteImages?(images)
+                } else {
+                    fallback()
+                }
+            }
+        }
+    }
+
+    private static func loadImages(from providers: [NSItemProvider]) async -> [UIImage] {
+        await withTaskGroup(of: UIImage?.self) { group in
+            for provider in providers where provider.canLoadObject(ofClass: UIImage.self) {
+                group.addTask {
+                    await withCheckedContinuation { continuation in
+                        provider.loadObject(ofClass: UIImage.self) { object, _ in
+                            continuation.resume(returning: object as? UIImage)
+                        }
+                    }
+                }
+            }
+            var images: [UIImage] = []
+            for await image in group {
+                if let image {
+                    images.append(image)
+                }
+            }
+            return images
+        }
     }
 }

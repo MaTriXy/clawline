@@ -561,7 +561,8 @@ struct ChatView: View {
     private func handlePastedImages(_ images: [UIImage]) {
         logger.info("Pasted \(images.count) image(s) from clipboard")
         Task { @MainActor in
-            let attachments = await Self.buildPastedAttachments(from: images)
+            await Task.yield()
+            let attachments = Self.buildPastedAttachments(from: images)
             guard !attachments.isEmpty else {
                 toastManager.show(error: .invalidData)
                 return
@@ -664,21 +665,16 @@ struct ChatView: View {
         }
     }
 
-    private static func buildPastedAttachments(from images: [UIImage]) async -> [PendingAttachment] {
-        await withCheckedContinuation { continuation in
-            let copiedImages = images
-            DispatchQueue.global(qos: .userInitiated).async {
-                var attachments: [PendingAttachment] = []
-                attachments.reserveCapacity(copiedImages.count)
-                for (index, image) in copiedImages.enumerated() {
-                    let filename = copiedImages.count > 1 ? "pasted-\(index + 1).png" : "pasted.png"
-                    if let attachment = makeImageAttachment(from: image, suggestedFilename: filename) {
-                        attachments.append(attachment)
-                    }
-                }
-                continuation.resume(returning: attachments)
+    private static func buildPastedAttachments(from images: [UIImage]) -> [PendingAttachment] {
+        var attachments: [PendingAttachment] = []
+        attachments.reserveCapacity(images.count)
+        for (index, image) in images.enumerated() {
+            let filename = images.count > 1 ? "pasted-\(index + 1).png" : "pasted.png"
+            if let attachment = makeImageAttachment(from: image, suggestedFilename: filename) {
+                attachments.append(attachment)
             }
         }
+        return attachments
     }
 
     private func makeDocumentThumbnail() -> UIImage {
