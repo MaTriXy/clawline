@@ -158,6 +158,17 @@ struct MessageInputBar: View {
 #endif
     }
 
+    private var appearanceIconColor: Color {
+#if os(visionOS)
+        if isLightMode {
+            return Color(red: 0.48, green: 0.68, blue: 0.48)
+        }
+        return addButtonForeground
+#else
+        return addButtonForeground
+#endif
+    }
+
     private var appearanceIconName: String {
         settings.appearanceMode == .dark ? "moon.stars" : "sun.max"
     }
@@ -174,10 +185,32 @@ struct MessageInputBar: View {
 
     private var sendIconColor: Color {
 #if os(visionOS)
-        return isLightMode ? ChatFlowTheme.sage(.dark) : ChatFlowTheme.sage(colorScheme)
+        return isLightMode ? ChatFlowTheme.ink(.light) : ChatFlowTheme.sage(colorScheme)
 #else
         return ChatFlowTheme.sage(colorScheme)
 #endif
+    }
+
+    private var placeholderColor: Color {
+#if os(visionOS)
+        return isLightMode
+            ? ChatFlowTheme.ink(.light).opacity(0.6)
+            : ChatFlowTheme.ink(.dark).opacity(0.6)
+#else
+        return .secondary
+#endif
+    }
+
+    private var inputTintColor: Color {
+#if os(visionOS)
+        return isLightMode ? ChatFlowTheme.ink(.light) : ChatFlowTheme.ink(.dark)
+#else
+        return .primary
+#endif
+    }
+
+    private var inputTintUIColor: UIColor {
+        UIColor(inputTintColor)
     }
 
     var body: some View {
@@ -188,7 +221,7 @@ struct MessageInputBar: View {
             }) {
                 Image(systemName: appearanceIconName)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(addButtonForeground)
+                    .foregroundStyle(appearanceIconColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
             }
@@ -197,10 +230,6 @@ struct MessageInputBar: View {
 #if os(visionOS)
             .background(.regularMaterial, in: Circle())
             .overlay {
-                if isLightMode {
-                    Circle()
-                        .fill(Color.white.opacity(0.18))
-                }
                 Circle()
                     .stroke(visionOSBorderColor, lineWidth: 1)
             }
@@ -249,6 +278,7 @@ struct MessageInputBar: View {
                     resetToken: resetToken,
                     focusTrigger: focusTrigger,
                     isEditable: true,
+                    tintColor: inputTintUIColor,
                     onFocusChange: onFocusChange,
                     onSubmit: {
                         guard !isSending, canSend else { return }
@@ -261,7 +291,7 @@ struct MessageInputBar: View {
 
                 if content.length == 0 {
                     Text("Message")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(placeholderColor)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                         .frame(maxHeight: .infinity, alignment: .center)
                         .padding(.leading, 20)
@@ -286,7 +316,7 @@ struct MessageInputBar: View {
                     .allowsHitTesting(false)
                 }
             }
-            .tint(.primary)
+            .tint(inputTintColor)
             .frame(height: inputHeight)
             .frame(maxWidth: .infinity, alignment: .bottom)
 #if os(visionOS)
