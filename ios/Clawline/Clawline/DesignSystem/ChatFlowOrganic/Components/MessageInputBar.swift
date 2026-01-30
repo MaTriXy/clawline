@@ -39,6 +39,7 @@ private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "
 
 struct MessageInputBar: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.settingsManager) private var settings
     @Binding var content: NSAttributedString
     @Binding var selectionRange: NSRange
     @Binding var pendingInsertions: [PendingAttachment]
@@ -138,21 +139,100 @@ struct MessageInputBar: View {
         ChatFlowTheme.Metrics(isCompact: isCompact).inputBarPaddingHorizontal
     }
 
+    private var maxBarWidth: CGFloat? {
+        guard !isCompact else { return nil }
+        let themeMetrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+        let textWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: themeMetrics.bodyFontSize)
+        let chromeWidth = (themeMetrics.inputBarPaddingHorizontal * 2)
+            + sendButtonWidth
+            + metrics.inputBarHeight
+            + (MessageInputBarMetrics.elementSpacing * 2)
+        return textWidth + chromeWidth
+    }
+
+    private var addButtonForeground: Color {
+#if os(visionOS)
+        return colorScheme == .dark ? .white : .black
+#else
+        return .primary
+#endif
+    }
+
+    private var appearanceIconName: String {
+        settings.appearanceMode == .dark ? "moon.stars" : "sun.max"
+    }
+
+    private var isLightMode: Bool {
+        settings.appearanceMode == .light
+    }
+
+    private var visionOSBorderColor: Color {
+        isLightMode
+            ? ChatFlowTheme.ink(.light).opacity(0.80)
+            : Color.white.opacity(0.5)
+    }
+
+    private var sendIconColor: Color {
+#if os(visionOS)
+        return isLightMode ? ChatFlowTheme.sage(.dark) : ChatFlowTheme.sage(colorScheme)
+#else
+        return ChatFlowTheme.sage(colorScheme)
+#endif
+    }
+
     var body: some View {
         HStack(alignment: .bottom, spacing: MessageInputBarMetrics.elementSpacing) {
+            // Appearance toggle button
+            Button(action: {
+                settings.toggleAppearanceMode()
+            }) {
+                Image(systemName: appearanceIconName)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(addButtonForeground)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
+#if os(visionOS)
+            .background(.regularMaterial, in: Circle())
+            .overlay {
+                if isLightMode {
+                    Circle()
+                        .fill(Color.white.opacity(0.18))
+                }
+                Circle()
+                    .stroke(visionOSBorderColor, lineWidth: 1)
+            }
+#else
+            .glassEffect(.regular.interactive(), in: Circle())
+            .background {
+                if isLightMode {
+                    Circle()
+                        .fill(Color.primary.opacity(0.15))
+                }
+            }
+#endif
+            .accessibilityLabel("Toggle appearance")
+
             // Add button - send-style for reliable hit testing (left side)
             Button(action: {
                 onAdd()
             }) {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(addButtonForeground)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
 #if os(visionOS)
             .background(.regularMaterial, in: Circle())
+            .overlay(
+                Circle()
+                    .stroke(visionOSBorderColor, lineWidth: 1)
+            )
 #else
             .glassEffect(.regular.interactive(), in: Circle())
 #endif
@@ -210,46 +290,53 @@ struct MessageInputBar: View {
             .frame(height: inputHeight)
             .frame(maxWidth: .infinity, alignment: .bottom)
 #if os(visionOS)
-            .background(
-                inputShape
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
-            )
+            .background(.regularMaterial, in: inputShape)
 #else
             .glassEffect(.regular, in: inputShape)
 #endif
             .overlay {
-                if let alertColor = connectionAlertColor {
+                ZStack {
+#if os(visionOS)
                     inputShape
-                        .stroke(alertColor.opacity(0.4), lineWidth: 1)
+                        .stroke(visionOSBorderColor, lineWidth: 1)
+#endif
+                    if let alertColor = connectionAlertColor {
+                        inputShape
+                            .stroke(alertColor.opacity(0.4), lineWidth: 1)
+                    }
                 }
             }
 
             // Send button - stable container + stable glass background
             let isSendEnabled = isSending || canSend
+            let sendIconOpacity = (connectionAlertColor == nil ? 1 : 0.65) * (isSendEnabled ? 1 : 0.4)
             Button(action: isSending ? onCancel : onSend) {
                 ZStack {
                     Image(systemName: "stop.fill")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(sendIconColor)
                         .opacity(isSending ? 1 : 0)
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(sendIconColor)
                         .opacity(isSending ? 0 : 1)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
             }
-            .tint(ChatFlowTheme.sage(colorScheme))
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
 #if os(visionOS)
             .background(.regularMaterial, in: Circle())
+            .overlay(
+                Circle()
+                    .stroke(visionOSBorderColor, lineWidth: 1)
+            )
 #else
             .glassEffect(.regular.interactive(), in: Capsule())
 #endif
             .buttonStyle(.plain)
             .allowsHitTesting(isSendEnabled)
-            .opacity((connectionAlertColor == nil ? 1 : 0.65) * (isSendEnabled ? 1 : 0.4))
+            .opacity(sendIconOpacity)
             .accessibilityHint(connectionAlertHint ?? "")
             .id("send-button")
             .transaction { $0.animation = nil }
@@ -258,6 +345,8 @@ struct MessageInputBar: View {
         }
         .padding(.horizontal, containerPadding)
         .padding(.bottom, metrics.bottomPadding)
+        .frame(maxWidth: maxBarWidth)
+        .frame(maxWidth: .infinity, alignment: .center)
         .simultaneousGesture(TapGesture().onEnded {
             logger.info("Input bar tap gesture")
             NSLog("DIAG: Input bar tap gesture")

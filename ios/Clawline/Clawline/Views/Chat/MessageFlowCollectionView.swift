@@ -152,8 +152,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func updateVisibleCellOpacity() {
         guard collectionView.bounds.height > 1 else { return }
         let visibleRect = collectionView.bounds
-        let fadeStartY = visibleRect.minY + (visibleRect.height * 0.1)
-        let fadeStartBottomY = visibleRect.maxY - (visibleRect.height * 0.1)
+        let fadeStartY = visibleRect.minY + (visibleRect.height * 0.08)
+        let fadeStartBottomY = visibleRect.maxY - (visibleRect.height * 0.08)
         let topDenom = max(fadeStartY - visibleRect.minY, 1)
         let bottomDenom = max(visibleRect.maxY - fadeStartBottomY, 1)
         for cell in collectionView.visibleCells {
@@ -317,6 +317,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             lastMeasuredSizes.removeAll()
             forceReconfigureAll = true
         }
+#if os(visionOS)
+        if let isDark = isDark {
+            let desiredStyle: UIUserInterfaceStyle = isDark ? .dark : .light
+            if view.overrideUserInterfaceStyle != desiredStyle {
+                view.overrideUserInterfaceStyle = desiredStyle
+                collectionView?.overrideUserInterfaceStyle = desiredStyle
+            }
+        }
+#endif
 
         let previousBottomInset = self.bottomInset
         let wasNearBottom = isNearBottom(extraMargin: max(24, previousBottomInset))
