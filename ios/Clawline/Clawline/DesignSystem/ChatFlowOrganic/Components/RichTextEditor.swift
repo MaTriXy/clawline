@@ -32,7 +32,7 @@ struct RichTextEditor: UIViewRepresentable {
             coordinator.parent.onPasteImages?(images)
         }
         textView.onLayout = { _ in
-            coordinator.updateHeight(for: textView)
+            coordinator.updateHeight(for: textView, allowAutoScroll: false)
         }
         textView.isScrollEnabled = false
         textView.backgroundColor = .clear
@@ -67,7 +67,7 @@ struct RichTextEditor: UIViewRepresentable {
             coordinator.parent.onPasteImages?(images)
         }
         textView.onLayout = { _ in
-            coordinator.updateHeight(for: textView)
+            coordinator.updateHeight(for: textView, allowAutoScroll: false)
         }
 
         let isComposing = textView.markedTextRange != nil
@@ -104,7 +104,7 @@ struct RichTextEditor: UIViewRepresentable {
         }
 
         context.coordinator.applyFocusIfNeeded(on: textView, trigger: focusTrigger)
-        context.coordinator.updateHeight(for: textView)
+        context.coordinator.updateHeight(for: textView, allowAutoScroll: false)
         context.coordinator.ensureTypingAttributes(on: textView)
 
         if !pendingInsertions.isEmpty, !isComposing {
@@ -142,7 +142,7 @@ struct RichTextEditor: UIViewRepresentable {
             isApplyingLocalEdit = true
             parent.attributedText = textView.attributedText
             parent.selectionRange = textView.selectedRange
-            updateHeight(for: textView)
+            updateHeight(for: textView, allowAutoScroll: true)
             ensureCaretVisible(in: textView)
             ensureTypingAttributes(on: textView)
             let length = textView.attributedText?.length ?? 0
@@ -152,7 +152,13 @@ struct RichTextEditor: UIViewRepresentable {
         func textViewDidChangeSelection(_ textView: UITextView) {
             guard textView.selectedRange.location != NSNotFound else { return }
             parent.selectionRange = textView.selectedRange
+#if os(visionOS)
+            if isApplyingLocalEdit {
+                ensureCaretVisible(in: textView)
+            }
+#else
             ensureCaretVisible(in: textView)
+#endif
             ensureTypingAttributes(on: textView)
         }
 
@@ -166,12 +172,12 @@ struct RichTextEditor: UIViewRepresentable {
             return true
         }
 
-        func updateHeight(for textView: UITextView) {
+        func updateHeight(for textView: UITextView, allowAutoScroll: Bool) {
             let targetWidth = textView.bounds.width
             guard targetWidth > 1 else {
                 DispatchQueue.main.async { [weak self, weak textView] in
                     guard let self, let textView else { return }
-                    self.updateHeight(for: textView)
+                    self.updateHeight(for: textView, allowAutoScroll: allowAutoScroll)
                 }
                 return
             }
@@ -179,15 +185,36 @@ struct RichTextEditor: UIViewRepresentable {
             let fittingSize = CGSize(width: referenceWidth,
                                      height: .greatestFiniteMagnitude)
             let size = textView.sizeThatFits(fittingSize)
+            #if os(visionOS)
+            let minHeight: CGFloat = 44
+            #else
             let minHeight: CGFloat = 48
+            #endif
             let maxHeight: CGFloat = 120
+#if os(visionOS)
+            let lineHeight = textView.font?.lineHeight ?? 17
+            let singleLineHeight = lineHeight + textView.textContainerInset.top + textView.textContainerInset.bottom
+            let clamped: CGFloat
+            if size.height <= singleLineHeight + 1 {
+                clamped = minHeight
+            } else {
+                clamped = min(max(size.height, minHeight), maxHeight)
+            }
+#else
             let clamped = min(max(size.height, minHeight), maxHeight)
+#endif
             if abs(parent.calculatedHeight - clamped) > 0.5 {
                 parent.calculatedHeight = clamped
             }
             textView.isScrollEnabled = size.height > maxHeight
             if textView.isScrollEnabled {
+#if os(visionOS)
+                if allowAutoScroll {
+                    ensureCaretVisible(in: textView)
+                }
+#else
                 ensureCaretVisible(in: textView)
+#endif
             }
         }
 
@@ -247,7 +274,7 @@ struct RichTextEditor: UIViewRepresentable {
             textView.selectedRange = newRange
             parent.attributedText = mutable
             parent.selectionRange = newRange
-            updateHeight(for: textView)
+            updateHeight(for: textView, allowAutoScroll: false)
         }
 
         private func clamp(_ range: NSRange, length: Int) -> NSRange {
