@@ -152,6 +152,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var contentTopConstraint: NSLayoutConstraint!
     private var contentBottomConstraint: NSLayoutConstraint!
     private var truncationHeightConstraint: NSLayoutConstraint?
+    private var scrollViewContentHeightConstraint: NSLayoutConstraint?
     private var fadeConstraints: [NSLayoutConstraint] = []
     private var dynamicContentViews: [UIView] = []
     private var isChromeless = false
@@ -301,6 +302,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         )
         contentHeightConstraint.priority = .defaultHigh
         contentHeightConstraint.isActive = true
+        scrollViewContentHeightConstraint = contentHeightConstraint
         contentStack.addArrangedSubview(dynamicContentWrapper)
 
         contentStack.addArrangedSubview(truncationContainer)
@@ -625,6 +627,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fadeView.isHidden = true
         NSLayoutConstraint.deactivate(fadeConstraints)
         fadeConstraints.removeAll()
+        scrollViewContentHeightConstraint?.isActive = true
         dynamicContentScrollView.isScrollEnabled = false
         dynamicContentScrollView.showsVerticalScrollIndicator = false
         dynamicContentScrollView.showsHorizontalScrollIndicator = false
@@ -654,6 +657,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 let heightConstraint = dynamicContentWrapper.heightAnchor.constraint(equalToConstant: metrics.truncationHeight)
                 heightConstraint.isActive = true
                 dynamicContentHeightConstraint = heightConstraint
+                scrollViewContentHeightConstraint?.isActive = false
                 dynamicContentScrollView.isScrollEnabled = true
                 dynamicContentScrollView.showsVerticalScrollIndicator = true
                 dynamicContentScrollView.showsHorizontalScrollIndicator = true
