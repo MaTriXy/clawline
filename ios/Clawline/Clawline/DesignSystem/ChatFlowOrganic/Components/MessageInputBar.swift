@@ -151,7 +151,12 @@ struct MessageInputBar: View {
                     .contentShape(Rectangle())
             }
             .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
+#if os(visionOS)
+            .glassEffect(.regular.interactive())
+            .clipShape(Circle())
+#else
             .glassEffect(.regular.interactive(), in: Circle())
+#endif
             .accessibilityLabel("Add attachment")
             .disabled(isSending)
 
@@ -239,10 +244,8 @@ struct MessageInputBar: View {
             .tint(ChatFlowTheme.sage(colorScheme))
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
 #if os(visionOS)
-            .background(
-                Capsule()
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
-            )
+            .glassEffect(.regular.interactive())
+            .clipShape(Capsule())
 #else
             .glassEffect(.regular.interactive(), in: Capsule())
 #endif
