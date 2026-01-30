@@ -8,6 +8,7 @@
 import OSLog
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "RichTextEditor")
 
@@ -112,11 +113,13 @@ struct RichTextEditor: UIViewRepresentable {
         context.coordinator.updateHeight(for: textView, allowAutoScroll: false)
         context.coordinator.ensureTypingAttributes(on: textView)
 
-        if !pendingInsertions.isEmpty, !isComposing {
+        if !pendingInsertions.isEmpty, !isComposing, !context.coordinator.isInsertingAttachments {
+            context.coordinator.isInsertingAttachments = true
             let attachments = pendingInsertions
             context.coordinator.insertAttachments(attachments, into: textView)
             DispatchQueue.main.async {
                 self.pendingInsertions = []
+                context.coordinator.isInsertingAttachments = false
             }
         }
     }
@@ -129,6 +132,7 @@ struct RichTextEditor: UIViewRepresentable {
         var parent: RichTextEditor
         private var lastFocusTrigger: Int = 0
         var isApplyingLocalEdit = false
+        var isInsertingAttachments = false
         var lastResetToken: Int = 0
 
         init(parent: RichTextEditor) {
@@ -288,16 +292,29 @@ struct RichTextEditor: UIViewRepresentable {
 // MARK: - Custom UITextView with image paste support
 
 /// A UITextView subclass that supports pasting images from the clipboard.
-final class PastableTextView: UITextView {
+///
+/// Intercepts paste at three levels to prevent the default UITextView behaviour
+/// of inserting raw image binary data as text (which freezes the UI):
+///   1. `paste(_:)` – UIResponder action from the edit menu
+///   2. `paste(itemProviders:)` – UITextPasteConfigurationSupporting
+///   3. `UITextPasteDelegate.transforming` – item-level safety net that discards
+///      image items before they can be converted to text
+final class PastableTextView: UITextView, UITextPasteDelegate {
     var onPasteImages: (([UIImage]) -> Void)?
     var onLayout: ((CGFloat) -> Void)?
 
+    /// Image providers collected during the delegate's `transforming` calls,
+    /// flushed after the run-loop tick so all items from a single paste are batched.
+    private var _delegateImageProviders: [NSItemProvider] = []
+
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
+        pasteDelegate = self
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        pasteDelegate = self
     }
 
     override func layoutSubviews() {
@@ -305,9 +322,10 @@ final class PastableTextView: UITextView {
         onLayout?(bounds.width)
     }
 
+    // MARK: - Paste action gating
+
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(paste(_:)) {
-            // Allow paste if there's text or images in pasteboard
             let pasteboard = UIPasteboard.general
             if pasteboard.hasImages || pasteboard.hasStrings {
                 return true
@@ -316,65 +334,101 @@ final class PastableTextView: UITextView {
         return super.canPerformAction(action, withSender: sender)
     }
 
+    // MARK: - Primary paste entry points
+
     override func paste(_ sender: Any?) {
         let pasteboard = UIPasteboard.general
-        let imageProviders = pasteboard.itemProviders.filter { provider in
-            provider.canLoadObject(ofClass: UIImage.self)
-        }
+        let imageProviders = pasteboard.itemProviders.filter { Self.providerHasImage($0) }
+        logger.info("[paste] paste(_:) hasImages=\(pasteboard.hasImages) imageProviders=\(imageProviders.count)")
         guard !imageProviders.isEmpty else {
             super.paste(sender)
             return
         }
-
-        handleImageProviders(imageProviders, fallback: { [weak self] in
-            self?.onPasteImages?([])
-        })
+        handleImageProviders(imageProviders)
     }
 
     override func paste(itemProviders: [NSItemProvider]) {
-        let imageProviders = itemProviders.filter { provider in
-            provider.canLoadObject(ofClass: UIImage.self)
-        }
+        let imageProviders = itemProviders.filter { Self.providerHasImage($0) }
+        logger.info("[paste] paste(itemProviders:) total=\(itemProviders.count) images=\(imageProviders.count)")
         guard !imageProviders.isEmpty else {
             super.paste(itemProviders: itemProviders)
             return
         }
-
-        handleImageProviders(imageProviders, fallback: { [weak self] in
-            self?.onPasteImages?([])
-        })
+        handleImageProviders(imageProviders)
     }
 
-    private func handleImageProviders(_ imageProviders: [NSItemProvider], fallback: @escaping () -> Void) {
+    // MARK: - UITextPasteDelegate  (safety net)
+
+    func textPasteConfigurationSupporting(
+        _ textPasteConfigurationSupporting: UITextPasteConfigurationSupporting,
+        transforming item: UITextPasteItem
+    ) {
+        let isImage = Self.providerHasImage(item.itemProvider)
+        logger.info("[paste] transforming item isImage=\(isImage) types=\(item.itemProvider.registeredTypeIdentifiers)")
+        if isImage {
+            // Prevent binary image data from ever being inserted as text.
+            item.setNoResult()
+            _delegateImageProviders.append(item.itemProvider)
+            // Schedule a single flush after all items in this paste have been transformed.
+            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(_flushDelegateImages), object: nil)
+            perform(#selector(_flushDelegateImages), with: nil, afterDelay: 0)
+        } else {
+            item.setDefaultResult()
+        }
+    }
+
+    @objc private func _flushDelegateImages() {
+        let providers = _delegateImageProviders
+        _delegateImageProviders = []
+        guard !providers.isEmpty else { return }
+        logger.info("[paste] delegate flush \(providers.count) image provider(s)")
+        handleImageProviders(providers)
+    }
+
+    // MARK: - Image detection
+
+    private static func providerHasImage(_ provider: NSItemProvider) -> Bool {
+        provider.canLoadObject(ofClass: UIImage.self)
+            || provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+    }
+
+    // MARK: - Async image loading
+
+    private func handleImageProviders(_ imageProviders: [NSItemProvider]) {
         Task.detached { [weak self] in
             let images = await Self.loadImages(from: imageProviders)
             await MainActor.run {
                 guard let self else { return }
-                if !images.isEmpty {
-                    self.onPasteImages?(images)
-                } else {
-                    fallback()
-                }
+                logger.info("[paste] loaded \(images.count) image(s)")
+                self.onPasteImages?(images)
             }
         }
     }
 
     private static func loadImages(from providers: [NSItemProvider]) async -> [UIImage] {
         await withTaskGroup(of: UIImage?.self) { group in
-            for provider in providers where provider.canLoadObject(ofClass: UIImage.self) {
+            for provider in providers {
                 group.addTask {
-                    await withCheckedContinuation { continuation in
-                        provider.loadObject(ofClass: UIImage.self) { object, _ in
-                            continuation.resume(returning: object as? UIImage)
+                    // Try the high-level UIImage loader first, fall back to raw data.
+                    if provider.canLoadObject(ofClass: UIImage.self) {
+                        return await withCheckedContinuation { continuation in
+                            provider.loadObject(ofClass: UIImage.self) { object, _ in
+                                continuation.resume(returning: object as? UIImage)
+                            }
+                        }
+                    } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                        return await withCheckedContinuation { continuation in
+                            provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                                continuation.resume(returning: data.flatMap { UIImage(data: $0) })
+                            }
                         }
                     }
+                    return nil
                 }
             }
             var images: [UIImage] = []
             for await image in group {
-                if let image {
-                    images.append(image)
-                }
+                if let image { images.append(image) }
             }
             return images
         }

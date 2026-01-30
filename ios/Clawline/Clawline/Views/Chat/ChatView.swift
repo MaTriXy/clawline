@@ -560,14 +560,15 @@ struct ChatView: View {
     @MainActor
     private func handlePastedImages(_ images: [UIImage]) {
         logger.info("Pasted \(images.count) image(s) from clipboard")
-        Task { @MainActor in
-            await Task.yield()
-            let attachments = Self.buildPastedAttachments(from: images)
+        Task {
+            let attachments = await Self.buildPastedAttachments(from: images)
             guard !attachments.isEmpty else {
-                toastManager.show(error: .invalidData)
+                await MainActor.run { toastManager.show(error: .invalidData) }
                 return
             }
-            insertAttachments(attachments)
+            await MainActor.run {
+                insertAttachments(attachments)
+            }
         }
     }
 
@@ -665,16 +666,20 @@ struct ChatView: View {
         }
     }
 
-    private static func buildPastedAttachments(from images: [UIImage]) -> [PendingAttachment] {
-        var attachments: [PendingAttachment] = []
-        attachments.reserveCapacity(images.count)
-        for (index, image) in images.enumerated() {
-            let filename = images.count > 1 ? "pasted-\(index + 1).png" : "pasted.png"
-            if let attachment = makeImageAttachment(from: image, suggestedFilename: filename) {
-                attachments.append(attachment)
+    private static func buildPastedAttachments(from images: [UIImage]) async -> [PendingAttachment] {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                var attachments: [PendingAttachment] = []
+                attachments.reserveCapacity(images.count)
+                for (index, image) in images.enumerated() {
+                    let filename = images.count > 1 ? "pasted-\(index + 1).png" : "pasted.png"
+                    if let attachment = makeImageAttachment(from: image, suggestedFilename: filename) {
+                        attachments.append(attachment)
+                    }
+                }
+                continuation.resume(returning: attachments)
             }
         }
-        return attachments
     }
 
     private func makeDocumentThumbnail() -> UIImage {
@@ -940,11 +945,11 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
 #else
             if minHeightConstraint == nil || bottomToKeyboardConstraint == nil || bottomToContainerConstraint == nil {
                 hostingView.translatesAutoresizingMaskIntoConstraints = false
-                hostingView.setContentHuggingPriority(.required, for: .vertical)
+                hostingView.setContentHuggingPriority(.defaultHigh, for: .vertical)
                 hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
                 container.addSubview(hostingView)
 
-                let minHeightConstraint = hostingView.heightAnchor.constraint(equalToConstant: height)
+                let minHeightConstraint = hostingView.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
                 let topConstraint = hostingView.topAnchor.constraint(greaterThanOrEqualTo: container.topAnchor)
                 topConstraint.priority = .defaultLow
                 let bottomToKeyboardConstraint = hostingView.bottomAnchor.constraint(
@@ -970,7 +975,6 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                 self.bottomToKeyboardConstraint = bottomToKeyboardConstraint
                 self.bottomToContainerConstraint = bottomToContainerConstraint
             } else {
-                minHeightConstraint?.constant = height
                 bottomToKeyboardConstraint?.constant = -desiredBottomGap
                 bottomToContainerConstraint?.constant = -desiredBottomGap
             }
@@ -1000,12 +1004,17 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView {
         isOpaque = false
         if #available(iOS 16.0, visionOS 1.0, *) {
             hostingController.sizingOptions = [.intrinsicContentSize]
+            hostingController.safeAreaRegions = []
         }
         hostingController.view.backgroundColor = .clear
         hostingController.view.isOpaque = false
 #if !os(visionOS)
-        hostingController.view.layer.borderColor = UIColor.red.cgColor
-        hostingController.view.layer.borderWidth = 1
+        // When keyboard is hidden the layout guide defaults to the safe-area
+        // bottom, which already accounts for the home indicator. Setting this
+        // to false makes the guide collapse to the view's own bottom edge so
+        // desiredBottomGap is measured from the physical screen edge (needed
+        // for concentric alignment with device corners).
+        keyboardLayoutGuide.usesBottomSafeArea = false
 #endif
     }
 
