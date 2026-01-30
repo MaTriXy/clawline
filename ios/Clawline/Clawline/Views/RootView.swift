@@ -37,6 +37,7 @@ struct RootView: View {
                 PairingView(auth: auth, connection: connection, device: device)
             }
         }
+        .modifier(KeyboardSafeAreaMode(isActive: auth.isAuthenticated))
         .task(id: auth.isAuthenticated) {
             if auth.isAuthenticated {
                 ensureChatViewModel()
@@ -66,6 +67,18 @@ struct RootView: View {
             uploadService: uploadService,
             toastManager: toastManager
         )
+    }
+}
+
+private struct KeyboardSafeAreaMode: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.ignoresSafeArea(.keyboard)
+        } else {
+            content
+        }
     }
 }
 

@@ -18,7 +18,7 @@ struct MessageInputBarMetrics {
     let isFieldFocused: Bool
 
     let addButtonSize: CGFloat = 44
-    let inputBarHeight: CGFloat = 48
+    let inputBarHeight: CGFloat = 44
 
     let sendButtonSize: CGFloat = 44  // Minimum 44pt tap target per HIG
 
@@ -34,12 +34,12 @@ struct MessageInputBarMetrics {
     }
 
     /// Spacing between elements in the input bar HStack
-    static let elementSpacing: CGFloat = 8
+    static let elementSpacing: CGFloat = 12
 
     /// 8pt gap is ALWAYS present in layout.
     /// This ensures the gap is visible from the first frame when keyboard appears.
     var bottomPadding: CGFloat {
-        Self.elementSpacing  // Always 8pt
+        0
     }
 
     /// Concentric offset using focus as leading indicator.

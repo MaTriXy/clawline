@@ -91,9 +91,10 @@ enum ChatFlowTheme {
         let isCompact: Bool
 
         var flowGap: CGFloat { isCompact ? 12 : 16 }
-        var containerPadding: CGFloat { isCompact ? 16 : 24 }
+        var containerPadding: CGFloat { isCompact ? 12 : 24 }
+        var inputBarPaddingHorizontal: CGFloat { isCompact ? 24 : 24 }
         var bubblePaddingVertical: CGFloat { isCompact ? 14 : 16 }
-        var bubblePaddingHorizontal: CGFloat { isCompact ? 16 : 20 }
+        var bubblePaddingHorizontal: CGFloat { isCompact ? 12 : 20 }
         var shortFontSize: CGFloat { isCompact ? 18 : 22 }
         var mediumFontSize: CGFloat { 17 }
         var bodyFontSize: CGFloat { 15 }

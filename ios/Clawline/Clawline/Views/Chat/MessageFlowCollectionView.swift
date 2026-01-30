@@ -16,6 +16,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var bottomInset: CGFloat
     var isCompact: Bool
     var isKeyboardVisible: Bool
+    var usesExternalKeyboardInsets: Bool
     var onExpand: ((Message) -> Void)?
     /// Optional channel override - if provided, shows messages for this channel instead of activeChannel
     var channel: ChatChannelType?
@@ -31,6 +32,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             topInset: topInset,
             bottomInset: bottomInset,
             isKeyboardVisible: isKeyboardVisible,
+            usesExternalKeyboardInsets: usesExternalKeyboardInsets,
             onExpand: onExpand,
             channel: channel,
             isDark: isDark
@@ -46,6 +48,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             topInset: topInset,
             bottomInset: bottomInset,
             isKeyboardVisible: isKeyboardVisible,
+            usesExternalKeyboardInsets: usesExternalKeyboardInsets,
             onExpand: onExpand,
             channel: channel,
             isDark: isDark
@@ -76,6 +79,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var topInset: CGFloat = 0
     private var bottomInset: CGFloat = 0
     private var isKeyboardVisible: Bool = false
+    private var usesExternalKeyboardInsets: Bool = true
     private var lastBoundsSize: CGSize = .zero
     private var forceReconfigureAll = false
     private var wasShowingTypingIndicator = false
@@ -130,12 +134,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         forceReconfigureAll = true
         updateLayout()
         if let viewModel {
-            update(viewModel: viewModel, isCompact: isCompact, topInset: topInset, bottomInset: bottomInset, isKeyboardVisible: isKeyboardVisible)
+            update(
+                viewModel: viewModel,
+                isCompact: isCompact,
+                topInset: topInset,
+                bottomInset: bottomInset,
+                isKeyboardVisible: isKeyboardVisible,
+                usesExternalKeyboardInsets: usesExternalKeyboardInsets
+            )
         }
     }
 
     private func setupKeyboardTracking() {
 #if !os(visionOS)
+        guard !usesExternalKeyboardInsets else { return }
         // Observe keyboard frame changes to adjust content inset.
         // This is the standard UIKit pattern for scroll view keyboard avoidance.
         NotificationCenter.default.addObserver(
@@ -151,6 +163,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         return
 #else
+        guard !usesExternalKeyboardInsets else { return }
         guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
             return
         }
@@ -165,9 +178,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Update content inset to account for keyboard
         applyBottomContentInset()
 
-        // Adjust scroll position when keyboard height changes
+        // Adjust scroll position when keyboard height changes.
+        // Skip during active user drag to avoid flinging when interactive dismissing.
         let delta = keyboardHeight - previousKeyboardHeight
-        if abs(delta) > 1 {
+        let isUserInteracting = collectionView.isDragging || collectionView.isTracking
+        if abs(delta) > 1, !isUserInteracting {
             adjustContentOffsetForBottomInsetChange(delta: delta)
         }
 
@@ -184,6 +199,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var pendingScrollToBottomAnimated: Bool = false
 
     private func syncKeyboardHeightIfNeeded(isKeyboardVisible: Bool) {
+        guard !usesExternalKeyboardInsets else { return }
         guard isKeyboardVisible, currentKeyboardHeight == 0 else { return }
         let height = view.keyboardLayoutGuide.layoutFrame.height
         guard height > 0.5 else { return }
@@ -199,7 +215,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     /// Single source of truth for setting bottom content inset.
     /// Combines baseBottomInset (input bar) with currentKeyboardHeight when keyboard is visible.
     private func applyBottomContentInset() {
-        let totalBottomInset = baseBottomInset + currentKeyboardHeight
+        let totalBottomInset = usesExternalKeyboardInsets
+            ? baseBottomInset
+            : baseBottomInset + currentKeyboardHeight
         collectionView.contentInset.bottom = totalBottomInset
         collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
     }
@@ -225,11 +243,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, onExpand: ((Message) -> Void)? = nil, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
+    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, usesExternalKeyboardInsets: Bool, onExpand: ((Message) -> Void)? = nil, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
         loadViewIfNeeded()
         self.viewModel = viewModel
         self.channelOverride = channel
         self.onExpand = onExpand
+        self.usesExternalKeyboardInsets = usesExternalKeyboardInsets
 
         // Handle appearance change from SwiftUI colorScheme
         if let isDark = isDark, currentIsDark != isDark {
