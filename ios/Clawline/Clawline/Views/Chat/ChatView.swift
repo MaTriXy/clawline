@@ -548,7 +548,7 @@ struct ChatView: View {
     }
 
     private func handleCapturedImage(_ image: UIImage) async {
-        guard let attachment = makeImageAttachment(from: image, suggestedFilename: "camera.jpg") else {
+        guard let attachment = Self.makeImageAttachment(from: image, suggestedFilename: "camera.jpg") else {
             await MainActor.run { toastManager.show(error: .invalidData) }
             return
         }
@@ -560,18 +560,14 @@ struct ChatView: View {
     @MainActor
     private func handlePastedImages(_ images: [UIImage]) {
         logger.info("Pasted \(images.count) image(s) from clipboard")
-        var attachments: [PendingAttachment] = []
-        for (index, image) in images.enumerated() {
-            let filename = images.count > 1 ? "pasted-\(index + 1).png" : "pasted.png"
-            if let attachment = makeImageAttachment(from: image, suggestedFilename: filename) {
-                attachments.append(attachment)
+        Task { @MainActor in
+            let attachments = await Self.buildPastedAttachments(from: images)
+            guard !attachments.isEmpty else {
+                toastManager.show(error: .invalidData)
+                return
             }
+            insertAttachments(attachments)
         }
-        guard !attachments.isEmpty else {
-            toastManager.show(error: .invalidData)
-            return
-        }
-        insertAttachments(attachments)
     }
 
     private func handlePhotoPickerItems(_ items: [PhotosPickerItem]) async {
@@ -579,7 +575,7 @@ struct ChatView: View {
         for item in items {
             if let data = try? await item.loadTransferable(type: Data.self),
                let image = UIImage(data: data),
-               let attachment = makeImageAttachment(from: image, suggestedFilename: item.itemIdentifier) {
+               let attachment = Self.makeImageAttachment(from: image, suggestedFilename: item.itemIdentifier) {
                 attachments.append(attachment)
             }
         }
@@ -637,7 +633,7 @@ struct ChatView: View {
         )
     }
 
-    private func makeImageAttachment(from image: UIImage, suggestedFilename: String?) -> PendingAttachment? {
+    private static func makeImageAttachment(from image: UIImage, suggestedFilename: String?) -> PendingAttachment? {
         guard let (data, mimeType) = encodeImage(image) else { return nil }
         return PendingAttachment(
             id: UUID(),
@@ -648,7 +644,7 @@ struct ChatView: View {
         )
     }
 
-    private func encodeImage(_ image: UIImage) -> (Data, String)? {
+    private static func encodeImage(_ image: UIImage) -> (Data, String)? {
         if let data = image.jpegData(compressionQuality: 0.85) {
             return (data, "image/jpeg")
         }
@@ -658,13 +654,30 @@ struct ChatView: View {
         return nil
     }
 
-    private func makeThumbnail(from image: UIImage) -> UIImage {
+    private static func makeThumbnail(from image: UIImage) -> UIImage {
         let maxDimension: CGFloat = 120
         let scale = min(maxDimension / max(image.size.width, image.size.height), 1)
         let targetSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         let renderer = UIGraphicsImageRenderer(size: targetSize)
         return renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+    }
+
+    private static func buildPastedAttachments(from images: [UIImage]) async -> [PendingAttachment] {
+        await withCheckedContinuation { continuation in
+            let copiedImages = images
+            DispatchQueue.global(qos: .userInitiated).async {
+                var attachments: [PendingAttachment] = []
+                attachments.reserveCapacity(copiedImages.count)
+                for (index, image) in copiedImages.enumerated() {
+                    let filename = copiedImages.count > 1 ? "pasted-\(index + 1).png" : "pasted.png"
+                    if let attachment = makeImageAttachment(from: image, suggestedFilename: filename) {
+                        attachments.append(attachment)
+                    }
+                }
+                continuation.resume(returning: attachments)
+            }
         }
     }
 

@@ -111,18 +111,16 @@ struct SendMessageIntent: AppIntent {
 @available(iOS 17.0, *)
 struct ClawlineAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
-        [
-            AppShortcut(
-                intent: SendMessageIntent(),
-                phrases: [
-                    "Tell Clawline to \(.message)",
-                    "Send \(.message) to \(.botName)",
-                    "Ask \(.botName) \(.message)"
-                ],
-                shortTitle: "Send Message",
-                systemImageName: "bubble.left.and.bubble.right"
-            )
-        ]
+        AppShortcut(
+            intent: SendMessageIntent(),
+            phrases: [
+                "Tell \(.applicationName) to send a message",
+                "Ask \(.applicationName) to send a message",
+                "Send a message with \(.applicationName)"
+            ],
+            shortTitle: "Send Message",
+            systemImageName: "bubble.left.and.bubble.right"
+        )
     }
 }
 
