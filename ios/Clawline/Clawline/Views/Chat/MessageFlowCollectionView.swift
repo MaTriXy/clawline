@@ -173,6 +173,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #endif
     }
 
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+#if os(visionOS)
+        if !decelerate {
+            updateVisibleCellOpacity()
+        }
+#endif
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+#if os(visionOS)
+        updateVisibleCellOpacity()
+#endif
+    }
+
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
 #if os(visionOS)
         updateVisibleCellOpacity()
@@ -358,7 +372,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         forceReconfigureAll = false
 
         // Animate when morphing from typing indicator to message for smooth transition
+#if os(visionOS)
+        dataSource.apply(snapshot, animatingDifferences: shouldMorph) { [weak self] in
+            self?.updateVisibleCellOpacity()
+        }
+#else
         dataSource.apply(snapshot, animatingDifferences: shouldMorph)
+#endif
         logger.info(
             "diffing apply snapshot count=\(messageCount, privacy: .public) changed=\(changedIds.count, privacy: .public) needsLayout=\(needsLayoutUpdate, privacy: .public) morph=\(shouldMorph, privacy: .public)"
         )
