@@ -208,6 +208,7 @@ struct MessageInputBar: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: MessageInputBarMetrics.elementSpacing) {
+#if os(visionOS)
             // Appearance toggle button
             Button(action: {
                 settings.toggleAppearanceMode()
@@ -236,6 +237,7 @@ struct MessageInputBar: View {
             }
 #endif
             .accessibilityLabel("Toggle appearance")
+#endif
 
             // Add button - send-style for reliable hit testing (left side)
             Button(action: {

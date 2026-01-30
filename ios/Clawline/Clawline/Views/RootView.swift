@@ -38,7 +38,9 @@ struct RootView: View {
             }
         }
         .modifier(KeyboardSafeAreaMode(isActive: auth.isAuthenticated))
+#if os(visionOS)
         .preferredColorScheme(settings.preferredColorScheme)
+#endif
         .task(id: auth.isAuthenticated) {
             if auth.isAuthenticated {
                 ensureChatViewModel()
