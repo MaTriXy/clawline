@@ -935,7 +935,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                 hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
                 container.addSubview(hostingView)
 
-                let minHeightConstraint = hostingView.heightAnchor.constraint(greaterThanOrEqualToConstant: height)
+                let minHeightConstraint = hostingView.heightAnchor.constraint(equalToConstant: height)
                 let topConstraint = hostingView.topAnchor.constraint(greaterThanOrEqualTo: container.topAnchor)
                 topConstraint.priority = .defaultLow
                 let bottomToKeyboardConstraint = hostingView.bottomAnchor.constraint(
