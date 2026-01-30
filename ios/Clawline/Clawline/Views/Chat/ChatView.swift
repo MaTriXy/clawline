@@ -147,9 +147,13 @@ struct ChatView: View {
         .background {
             // Background extends edge-to-edge. Admin users with paged TabView have
             // per-page backgrounds for the gradient; regular users get background here.
+#if os(visionOS)
+            Color.clear
+#else
             ChatFlowTheme.pageBackground(colorScheme)
                 .ignoresSafeArea()
                 .overlay(NoiseOverlayView().ignoresSafeArea())
+#endif
         }
         .task { await viewModel.onAppear() }
         .onDisappear { viewModel.onDisappear() }
@@ -287,8 +291,13 @@ struct ChatView: View {
                         Text(versionLabel)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+#if os(visionOS)
+                            .frame(maxWidth: inputBarMaxWidth(bottomSafeAreaInset: geometry.safeAreaInsets.bottom), alignment: .trailing)
+                            .frame(maxWidth: .infinity, alignment: .center)
+#else
                             .frame(maxWidth: .infinity, alignment: .trailing)
                             .padding(.horizontal, 24)
+#endif
                     }
 
                     MessageInputBar(
@@ -337,8 +346,25 @@ struct ChatView: View {
         return "v\(version)"
     }
 
+    private func inputBarMaxWidth(bottomSafeAreaInset: CGFloat) -> CGFloat? {
+        guard horizontalSizeClass != .compact else { return nil }
+        let themeMetrics = ChatFlowTheme.Metrics(isCompact: false)
+        let textWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: themeMetrics.bodyFontSize)
+        let metrics = MessageInputBarMetrics(
+            horizontalSizeClass: .regular,
+            bottomSafeAreaInset: bottomSafeAreaInset,
+            deviceCornerRadius: 0,
+            isFieldFocused: isInputFocused
+        )
+        let chromeWidth = (themeMetrics.inputBarPaddingHorizontal * 2)
+            + metrics.inputBarHeight
+            + metrics.inputBarHeight
+            + (MessageInputBarMetrics.elementSpacing * 2)
+        return textWidth + chromeWidth
+    }
+
     private func messageList(topInset: CGFloat, bottomInset: CGFloat, channel: ChatChannelType) -> some View {
-        MessageFlowCollectionView(
+        let list = MessageFlowCollectionView(
             viewModel: viewModel,
             topInset: topInset,
             bottomInset: bottomInset,
@@ -353,6 +379,25 @@ struct ChatView: View {
         // We manage keyboard avoidance manually inside the collection view.
         // Prevent SwiftUI from shrinking the view and double-applying the keyboard height.
         .ignoresSafeArea(.keyboard, edges: .bottom)
+#if os(visionOS)
+        return list
+            .mask(
+                GeometryReader { proxy in
+                    let fadeStart = max(proxy.size.height * 0.2, 1)
+                    LinearGradient(
+                        gradient: Gradient(stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black, location: fadeStart / max(proxy.size.height, 1)),
+                            .init(color: .black, location: 1)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+            )
+#else
+        return list
+#endif
     }
 
     @ViewBuilder
@@ -406,17 +451,25 @@ struct ChatView: View {
         TabView(selection: channelBinding) {
             messageList(topInset: topInset, bottomInset: bottomInset, channel: .personal)
                 .background {
+#if os(visionOS)
+                    Color.clear
+#else
                     ChatFlowTheme.pageBackground(colorScheme)
                         .ignoresSafeArea()
                         .overlay(NoiseOverlayView().ignoresSafeArea())
+#endif
                 }
                 .tag(ChatChannelType.personal)
 
             messageList(topInset: topInset, bottomInset: bottomInset, channel: .admin)
                 .background {
+#if os(visionOS)
+                    Color.clear
+#else
                     ChatFlowTheme.pageBackground(colorScheme)
                         .ignoresSafeArea()
                         .overlay(NoiseOverlayView().ignoresSafeArea())
+#endif
                 }
                 .tag(ChatChannelType.admin)
         }
@@ -882,8 +935,13 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                     equalTo: container.keyboardLayoutGuide.topAnchor,
                     constant: -desiredBottomGap
                 )
+                #if os(visionOS)
+                let containerBottomAnchor = container.safeAreaLayoutGuide.bottomAnchor
+                #else
+                let containerBottomAnchor = container.bottomAnchor
+                #endif
                 let bottomToContainerConstraint = hostingView.bottomAnchor.constraint(
-                    equalTo: container.bottomAnchor,
+                    equalTo: containerBottomAnchor,
                     constant: -desiredBottomGap
                 )
 
