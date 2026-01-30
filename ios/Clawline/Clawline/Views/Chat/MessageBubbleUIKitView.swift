@@ -116,6 +116,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private let contentStack = UIStackView()
     private let headerStack = UIStackView()
     private let dynamicContentWrapper = UIView()  // Clips for truncation
+    private let dynamicContentScrollView = UIScrollView()
     private let dynamicContentStack = UIStackView()  // Holds text + code blocks
     private let avatarView = AvatarCircleView()
     private let senderLabel = UILabel()
@@ -270,15 +271,28 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Dynamic content wrapper clips content for truncation
         dynamicContentWrapper.clipsToBounds = true
+        dynamicContentScrollView.translatesAutoresizingMaskIntoConstraints = false
+        dynamicContentScrollView.showsVerticalScrollIndicator = false
+        dynamicContentScrollView.showsHorizontalScrollIndicator = false
+        dynamicContentScrollView.alwaysBounceVertical = false
+        dynamicContentScrollView.alwaysBounceHorizontal = false
+        dynamicContentScrollView.isScrollEnabled = false
         dynamicContentStack.axis = .vertical
         dynamicContentStack.spacing = 10
         dynamicContentStack.translatesAutoresizingMaskIntoConstraints = false
-        dynamicContentWrapper.addSubview(dynamicContentStack)
+        dynamicContentScrollView.addSubview(dynamicContentStack)
+        dynamicContentWrapper.addSubview(dynamicContentScrollView)
         NSLayoutConstraint.activate([
-            dynamicContentStack.topAnchor.constraint(equalTo: dynamicContentWrapper.topAnchor),
-            dynamicContentStack.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
-            dynamicContentStack.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
-            dynamicContentStack.bottomAnchor.constraint(lessThanOrEqualTo: dynamicContentWrapper.bottomAnchor)
+            dynamicContentScrollView.topAnchor.constraint(equalTo: dynamicContentWrapper.topAnchor),
+            dynamicContentScrollView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
+            dynamicContentScrollView.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
+            dynamicContentScrollView.bottomAnchor.constraint(equalTo: dynamicContentWrapper.bottomAnchor),
+
+            dynamicContentStack.topAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.topAnchor),
+            dynamicContentStack.leadingAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.leadingAnchor),
+            dynamicContentStack.trailingAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.trailingAnchor),
+            dynamicContentStack.bottomAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.bottomAnchor),
+            dynamicContentStack.widthAnchor.constraint(greaterThanOrEqualTo: dynamicContentScrollView.frameLayoutGuide.widthAnchor)
         ])
         contentStack.addArrangedSubview(dynamicContentWrapper)
 
@@ -314,6 +328,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         truncationContainer.isHidden = true
 
         fadeView.translatesAutoresizingMaskIntoConstraints = false
+        fadeView.isUserInteractionEnabled = false
         bubbleBackgroundView.addSubview(fadeView)
         fadeView.isHidden = true
 
@@ -603,6 +618,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fadeView.isHidden = true
         NSLayoutConstraint.deactivate(fadeConstraints)
         fadeConstraints.removeAll()
+        dynamicContentScrollView.isScrollEnabled = false
+        dynamicContentScrollView.showsVerticalScrollIndicator = false
+        dynamicContentScrollView.showsHorizontalScrollIndicator = false
+        dynamicContentScrollView.alwaysBounceVertical = false
+        dynamicContentScrollView.alwaysBounceHorizontal = false
 
         let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
         if sizeClass == .long, !isSingleImageOnly, hasNonMediaContent {
@@ -627,6 +647,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 let heightConstraint = dynamicContentWrapper.heightAnchor.constraint(equalToConstant: metrics.truncationHeight)
                 heightConstraint.isActive = true
                 dynamicContentHeightConstraint = heightConstraint
+                dynamicContentScrollView.isScrollEnabled = true
+                dynamicContentScrollView.showsVerticalScrollIndicator = true
+                dynamicContentScrollView.showsHorizontalScrollIndicator = true
+                dynamicContentScrollView.alwaysBounceVertical = true
+                dynamicContentScrollView.alwaysBounceHorizontal = true
 
                 truncationContainer.isHidden = false
                 truncationLabel.textColor = (message.role == .user) ? palette.terracotta : palette.warmBrown
