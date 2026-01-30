@@ -844,6 +844,12 @@ private final class KeyboardLayoutGuideObserverView: UIView {
         super.init(frame: frame)
         isUserInteractionEnabled = false
         backgroundColor = .clear
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardFrameChanged(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
     }
 
     @available(*, unavailable)
@@ -851,9 +857,15 @@ private final class KeyboardLayoutGuideObserverView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let height = keyboardLayoutGuide.layoutFrame.height
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func keyboardFrameChanged(_ notification: Notification) {
+        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let screenHeight = window?.windowScene?.screen.bounds.height
+            ?? UIScreen.main.bounds.height
+        let height = max(0, screenHeight - endFrame.origin.y)
         if abs(height - lastHeight) > 0.5 {
             lastHeight = height
             onHeightChange?(height)
