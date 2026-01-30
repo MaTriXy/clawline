@@ -150,16 +150,8 @@ struct MessageInputBar: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
             }
-            .tint(.primary)
             .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
-#if os(visionOS)
-            .background(
-                Circle()
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.08 : 0.3))
-            )
-#else
             .glassEffect(.regular.interactive(), in: Circle())
-#endif
             .accessibilityLabel("Add attachment")
             .disabled(isSending)
 
