@@ -280,6 +280,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentStack.axis = .vertical
         dynamicContentStack.spacing = 10
         dynamicContentStack.translatesAutoresizingMaskIntoConstraints = false
+        dynamicContentStack.isLayoutMarginsRelativeArrangement = true
+        dynamicContentStack.layoutMargins = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         dynamicContentScrollView.addSubview(dynamicContentStack)
         dynamicContentWrapper.addSubview(dynamicContentScrollView)
         NSLayoutConstraint.activate([
@@ -292,7 +294,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentStack.leadingAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.leadingAnchor),
             dynamicContentStack.trailingAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.trailingAnchor),
             dynamicContentStack.bottomAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.bottomAnchor),
-            dynamicContentStack.widthAnchor.constraint(greaterThanOrEqualTo: dynamicContentScrollView.frameLayoutGuide.widthAnchor)
+            dynamicContentStack.widthAnchor.constraint(greaterThanOrEqualTo: dynamicContentScrollView.frameLayoutGuide.widthAnchor),
+            dynamicContentStack.heightAnchor.constraint(greaterThanOrEqualTo: dynamicContentScrollView.frameLayoutGuide.heightAnchor)
         ])
         contentStack.addArrangedSubview(dynamicContentWrapper)
 
