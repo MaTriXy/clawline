@@ -68,13 +68,23 @@ struct RichTextEditor: UIViewRepresentable {
             coordinator.updateHeight(for: textView)
         }
 
-        if !(textView.attributedText?.isEqual(attributedText) ?? false) {
-            textView.attributedText = attributedText
-            context.coordinator.enforceBaseAttributes(on: textView)
-            logger.info("[trace] updateUIView set attributedText len=\(attributedText.length)")
+        let textViewContent = textView.attributedText ?? NSAttributedString()
+        let contentChanged = !textViewContent.isEqual(attributedText)
+        let isComposing = textView.markedTextRange != nil
+        let stringEqual = textView.text == attributedText.string
+        if contentChanged {
+            if !(context.coordinator.isApplyingLocalEdit && stringEqual),
+               !(textView.isFirstResponder && isComposing) {
+                textView.attributedText = attributedText
+                context.coordinator.enforceBaseAttributes(on: textView)
+                logger.info("[trace] updateUIView set attributedText len=\(attributedText.length)")
+            }
         }
+        context.coordinator.isApplyingLocalEdit = false
 
-        if textView.selectedRange != selectionRange && selectionRange.location != NSNotFound {
+        if !isComposing,
+           textView.selectedRange != selectionRange,
+           selectionRange.location != NSNotFound {
             textView.selectedRange = selectionRange
         }
 
@@ -111,6 +121,7 @@ struct RichTextEditor: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: RichTextEditor
         private var lastFocusTrigger: Int = 0
+        var isApplyingLocalEdit = false
 
         init(parent: RichTextEditor) {
             self.parent = parent
@@ -125,6 +136,7 @@ struct RichTextEditor: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
+            isApplyingLocalEdit = true
             parent.attributedText = textView.attributedText
             parent.selectionRange = textView.selectedRange
             updateHeight(for: textView)
