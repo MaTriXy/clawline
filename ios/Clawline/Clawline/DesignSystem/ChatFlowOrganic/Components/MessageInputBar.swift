@@ -152,8 +152,7 @@ struct MessageInputBar: View {
             }
             .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
 #if os(visionOS)
-            .glassEffect(.regular.interactive())
-            .clipShape(Circle())
+            .background(.regularMaterial, in: Circle())
 #else
             .glassEffect(.regular.interactive(), in: Circle())
 #endif
@@ -244,8 +243,7 @@ struct MessageInputBar: View {
             .tint(ChatFlowTheme.sage(colorScheme))
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
 #if os(visionOS)
-            .glassEffect(.regular.interactive())
-            .clipShape(Capsule())
+            .background(.regularMaterial, in: Circle())
 #else
             .glassEffect(.regular.interactive(), in: Capsule())
 #endif
