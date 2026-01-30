@@ -294,9 +294,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentStack.leadingAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.leadingAnchor),
             dynamicContentStack.trailingAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.trailingAnchor),
             dynamicContentStack.bottomAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.bottomAnchor),
-            dynamicContentStack.widthAnchor.constraint(greaterThanOrEqualTo: dynamicContentScrollView.frameLayoutGuide.widthAnchor),
-            dynamicContentStack.heightAnchor.constraint(greaterThanOrEqualTo: dynamicContentScrollView.frameLayoutGuide.heightAnchor)
+            dynamicContentStack.widthAnchor.constraint(greaterThanOrEqualTo: dynamicContentScrollView.frameLayoutGuide.widthAnchor)
         ])
+        let contentHeightConstraint = dynamicContentScrollView.heightAnchor.constraint(
+            equalTo: dynamicContentScrollView.contentLayoutGuide.heightAnchor
+        )
+        contentHeightConstraint.priority = .defaultHigh
+        contentHeightConstraint.isActive = true
         contentStack.addArrangedSubview(dynamicContentWrapper)
 
         contentStack.addArrangedSubview(truncationContainer)
