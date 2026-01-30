@@ -15,6 +15,8 @@ struct RichTextEditor: UIViewRepresentable {
     @Binding var attributedText: NSAttributedString
     @Binding var calculatedHeight: CGFloat
     @Binding var selectionRange: NSRange
+    @Binding var pendingInsertions: [PendingAttachment]
+    var resetToken: Int
     var focusTrigger: Int
     var isEditable: Bool
     var onFocusChange: (Bool) -> Void
@@ -68,25 +70,17 @@ struct RichTextEditor: UIViewRepresentable {
             coordinator.updateHeight(for: textView)
         }
 
-        let textViewContent = textView.attributedText ?? NSAttributedString()
-        let contentChanged = !textViewContent.isEqual(attributedText)
         let isComposing = textView.markedTextRange != nil
-        let stringEqual = textView.text == attributedText.string
-        if contentChanged {
-            if !(context.coordinator.isApplyingLocalEdit && stringEqual),
-               !(textView.isFirstResponder && isComposing) {
-                textView.attributedText = attributedText
-                context.coordinator.enforceBaseAttributes(on: textView)
-                logger.info("[trace] updateUIView set attributedText len=\(attributedText.length)")
+        if resetToken != context.coordinator.lastResetToken, !isComposing {
+            context.coordinator.lastResetToken = resetToken
+            textView.attributedText = attributedText
+            context.coordinator.enforceBaseAttributes(on: textView)
+            if selectionRange.location != NSNotFound {
+                textView.selectedRange = selectionRange
             }
+            logger.info("[trace] updateUIView applied reset len=\(attributedText.length)")
         }
         context.coordinator.isApplyingLocalEdit = false
-
-        if !isComposing,
-           textView.selectedRange != selectionRange,
-           selectionRange.location != NSNotFound {
-            textView.selectedRange = selectionRange
-        }
 
         if textView.isEditable != isEditable {
             textView.isEditable = isEditable
@@ -112,6 +106,14 @@ struct RichTextEditor: UIViewRepresentable {
         context.coordinator.applyFocusIfNeeded(on: textView, trigger: focusTrigger)
         context.coordinator.updateHeight(for: textView)
         context.coordinator.ensureTypingAttributes(on: textView)
+
+        if !pendingInsertions.isEmpty, !isComposing {
+            let attachments = pendingInsertions
+            context.coordinator.insertAttachments(attachments, into: textView)
+            DispatchQueue.main.async {
+                self.pendingInsertions = []
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -122,6 +124,7 @@ struct RichTextEditor: UIViewRepresentable {
         var parent: RichTextEditor
         private var lastFocusTrigger: Int = 0
         var isApplyingLocalEdit = false
+        var lastResetToken: Int = 0
 
         init(parent: RichTextEditor) {
             self.parent = parent
@@ -221,6 +224,39 @@ struct RichTextEditor: UIViewRepresentable {
                 guard value == nil else { return }
                 textView.textStorage.addAttributes([.font: baseFont, .foregroundColor: baseColor], range: range)
             }
+        }
+
+        func insertAttachments(_ attachments: [PendingAttachment], into textView: UITextView) {
+            guard !attachments.isEmpty else { return }
+            let mutable = NSMutableAttributedString(attributedString: textView.attributedText ?? NSAttributedString())
+            let safeRange = clamp(textView.selectedRange, length: mutable.length)
+            mutable.replaceCharacters(in: safeRange, with: NSAttributedString(string: ""))
+            var insertionLocation = safeRange.location
+            for attachment in attachments {
+                let textAttachment = PendingTextAttachment(
+                    id: attachment.id,
+                    thumbnail: attachment.thumbnail,
+                    accessibilityLabel: attachment.accessibilityLabel
+                )
+                let attachmentString = NSAttributedString(attachment: textAttachment)
+                mutable.insert(attachmentString, at: insertionLocation)
+                insertionLocation += attachmentString.length
+            }
+            textView.attributedText = mutable
+            let newRange = NSRange(location: insertionLocation, length: 0)
+            textView.selectedRange = newRange
+            parent.attributedText = mutable
+            parent.selectionRange = newRange
+            updateHeight(for: textView)
+        }
+
+        private func clamp(_ range: NSRange, length: Int) -> NSRange {
+            guard range.location != NSNotFound else {
+                return NSRange(location: length, length: 0)
+            }
+            let safeLocation = min(max(range.location, 0), length)
+            let maxLength = max(0, min(range.length, length - safeLocation))
+            return NSRange(location: safeLocation, length: maxLength)
         }
     }
 }

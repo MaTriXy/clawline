@@ -59,6 +59,7 @@ final class ChatViewModel: ChatViewModelHosting {
             logger.info("[trace] connectionAlert changed to \(String(describing: self.connectionAlert)) canSend=\(self.canSend)")
         }
     }
+    private(set) var inputResetToken: Int = 0
     private(set) var error: String?
     private(set) var sendTask: Task<Void, Never>?
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
@@ -986,6 +987,7 @@ final class ChatViewModel: ChatViewModelHosting {
         inputContent = NSAttributedString(string: "")
         attachmentData.removeAll()
         uploadedAssetIds.removeAll()
+        inputResetToken &+= 1
     }
 
 

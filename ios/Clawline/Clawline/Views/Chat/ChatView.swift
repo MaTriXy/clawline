@@ -20,6 +20,12 @@ private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "
 // If you are an AI agent or developer planning to modify keyboard/focus/state handling here,
 // STOP and read this entire comment block first.
 //
+// CURRENT STRATEGY (2026-01)
+// - Ignore SwiftUI keyboard safe area (.ignoresSafeArea(.keyboard)).
+// - Place MessageInputBar in an overlay, not a .safeAreaInset.
+// - Drive bar position + list bottom inset directly from keyboard height.
+// - Keep input focus state in ChatView (stable parent).
+//
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 // THE PROBLEM
 // ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -85,6 +91,7 @@ struct ChatView: View {
     @State private var isInputFocused = false
     @State private var keyboardHeight: CGFloat = 0
     @State private var selectionRange = NSRange(location: 0, length: 0)
+    @State private var pendingInputInsertions: [PendingAttachment] = []
     @State private var activeSheet: ChatSheet?
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
@@ -151,13 +158,21 @@ struct ChatView: View {
             viewModel.handleSceneDidBecomeActive()
         }
 #if !os(visionOS)
+        .background(
+            KeyboardLayoutGuideReader { height in
+                if abs(height - keyboardHeight) > 0.5 {
+                    withAnimation(nil) {
+                        keyboardHeight = height
+                    }
+                }
+            }
+        )
+#else
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
             handleKeyboardFrameChange(notification)
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            withAnimation(.easeOut(duration: 0.25)) {
-                keyboardHeight = 0
-            }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+            handleKeyboardWillHide(notification)
         }
 #endif
         .sheet(item: $activeSheet, content: sheetView)
@@ -201,22 +216,35 @@ struct ChatView: View {
                              toastManager: ToastManager) -> some View {
         @Bindable var viewModel = viewModel
         let topInset: CGFloat = geometry.safeAreaInsets.top
-        let inputBarBaseHeight: CGFloat = 48
+        let metrics = ChatFlowTheme.Metrics(isCompact: horizontalSizeClass == .compact)
+        let inputBarBaseHeight: CGFloat = 44
         let resolvedInputHeight = max(inputBarHeight, inputBarBaseHeight)
-        // Base bottom inset for input bar: height + spacing + safe area (for home indicator).
-        // When keyboard is visible, SwiftUI shrinks the view so safe area isn't needed.
-        // When keyboard is hidden, safe area ensures content clears the input bar.
-        let bottomSafeArea = isKeyboardVisible ? 0 : geometry.safeAreaInsets.bottom
-        let bottomInset: CGFloat = resolvedInputHeight + MessageInputBarMetrics.elementSpacing + bottomSafeArea
+        // Manual keyboard handling: ignore SwiftUI keyboard safe area and drive
+        // the bar + list inset directly from keyboard height.
+        let keyboardVisibleHeight = max(0, keyboardHeight - geometry.safeAreaInsets.bottom)
+        let isKeyboardVisible = keyboardVisibleHeight > 0.5
+        let desiredBottomGap: CGFloat = isKeyboardVisible ? 12 : 24
+        let bottomSpacing: CGFloat = MessageInputBarMetrics.elementSpacing
+        let bottomInset: CGFloat = resolvedInputHeight
+            + bottomSpacing
+            + desiredBottomGap
+            + keyboardVisibleHeight
+        let concentricOffset = MessageInputBarMetrics(
+            horizontalSizeClass: horizontalSizeClass,
+            bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
+            deviceCornerRadius: deviceCornerRadius(),
+            isFieldFocused: isKeyboardVisible
+        ).concentricOffset
+        let listBottomInset = max(0, bottomInset - concentricOffset)
 
         ZStack(alignment: .top) {
             // Paged channel view for admins, single channel for regular users
             if authManager.isAdmin {
-                pagedChannelView(topInset: topInset, bottomInset: bottomInset)
+                pagedChannelView(topInset: topInset, bottomInset: listBottomInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             } else {
-                messageList(topInset: topInset, bottomInset: bottomInset, channel: .personal)
+                messageList(topInset: topInset, bottomInset: listBottomInset, channel: .personal)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             }
@@ -246,78 +274,52 @@ struct ChatView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .onPreferenceChange(InputBarHeightPreferenceKey.self) { height in
-            inputBarHeight = height
-        }
-        // ═══════════════════════════════════════════════════════════════════════════════
-        // ⚠️ CRITICAL SECTION - READ HEADER COMMENT BEFORE MODIFYING ⚠️
-        // ═══════════════════════════════════════════════════════════════════════════════
-        //
-        // This .safeAreaInset block is where the keyboard positioning fix is implemented.
-        // The content inside gets RECREATED when geometry changes (keyboard show/hide).
-        //
-        // WHY THE OFFSET IS APPLIED HERE (not in MessageInputBar):
-        // - MessageInputBar's body won't re-render when parent state changes
-        // - BUT modifiers applied TO MessageInputBar from here DO update
-        // - So we calculate offset here using parent's @State isInputFocused
-        //
-        // WHY onFocusChange CALLBACK (not @FocusState in MessageInputBar):
-        // - @FocusState in MessageInputBar resets when view recreates
-        // - Callback allows MessageInputBar to report focus to stable parent
-        // - Parent's @State survives the geometry change
-        //
-        .safeAreaInset(edge: .bottom) {
-            // Positive offset pushes bar DOWN into safe area for concentric alignment.
-            // When focused (keyboard visible), offset is 0 (bar sits above keyboard).
-            let rawOffset = calculateConcentricOffset(
-                bottomInset: geometry.safeAreaInsets.bottom,
-                inputBarHeight: resolvedInputHeight
-            )
-            let concentricOffset = isKeyboardVisible ? 0 : rawOffset
-
-            VStack(spacing: 6) {
-                if let versionLabel = appVersionLabel {
-                    Text(versionLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .padding(.horizontal, 24)
-                }
-
-                MessageInputBar(
-                    content: $viewModel.inputContent,
-                    selectionRange: $selectionRange,
-                    canSend: viewModel.canSend,
-                    isSending: viewModel.isSending,
-                    connectionAlert: viewModel.connectionAlert,
-                    focusTrigger: focusRequestID,
-                    bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
-                    isKeyboardVisible: isKeyboardVisible,
-                    onSend: {
-                        viewModel.send()
-                    },
-                    onCancel: { viewModel.cancelSend() },
-                    onAdd: {
-                        activeSheet = .attachmentMenu
-                    },
-                    // ⚠️ This callback is how focus state survives view recreation.
-                    // DO NOT replace with @Binding or try to use @FocusState directly.
-                    onFocusChange: { focused in isInputFocused = focused },
-                    onPasteImages: handlePastedImages
-                )
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(
-                            key: InputBarHeightPreferenceKey.self,
-                            value: proxy.size.height
-                        )
+        .ignoresSafeArea(.keyboard)
+        .overlay(alignment: .bottom) {
+            KeyboardPinnedContainer(
+                desiredBottomGap: desiredBottomGap,
+                isKeyboardVisible: isKeyboardVisible,
+                measuredHeight: $inputBarHeight,
+                height: resolvedInputHeight
+            ) {
+                VStack(spacing: 6) {
+                    if let versionLabel = appVersionLabel {
+                        Text(versionLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .padding(.horizontal, 24)
                     }
-                )
+
+                    MessageInputBar(
+                        content: $viewModel.inputContent,
+                        selectionRange: $selectionRange,
+                        pendingInsertions: $pendingInputInsertions,
+                        resetToken: viewModel.inputResetToken,
+                        canSend: viewModel.canSend,
+                        isSending: viewModel.isSending,
+                        connectionAlert: viewModel.connectionAlert,
+                        focusTrigger: focusRequestID,
+                        bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
+                        isKeyboardVisible: isKeyboardVisible,
+                        onSend: {
+                            viewModel.send()
+                        },
+                        onCancel: { viewModel.cancelSend() },
+                        onAdd: {
+                            activeSheet = .attachmentMenu
+                        },
+                        // ⚠️ This callback is how focus state survives view recreation.
+                        // DO NOT replace with @Binding or try to use @FocusState directly.
+                        onFocusChange: { focused in isInputFocused = focused },
+                        onPasteImages: handlePastedImages,
+                        isCompact: horizontalSizeClass == .compact
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .bottom)
             }
-            // ⚠️ Offset MUST be applied here, not inside MessageInputBar.
-            // See header comment for why.
-            .offset(y: concentricOffset)
-            .animation(.easeOut(duration: 0.25), value: concentricOffset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .ignoresSafeArea(.container, edges: .bottom)
         }
     }
 
@@ -342,11 +344,15 @@ struct ChatView: View {
             bottomInset: bottomInset,
             isCompact: horizontalSizeClass == .compact,
             isKeyboardVisible: isInputFocused,
+            usesExternalKeyboardInsets: true,
             onExpand: { message in
                 activeSheet = .expandedMessage(message)
             },
             channel: channel
         )
+        // We manage keyboard avoidance manually inside the collection view.
+        // Prevent SwiftUI from shrinking the view and double-applying the keyboard height.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     @ViewBuilder
@@ -451,6 +457,15 @@ struct ChatView: View {
         }
         .padding()
         .background(Color.red)
+    }
+
+    private func deviceCornerRadius() -> CGFloat {
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
+        let hasRoundedCorners = (window?.safeAreaInsets.bottom ?? 0) > 0
+        return hasRoundedCorners ? 50 : 0
     }
 
     @MainActor
@@ -568,32 +583,8 @@ struct ChatView: View {
     @MainActor
     private func insertAttachments(_ attachments: [PendingAttachment]) {
         guard !attachments.isEmpty else { return }
-        let mutable = NSMutableAttributedString(attributedString: viewModel.inputContent)
-        let safeRange = clamp(selectionRange, length: mutable.length)
-        mutable.replaceCharacters(in: safeRange, with: NSAttributedString(string: ""))
-        var insertionLocation = safeRange.location
-        for attachment in attachments {
-            let textAttachment = PendingTextAttachment(
-                id: attachment.id,
-                thumbnail: attachment.thumbnail,
-                accessibilityLabel: attachment.accessibilityLabel
-            )
-            let attachmentString = NSAttributedString(attachment: textAttachment)
-            mutable.insert(attachmentString, at: insertionLocation)
-            insertionLocation += attachmentString.length
-        }
         viewModel.stageAttachments(attachments)
-        viewModel.inputContent = mutable
-        selectionRange = NSRange(location: insertionLocation, length: 0)
-    }
-
-    private func clamp(_ range: NSRange, length: Int) -> NSRange {
-        guard range.location != NSNotFound else {
-            return NSRange(location: length, length: 0)
-        }
-        let safeLocation = min(max(range.location, 0), length)
-        let maxLength = max(0, min(range.length, length - safeLocation))
-        return NSRange(location: safeLocation, length: maxLength)
+        pendingInputInsertions = attachments
     }
 
     private func loadDocumentAttachment(from url: URL) throws -> PendingAttachment {
@@ -710,47 +701,245 @@ struct ChatView: View {
         }
     }
 
-    /// Calculate concentric offset to align input bar with device corner radius.
-    /// Returns ~16pt when keyboard hidden, 0pt when keyboard visible (handled by caller).
-    private func calculateConcentricOffset(bottomInset: CGFloat, inputBarHeight: CGFloat) -> CGFloat {
-        // Device corner radius: ~50pt for Face ID devices, 0pt for home button devices
-        let window = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }
-        let hasRoundedCorners = (window?.safeAreaInsets.bottom ?? 0) > 0
-        let deviceCornerRadius: CGFloat = hasRoundedCorners ? 50 : 0
-
-        let elementSpacing: CGFloat = 8
-        let concentricPadding = max(deviceCornerRadius - (inputBarHeight / 2), 8)
-
-        let minSafeArea: CGFloat = 34
-        let maxSafeArea: CGFloat = 100
-        let maxOffset = max(minSafeArea - concentricPadding + elementSpacing, 0)
-        let t = (bottomInset - minSafeArea) / (maxSafeArea - minSafeArea)
-        let clampedT = max(0, min(1, t))
-        return maxOffset * (1 - clampedT)
-    }
-
     private func handleKeyboardFrameChange(_ notification: Notification) {
         guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
             return
         }
-        let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
         let window = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
             .first { $0.isKeyWindow }
-        #if os(visionOS)
+#if os(visionOS)
         let screenHeight = window?.bounds.height ?? frame.maxY
-        #else
+#else
         let screenHeight = window?.windowScene?.screen.bounds.height ?? window?.bounds.height ?? frame.maxY
-        #endif
+#endif
         let overlap = max(0, screenHeight - frame.minY)
-        withAnimation(.easeOut(duration: duration)) {
-            keyboardHeight = overlap
+        let layoutGuideHeight = window?.keyboardLayoutGuide.layoutFrame.height ?? 0
+        let resolvedHeight = overlap > 0.5 ? overlap : layoutGuideHeight
+        let isInteractive = keyboardIsInteractive(notification)
+        if isInteractive {
+            keyboardHeight = resolvedHeight
+        } else if let animation = keyboardAnimation(from: notification) {
+            withAnimation(animation) {
+                keyboardHeight = resolvedHeight
+            }
+        } else {
+            keyboardHeight = resolvedHeight
         }
-        logger.info("[trace] keyboard frame overlap=\(overlap) screenH=\(screenHeight) frameMinY=\(frame.minY)")
+        logger.info("[trace] keyboard height resolved=\(resolvedHeight) overlap=\(overlap) layoutGuide=\(layoutGuideHeight) screenH=\(screenHeight) frameMinY=\(frame.minY)")
+    }
+
+    private func handleKeyboardWillHide(_ notification: Notification) {
+        let isInteractive = keyboardIsInteractive(notification)
+        if isInteractive {
+            keyboardHeight = 0
+        } else if let animation = keyboardAnimation(from: notification) {
+            withAnimation(animation) {
+                keyboardHeight = 0
+            }
+        } else {
+            keyboardHeight = 0
+        }
+    }
+
+    private func keyboardIsInteractive(_ notification: Notification) -> Bool {
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
+        let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int ?? -1
+        return duration <= 0.0 || curveRaw == 7
+    }
+
+    private func keyboardAnimation(from notification: Notification) -> Animation? {
+        guard let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
+              duration > 0
+        else {
+            return nil
+        }
+        let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int
+        let curve = UIView.AnimationCurve(rawValue: curveRaw ?? UIView.AnimationCurve.easeInOut.rawValue) ?? .easeInOut
+        switch curve {
+        case .easeIn:
+            return .timingCurve(0.42, 0, 1, 1, duration: duration)
+        case .easeOut:
+            return .timingCurve(0, 0, 0.58, 1, duration: duration)
+        case .linear:
+            return .linear(duration: duration)
+        case .easeInOut:
+            return .timingCurve(0.42, 0, 0.58, 1, duration: duration)
+        @unknown default:
+            return .easeOut(duration: duration)
+        }
+    }
+}
+
+private struct KeyboardLayoutGuideReader: UIViewRepresentable {
+    typealias UIViewType = KeyboardLayoutGuideObserverView
+
+    let onHeightChange: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> KeyboardLayoutGuideObserverView {
+        let view = KeyboardLayoutGuideObserverView()
+        view.onHeightChange = onHeightChange
+        return view
+    }
+
+    func updateUIView(_ uiView: KeyboardLayoutGuideObserverView, context: Context) {
+        uiView.onHeightChange = onHeightChange
+    }
+}
+
+private final class KeyboardLayoutGuideObserverView: UIView {
+    var onHeightChange: ((CGFloat) -> Void)?
+    private var lastHeight: CGFloat = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let height = keyboardLayoutGuide.layoutFrame.height
+        if abs(height - lastHeight) > 0.5 {
+            lastHeight = height
+            onHeightChange?(height)
+        }
+    }
+}
+
+private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
+    typealias UIViewType = KeyboardPinnedContainerView<Content>
+
+    let desiredBottomGap: CGFloat
+    let isKeyboardVisible: Bool
+    @Binding var measuredHeight: CGFloat
+    let height: CGFloat
+    let content: Content
+
+    init(
+        desiredBottomGap: CGFloat,
+        isKeyboardVisible: Bool,
+        measuredHeight: Binding<CGFloat>,
+        height: CGFloat,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.desiredBottomGap = desiredBottomGap
+        self.isKeyboardVisible = isKeyboardVisible
+        self._measuredHeight = measuredHeight
+        self.height = height
+        self.content = content()
+    }
+
+    func makeUIView(context: Context) -> KeyboardPinnedContainerView<Content> {
+        let container = KeyboardPinnedContainerView(rootView: content)
+        context.coordinator.container = container
+        return container
+    }
+
+    func updateUIView(_ uiView: KeyboardPinnedContainerView<Content>, context: Context) {
+        uiView.hostingController.rootView = content
+        context.coordinator.updateConstraints(
+            in: uiView,
+            height: height,
+            desiredBottomGap: desiredBottomGap,
+            isKeyboardVisible: isKeyboardVisible,
+            measuredHeight: $measuredHeight
+        )
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        var container: KeyboardPinnedContainerView<Content>?
+        private var minHeightConstraint: NSLayoutConstraint?
+        private var bottomToKeyboardConstraint: NSLayoutConstraint?
+        private var bottomToContainerConstraint: NSLayoutConstraint?
+
+        func updateConstraints(
+            in container: KeyboardPinnedContainerView<Content>,
+            height: CGFloat,
+            desiredBottomGap: CGFloat,
+            isKeyboardVisible: Bool,
+            measuredHeight: Binding<CGFloat>
+        ) {
+            guard let hostingView = container.hostingController.view else { return }
+            if minHeightConstraint == nil || bottomToKeyboardConstraint == nil || bottomToContainerConstraint == nil {
+                hostingView.translatesAutoresizingMaskIntoConstraints = false
+                hostingView.setContentHuggingPriority(.required, for: .vertical)
+                hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
+                container.addSubview(hostingView)
+
+                let minHeightConstraint = hostingView.heightAnchor.constraint(greaterThanOrEqualToConstant: height)
+                let bottomToKeyboardConstraint = hostingView.bottomAnchor.constraint(
+                    equalTo: container.keyboardLayoutGuide.topAnchor,
+                    constant: -desiredBottomGap
+                )
+                let bottomToContainerConstraint = hostingView.bottomAnchor.constraint(
+                    equalTo: container.bottomAnchor,
+                    constant: -desiredBottomGap
+                )
+
+                NSLayoutConstraint.activate([
+                    hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                    hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                    minHeightConstraint,
+                ])
+
+                self.minHeightConstraint = minHeightConstraint
+                self.bottomToKeyboardConstraint = bottomToKeyboardConstraint
+                self.bottomToContainerConstraint = bottomToContainerConstraint
+                bottomToKeyboardConstraint.isActive = isKeyboardVisible
+                bottomToContainerConstraint.isActive = !isKeyboardVisible
+            } else {
+                minHeightConstraint?.constant = height
+                bottomToKeyboardConstraint?.constant = -desiredBottomGap
+                bottomToContainerConstraint?.constant = -desiredBottomGap
+                bottomToKeyboardConstraint?.isActive = isKeyboardVisible
+                bottomToContainerConstraint?.isActive = !isKeyboardVisible
+            }
+
+            if container.bounds.width > 0 {
+                container.layoutIfNeeded()
+                let currentHeight = hostingView.bounds.height
+                if abs(measuredHeight.wrappedValue - currentHeight) > 0.5 {
+                    DispatchQueue.main.async {
+                        measuredHeight.wrappedValue = currentHeight
+                    }
+                }
+            }
+
+        }
+    }
+}
+
+private final class KeyboardPinnedContainerView<Content: View>: UIView {
+    let hostingController: UIHostingController<Content>
+
+    init(rootView: Content) {
+        hostingController = UIHostingController(rootView: rootView)
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isOpaque = false
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.isOpaque = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard let hitView = hostingController.view else { return false }
+        return hitView.frame.contains(point)
     }
 }
 
@@ -769,6 +958,7 @@ private struct InputBarHeightPreferenceKey: PreferenceKey {
         value = max(value, nextValue())
     }
 }
+
 
 // MARK: - Previews
 

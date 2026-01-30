@@ -41,6 +41,8 @@ struct MessageInputBar: View {
     @Environment(\.colorScheme) private var colorScheme
     @Binding var content: NSAttributedString
     @Binding var selectionRange: NSRange
+    @Binding var pendingInsertions: [PendingAttachment]
+    var resetToken: Int
     let canSend: Bool
     let isSending: Bool
     let connectionAlert: ConnectionAlertSeverity?
@@ -55,13 +57,12 @@ struct MessageInputBar: View {
     let onFocusChange: (Bool) -> Void
     var onPasteImages: (([UIImage]) -> Void)?
 
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
     @State private var editorHeight: CGFloat = 44
+    let isCompact: Bool
 
     private var metrics: MessageInputBarMetrics {
         MessageInputBarMetrics(
-            horizontalSizeClass: horizontalSizeClass,
+            horizontalSizeClass: isCompact ? .compact : .regular,
             bottomSafeAreaInset: bottomSafeAreaInset,
             deviceCornerRadius: deviceCornerRadius,
             isFieldFocused: isKeyboardVisible
@@ -133,6 +134,10 @@ struct MessageInputBar: View {
         metrics.inputBarHeight
     }
 
+    private var containerPadding: CGFloat {
+        ChatFlowTheme.Metrics(isCompact: isCompact).inputBarPaddingHorizontal
+    }
+
     var body: some View {
         HStack(alignment: .bottom, spacing: MessageInputBarMetrics.elementSpacing) {
             // Add button - send-style for reliable hit testing (left side)
@@ -141,10 +146,11 @@ struct MessageInputBar: View {
             }) {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.tint)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
             }
+            .tint(.primary)
             .frame(width: metrics.inputBarHeight, height: metrics.inputBarHeight)
 #if os(visionOS)
             .background(
@@ -163,6 +169,8 @@ struct MessageInputBar: View {
                     attributedText: $content,
                     calculatedHeight: $editorHeight,
                     selectionRange: $selectionRange,
+                    pendingInsertions: $pendingInsertions,
+                    resetToken: resetToken,
                     focusTrigger: focusTrigger,
                     isEditable: true,
                     onFocusChange: onFocusChange,
@@ -202,6 +210,7 @@ struct MessageInputBar: View {
                     .allowsHitTesting(false)
                 }
             }
+            .tint(.primary)
             .frame(height: inputHeight)
             .frame(maxWidth: .infinity, alignment: .bottom)
 #if os(visionOS)
@@ -225,16 +234,17 @@ struct MessageInputBar: View {
                 ZStack {
                     Image(systemName: "stop.fill")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.tint)
                         .opacity(isSending ? 1 : 0)
                     Image(systemName: "paperplane.fill")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(ChatFlowTheme.sage(colorScheme))
+                        .foregroundStyle(.tint)
                         .opacity(isSending ? 0 : 1)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
             }
+            .tint(ChatFlowTheme.sage(colorScheme))
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
 #if os(visionOS)
             .background(
@@ -253,7 +263,7 @@ struct MessageInputBar: View {
             .animation(nil, value: isSending)
             .animation(nil, value: canSend)
         }
-        .padding(.horizontal, metrics.concentricPadding)
+        .padding(.horizontal, containerPadding)
         .padding(.bottom, metrics.bottomPadding)
         .simultaneousGesture(TapGesture().onEnded {
             logger.info("Input bar tap gesture")
@@ -269,11 +279,13 @@ struct MessageInputBar: View {
 #Preview("Message Input") {
     @Previewable @State var content = NSAttributedString(string: "Hello")
     @Previewable @State var selection = NSRange(location: 5, length: 0)
-    return Color.clear
+    Color.clear
         .safeAreaInset(edge: .bottom) {
             MessageInputBar(
                 content: $content,
                 selectionRange: $selection,
+                pendingInsertions: .constant([]),
+                resetToken: 0,
                 canSend: true,
                 isSending: false,
                 connectionAlert: nil,
@@ -283,7 +295,8 @@ struct MessageInputBar: View {
                 onSend: {},
                 onCancel: {},
                 onAdd: {},
-                onFocusChange: { _ in }
+                onFocusChange: { _ in },
+                isCompact: true
             )
         }
 }
