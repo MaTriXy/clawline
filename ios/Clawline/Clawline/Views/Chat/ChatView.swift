@@ -238,10 +238,14 @@ struct ChatView: View {
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             }
 
-            // Channel toast (centered)
+            // Channel toast (anchored above input bar)
             if channelToastManager.isVisible {
+                let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
+                    + belowBarGap + resolvedInputHeight
                 ChannelToast(channelName: channelToastManager.channelName)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.bottom, inputBarTopFromScreenBottom + 50)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .ignoresSafeArea(.container, edges: .bottom)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
 
