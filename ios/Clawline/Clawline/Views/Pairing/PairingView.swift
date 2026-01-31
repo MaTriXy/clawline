@@ -188,6 +188,7 @@ struct PairingView: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
             }
+            .buttonStyle(.plain)
             .frame(width: inputHeight, height: inputHeight)
             .background(Color.accentColor, in: Circle())
             .opacity(viewModel.isNameValid ? 1 : 0.4)
@@ -204,6 +205,7 @@ struct PairingView: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 18, weight: .semibold))
             }
+            .buttonStyle(.plain)
             .frame(width: inputHeight, height: inputHeight)
 #if os(visionOS)
             .background(
@@ -252,6 +254,7 @@ struct PairingView: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
             }
+            .buttonStyle(.plain)
             .frame(width: inputHeight, height: inputHeight)
             .background(Color.accentColor, in: Circle())
             .opacity(viewModel.isAddressValid ? 1 : 0.4)
@@ -316,6 +319,7 @@ struct PairingView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.white)
                 }
+                .buttonStyle(.plain)
                 .frame(width: inputHeight, height: inputHeight)
                 .background(Color.accentColor, in: Circle())
                 .accessibilityLabel("Retry pairing request")
@@ -328,6 +332,7 @@ struct PairingView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.white)
                 }
+                .buttonStyle(.plain)
                 .frame(width: inputHeight, height: inputHeight)
                 .background(Color.red, in: Circle())
             }
