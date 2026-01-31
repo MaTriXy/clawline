@@ -113,6 +113,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        let t0 = CFAbsoluteTimeGetCurrent()
 
         // Extend the collection view to fill the entire screen, ignoring safe areas.
         // SwiftUI's UIViewControllerRepresentable doesn't respect .ignoresSafeArea() for UIKit views,
@@ -138,7 +139,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Handle bounds size changes
         let size = collectionView.bounds.size
-        guard size != .zero, size != lastBoundsSize else { return }
+        guard size != .zero, size != lastBoundsSize else {
+            NSLog("[KBTIMING] viewDidLayoutSubviews noChange dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
+            return
+        }
+        NSLog("[KBTIMING] viewDidLayoutSubviews RELAYOUT old=%@ new=%@", NSCoder.string(for: lastBoundsSize), NSCoder.string(for: size))
         lastBoundsSize = size
         forceReconfigureAll = true
         updateLayout()
@@ -155,6 +160,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
+        NSLog("[KBTIMING] viewDidLayoutSubviews DONE dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
     }
 
 #if os(visionOS)
@@ -231,7 +237,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         return
 #else
-        guard !usesExternalKeyboardInsets else { return }
+        let t0 = CFAbsoluteTimeGetCurrent()
+        guard !usesExternalKeyboardInsets else {
+            NSLog("[KBTIMING] MFCV.keyboardWillChangeFrame SKIPPED (external insets)")
+            return
+        }
         guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
             return
         }
@@ -258,6 +268,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if keyboardJustAppeared && isNearBottom(extraMargin: max(24, baseBottomInset)) {
             scrollToBottom(animated: true)
         }
+        NSLog("[KBTIMING] MFCV.keyboardWillChangeFrame h=%.1f delta=%.1f dragging=%d dt=%.4f", keyboardHeight, delta, isUserInteracting ? 1 : 0, CFAbsoluteTimeGetCurrent() - t0)
 #endif
     }
 
@@ -288,9 +299,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             : baseBottomInset + currentKeyboardHeight
         collectionView.contentInset.bottom = totalBottomInset
         collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
+        NSLog("[KBTIMING] applyBottomContentInset total=%.1f base=%.1f kb=%.1f extKb=%d", totalBottomInset, baseBottomInset, currentKeyboardHeight, usesExternalKeyboardInsets ? 1 : 0)
     }
 
     private func scheduleScrollToBottom(animated: Bool, attempts: Int = 2) {
+        NSLog("[KBTIMING] scheduleScrollToBottom animated=%d attempts=%d", animated ? 1 : 0, attempts)
         pendingScrollToBottomAttempts = max(pendingScrollToBottomAttempts, attempts)
         pendingScrollToBottomAnimated = pendingScrollToBottomAnimated || animated
         performPendingScrollToBottomIfNeeded()
@@ -298,6 +311,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func performPendingScrollToBottomIfNeeded() {
         guard pendingScrollToBottomAttempts > 0 else { return }
+        NSLog("[KBTIMING] performPendingScrollToBottom remaining=%d", pendingScrollToBottomAttempts)
         let animated = pendingScrollToBottomAnimated
         pendingScrollToBottomAttempts -= 1
         collectionView.layoutIfNeeded()
@@ -313,6 +327,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, usesExternalKeyboardInsets: Bool, onExpand: ((Message) -> Void)? = nil, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
         loadViewIfNeeded()
+        let t0 = CFAbsoluteTimeGetCurrent()
         self.viewModel = viewModel
         self.channelOverride = channel
         self.onExpand = onExpand
@@ -360,6 +375,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             baseBottomInset = bottomInset
             applyBottomContentInset()
         }
+        NSLog("[KBTIMING] MFCV.update layoutDecision fullLayout=%d insetUpdate=%d prevBottom=%.1f newBottom=%.1f dt=%.4f", needsFullLayout ? 1 : 0, needsInsetUpdate ? 1 : 0, previousBottomInset, bottomInset, CFAbsoluteTimeGetCurrent() - t0)
 
         // Use channel override if provided, otherwise use activeChannel messages
         let messages = channel.map { viewModel.messages(for: $0) } ?? viewModel.messages
@@ -395,7 +411,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             snapshot.appendItems([TypingIndicatorCell.itemId])
         }
 
-        let changedIds = needsLayoutUpdate
+        let changedIds = needsFullLayout
             ? messages.map(\.id)
             : newFingerprints.compactMap { id, fingerprint in
                 fingerprints[id] == fingerprint ? nil : id
@@ -416,6 +432,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #else
         dataSource.apply(snapshot, animatingDifferences: shouldMorph)
 #endif
+        NSLog("[KBTIMING] MFCV.update snapshotApply changed=%d morph=%d dt=%.4f", changedIds.count, shouldMorph ? 1 : 0, CFAbsoluteTimeGetCurrent() - t0)
         logger.info(
             "diffing apply snapshot count=\(messageCount, privacy: .public) changed=\(changedIds.count, privacy: .public) needsLayout=\(needsLayoutUpdate, privacy: .public) morph=\(shouldMorph, privacy: .public)"
         )
@@ -447,6 +464,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 }
             }
         }
+        NSLog("[KBTIMING] MFCV.update DONE kbVis=%d wasNearBot=%d dt=%.4f", isKeyboardVisible ? 1 : 0, wasNearBottom ? 1 : 0, CFAbsoluteTimeGetCurrent() - t0)
     }
 
     private func configureCollectionView() {
@@ -464,7 +482,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
 #if !os(visionOS)
-        collectionView.keyboardDismissMode = .interactive
+        collectionView.keyboardDismissMode = .onDrag
 #endif
         collectionView.allowsSelection = false
         collectionView.allowsMultipleSelection = false
@@ -552,6 +570,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func updateLayout() {
+        let t0 = CFAbsoluteTimeGetCurrent()
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         flowLayout.minimumInteritemSpacing = metrics.flowGap
         flowLayout.minimumLineSpacing = metrics.flowGap
@@ -572,6 +591,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         lastMeasuredSizes.removeAll()
         sizeCache.removeAll()
         flowLayout.invalidateLayout()
+        NSLog("[KBTIMING] updateLayout cacheCleared invalidated dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
     }
 
     private func availableContentWidth() -> CGFloat {
@@ -880,11 +900,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func scrollToBottom(animated: Bool) {
+        let t0 = CFAbsoluteTimeGetCurrent()
         guard let lastMessageId,
               dataSource.indexPath(for: lastMessageId) != nil else {
             return
         }
         collectionView.layoutIfNeeded()
+        NSLog("[KBTIMING] scrollToBottom.layoutIfNeeded dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
         let contentInset = collectionView.contentInset
         // Scroll to the bottom of the content (includes section insets/padding).
         // Using contentSize avoids under-scrolling when sectionInset.bottom is non-zero.
@@ -893,6 +915,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let maxY = collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom
         let clampedY = max(minY, min(targetY, maxY))
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: animated)
+        NSLog("[KBTIMING] scrollToBottom animated=%d targetY=%.1f dt=%.4f", animated ? 1 : 0, clampedY, CFAbsoluteTimeGetCurrent() - t0)
     }
 
     private func isNearBottom(extraMargin: CGFloat) -> Bool {
@@ -904,6 +927,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func adjustContentOffsetForBottomInsetChange(delta: CGFloat) {
+        NSLog("[KBTIMING] adjustContentOffset delta=%.1f", delta)
         guard abs(delta) > 0.5 else { return }
         let contentInset = collectionView.contentInset
         let minY = -contentInset.top
@@ -1022,6 +1046,7 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
     private var cachedContentSize: CGSize = .zero
 
     override func prepare() {
+        let t0 = CFAbsoluteTimeGetCurrent()
         super.prepare()
         guard let collectionView else { return }
         cachedAttributes.removeAll(keepingCapacity: true)
@@ -1059,6 +1084,7 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         }
 
         cachedContentSize = CGSize(width: contentWidth, height: y + rowHeight + sectionInset.bottom)
+        NSLog("[KBTIMING] FlowLayout.prepare items=%d dt=%.4f", itemCount, CFAbsoluteTimeGetCurrent() - t0)
     }
 
     override var collectionViewContentSize: CGSize {
