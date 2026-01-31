@@ -538,15 +538,13 @@ struct ChatView: View {
     @MainActor
     private func handlePastedImages(_ images: [UIImage]) {
         logger.info("Pasted \(images.count) image(s) from clipboard")
-        Task {
+        Task { @MainActor in
             let attachments = await Self.buildPastedAttachments(from: images)
             guard !attachments.isEmpty else {
-                await MainActor.run { toastManager.show(error: .invalidData) }
+                toastManager.show(error: .invalidData)
                 return
             }
-            await MainActor.run {
-                insertAttachments(attachments)
-            }
+            insertAttachments(attachments)
         }
     }
 
@@ -646,11 +644,12 @@ struct ChatView: View {
 
     private static func buildPastedAttachments(from images: [UIImage]) async -> [PendingAttachment] {
         await withCheckedContinuation { continuation in
+            let copiedImages = images
             DispatchQueue.global(qos: .userInitiated).async {
                 var attachments: [PendingAttachment] = []
-                attachments.reserveCapacity(images.count)
-                for (index, image) in images.enumerated() {
-                    let filename = images.count > 1 ? "pasted-\(index + 1).png" : "pasted.png"
+                attachments.reserveCapacity(copiedImages.count)
+                for (index, image) in copiedImages.enumerated() {
+                    let filename = copiedImages.count > 1 ? "pasted-\(index + 1).png" : "pasted.png"
                     if let attachment = makeImageAttachment(from: image, suggestedFilename: filename) {
                         attachments.append(attachment)
                     }
