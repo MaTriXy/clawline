@@ -299,6 +299,10 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
     /// flushed after the run-loop tick so all items from a single paste are batched.
     private var _delegateImageProviders: [NSItemProvider] = []
 
+    /// Text providers collected during the delegate's `transforming` calls,
+    /// flushed after the run-loop tick so all items from a single drop are batched.
+    private var _delegateTextProviders: [NSItemProvider] = []
+
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
         pasteDelegate = self
@@ -333,7 +337,10 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
         let imageProviders = pasteboard.itemProviders.filter { Self.providerHasImage($0) }
         logger.info("[paste] paste(_:) hasImages=\(pasteboard.hasImages) imageProviders=\(imageProviders.count)")
         guard !imageProviders.isEmpty else {
-            super.paste(sender)
+            // Strip rich formatting — insert only plain text with default typing attributes.
+            if let plain = pasteboard.string, !plain.isEmpty {
+                insertPlainText(plain)
+            }
             return
         }
         handleImageProviders(imageProviders)
@@ -365,7 +372,36 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
             NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(_flushDelegateImages), object: nil)
             perform(#selector(_flushDelegateImages), with: nil, afterDelay: 0)
         } else {
-            item.setDefaultResult()
+            // Strip rich formatting — collect plain-text providers and batch-insert.
+            item.setNoResult()
+            let provider = item.itemProvider
+            if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+                _delegateTextProviders.append(provider)
+                NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(_flushDelegateText), object: nil)
+                perform(#selector(_flushDelegateText), with: nil, afterDelay: 0)
+            }
+        }
+    }
+
+    @objc private func _flushDelegateText() {
+        let providers = _delegateTextProviders
+        _delegateTextProviders = []
+        guard !providers.isEmpty else { return }
+        logger.info("[paste] delegate flush \(providers.count) text provider(s)")
+        Task.detached { [weak self] in
+            var texts: [String] = []
+            for provider in providers {
+                if let text = await Self.loadPlainText(from: provider) {
+                    texts.append(text)
+                }
+            }
+            await MainActor.run {
+                guard let self else { return }
+                let combined = texts.joined()
+                if !combined.isEmpty {
+                    self.insertPlainText(combined)
+                }
+            }
         }
     }
 
@@ -375,6 +411,27 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
         guard !providers.isEmpty else { return }
         logger.info("[paste] delegate flush \(providers.count) image provider(s)")
         handleImageProviders(providers)
+    }
+
+    // MARK: - Plain text insertion
+
+    /// Inserts plain text at the current selection, replacing any selected text,
+    /// using the text view's current `typingAttributes` (strips all rich formatting).
+    private func insertPlainText(_ text: String) {
+        let attributed = NSAttributedString(string: text, attributes: typingAttributes)
+        let range = selectedRange
+        textStorage.replaceCharacters(in: range, with: attributed)
+        selectedRange = NSRange(location: range.location + attributed.length, length: 0)
+        delegate?.textViewDidChange?(self)
+    }
+
+    private static func loadPlainText(from provider: NSItemProvider) async -> String? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { obj, _ in
+                let text = (obj as? String) ?? (obj as? Data).flatMap { String(data: $0, encoding: .utf8) }
+                continuation.resume(returning: text)
+            }
+        }
     }
 
     // MARK: - Image detection
