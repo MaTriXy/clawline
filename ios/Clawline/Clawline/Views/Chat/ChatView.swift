@@ -928,13 +928,25 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
 
             // Update gap constant and version label visibility — no constraint
             // activation/deactivation needed.
-            hostingBottomToKeyboard?.constant = -desiredBottomGap
+            let previousGap = hostingBottomToKeyboard?.constant ?? 0
+            let newGap = -desiredBottomGap
+            let gapChanged = abs(previousGap - newGap) > 0.5
+            hostingBottomToKeyboard?.constant = newGap
             let hasVersionText = versionLabel.text != nil && !versionLabel.text!.isEmpty
             versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
 
             if container.bounds.width > 0 {
-                container.layoutIfNeeded()
+                // When the below-bar gap changes (keyboard appearing/disappearing),
+                // animate the constraint so the input bar slides smoothly instead
+                // of snapping 12pt on release of the interactive dismiss gesture.
+                if gapChanged {
+                    UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseInOut) {
+                        container.layoutIfNeeded()
+                    }
+                } else {
+                    container.layoutIfNeeded()
+                }
                 let currentHeight = hostingView.bounds.height
                 if abs(measuredHeight.wrappedValue - currentHeight) > 0.5 {
                     DispatchQueue.main.async {
