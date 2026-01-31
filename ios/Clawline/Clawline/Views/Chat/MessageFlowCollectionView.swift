@@ -482,7 +482,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
 #if !os(visionOS)
-        collectionView.keyboardDismissMode = .onDrag
+        collectionView.keyboardDismissMode = .interactive
 #endif
         collectionView.allowsSelection = false
         collectionView.allowsMultipleSelection = false
