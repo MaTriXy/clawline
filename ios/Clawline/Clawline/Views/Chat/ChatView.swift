@@ -936,17 +936,16 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
 
-            if container.bounds.width > 0 {
-                // When the below-bar gap changes (keyboard appearing/disappearing),
-                // animate the constraint so the input bar slides smoothly instead
-                // of snapping 12pt on release of the interactive dismiss gesture.
-                if gapChanged {
-                    UIView.animate(withDuration: 0.35, delay: 0, options: .curveEaseInOut) {
-                        container.layoutIfNeeded()
-                    }
-                } else {
-                    container.layoutIfNeeded()
-                }
+            // Skip layoutIfNeeded() when the below-bar gap just changed.
+            // Forcing layout at that moment captures ALL pending constraint
+            // changes — including the keyboardLayoutGuide position — and
+            // resolves them to the model-layer (final) values instantly,
+            // overriding the system's keyboard spring animation and causing
+            // a sluggish pause on interactive dismiss release. Letting the
+            // system drive layout naturally preserves the native keyboard
+            // animation feel.
+            if container.bounds.width > 0, !gapChanged {
+                container.layoutIfNeeded()
                 let currentHeight = hostingView.bounds.height
                 if abs(measuredHeight.wrappedValue - currentHeight) > 0.5 {
                     DispatchQueue.main.async {
