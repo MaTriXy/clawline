@@ -46,7 +46,7 @@ struct PairingView: View {
             VStack {
                 Spacer()
 
-                // Bottom-anchored content
+                // Vertically centered content
                 VStack(spacing: 0) {
                     // App icon
                     Image(systemName: "bubble.left.and.bubble.right.fill")
@@ -82,7 +82,8 @@ struct PairingView: View {
                     }
                 }
                 .padding(.horizontal, concentricPadding)
-                .padding(.bottom, concentricPadding)
+
+                Spacer()
             }
         }
         .onChange(of: scenePhase) { _, phase in
