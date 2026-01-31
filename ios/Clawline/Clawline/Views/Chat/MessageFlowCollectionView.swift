@@ -423,10 +423,18 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             // When keyboard appears and user was near bottom, scroll to keep bottom visible
             scheduleScrollToBottom(animated: false)
         } else if needsLayoutUpdate {
-            if wasNearBottom {
-                scheduleScrollToBottom(animated: false)
-            } else if previousBottomInset != bottomInset {
-                adjustContentOffsetForBottomInsetChange(delta: bottomInset - previousBottomInset)
+            // Skip scroll adjustment while the user is actively dragging (e.g.
+            // interactive keyboard dismiss). The contentInset change alone is
+            // sufficient; forcing a scroll-to-bottom or offset adjustment each
+            // frame causes overshoot because the user's finger is already
+            // controlling the scroll position.
+            let isUserInteracting = collectionView.isDragging || collectionView.isTracking
+            if !isUserInteracting {
+                if wasNearBottom {
+                    scheduleScrollToBottom(animated: false)
+                } else if previousBottomInset != bottomInset {
+                    adjustContentOffsetForBottomInsetChange(delta: bottomInset - previousBottomInset)
+                }
             }
         }
     }

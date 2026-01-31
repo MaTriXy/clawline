@@ -192,7 +192,6 @@ struct RichTextEditor: UIViewRepresentable {
             let size = textView.sizeThatFits(fittingSize)
             let minHeight: CGFloat = 44
             let maxHeight: CGFloat = 120
-#if os(visionOS)
             let lineHeight = textView.font?.lineHeight ?? 17
             let singleLineHeight = lineHeight + textView.textContainerInset.top + textView.textContainerInset.bottom
             let clamped: CGFloat
@@ -201,9 +200,6 @@ struct RichTextEditor: UIViewRepresentable {
             } else {
                 clamped = min(max(size.height, minHeight), maxHeight)
             }
-#else
-            let clamped = min(max(size.height, minHeight), maxHeight)
-#endif
             if abs(parent.calculatedHeight - clamped) > 0.5 {
                 parent.calculatedHeight = clamped
             }

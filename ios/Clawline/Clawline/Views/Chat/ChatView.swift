@@ -722,75 +722,6 @@ struct ChatView: View {
         }
     }
 
-    private func handleKeyboardFrameChange(_ notification: Notification) {
-        guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
-            return
-        }
-        let window = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }
-#if os(visionOS)
-        let screenHeight = window?.bounds.height ?? frame.maxY
-#else
-        let screenHeight = window?.windowScene?.screen.bounds.height ?? window?.bounds.height ?? frame.maxY
-#endif
-        let overlap = max(0, screenHeight - frame.minY)
-        let layoutGuideHeight = window?.keyboardLayoutGuide.layoutFrame.height ?? 0
-        let resolvedHeight = overlap > 0.5 ? overlap : layoutGuideHeight
-        let isInteractive = keyboardIsInteractive(notification)
-        if isInteractive {
-            keyboardHeight = resolvedHeight
-        } else if let animation = keyboardAnimation(from: notification) {
-            withAnimation(animation) {
-                keyboardHeight = resolvedHeight
-            }
-        } else {
-            keyboardHeight = resolvedHeight
-        }
-        logger.info("[trace] keyboard height resolved=\(resolvedHeight) overlap=\(overlap) layoutGuide=\(layoutGuideHeight) screenH=\(screenHeight) frameMinY=\(frame.minY)")
-    }
-
-    private func handleKeyboardWillHide(_ notification: Notification) {
-        let isInteractive = keyboardIsInteractive(notification)
-        if isInteractive {
-            keyboardHeight = 0
-        } else if let animation = keyboardAnimation(from: notification) {
-            withAnimation(animation) {
-                keyboardHeight = 0
-            }
-        } else {
-            keyboardHeight = 0
-        }
-    }
-
-    private func keyboardIsInteractive(_ notification: Notification) -> Bool {
-        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0
-        let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int ?? -1
-        return duration <= 0.0 || curveRaw == 7
-    }
-
-    private func keyboardAnimation(from notification: Notification) -> Animation? {
-        guard let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
-              duration > 0
-        else {
-            return nil
-        }
-        let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int
-        let curve = UIView.AnimationCurve(rawValue: curveRaw ?? UIView.AnimationCurve.easeInOut.rawValue) ?? .easeInOut
-        switch curve {
-        case .easeIn:
-            return .timingCurve(0.42, 0, 1, 1, duration: duration)
-        case .easeOut:
-            return .timingCurve(0, 0, 0.58, 1, duration: duration)
-        case .linear:
-            return .linear(duration: duration)
-        case .easeInOut:
-            return .timingCurve(0.42, 0, 0.58, 1, duration: duration)
-        @unknown default:
-            return .easeOut(duration: duration)
-        }
-    }
 }
 
 private struct KeyboardLayoutGuideReader: UIViewRepresentable {
@@ -901,15 +832,11 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     final class Coordinator {
         var container: KeyboardPinnedContainerView<Content>?
         private var minHeightConstraint: NSLayoutConstraint?
-        // Keyboard-hidden layout: hostingView → versionLabel → keyboardGuide
-        private var hostingBottomToVersionLabel: NSLayoutConstraint?
+        private var hostingBottomToKeyboard: NSLayoutConstraint?
         private var versionLabelBottomToKeyboard: NSLayoutConstraint?
         private var versionLabelBottomToContainer: NSLayoutConstraint?
-        // Keyboard-visible layout: hostingView → keyboardGuide directly
-        private var hostingBottomToKeyboard: NSLayoutConstraint?
         // visionOS fallback
         private var bottomToContainerConstraint: NSLayoutConstraint?
-        private var lastIsKeyboardVisible: Bool?
 
         func updateConstraints(
             in container: KeyboardPinnedContainerView<Content>,
@@ -961,11 +888,15 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                 let topConstraint = hostingView.topAnchor.constraint(greaterThanOrEqualTo: container.topAnchor)
                 topConstraint.priority = .defaultLow
 
-                // Keyboard-hidden: hostingView → versionLabel → keyboardGuide
-                let hostingToVersion = hostingView.bottomAnchor.constraint(
-                    equalTo: versionLabel.topAnchor,
-                    constant: -6
+                // Input bar: always pinned directly to keyboard layout guide.
+                // Never deactivate this constraint — switching constraint sets
+                // during interactive keyboard dismiss causes the bar to jump.
+                let hostingToKeyboard = hostingView.bottomAnchor.constraint(
+                    equalTo: container.keyboardLayoutGuide.topAnchor,
+                    constant: -desiredBottomGap
                 )
+
+                // Version label: independently positioned near keyboard guide
                 let versionToKeyboard = versionLabel.bottomAnchor.constraint(
                     equalTo: container.keyboardLayoutGuide.topAnchor,
                     constant: -4
@@ -976,55 +907,30 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                 )
                 versionToContainer.priority = .defaultLow
 
-                // Keyboard-visible: hostingView → keyboardGuide directly
-                let hostingToKeyboard = hostingView.bottomAnchor.constraint(
-                    equalTo: container.keyboardLayoutGuide.topAnchor,
-                    constant: -desiredBottomGap
-                )
-
-                // Always-active constraints
+                // All constraints always active — no switching needed
                 NSLayoutConstraint.activate([
                     hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
                     hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
                     minHeight,
                     topConstraint,
+                    hostingToKeyboard,
                     versionLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
                     versionLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+                    versionToKeyboard,
                     versionToContainer,
                 ])
 
                 self.minHeightConstraint = minHeight
-                self.hostingBottomToVersionLabel = hostingToVersion
-                self.versionLabelBottomToKeyboard = versionToKeyboard
                 self.hostingBottomToKeyboard = hostingToKeyboard
+                self.versionLabelBottomToKeyboard = versionToKeyboard
                 self.versionLabelBottomToContainer = versionToContainer
-
-                // Initial state will be set below by the keyboard toggle
-                lastIsKeyboardVisible = nil
             }
 
-            // Toggle constraint sets based on keyboard visibility
-            if lastIsKeyboardVisible != isKeyboardVisible {
-                lastIsKeyboardVisible = isKeyboardVisible
-                let hasVersionText = versionLabel.text != nil && !versionLabel.text!.isEmpty
-                if isKeyboardVisible || !hasVersionText {
-                    // Keyboard up or no version text: hide label, pin hosting directly to keyboard guide
-                    versionLabel.isHidden = true
-                    hostingBottomToVersionLabel?.isActive = false
-                    versionLabelBottomToKeyboard?.isActive = false
-                    hostingBottomToKeyboard?.constant = -desiredBottomGap
-                    hostingBottomToKeyboard?.isActive = true
-                } else {
-                    // Keyboard hidden with version text: show label, chain through it
-                    versionLabel.isHidden = false
-                    hostingBottomToKeyboard?.isActive = false
-                    hostingBottomToVersionLabel?.isActive = true
-                    versionLabelBottomToKeyboard?.isActive = true
-                }
-            } else {
-                // Just update constants
-                hostingBottomToKeyboard?.constant = -desiredBottomGap
-            }
+            // Update gap constant and version label visibility — no constraint
+            // activation/deactivation needed.
+            hostingBottomToKeyboard?.constant = -desiredBottomGap
+            let hasVersionText = versionLabel.text != nil && !versionLabel.text!.isEmpty
+            versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
 
             if container.bounds.width > 0 {
