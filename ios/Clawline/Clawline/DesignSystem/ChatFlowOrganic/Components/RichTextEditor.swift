@@ -190,11 +190,7 @@ struct RichTextEditor: UIViewRepresentable {
             let fittingSize = CGSize(width: referenceWidth,
                                      height: .greatestFiniteMagnitude)
             let size = textView.sizeThatFits(fittingSize)
-            #if os(visionOS)
             let minHeight: CGFloat = 44
-            #else
-            let minHeight: CGFloat = 48
-            #endif
             let maxHeight: CGFloat = 120
 #if os(visionOS)
             let lineHeight = textView.font?.lineHeight ?? 17

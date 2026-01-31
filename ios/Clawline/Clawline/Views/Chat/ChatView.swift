@@ -214,27 +214,13 @@ struct ChatView: View {
         let metrics = ChatFlowTheme.Metrics(isCompact: horizontalSizeClass == .compact)
         let inputBarBaseHeight: CGFloat = 44
         let resolvedInputHeight = max(inputBarHeight, inputBarBaseHeight)
-        // Manual keyboard handling: ignore SwiftUI keyboard safe area and drive
-        // the bar + list inset directly from keyboard height.
         let keyboardVisibleHeight = max(0, keyboardHeight - geometry.safeAreaInsets.bottom)
         let isKeyboardVisible = keyboardVisibleHeight > 0.5
-        let desiredBottomGap: CGFloat = isKeyboardVisible ? 12 : 24
-        let bottomSpacing: CGFloat = MessageInputBarMetrics.elementSpacing
-        // Use full keyboardHeight when visible: the list ignores safe areas,
-        // so its bottom inset must cover the entire keyboard including the
-        // portion that overlaps the safe area.
         let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
-        let bottomInset: CGFloat = resolvedInputHeight
-            + bottomSpacing
-            + desiredBottomGap
-            + keyboardInset
-        let concentricOffset = MessageInputBarMetrics(
-            horizontalSizeClass: horizontalSizeClass,
-            bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
-            deviceCornerRadius: deviceCornerRadius(),
-            isFieldFocused: isKeyboardVisible
-        ).concentricOffset
-        let listBottomInset = max(0, bottomInset - concentricOffset)
+        // Gap below input bar: version label area (keyboard hidden) or minimal gap (keyboard up)
+        let belowBarGap: CGFloat = isKeyboardVisible ? 12 : metrics.flowGap
+        let aboveBarGap: CGFloat = metrics.flowGap
+        let listBottomInset = keyboardInset + belowBarGap + resolvedInputHeight + aboveBarGap
 
         ZStack(alignment: .top) {
             // Paged channel view for admins, single channel for regular users
@@ -260,7 +246,7 @@ struct ChatView: View {
                     Spacer(minLength: 0)
                     errorBanner(error)
                 }
-                .padding(.bottom, bottomInset)
+                .padding(.bottom, listBottomInset)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
@@ -276,51 +262,36 @@ struct ChatView: View {
         .ignoresSafeArea(.keyboard)
         .overlay(alignment: .bottom) {
             KeyboardPinnedContainer(
-                desiredBottomGap: desiredBottomGap,
+                desiredBottomGap: belowBarGap,
                 isKeyboardVisible: isKeyboardVisible,
                 measuredHeight: $inputBarHeight,
-                height: resolvedInputHeight
+                height: resolvedInputHeight,
+                versionText: appVersionLabel
             ) {
-                VStack(spacing: 6) {
-                    if let versionLabel = appVersionLabel {
-                        Text(versionLabel)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-#if os(visionOS)
-                            .frame(maxWidth: inputBarMaxWidth(bottomSafeAreaInset: geometry.safeAreaInsets.bottom), alignment: .trailing)
-                            .frame(maxWidth: .infinity, alignment: .center)
-#else
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .padding(.horizontal, 24)
-#endif
-                    }
-
-                    MessageInputBar(
-                        content: $viewModel.inputContent,
-                        selectionRange: $selectionRange,
-                        pendingInsertions: $pendingInputInsertions,
-                        resetToken: viewModel.inputResetToken,
-                        canSend: viewModel.canSend,
-                        isSending: viewModel.isSending,
-                        connectionAlert: viewModel.connectionAlert,
-                        focusTrigger: focusRequestID,
-                        bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
-                        isKeyboardVisible: isKeyboardVisible,
-                        onSend: {
-                            viewModel.send()
-                        },
-                        onCancel: { viewModel.cancelSend() },
-                        onAdd: {
-                            activeSheet = .attachmentMenu
-                        },
-                        // ⚠️ This callback is how focus state survives view recreation.
-                        // DO NOT replace with @Binding or try to use @FocusState directly.
-                        onFocusChange: { focused in isInputFocused = focused },
-                        onPasteImages: handlePastedImages,
-                        isCompact: horizontalSizeClass == .compact
-                    )
-                }
-                .frame(maxWidth: .infinity, alignment: .bottom)
+                MessageInputBar(
+                    content: $viewModel.inputContent,
+                    selectionRange: $selectionRange,
+                    pendingInsertions: $pendingInputInsertions,
+                    resetToken: viewModel.inputResetToken,
+                    canSend: viewModel.canSend,
+                    isSending: viewModel.isSending,
+                    connectionAlert: viewModel.connectionAlert,
+                    focusTrigger: focusRequestID,
+                    bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
+                    isKeyboardVisible: isKeyboardVisible,
+                    onSend: {
+                        viewModel.send()
+                    },
+                    onCancel: { viewModel.cancelSend() },
+                    onAdd: {
+                        activeSheet = .attachmentMenu
+                    },
+                    // ⚠️ This callback is how focus state survives view recreation.
+                    // DO NOT replace with @Binding or try to use @FocusState directly.
+                    onFocusChange: { focused in isInputFocused = focused },
+                    onPasteImages: handlePastedImages,
+                    isCompact: horizontalSizeClass == .compact
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .ignoresSafeArea(.container, edges: .bottom)
@@ -863,8 +834,12 @@ private final class KeyboardLayoutGuideObserverView: UIView {
 
     @objc private func keyboardFrameChanged(_ notification: Notification) {
         guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+#if os(visionOS)
+        let screenHeight = window?.bounds.height ?? endFrame.maxY
+#else
         let screenHeight = window?.windowScene?.screen.bounds.height
             ?? UIScreen.main.bounds.height
+#endif
         let height = max(0, screenHeight - endFrame.origin.y)
         if abs(height - lastHeight) > 0.5 {
             lastHeight = height
@@ -880,6 +855,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     let isKeyboardVisible: Bool
     @Binding var measuredHeight: CGFloat
     let height: CGFloat
+    let versionText: String?
     let content: Content
 
     init(
@@ -887,23 +863,26 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         isKeyboardVisible: Bool,
         measuredHeight: Binding<CGFloat>,
         height: CGFloat,
+        versionText: String? = nil,
         @ViewBuilder content: () -> Content
     ) {
         self.desiredBottomGap = desiredBottomGap
         self.isKeyboardVisible = isKeyboardVisible
         self._measuredHeight = measuredHeight
         self.height = height
+        self.versionText = versionText
         self.content = content()
     }
 
     func makeUIView(context: Context) -> KeyboardPinnedContainerView<Content> {
-        let container = KeyboardPinnedContainerView(rootView: content)
+        let container = KeyboardPinnedContainerView(rootView: content, versionText: versionText)
         context.coordinator.container = container
         return container
     }
 
     func updateUIView(_ uiView: KeyboardPinnedContainerView<Content>, context: Context) {
         uiView.hostingController.rootView = content
+        uiView.updateVersionText(versionText)
         context.coordinator.updateConstraints(
             in: uiView,
             height: height,
@@ -920,8 +899,15 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     final class Coordinator {
         var container: KeyboardPinnedContainerView<Content>?
         private var minHeightConstraint: NSLayoutConstraint?
-        private var bottomToKeyboardConstraint: NSLayoutConstraint?
+        // Keyboard-hidden layout: hostingView → versionLabel → keyboardGuide
+        private var hostingBottomToVersionLabel: NSLayoutConstraint?
+        private var versionLabelBottomToKeyboard: NSLayoutConstraint?
+        private var versionLabelBottomToContainer: NSLayoutConstraint?
+        // Keyboard-visible layout: hostingView → keyboardGuide directly
+        private var hostingBottomToKeyboard: NSLayoutConstraint?
+        // visionOS fallback
         private var bottomToContainerConstraint: NSLayoutConstraint?
+        private var lastIsKeyboardVisible: Bool?
 
         func updateConstraints(
             in container: KeyboardPinnedContainerView<Content>,
@@ -931,6 +917,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             measuredHeight: Binding<CGFloat>
         ) {
             guard let hostingView = container.hostingController.view else { return }
+            let versionLabel = container.versionLabel
 #if os(visionOS)
             if bottomToContainerConstraint == nil {
                 hostingView.translatesAutoresizingMaskIntoConstraints = false
@@ -959,40 +946,82 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                 bottomToContainerConstraint?.constant = -desiredBottomGap
             }
 #else
-            if minHeightConstraint == nil || bottomToKeyboardConstraint == nil || bottomToContainerConstraint == nil {
+            if minHeightConstraint == nil {
                 hostingView.translatesAutoresizingMaskIntoConstraints = false
                 hostingView.setContentHuggingPriority(.defaultHigh, for: .vertical)
                 hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
                 container.addSubview(hostingView)
 
-                let minHeightConstraint = hostingView.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+                versionLabel.translatesAutoresizingMaskIntoConstraints = false
+                container.addSubview(versionLabel)
+
+                let minHeight = hostingView.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
                 let topConstraint = hostingView.topAnchor.constraint(greaterThanOrEqualTo: container.topAnchor)
                 topConstraint.priority = .defaultLow
-                let bottomToKeyboardConstraint = hostingView.bottomAnchor.constraint(
+
+                // Keyboard-hidden: hostingView → versionLabel → keyboardGuide
+                let hostingToVersion = hostingView.bottomAnchor.constraint(
+                    equalTo: versionLabel.topAnchor,
+                    constant: -6
+                )
+                let versionToKeyboard = versionLabel.bottomAnchor.constraint(
+                    equalTo: container.keyboardLayoutGuide.topAnchor,
+                    constant: -4
+                )
+                let versionToContainer = versionLabel.bottomAnchor.constraint(
+                    equalTo: container.bottomAnchor,
+                    constant: -4
+                )
+                versionToContainer.priority = .defaultLow
+
+                // Keyboard-visible: hostingView → keyboardGuide directly
+                let hostingToKeyboard = hostingView.bottomAnchor.constraint(
                     equalTo: container.keyboardLayoutGuide.topAnchor,
                     constant: -desiredBottomGap
                 )
-                let bottomToContainerConstraint = hostingView.bottomAnchor.constraint(
-                    equalTo: container.bottomAnchor,
-                    constant: -desiredBottomGap
-                )
-                bottomToContainerConstraint.priority = .defaultLow
 
+                // Always-active constraints
                 NSLayoutConstraint.activate([
                     hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
                     hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                    minHeightConstraint,
+                    minHeight,
                     topConstraint,
-                    bottomToKeyboardConstraint,
-                    bottomToContainerConstraint
+                    versionLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+                    versionLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+                    versionToContainer,
                 ])
 
-                self.minHeightConstraint = minHeightConstraint
-                self.bottomToKeyboardConstraint = bottomToKeyboardConstraint
-                self.bottomToContainerConstraint = bottomToContainerConstraint
+                self.minHeightConstraint = minHeight
+                self.hostingBottomToVersionLabel = hostingToVersion
+                self.versionLabelBottomToKeyboard = versionToKeyboard
+                self.hostingBottomToKeyboard = hostingToKeyboard
+                self.versionLabelBottomToContainer = versionToContainer
+
+                // Initial state will be set below by the keyboard toggle
+                lastIsKeyboardVisible = nil
+            }
+
+            // Toggle constraint sets based on keyboard visibility
+            if lastIsKeyboardVisible != isKeyboardVisible {
+                lastIsKeyboardVisible = isKeyboardVisible
+                let hasVersionText = versionLabel.text != nil && !versionLabel.text!.isEmpty
+                if isKeyboardVisible || !hasVersionText {
+                    // Keyboard up or no version text: hide label, pin hosting directly to keyboard guide
+                    versionLabel.isHidden = true
+                    hostingBottomToVersionLabel?.isActive = false
+                    versionLabelBottomToKeyboard?.isActive = false
+                    hostingBottomToKeyboard?.constant = -desiredBottomGap
+                    hostingBottomToKeyboard?.isActive = true
+                } else {
+                    // Keyboard hidden with version text: show label, chain through it
+                    versionLabel.isHidden = false
+                    hostingBottomToKeyboard?.isActive = false
+                    hostingBottomToVersionLabel?.isActive = true
+                    versionLabelBottomToKeyboard?.isActive = true
+                }
             } else {
-                bottomToKeyboardConstraint?.constant = -desiredBottomGap
-                bottomToContainerConstraint?.constant = -desiredBottomGap
+                // Just update constants
+                hostingBottomToKeyboard?.constant = -desiredBottomGap
             }
 #endif
 
@@ -1012,9 +1041,11 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
 
 private final class KeyboardPinnedContainerView<Content: View>: UIView {
     let hostingController: UIHostingController<Content>
+    let versionLabel: UILabel
 
-    init(rootView: Content) {
+    init(rootView: Content, versionText: String?) {
         hostingController = UIHostingController(rootView: rootView)
+        versionLabel = UILabel()
         super.init(frame: .zero)
         backgroundColor = .clear
         isOpaque = false
@@ -1027,6 +1058,15 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView {
 #if !os(visionOS)
         hostingController.view.layer.borderColor = UIColor.red.cgColor
         hostingController.view.layer.borderWidth = 1
+#endif
+
+        versionLabel.font = .preferredFont(forTextStyle: .caption2)
+        versionLabel.textColor = .secondaryLabel
+        versionLabel.textAlignment = .right
+        versionLabel.text = versionText
+        versionLabel.isHidden = versionText == nil
+
+#if !os(visionOS)
         // When keyboard is hidden the layout guide defaults to the safe-area
         // bottom, which already accounts for the home indicator. Setting this
         // to false makes the guide collapse to the view's own bottom edge so
@@ -1036,14 +1076,27 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView {
 #endif
     }
 
+    func updateVersionText(_ text: String?) {
+        versionLabel.text = text
+        // Only hide for nil text; keyboard-driven hiding is handled by the coordinator
+        if text == nil {
+            versionLabel.isHidden = true
+        }
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        guard let hitView = hostingController.view else { return false }
-        return hitView.frame.contains(point)
+        if let hitView = hostingController.view, hitView.frame.contains(point) {
+            return true
+        }
+        if !versionLabel.isHidden && versionLabel.frame.contains(point) {
+            return true
+        }
+        return false
     }
 }
 
