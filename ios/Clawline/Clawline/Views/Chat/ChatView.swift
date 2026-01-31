@@ -218,7 +218,7 @@ struct ChatView: View {
         let isKeyboardVisible = keyboardVisibleHeight > 0.5
         let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
         // Gap below input bar: version label area (keyboard hidden) or minimal gap (keyboard up)
-        let belowBarGap: CGFloat = isKeyboardVisible ? 12 : metrics.flowGap
+        let belowBarGap: CGFloat = isKeyboardVisible ? 12 : 24
         let aboveBarGap: CGFloat = metrics.flowGap
         let listBottomInset = keyboardInset + belowBarGap + resolvedInputHeight + aboveBarGap
 
