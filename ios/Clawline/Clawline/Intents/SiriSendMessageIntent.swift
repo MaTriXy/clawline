@@ -32,27 +32,27 @@ struct SendMessageIntent: AppIntent {
     var message: String?
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        logger.info("[1] perform() entered – message=\(String(describing: message), privacy: .public) botName=\(String(describing: botName), privacy: .public)")
+        NSLog("[SiriIntent][1] perform() entered – message=%@ botName=%@", String(describing: message), String(describing: botName))
 
         if message == nil || message!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            logger.info("[2] message nil/empty – calling requestValue")
+            NSLog("[SiriIntent][2] message nil/empty – calling requestValue")
             try await $message.requestValue("What do you want to say?")
-            logger.info("[3] after requestValue – message=\(String(describing: message), privacy: .public)")
+            NSLog("[SiriIntent][3] after requestValue – message=%@", String(describing: message))
         }
         let trimmedMessage = message!.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedMessage.isEmpty else {
-            logger.error("[!] trimmedMessage still empty after resolution – throwing emptyMessage")
+            NSLog("[SiriIntent][!] trimmedMessage still empty after resolution – throwing emptyMessage")
             throw SiriSendMessageIntentError.emptyMessage
         }
-        logger.info("[4] message resolved: \(trimmedMessage, privacy: .public)")
+        NSLog("[SiriIntent][4] message resolved: %@", trimmedMessage)
 
         let authSnapshot = await loadAuthSnapshot()
         let hasBaseURL = ProviderBaseURLStore.baseURL != nil
-        logger.info("[5] auth – token=\(authSnapshot.token != nil, privacy: .public) userId=\(authSnapshot.userId != nil, privacy: .public) admin=\(authSnapshot.isAdmin, privacy: .public) baseURL=\(hasBaseURL, privacy: .public)")
+        NSLog("[SiriIntent][5] auth – token=%d userId=%d admin=%d baseURL=%d", authSnapshot.token != nil ? 1 : 0, authSnapshot.userId != nil ? 1 : 0, authSnapshot.isAdmin ? 1 : 0, hasBaseURL ? 1 : 0)
         guard let token = authSnapshot.token,
               let userId = authSnapshot.userId,
               hasBaseURL else {
-            logger.error("[!] notPaired – missing auth or baseURL")
+            NSLog("[SiriIntent][!] notPaired – missing auth or baseURL")
             throw SiriSendMessageIntentError.notPaired
         }
 
@@ -71,7 +71,7 @@ struct SendMessageIntent: AppIntent {
             message: trimmedMessage,
             botName: resolvedBotName.value
         )
-        logger.info("[6] sending – session=\(String(describing: sessionKey), privacy: .public) bot=\(resolvedBotName.value, privacy: .public)")
+        NSLog("[SiriIntent][6] sending – session=%@ bot=%@", String(describing: sessionKey), resolvedBotName.value)
 
         let device = DeviceIdentifier()
         let connector = URLSessionWebSocketConnector(
@@ -87,11 +87,11 @@ struct SendMessageIntent: AppIntent {
         defer { chatService.disconnect() }
 
         do {
-            logger.info("[7] connecting...")
+            NSLog("[SiriIntent][7] connecting...")
             try await withTimeout(SiriSendTimeouts.connect) {
                 try await chatService.connect(token: token, lastMessageId: nil)
             }
-            logger.info("[8] connected")
+            NSLog("[SiriIntent][8] connected")
 
             let messageId = "c_\(UUID().uuidString)"
             let ackTask = Task {
@@ -103,7 +103,7 @@ struct SendMessageIntent: AppIntent {
             }
             defer { ackTask.cancel() }
 
-            logger.info("[9] sending message \(messageId, privacy: .public)")
+            NSLog("[SiriIntent][9] sending message %@", messageId)
             try await withTimeout(SiriSendTimeouts.send) {
                 try await chatService.send(
                     id: messageId,
@@ -112,25 +112,25 @@ struct SendMessageIntent: AppIntent {
                     sessionKey: sessionKey
                 )
             }
-            logger.info("[10] sent, waiting for ack")
+            NSLog("[SiriIntent][10] sent, waiting for ack")
 
             try await ackTask.value
-            logger.info("[11] acked")
+            NSLog("[SiriIntent][11] acked")
         } catch let error as SiriSendMessageIntentError {
-            logger.error("[!] SiriSendMessageIntentError: \(error.localizedDescription ?? "nil", privacy: .public)")
+            NSLog("[SiriIntent][!] SiriSendMessageIntentError: %@", error.localizedDescription ?? "nil")
             throw error
         } catch let error as ProviderChatService.Error {
-            logger.error("[!] ProviderChatService.Error: \(String(describing: error), privacy: .public)")
+            NSLog("[SiriIntent][!] ProviderChatService.Error: %@", String(describing: error))
             throw mapChatServiceError(error)
         } catch let error as URLError {
-            logger.error("[!] URLError: \(error.localizedDescription, privacy: .public)")
+            NSLog("[SiriIntent][!] URLError: %@", error.localizedDescription)
             throw SiriSendMessageIntentError.offline
         } catch {
-            logger.error("[!] unexpected: \(type(of: error), privacy: .public) \(error.localizedDescription, privacy: .public)")
+            NSLog("[SiriIntent][!] unexpected: %@ %@", String(describing: type(of: error)), error.localizedDescription)
             throw SiriSendMessageIntentError.connectionTimeout
         }
 
-        logger.info("[12] success")
+        NSLog("[SiriIntent][12] success")
         return .result(dialog: IntentDialog("Message sent."))
     }
 }
