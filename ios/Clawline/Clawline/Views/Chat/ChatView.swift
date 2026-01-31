@@ -941,7 +941,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
                 // animate the constraint so the input bar slides smoothly instead
                 // of snapping 12pt on release of the interactive dismiss gesture.
                 if gapChanged {
-                    UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseInOut) {
+                    UIView.animate(withDuration: 0.35, delay: 0, options: .curveEaseInOut) {
                         container.layoutIfNeeded()
                     }
                 } else {
