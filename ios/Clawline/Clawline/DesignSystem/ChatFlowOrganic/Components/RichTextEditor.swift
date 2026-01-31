@@ -195,7 +195,7 @@ struct RichTextEditor: UIViewRepresentable {
             let lineHeight = textView.font?.lineHeight ?? 17
             let singleLineHeight = lineHeight + textView.textContainerInset.top + textView.textContainerInset.bottom
             let clamped: CGFloat
-            if size.height <= singleLineHeight + 1 {
+            if size.height <= singleLineHeight + lineHeight * 0.5 {
                 clamped = minHeight
             } else {
                 clamped = min(max(size.height, minHeight), maxHeight)
