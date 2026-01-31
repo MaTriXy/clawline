@@ -339,18 +339,26 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let previousBottomInset = self.bottomInset
         let wasNearBottom = isNearBottom(extraMargin: max(24, previousBottomInset))
         let keyboardJustAppeared = isKeyboardVisible && !self.isKeyboardVisible
-        let needsLayoutUpdate = forceReconfigureAll
+        let needsFullLayout = forceReconfigureAll
             || self.isCompact != isCompact
             || self.topInset != topInset
-            || self.bottomInset != bottomInset
+        let needsInsetUpdate = self.bottomInset != bottomInset
+        let needsLayoutUpdate = needsFullLayout || needsInsetUpdate
         self.isCompact = isCompact
         self.topInset = topInset
         self.bottomInset = bottomInset
         self.isKeyboardVisible = isKeyboardVisible
         syncKeyboardHeightIfNeeded(isKeyboardVisible: isKeyboardVisible)
 
-        if needsLayoutUpdate {
+        if needsFullLayout {
             updateLayout()
+        } else if needsInsetUpdate {
+            // Only the bottom inset changed (e.g. keyboard show/hide).
+            // Just update the content inset — don't clear size caches or
+            // invalidate layout, which can cause UICollectionView to
+            // readjust contentOffset during its layout pass.
+            baseBottomInset = bottomInset
+            applyBottomContentInset()
         }
 
         // Use channel override if provided, otherwise use activeChannel messages
@@ -423,13 +431,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             // When keyboard appears and user was near bottom, scroll to keep bottom visible
             scheduleScrollToBottom(animated: false)
         } else if needsLayoutUpdate {
-            // Skip scroll adjustment while the user is actively dragging (e.g.
-            // interactive keyboard dismiss). The contentInset change alone is
-            // sufficient; forcing a scroll-to-bottom or offset adjustment each
-            // frame causes overshoot because the user's finger is already
-            // controlling the scroll position.
+            // When bottom inset is decreasing (keyboard dismissing), skip scroll
+            // adjustments entirely. The contentInset change (already applied by
+            // updateLayout) is sufficient — content stays in place under the
+            // user's thumb and UIScrollView handles any over-scroll naturally.
+            // When the user is actively dragging, also skip — their finger
+            // controls the scroll position.
             let isUserInteracting = collectionView.isDragging || collectionView.isTracking
-            if !isUserInteracting {
+            let isInsetDecreasing = bottomInset < previousBottomInset
+            if !isUserInteracting && !isInsetDecreasing {
                 if wasNearBottom {
                     scheduleScrollToBottom(animated: false)
                 } else if previousBottomInset != bottomInset {
