@@ -164,6 +164,7 @@ struct ChatView: View {
         .background(
             KeyboardLayoutGuideReader { height in
                 if abs(height - keyboardHeight) > 0.5 {
+                    NSLog("[KBTIMING] keyboardHeight state set %.1f -> %.1f", keyboardHeight, height)
                     withAnimation(nil) {
                         keyboardHeight = height
                     }
@@ -766,6 +767,7 @@ private final class KeyboardLayoutGuideObserverView: UIView {
     }
 
     @objc private func keyboardFrameChanged(_ notification: Notification) {
+        let t0 = CFAbsoluteTimeGetCurrent()
         guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
 #if os(visionOS)
         let screenHeight = window?.bounds.height ?? endFrame.maxY
@@ -778,6 +780,7 @@ private final class KeyboardLayoutGuideObserverView: UIView {
             lastHeight = height
             onHeightChange?(height)
         }
+        NSLog("[KBTIMING] keyboardFrameChanged h=%.1f dt=%.4f", height, CFAbsoluteTimeGetCurrent() - t0)
     }
 }
 
@@ -814,6 +817,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: KeyboardPinnedContainerView<Content>, context: Context) {
+        let t0 = CFAbsoluteTimeGetCurrent()
         uiView.hostingController.rootView = content
         uiView.updateVersionText(versionText)
         context.coordinator.updateConstraints(
@@ -823,6 +827,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             isKeyboardVisible: isKeyboardVisible,
             measuredHeight: $measuredHeight
         )
+        NSLog("[KBTIMING] KBPinnedContainer.updateUIView gap=%.1f kbVis=%d dt=%.4f", desiredBottomGap, isKeyboardVisible ? 1 : 0, CFAbsoluteTimeGetCurrent() - t0)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -845,6 +850,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             isKeyboardVisible: Bool,
             measuredHeight: Binding<CGFloat>
         ) {
+            let t0 = CFAbsoluteTimeGetCurrent()
             guard let hostingView = container.hostingController.view else { return }
             let versionLabel = container.versionLabel
 #if os(visionOS)
@@ -940,23 +946,41 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             let gapChanged = false
             #endif
 
-            // Skip layoutIfNeeded() when the below-bar gap just changed.
-            // Forcing layout at that moment captures ALL pending constraint
-            // changes — including the keyboardLayoutGuide position — and
-            // resolves them to the model-layer (final) values instantly,
-            // overriding the system's keyboard spring animation and causing
-            // a sluggish pause on interactive dismiss release. Letting the
-            // system drive layout naturally preserves the native keyboard
-            // animation feel.
-            if container.bounds.width > 0, !gapChanged {
-                container.layoutIfNeeded()
-                let currentHeight = hostingView.bounds.height
-                if abs(measuredHeight.wrappedValue - currentHeight) > 0.5 {
+            NSLog("[KBTIMING] updateConstraints gapChanged=%d gap=%.1f kbVis=%d", gapChanged ? 1 : 0, desiredBottomGap, isKeyboardVisible ? 1 : 0)
+            if container.bounds.width > 0 {
+                if gapChanged {
+                    // Animate the gap change via a transform instead of
+                    // layoutIfNeeded(). Calling layoutIfNeeded() here would
+                    // resolve the keyboardLayoutGuide to its model-layer
+                    // (final) position, overriding the system's spring
+                    // animation and causing a sluggish pause on interactive
+                    // dismiss release. The transform only affects rendering,
+                    // so the keyboard guide's system animation is untouched.
+                    let delta = newGap - previousGap
                     DispatchQueue.main.async {
-                        measuredHeight.wrappedValue = currentHeight
+                        hostingView.transform = CGAffineTransform(translationX: 0, y: -delta)
+                        UIView.animate(springDuration: 0.35, bounce: 0) {
+                            hostingView.transform = .identity
+                        }
+                        let currentHeight = hostingView.bounds.height
+                        if abs(measuredHeight.wrappedValue - currentHeight) > 0.5 {
+                            measuredHeight.wrappedValue = currentHeight
+                        }
+                    }
+                    NSLog("[KBTIMING] updateConstraints gapAnim delta=%.1f", delta)
+                } else {
+                    let tLayout = CFAbsoluteTimeGetCurrent()
+                    container.layoutIfNeeded()
+                    NSLog("[KBTIMING] updateConstraints.layoutIfNeeded dt=%.4f", CFAbsoluteTimeGetCurrent() - tLayout)
+                    let currentHeight = hostingView.bounds.height
+                    if abs(measuredHeight.wrappedValue - currentHeight) > 0.5 {
+                        DispatchQueue.main.async {
+                            measuredHeight.wrappedValue = currentHeight
+                        }
                     }
                 }
             }
+            NSLog("[KBTIMING] updateConstraints DONE dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
 
         }
     }
