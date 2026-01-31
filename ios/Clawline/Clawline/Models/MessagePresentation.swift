@@ -794,16 +794,23 @@ enum MessagePresentationBuilder {
         )
     }
 
+    private static func isImageMime(_ mime: String?) -> Bool {
+        mime?.lowercased().hasPrefix("image/") == true
+    }
+
     private static func imageAttachments(from attachments: [Attachment]) -> [Attachment] {
         attachments.filter { attachment in
             switch attachment.type {
             case .image:
                 return true
             case .asset:
-                if attachment.data != nil {
-                    return true
+                // Check mime type first; only treat data-bearing assets as images
+                // when mime is image/* (or absent, for backward compat with older data).
+                if let mime = attachment.mimeType {
+                    return isImageMime(mime)
                 }
-                return attachment.mimeType?.lowercased().hasPrefix("image/") == true
+                // No mime: fall back to data presence (legacy behavior).
+                return attachment.data != nil
             case .document:
                 return false
             }
@@ -816,10 +823,12 @@ enum MessagePresentationBuilder {
             case .document:
                 return true
             case .asset:
-                if attachment.data != nil {
-                    return false
+                // Mirror of imageAttachments: non-image mime → file.
+                if let mime = attachment.mimeType {
+                    return !isImageMime(mime)
                 }
-                return attachment.mimeType?.lowercased().hasPrefix("image/") != true
+                // No mime + no data → unknown, treat as file.
+                return attachment.data == nil
             case .image:
                 return false
             }
