@@ -23,10 +23,13 @@ struct SendMessageIntent: AppIntent {
         title: "Message",
         requestValueDialog: IntentDialog("What do you want to say?")
     )
-    var message: String
+    var message: String?
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if message == nil || message!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try await $message.requestValue("What do you want to say?")
+        }
+        let trimmedMessage = message!.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedMessage.isEmpty else {
             throw SiriSendMessageIntentError.emptyMessage
         }
