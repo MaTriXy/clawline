@@ -633,6 +633,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.showsHorizontalScrollIndicator = false
         dynamicContentScrollView.alwaysBounceVertical = false
         dynamicContentScrollView.alwaysBounceHorizontal = false
+        dynamicContentScrollView.contentInset.bottom = 0
 
         let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
         if sizeClass == .long, !isSingleImageOnly, hasNonMediaContent {
@@ -674,6 +675,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     bottom: bottomColor
                 )
                 let fadeHeight: CGFloat = 100
+                dynamicContentScrollView.contentInset.bottom = fadeHeight
                 fadeConstraints = [
                     fadeView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
                     fadeView.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
