@@ -1057,10 +1057,6 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView {
         }
         hostingController.view.backgroundColor = .clear
         hostingController.view.isOpaque = false
-#if !os(visionOS)
-        hostingController.view.layer.borderColor = UIColor.red.cgColor
-        hostingController.view.layer.borderWidth = 1
-#endif
 
         versionLabel.font = .preferredFont(forTextStyle: .caption2)
         versionLabel.textColor = .secondaryLabel
