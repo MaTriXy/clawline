@@ -949,34 +949,16 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             NSLog("[KBTIMING] updateConstraints gapChanged=%d gap=%.1f kbVis=%d", gapChanged ? 1 : 0, desiredBottomGap, isKeyboardVisible ? 1 : 0)
             if container.bounds.width > 0 {
                 if gapChanged {
-                    // Animate the gap change via a transform instead of
-                    // layoutIfNeeded(). Calling layoutIfNeeded() here would
-                    // resolve the keyboardLayoutGuide to its model-layer
-                    // (final) position, overriding the system's spring
-                    // animation and causing a sluggish pause on interactive
-                    // dismiss release. The transform only affects rendering,
-                    // so the keyboard guide's system animation is untouched.
-                    let delta = newGap - previousGap
-                    DispatchQueue.main.async {
-                        hostingView.transform = CGAffineTransform(translationX: 0, y: -delta)
-                        UIView.animate(springDuration: 0.35, bounce: 0) {
-                            hostingView.transform = .identity
-                        }
-                        let currentHeight = hostingView.bounds.height
-                        if abs(measuredHeight.wrappedValue - currentHeight) > 0.5 {
-                            measuredHeight.wrappedValue = currentHeight
-                        }
+                    UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseInOut) {
+                        container.layoutIfNeeded()
                     }
-                    NSLog("[KBTIMING] updateConstraints gapAnim delta=%.1f", delta)
                 } else {
-                    let tLayout = CFAbsoluteTimeGetCurrent()
                     container.layoutIfNeeded()
-                    NSLog("[KBTIMING] updateConstraints.layoutIfNeeded dt=%.4f", CFAbsoluteTimeGetCurrent() - tLayout)
-                    let currentHeight = hostingView.bounds.height
-                    if abs(measuredHeight.wrappedValue - currentHeight) > 0.5 {
-                        DispatchQueue.main.async {
-                            measuredHeight.wrappedValue = currentHeight
-                        }
+                }
+                let currentHeight = hostingView.bounds.height
+                if abs(measuredHeight.wrappedValue - currentHeight) > 0.5 {
+                    DispatchQueue.main.async {
+                        measuredHeight.wrappedValue = currentHeight
                     }
                 }
             }
