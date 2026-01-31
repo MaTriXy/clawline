@@ -16,6 +16,15 @@ Look out for these key phrases which mean to open the file for editing:
 - "Edit it"
 - "Open [filename]"
 
+## GitHub Issue Hygiene
+
+See global rules in `~/AGENTS.md`. Summary:
+
+1. **NEVER close an issue.** Only Flynn closes issues after testing.
+2. **Mark as in-progress** when starting (`gh issue edit <N> --add-label "in-progress"` or comment).
+3. **Comment progress updates** on the issue as you work.
+4. **Comment final summary** (commit hash, changes, deploy status) when done. Do NOT close.
+
 ## Code Reviews
 
 Use **Codex** for code reviews (cross-validation with GPT):
