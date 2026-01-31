@@ -219,8 +219,11 @@ struct ChatView: View {
         let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
         // Gap below input bar: version label area (keyboard hidden) or minimal gap (keyboard up)
         let belowBarGap: CGFloat = isKeyboardVisible ? 12 : 24
-        let aboveBarGap: CGFloat = metrics.flowGap
-        let listBottomInset = keyboardInset + belowBarGap + resolvedInputHeight + aboveBarGap
+        // The flow layout's sectionInset.bottom (containerPadding) already provides
+        // padding below the last cell. Subtract it so the effective gap between the
+        // last bubble and the input bar top equals exactly flowGap.
+        let listBottomInset = keyboardInset + belowBarGap + resolvedInputHeight
+            + metrics.flowGap - metrics.containerPadding
 
         ZStack(alignment: .top) {
             // Paged channel view for admins, single channel for regular users
