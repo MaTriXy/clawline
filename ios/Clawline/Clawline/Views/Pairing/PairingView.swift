@@ -44,9 +44,9 @@ struct PairingView: View {
         // GeometryReader needed for inputScrollView width calculation
         GeometryReader { geometry in
             VStack {
-                Spacer()
+                Spacer(minLength: 50)
 
-                // Vertically centered content
+                // Content anchored above the input bar
                 VStack(spacing: 0) {
                     // App icon
                     Image(systemName: "bubble.left.and.bubble.right.fill")
@@ -82,8 +82,7 @@ struct PairingView: View {
                     }
                 }
                 .padding(.horizontal, concentricPadding)
-
-                Spacer()
+                .padding(.bottom, concentricPadding)
             }
         }
         .onChange(of: scenePhase) { _, phase in
