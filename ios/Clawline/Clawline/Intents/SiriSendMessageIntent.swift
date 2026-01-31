@@ -16,6 +16,12 @@ struct SendMessageIntent: AppIntent {
     static let openAppWhenRun = false
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
 
+    static var parameterSummary: some ParameterSummary {
+        Summary("Send \(\.$message)") {
+            \.$botName
+        }
+    }
+
     @Parameter(title: "Bot")
     var botName: String?
 
@@ -26,18 +32,27 @@ struct SendMessageIntent: AppIntent {
     var message: String?
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
+        logger.info("[1] perform() entered – message=\(String(describing: message), privacy: .public) botName=\(String(describing: botName), privacy: .public)")
+
         if message == nil || message!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            logger.info("[2] message nil/empty – calling requestValue")
             try await $message.requestValue("What do you want to say?")
+            logger.info("[3] after requestValue – message=\(String(describing: message), privacy: .public)")
         }
         let trimmedMessage = message!.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedMessage.isEmpty else {
+            logger.error("[!] trimmedMessage still empty after resolution – throwing emptyMessage")
             throw SiriSendMessageIntentError.emptyMessage
         }
+        logger.info("[4] message resolved: \(trimmedMessage, privacy: .public)")
 
         let authSnapshot = await loadAuthSnapshot()
+        let hasBaseURL = ProviderBaseURLStore.baseURL != nil
+        logger.info("[5] auth – token=\(authSnapshot.token != nil, privacy: .public) userId=\(authSnapshot.userId != nil, privacy: .public) admin=\(authSnapshot.isAdmin, privacy: .public) baseURL=\(hasBaseURL, privacy: .public)")
         guard let token = authSnapshot.token,
               let userId = authSnapshot.userId,
-              ProviderBaseURLStore.baseURL != nil else {
+              hasBaseURL else {
+            logger.error("[!] notPaired – missing auth or baseURL")
             throw SiriSendMessageIntentError.notPaired
         }
 
@@ -56,6 +71,7 @@ struct SendMessageIntent: AppIntent {
             message: trimmedMessage,
             botName: resolvedBotName.value
         )
+        logger.info("[6] sending – session=\(String(describing: sessionKey), privacy: .public) bot=\(resolvedBotName.value, privacy: .public)")
 
         let device = DeviceIdentifier()
         let connector = URLSessionWebSocketConnector(
@@ -71,9 +87,11 @@ struct SendMessageIntent: AppIntent {
         defer { chatService.disconnect() }
 
         do {
+            logger.info("[7] connecting...")
             try await withTimeout(SiriSendTimeouts.connect) {
                 try await chatService.connect(token: token, lastMessageId: nil)
             }
+            logger.info("[8] connected")
 
             let messageId = "c_\(UUID().uuidString)"
             let ackTask = Task {
@@ -85,6 +103,7 @@ struct SendMessageIntent: AppIntent {
             }
             defer { ackTask.cancel() }
 
+            logger.info("[9] sending message \(messageId, privacy: .public)")
             try await withTimeout(SiriSendTimeouts.send) {
                 try await chatService.send(
                     id: messageId,
@@ -93,20 +112,25 @@ struct SendMessageIntent: AppIntent {
                     sessionKey: sessionKey
                 )
             }
+            logger.info("[10] sent, waiting for ack")
 
             try await ackTask.value
+            logger.info("[11] acked")
         } catch let error as SiriSendMessageIntentError {
+            logger.error("[!] SiriSendMessageIntentError: \(error.localizedDescription ?? "nil", privacy: .public)")
             throw error
         } catch let error as ProviderChatService.Error {
+            logger.error("[!] ProviderChatService.Error: \(String(describing: error), privacy: .public)")
             throw mapChatServiceError(error)
         } catch let error as URLError {
-            logger.info("Siri send URLError: \(error.localizedDescription, privacy: .public)")
+            logger.error("[!] URLError: \(error.localizedDescription, privacy: .public)")
             throw SiriSendMessageIntentError.offline
         } catch {
-            logger.info("Siri send failed: \(error.localizedDescription, privacy: .public)")
+            logger.error("[!] unexpected: \(type(of: error), privacy: .public) \(error.localizedDescription, privacy: .public)")
             throw SiriSendMessageIntentError.connectionTimeout
         }
 
+        logger.info("[12] success")
         return .result(dialog: IntentDialog("Message sent."))
     }
 }
