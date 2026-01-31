@@ -936,6 +936,10 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
 
+            #if os(visionOS)
+            let gapChanged = false
+            #endif
+
             // Skip layoutIfNeeded() when the below-bar gap just changed.
             // Forcing layout at that moment captures ALL pending constraint
             // changes — including the keyboardLayoutGuide position — and
