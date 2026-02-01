@@ -229,11 +229,11 @@ struct ChatView: View {
         ZStack(alignment: .top) {
             // Paged channel view for admins, single channel for regular users
             if authManager.isAdmin {
-                pagedChannelView(topInset: topInset, bottomInset: listBottomInset)
+                pagedChannelView(topInset: topInset, bottomInset: listBottomInset, keyboardHeight: keyboardHeight)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             } else {
-                messageList(topInset: topInset, bottomInset: listBottomInset, channel: .personal)
+                messageList(topInset: topInset, bottomInset: listBottomInset, keyboardHeight: keyboardHeight, channel: .personal)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             }
@@ -337,11 +337,12 @@ struct ChatView: View {
         return textWidth + chromeWidth
     }
 
-    private func messageList(topInset: CGFloat, bottomInset: CGFloat, channel: ChatChannelType) -> some View {
+    private func messageList(topInset: CGFloat, bottomInset: CGFloat, keyboardHeight: CGFloat, channel: ChatChannelType) -> some View {
         let list = MessageFlowCollectionView(
             viewModel: viewModel,
             topInset: topInset,
             bottomInset: bottomInset,
+            keyboardHeight: keyboardHeight,
             isCompact: horizontalSizeClass == .compact,
             isKeyboardVisible: isInputFocused,
             usesExternalKeyboardInsets: true,
@@ -407,9 +408,9 @@ struct ChatView: View {
 
     /// Paged TabView for horizontal swipe between channels (admin only)
     @ViewBuilder
-    private func pagedChannelView(topInset: CGFloat, bottomInset: CGFloat) -> some View {
+    private func pagedChannelView(topInset: CGFloat, bottomInset: CGFloat, keyboardHeight: CGFloat) -> some View {
         TabView(selection: channelBinding) {
-            messageList(topInset: topInset, bottomInset: bottomInset, channel: .personal)
+            messageList(topInset: topInset, bottomInset: bottomInset, keyboardHeight: keyboardHeight, channel: .personal)
                 .background {
 #if os(visionOS)
                     Color.clear
@@ -421,7 +422,7 @@ struct ChatView: View {
                 }
                 .tag(ChatChannelType.personal)
 
-            messageList(topInset: topInset, bottomInset: bottomInset, channel: .admin)
+            messageList(topInset: topInset, bottomInset: bottomInset, keyboardHeight: keyboardHeight, channel: .admin)
                 .background {
 #if os(visionOS)
                     Color.clear

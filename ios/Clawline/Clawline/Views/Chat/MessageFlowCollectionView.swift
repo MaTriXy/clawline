@@ -14,6 +14,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var viewModel: ChatViewModel
     var topInset: CGFloat
     var bottomInset: CGFloat
+    var keyboardHeight: CGFloat
     var isCompact: Bool
     var isKeyboardVisible: Bool
     var usesExternalKeyboardInsets: Bool
@@ -36,6 +37,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             isCompact: isCompact,
             topInset: topInset,
             bottomInset: bottomInset,
+            keyboardHeight: keyboardHeight,
             isKeyboardVisible: isKeyboardVisible,
             usesExternalKeyboardInsets: usesExternalKeyboardInsets,
             onExpand: onExpand,
@@ -56,6 +58,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             isCompact: isCompact,
             topInset: topInset,
             bottomInset: bottomInset,
+            keyboardHeight: keyboardHeight,
             isKeyboardVisible: isKeyboardVisible,
             usesExternalKeyboardInsets: usesExternalKeyboardInsets,
             onExpand: onExpand,
@@ -87,6 +90,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var isCompact: Bool = true
     private var topInset: CGFloat = 0
     private var bottomInset: CGFloat = 0
+    private var keyboardHeight: CGFloat = 0
     private var isKeyboardVisible: Bool = false
     private var usesExternalKeyboardInsets: Bool = true
     private var lastBoundsSize: CGSize = .zero
@@ -293,13 +297,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     /// Single source of truth for setting bottom content inset.
     /// Combines baseBottomInset (input bar) with currentKeyboardHeight when keyboard is visible.
-    private func applyBottomContentInset() {
+    private func applyBottomContentInset(animatedDuration: TimeInterval? = nil) {
         let totalBottomInset = usesExternalKeyboardInsets
             ? baseBottomInset
             : baseBottomInset + currentKeyboardHeight
-        collectionView.contentInset.bottom = totalBottomInset
-        collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
-        NSLog("[KBTIMING] applyBottomContentInset total=%.1f base=%.1f kb=%.1f extKb=%d", totalBottomInset, baseBottomInset, currentKeyboardHeight, usesExternalKeyboardInsets ? 1 : 0)
+        if let animatedDuration, animatedDuration > 0, view.window != nil {
+            UIView.animate(withDuration: animatedDuration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
+                self.collectionView.contentInset.bottom = totalBottomInset
+                self.collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
+            }
+        } else {
+            collectionView.contentInset.bottom = totalBottomInset
+            collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
+        }
+        NSLog("[KBTIMING] applyBottomContentInset total=%.1f base=%.1f kb=%.1f extKb=%d anim=%.2f", totalBottomInset, baseBottomInset, currentKeyboardHeight, usesExternalKeyboardInsets ? 1 : 0, animatedDuration ?? 0)
     }
 
     private func scheduleScrollToBottom(animated: Bool, attempts: Int = 2) {
@@ -325,7 +336,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, isKeyboardVisible: Bool, usesExternalKeyboardInsets: Bool, onExpand: ((Message) -> Void)? = nil, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
+    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, bottomInset: CGFloat, keyboardHeight: CGFloat, isKeyboardVisible: Bool, usesExternalKeyboardInsets: Bool, onExpand: ((Message) -> Void)? = nil, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
         loadViewIfNeeded()
         let t0 = CFAbsoluteTimeGetCurrent()
         self.viewModel = viewModel
@@ -352,6 +363,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #endif
 
         let previousBottomInset = self.bottomInset
+        let previousKeyboardHeight = self.keyboardHeight
         let wasNearBottom = isNearBottom(extraMargin: max(24, previousBottomInset))
         let keyboardJustAppeared = isKeyboardVisible && !self.isKeyboardVisible
         let needsFullLayout = forceReconfigureAll
@@ -362,8 +374,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.isCompact = isCompact
         self.topInset = topInset
         self.bottomInset = bottomInset
+        self.keyboardHeight = keyboardHeight
         self.isKeyboardVisible = isKeyboardVisible
         syncKeyboardHeightIfNeeded(isKeyboardVisible: isKeyboardVisible)
+        let keyboardDelta = keyboardHeight - previousKeyboardHeight
 
         if needsFullLayout {
             updateLayout()
@@ -373,7 +387,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             // invalidate layout, which can cause UICollectionView to
             // readjust contentOffset during its layout pass.
             baseBottomInset = bottomInset
-            applyBottomContentInset()
+            let shouldAnimateInset = usesExternalKeyboardInsets
+                && isKeyboardVisible
+                && !keyboardJustAppeared
+                && abs(keyboardDelta) <= 0.5
+                && bottomInset < previousBottomInset
+                && !(collectionView.isDragging || collectionView.isTracking)
+            applyBottomContentInset(animatedDuration: shouldAnimateInset ? 0.3 : nil)
         }
         NSLog("[KBTIMING] MFCV.update layoutDecision fullLayout=%d insetUpdate=%d prevBottom=%.1f newBottom=%.1f dt=%.4f", needsFullLayout ? 1 : 0, needsInsetUpdate ? 1 : 0, previousBottomInset, bottomInset, CFAbsoluteTimeGetCurrent() - t0)
 
