@@ -174,15 +174,9 @@ struct MessageInputBar: View {
             : Color.white.opacity(0.5)
     }
 
-    private var sendIconColor: Color {
-#if os(visionOS)
-        return isLightMode
-            ? Color(red: 0.22, green: 0.32, blue: 0.18)
-            : ChatFlowTheme.sage(colorScheme)
-#else
-        return ChatFlowTheme.sage(colorScheme)
-#endif
-    }
+    private var sendIconColor: Color { .white }
+
+    private var sendBackgroundColor: Color { ChatFlowTheme.sage(colorScheme) }
 
     private var placeholderColor: Color {
 #if os(visionOS)
@@ -338,7 +332,7 @@ struct MessageInputBar: View {
             Button(action: isSending ? onCancel : onSend) {
                 ZStack {
                     Image(systemName: "stop.fill")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(sendIconColor)
                         .opacity(isSending ? 1 : 0)
                     Image(systemName: "paperplane.fill")
@@ -351,13 +345,10 @@ struct MessageInputBar: View {
             }
             .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
 #if os(visionOS)
-            .background(.regularMaterial, in: Circle())
-            .overlay(
-                Circle()
-                    .stroke(visionOSBorderColor, lineWidth: 1)
-            )
+            .background(Circle().fill(sendBackgroundColor.opacity(isSendEnabled ? 1 : 0.35)))
+            .overlay(Circle().stroke(visionOSBorderColor, lineWidth: 1))
 #else
-            .glassEffect(.regular.interactive(), in: Capsule())
+            .background(Capsule().fill(sendBackgroundColor.opacity(isSendEnabled ? 1 : 0.35)))
 #endif
             .buttonStyle(.plain)
             .allowsHitTesting(isSendEnabled)
