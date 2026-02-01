@@ -26,6 +26,15 @@ enum ChatFlowTheme {
         scheme == .dark ? Color(red: 0.482, green: 0.639, blue: 0.463) : Color(red: 0.561, green: 0.651, blue: 0.541)
     }
 
+    static var sageAdaptive: Color {
+        Color(uiColor: UIColor { traits in
+            if traits.userInterfaceStyle == .dark {
+                return UIColor(red: 0.482, green: 0.639, blue: 0.463, alpha: 1)
+            }
+            return UIColor(red: 0.561, green: 0.651, blue: 0.541, alpha: 1)
+        })
+    }
+
     static func warmBrown(_ scheme: ColorScheme) -> Color {
         scheme == .dark ? Color(red: 0.831, green: 0.769, blue: 0.690) : Color(red: 0.361, green: 0.290, blue: 0.239)
     }
