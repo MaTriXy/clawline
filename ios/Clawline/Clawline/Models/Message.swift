@@ -26,7 +26,7 @@ struct ChatUserInfo: Equatable {
     let isAdmin: Bool
 }
 
-struct Message: Identifiable, Equatable {
+struct Message: Identifiable, Equatable, Codable {
     let id: String
     let role: Role
     let content: String

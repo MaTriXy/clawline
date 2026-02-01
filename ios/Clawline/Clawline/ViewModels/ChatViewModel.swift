@@ -99,6 +99,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private var uploadedAssetIds: [UUID: String] = [:]
     private var downloadedAssetData: [String: Data] = [:]
     private let channelDefaults = UserDefaults.standard
+    private let messageCacheLimit = 500
+    private var restoredSessionKeys: Set<String> = []
 
     private struct PendingLocalMessage: Equatable {
         let id: String
@@ -170,7 +172,14 @@ final class ChatViewModel: ChatViewModelHosting {
             if observationTask == nil {
                 startObserving()
             }
+            restoreLastServerMessageIdIfNeeded()
             restoreActiveChannelIfNeeded()
+            if let sessionKey = sessionKey(for: activeChannel) {
+                restoreCachedMessagesIfNeeded(for: sessionKey)
+            }
+            if auth.isAdmin {
+                restoreCachedMessagesIfNeeded(for: SessionKey.dm)
+            }
             switch connectionState {
             case .connected, .connecting, .reconnecting:
                 break
@@ -196,6 +205,7 @@ final class ChatViewModel: ChatViewModelHosting {
         guard activeChannel != channel else { return }
         activeChannel = channel
         if let sessionKey = sessionKey(for: channel) {
+            restoreCachedMessagesIfNeeded(for: sessionKey)
             ensureSessionStorage(for: sessionKey)
             messages = sessionMessages[sessionKey] ?? []
         } else {
@@ -389,6 +399,9 @@ final class ChatViewModel: ChatViewModelHosting {
         shouldMorphTypingIndicator = false
         connectionStableTask?.cancel()
         connectionStableTask = nil
+        restoredSessionKeys.removeAll()
+        clearMessageCache()
+        persistLastServerMessageId(nil)
     }
 
     func clearError() {
@@ -556,6 +569,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func setMessages(_ newMessages: [Message], for sessionKey: String) {
         sessionMessages[sessionKey] = newMessages
+        persistMessages(newMessages, for: sessionKey)
         if sessionKey == self.sessionKey(for: activeChannel) {
             messages = newMessages
             let total = newMessages.count
@@ -575,6 +589,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func updateLastServerMessageIdIfNeeded(with message: Message) {
         guard message.id.hasPrefix("s_") else { return }
         lastServerMessageId = message.id
+        persistLastServerMessageId(message.id)
     }
 
 
@@ -1062,6 +1077,7 @@ final class ChatViewModel: ChatViewModelHosting {
             let wasAdmin = auth.isAdmin
             auth.updateAdminStatus(info.isAdmin)
             if info.isAdmin {
+                restoreCachedMessagesIfNeeded(for: SessionKey.dm)
                 ensureSessionStorage(for: SessionKey.dm)
                 if !wasAdmin {
                     toastManager.show("DM channel unlocked")
@@ -1095,6 +1111,120 @@ final class ChatViewModel: ChatViewModelHosting {
             return "clawline.lastChannel.\(userId)"
         }
         return "clawline.lastChannel"
+    }
+
+    private func lastServerMessageDefaultsKey() -> String {
+        var components = ["clawline.lastServerMessageId"]
+        if let userId = auth.currentUserId, !userId.isEmpty {
+            components.append(userId)
+        }
+        components.append(deviceId)
+        return components.joined(separator: ".")
+    }
+
+    private func persistLastServerMessageId(_ value: String?) {
+        let key = lastServerMessageDefaultsKey()
+        if let value, !value.isEmpty {
+            channelDefaults.set(value, forKey: key)
+        } else {
+            channelDefaults.removeObject(forKey: key)
+        }
+    }
+
+    private func restoreLastServerMessageIdIfNeeded() {
+        guard lastServerMessageId == nil else { return }
+        lastServerMessageId = channelDefaults.string(forKey: lastServerMessageDefaultsKey())
+    }
+
+    private func messageCacheDirectoryURL() -> URL? {
+        let fileManager = FileManager.default
+        guard let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let directoryURL = baseURL
+            .appendingPathComponent("Clawline", isDirectory: true)
+            .appendingPathComponent("MessageCache", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        } catch {
+            logger.error("message cache create dir failed error=\(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        return directoryURL
+    }
+
+    private func messageCacheURL(for sessionKey: String) -> URL? {
+        guard let directoryURL = messageCacheDirectoryURL() else { return nil }
+        let filename = safeFilename(for: sessionKey)
+        return directoryURL.appendingPathComponent("\(filename).json")
+    }
+
+    private func safeFilename(for sessionKey: String) -> String {
+        let sanitized = sessionKey
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: "/", with: "-")
+        return sanitized.isEmpty ? "session" : sanitized
+    }
+
+    private func restoreCachedMessagesIfNeeded(for sessionKey: String) {
+        guard restoredSessionKeys.contains(sessionKey) == false else { return }
+        restoredSessionKeys.insert(sessionKey)
+        guard let url = messageCacheURL(for: sessionKey) else { return }
+        guard let data = try? Data(contentsOf: url) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        do {
+            let decoded = try decoder.decode([Message].self, from: data)
+            let filtered = decoded.filter { $0.sessionKey == sessionKey }
+            guard !filtered.isEmpty else { return }
+            setMessages(filtered, for: sessionKey)
+            if lastServerMessageId == nil, let candidate = lastServerMessageId(from: filtered) {
+                lastServerMessageId = candidate
+                persistLastServerMessageId(candidate)
+            }
+            logger.info("message cache restored sessionKey=\(sessionKey, privacy: .public) count=\(filtered.count, privacy: .public)")
+        } catch {
+            logger.error("message cache decode failed sessionKey=\(sessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistMessages(_ messages: [Message], for sessionKey: String) {
+        guard let url = messageCacheURL(for: sessionKey) else { return }
+        let payload = trimMessagesForCache(messages)
+        Task.detached { [payload, url, sessionKey] in
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            do {
+                let data = try encoder.encode(payload)
+                try data.write(to: url, options: [.atomic])
+            } catch {
+                let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
+                logger.error("message cache write failed sessionKey=\(sessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private func trimMessagesForCache(_ messages: [Message]) -> [Message] {
+        guard messages.count > messageCacheLimit else { return messages }
+        return Array(messages.suffix(messageCacheLimit))
+    }
+
+    private func lastServerMessageId(from messages: [Message]) -> String? {
+        for message in messages.reversed() where message.id.hasPrefix("s_") {
+            return message.id
+        }
+        return nil
+    }
+
+    private func clearMessageCache() {
+        let fileManager = FileManager.default
+        guard let directoryURL = messageCacheDirectoryURL() else { return }
+        guard let contents = try? fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for fileURL in contents {
+            try? fileManager.removeItem(at: fileURL)
+        }
     }
 
     private func persistActiveChannel(_ channel: ChatChannelType) {
