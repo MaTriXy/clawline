@@ -142,6 +142,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var bodyMaxWidthConstraint: NSLayoutConstraint?
     private var dynamicContentHeightConstraint: NSLayoutConstraint?
     private var shouldTruncate = false
+    private var fileTapHandlers: [ObjectIdentifier: () -> Void] = [:]
     private var onRequestExpand: (() -> Void)?
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
@@ -461,6 +462,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             view.removeFromSuperview()
         }
         dynamicContentViews.removeAll()
+        fileTapHandlers.removeAll()
 
         // Check for chromeless emoji mode (1-3 emojis only, centered with double font)
         let isChromelessEmoji = presentation.chromelessStyle == .emoji
@@ -587,7 +589,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     attachment: attachment,
                     maxWidth: maxImageWidth,
                     palette: palette,
-                    metrics: metrics
+                    metrics: metrics,
+                    onTap: { [weak self] in
+                        self?.onRequestExpand?()
+                    }
                 ) {
                     dynamicContentStack.addArrangedSubview(fileView)
                     dynamicContentViews.append(fileView)
@@ -853,6 +858,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentViews.removeAll { $0 == bodyLabel }
     }
 
+    @objc private func handleFileAttachmentTap(_ recognizer: UITapGestureRecognizer) {
+        guard let view = recognizer.view else { return }
+        fileTapHandlers[ObjectIdentifier(view)]?()
+    }
+
     @available(iOS 17.0, *)
     func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
         if case .link(let url) = textItem.content {
@@ -1042,7 +1052,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private func makeFilePreviewView(attachment: Attachment,
                                      maxWidth: CGFloat,
                                      palette: ChatFlowUIKitTheme.Palette,
-                                     metrics: ChatFlowTheme.Metrics) -> UIView? {
+                                     metrics: ChatFlowTheme.Metrics,
+                                     onTap: (() -> Void)? = nil) -> UIView? {
         let name = attachment.filename ?? attachment.assetId ?? attachment.mimeType ?? "Attachment"
         let sizeValue = attachment.size ?? attachment.data?.count
 
@@ -1086,6 +1097,12 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         container.alignment = .center
         container.isLayoutMarginsRelativeArrangement = true
         container.layoutMargins = UIEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        if let onTap {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handleFileAttachmentTap))
+            container.addGestureRecognizer(tap)
+            container.isUserInteractionEnabled = true
+            fileTapHandlers[ObjectIdentifier(container)] = onTap
+        }
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth)
         ])

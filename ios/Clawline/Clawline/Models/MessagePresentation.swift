@@ -205,12 +205,17 @@ enum MessagePresentationBuilder {
         var hasTextual = false
         var emojiOnly = true
         var totalTableCells = 0
+        let suppressTextForFiles = shouldSuppressTextForFileAttachments(
+            content: message.content,
+            fileAttachments: fileAttachments
+        )
 
         if message.streaming {
             streamingState.markStreamingUpdate()
         }
 
         for segment in segments {
+            if suppressTextForFiles { break }
             switch segment.kind {
             case .code(let language):
                 parts.append(.code(language: language, code: segment.content))
@@ -838,6 +843,35 @@ enum MessagePresentationBuilder {
     private static func looksLikeMarkdown(_ text: String) -> Bool {
         let markdownIndicators = ["#", "*", "_", "~", "`", ">", "[", "]"]
         return markdownIndicators.contains(where: { text.contains($0) })
+    }
+
+    private static func shouldSuppressTextForFileAttachments(
+        content: String,
+        fileAttachments: [Attachment]
+    ) -> Bool {
+        guard !fileAttachments.isEmpty else { return false }
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard looksLikeJSON(trimmed) else { return false }
+        return fileAttachments.contains { attachment in
+            if let mime = attachment.mimeType?.lowercased() {
+                if mime == "application/json" || mime == "text/json" || mime.hasSuffix("+json") {
+                    return true
+                }
+            }
+            if let filename = attachment.filename?.lowercased(), filename.hasSuffix(".json") {
+                return true
+            }
+            return false
+        }
+    }
+
+    private static func looksLikeJSON(_ text: String) -> Bool {
+        guard let first = text.first, let last = text.last else { return false }
+        if (first == "{" && last == "}") || (first == "[" && last == "]") {
+            return true
+        }
+        return false
     }
 
     private static func exactURL(from text: String) -> URL? {
