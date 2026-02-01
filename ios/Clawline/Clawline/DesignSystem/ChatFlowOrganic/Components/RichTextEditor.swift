@@ -350,7 +350,7 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
         let imageProviders = itemProviders.filter { Self.providerHasImage($0) }
         logger.info("[paste] paste(itemProviders:) total=\(itemProviders.count) images=\(imageProviders.count)")
         guard !imageProviders.isEmpty else {
-            super.paste(itemProviders: itemProviders)
+            handleTextProviders(itemProviders)
             return
         }
         handleImageProviders(imageProviders)
@@ -372,10 +372,10 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
             NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(_flushDelegateImages), object: nil)
             perform(#selector(_flushDelegateImages), with: nil, afterDelay: 0)
         } else {
-            // Strip rich formatting — collect plain-text providers and batch-insert.
+            // Strip rich formatting — collect text providers and batch-insert.
             item.setNoResult()
             let provider = item.itemProvider
-            if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+            if Self.providerHasText(provider) {
                 _delegateTextProviders.append(provider)
                 NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(_flushDelegateText), object: nil)
                 perform(#selector(_flushDelegateText), with: nil, afterDelay: 0)
@@ -391,7 +391,7 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
         Task.detached { [weak self] in
             var texts: [String] = []
             for provider in providers {
-                if let text = await Self.loadPlainText(from: provider) {
+                if let text = await Self.loadSanitizedText(from: provider) {
                     texts.append(text)
                 }
             }
@@ -425,13 +425,63 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
         delegate?.textViewDidChange?(self)
     }
 
-    private static func loadPlainText(from provider: NSItemProvider) async -> String? {
+    private static func loadSanitizedText(from provider: NSItemProvider) async -> String? {
+        if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+            return await loadText(for: UTType.plainText.identifier, from: provider)
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.utf8PlainText.identifier) {
+            return await loadText(for: UTType.utf8PlainText.identifier, from: provider)
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier) {
+            return await loadText(for: UTType.text.identifier, from: provider)
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.rtf.identifier) {
+            if let data = await loadData(for: UTType.rtf.identifier, from: provider),
+               let attributed = try? NSAttributedString(
+                    data: data,
+                    options: [.documentType: NSAttributedString.DocumentType.rtf],
+                    documentAttributes: nil
+               ) {
+                return attributed.string
+            }
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.html.identifier) {
+            if let data = await loadData(for: UTType.html.identifier, from: provider),
+               let attributed = try? NSAttributedString(
+                    data: data,
+                    options: [.documentType: NSAttributedString.DocumentType.html],
+                    documentAttributes: nil
+               ) {
+                return attributed.string
+            }
+        }
+        return nil
+    }
+
+    private static func loadText(for typeIdentifier: String, from provider: NSItemProvider) async -> String? {
         await withCheckedContinuation { continuation in
-            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { obj, _ in
+            provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { obj, _ in
                 let text = (obj as? String) ?? (obj as? Data).flatMap { String(data: $0, encoding: .utf8) }
                 continuation.resume(returning: text)
             }
         }
+    }
+
+    private static func loadData(for typeIdentifier: String, from provider: NSItemProvider) async -> Data? {
+        await withCheckedContinuation { continuation in
+            provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { obj, _ in
+                let data = (obj as? Data) ?? (obj as? String).flatMap { $0.data(using: .utf8) }
+                continuation.resume(returning: data)
+            }
+        }
+    }
+
+    private static func providerHasText(_ provider: NSItemProvider) -> Bool {
+        provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier)
+            || provider.hasItemConformingToTypeIdentifier(UTType.utf8PlainText.identifier)
+            || provider.hasItemConformingToTypeIdentifier(UTType.text.identifier)
+            || provider.hasItemConformingToTypeIdentifier(UTType.rtf.identifier)
+            || provider.hasItemConformingToTypeIdentifier(UTType.html.identifier)
     }
 
     // MARK: - Image detection
@@ -439,6 +489,24 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
     private static func providerHasImage(_ provider: NSItemProvider) -> Bool {
         provider.canLoadObject(ofClass: UIImage.self)
             || provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+    }
+
+    private func handleTextProviders(_ providers: [NSItemProvider]) {
+        Task.detached { [weak self] in
+            var texts: [String] = []
+            for provider in providers where Self.providerHasText(provider) {
+                if let text = await Self.loadSanitizedText(from: provider) {
+                    texts.append(text)
+                }
+            }
+            await MainActor.run {
+                guard let self else { return }
+                let combined = texts.joined()
+                if !combined.isEmpty {
+                    self.insertPlainText(combined)
+                }
+            }
+        }
     }
 
     // MARK: - Async image loading
