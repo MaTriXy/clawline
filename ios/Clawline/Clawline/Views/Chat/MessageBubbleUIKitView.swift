@@ -10,6 +10,7 @@ import HighlightSwift
 import OSLog
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 final class MessageBubbleUIKitContainerView: UIView {
     private let bubbleView = MessageBubbleUIKitView()
@@ -1045,12 +1046,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         let name = attachment.filename ?? attachment.assetId ?? attachment.mimeType ?? "Attachment"
         let sizeValue = attachment.size ?? attachment.data?.count
 
-        let container = UIView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.backgroundColor = palette.borderSubtle
-        container.layer.cornerRadius = 12
-
-        let icon = UIImageView(image: UIImage(systemName: "doc.fill"))
+        let iconName = Self.fileIconName(filename: attachment.filename, mimeType: attachment.mimeType)
+        let icon = UIImageView(image: UIImage(systemName: iconName))
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.tintColor = palette.ink.withAlphaComponent(0.7)
         icon.setContentHuggingPriority(.required, for: .horizontal)
@@ -1080,19 +1077,16 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         textStack.alignment = .leading
         textStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = UIStackView(arrangedSubviews: [icon, textStack])
-        stack.axis = .horizontal
-        stack.spacing = 10
-        stack.alignment = .center
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        container.addSubview(stack)
+        let container = UIStackView(arrangedSubviews: [icon, textStack])
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.backgroundColor = palette.borderSubtle
+        container.layer.cornerRadius = 12
+        container.axis = .horizontal
+        container.spacing = 10
+        container.alignment = .center
+        container.isLayoutMarginsRelativeArrangement = true
         container.layoutMargins = UIEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.layoutMarginsGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: container.layoutMarginsGuide.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: container.layoutMarginsGuide.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: container.layoutMarginsGuide.bottomAnchor),
             container.widthAnchor.constraint(lessThanOrEqualToConstant: maxWidth)
         ])
 
@@ -1105,6 +1099,34 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         formatter.allowedUnits = [.useKB, .useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
+    }
+
+    private static func fileIconName(filename: String?, mimeType: String?) -> String {
+        if let filename, !filename.isEmpty {
+            let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
+            if !ext.isEmpty, let type = UTType(filenameExtension: ext) {
+                return fileIconName(for: type)
+            }
+        }
+
+        if let mimeType, let type = UTType(mimeType: mimeType) {
+            return fileIconName(for: type)
+        }
+
+        return "doc.fill"
+    }
+
+    private static func fileIconName(for type: UTType) -> String {
+        if type.conforms(to: .pdf) { return "doc.richtext.fill" }
+        if type.conforms(to: .image) { return "photo.fill" }
+        if type.conforms(to: .movie) { return "film.fill" }
+        if type.conforms(to: .audio) { return "waveform" }
+        if type.conforms(to: .archive) || type.conforms(to: .zip) { return "archivebox.fill" }
+        if type.conforms(to: .spreadsheet) { return "tablecells.fill" }
+        if type.conforms(to: .presentation) { return "rectangle.on.rectangle.angled" }
+        if type.conforms(to: .sourceCode) { return "chevron.left.slash.chevron.right" }
+        if type.conforms(to: .text) { return "doc.text.fill" }
+        return "doc.fill"
     }
 
     // MARK: - UIKit-Native Text Measurement
