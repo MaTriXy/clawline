@@ -19,6 +19,7 @@ struct MessageInputBarMetrics {
 
     let addButtonSize: CGFloat = 44
     let inputBarHeight: CGFloat = 44
+    static let minInputBarHeight: CGFloat = 44
 
     let sendButtonSize: CGFloat = 44  // Minimum 44pt tap target per HIG
 

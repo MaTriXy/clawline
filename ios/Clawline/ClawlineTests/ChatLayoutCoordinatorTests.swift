@@ -1,0 +1,133 @@
+import Testing
+@testable import Clawline
+
+struct ChatLayoutCoordinatorTests {
+    @Test("Keyboard appearance uses keyboard duration and scrolls when near bottom")
+    @MainActor
+    func keyboardAppearanceTransition() {
+        let coordinator = ChatLayoutCoordinator()
+        let previousInputs = ChatLayoutInputs(
+            keyboardHeight: 0,
+            keyboardVisible: false,
+            isInputFocused: false,
+            keyboardAnimationDuration: 0.25,
+            keyboardAnimationCurve: .easeInOut,
+            safeAreaBottom: 0,
+            usesExternalKeyboardInsets: true
+        )
+        let inputs = ChatLayoutInputs(
+            keyboardHeight: 320,
+            keyboardVisible: true,
+            isInputFocused: true,
+            keyboardAnimationDuration: 0.25,
+            keyboardAnimationCurve: .easeInOut,
+            safeAreaBottom: 0,
+            usesExternalKeyboardInsets: true
+        )
+        let transition = coordinator.computeTransition(
+            inputs: inputs,
+            previousInputs: previousInputs,
+            previousInset: 100,
+            targetInset: 200,
+            barHeight: 44,
+            previousBarHeight: 44,
+            isUserInteracting: false,
+            didJustStabilize: false,
+            wasNearBottom: true,
+            keyboardJustAppeared: true
+        )
+
+        #expect(transition.animationDuration == 0.25)
+        #expect(transition.animateInsets)
+        #expect(transition.scrollAction == .scrollToBottom(animated: false))
+    }
+
+    @Test("Input collapse uses default duration and skips scroll adjustments")
+    @MainActor
+    func inputCollapseTransition() {
+        let coordinator = ChatLayoutCoordinator()
+        let inputs = ChatLayoutInputs(
+            keyboardHeight: 320,
+            keyboardVisible: true,
+            isInputFocused: true,
+            keyboardAnimationDuration: 0.25,
+            keyboardAnimationCurve: .easeInOut,
+            safeAreaBottom: 0,
+            usesExternalKeyboardInsets: true
+        )
+        let transition = coordinator.computeTransition(
+            inputs: inputs,
+            previousInputs: inputs,
+            previousInset: 200,
+            targetInset: 140,
+            barHeight: 44,
+            previousBarHeight: 88,
+            isUserInteracting: false,
+            didJustStabilize: false,
+            wasNearBottom: false,
+            keyboardJustAppeared: false
+        )
+
+        #expect(transition.animationDuration == 0.3)
+        #expect(transition.scrollAction == .none)
+    }
+
+    @Test("Bootstrap stabilization avoids animation when keyboard hidden")
+    @MainActor
+    func bootstrapStabilizationNoAnimation() {
+        let coordinator = ChatLayoutCoordinator()
+        let inputs = ChatLayoutInputs(
+            keyboardHeight: 0,
+            keyboardVisible: false,
+            isInputFocused: false,
+            keyboardAnimationDuration: 0.25,
+            keyboardAnimationCurve: .easeInOut,
+            safeAreaBottom: 0,
+            usesExternalKeyboardInsets: true
+        )
+        let transition = coordinator.computeTransition(
+            inputs: inputs,
+            previousInputs: inputs,
+            previousInset: 100,
+            targetInset: 120,
+            barHeight: 44,
+            previousBarHeight: 44,
+            isUserInteracting: false,
+            didJustStabilize: true,
+            wasNearBottom: false,
+            keyboardJustAppeared: false
+        )
+
+        #expect(transition.animationDuration == 0)
+        #expect(!transition.animateInsets)
+    }
+
+    @Test("User interaction suppresses scroll actions")
+    @MainActor
+    func interactiveDismissSuppressesScroll() {
+        let coordinator = ChatLayoutCoordinator()
+        let inputs = ChatLayoutInputs(
+            keyboardHeight: 200,
+            keyboardVisible: true,
+            isInputFocused: true,
+            keyboardAnimationDuration: 0.25,
+            keyboardAnimationCurve: .easeInOut,
+            safeAreaBottom: 0,
+            usesExternalKeyboardInsets: true
+        )
+        let transition = coordinator.computeTransition(
+            inputs: inputs,
+            previousInputs: inputs,
+            previousInset: 140,
+            targetInset: 160,
+            barHeight: 44,
+            previousBarHeight: 44,
+            isUserInteracting: true,
+            didJustStabilize: false,
+            wasNearBottom: true,
+            keyboardJustAppeared: true
+        )
+
+        #expect(transition.scrollAction == .none)
+    }
+}
