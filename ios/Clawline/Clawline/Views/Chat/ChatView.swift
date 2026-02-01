@@ -241,7 +241,7 @@ struct ChatView: View {
             keyboardAnimationDuration: keyboardAnimationDuration,
             keyboardAnimationCurve: keyboardAnimationCurve,
             safeAreaBottom: geometry.safeAreaInsets.bottom,
-            usesExternalKeyboardInsets: true
+            usesExternalKeyboardInsets: false
         )
         let layoutMetrics = ChatLayoutMetrics(
             belowBarGap: belowBarGap,
@@ -364,7 +364,7 @@ struct ChatView: View {
         }
     }
 
-    private var appVersionLabel: String? {
+    private var appVersionLabel: AttributedString? {
         let version = Bundle.main.object(
             forInfoDictionaryKey: "CFBundleShortVersionString"
         ) as? String
@@ -373,9 +373,12 @@ struct ChatView: View {
         ) as? String
         guard let version, !version.isEmpty else { return nil }
         if let build, !build.isEmpty {
-            return "v\(version) (build \(build))"
+            var green = AttributeContainer()
+            green.foregroundColor = .green
+            let buildText = AttributedString(build, attributes: green)
+            return AttributedString("v\(version) (build ") + buildText + AttributedString(")")
         }
-        return "v\(version)"
+        return AttributedString("v\(version)")
     }
 
     private func inputBarMaxWidth(bottomSafeAreaInset: CGFloat) -> CGFloat? {
@@ -861,7 +864,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     let desiredBottomGap: CGFloat
     let isKeyboardVisible: Bool
     @Binding var measuredHeight: CGFloat
-    let versionText: String?
+    let versionText: AttributedString?
     let layoutCoordinator: ChatLayoutCoordinator
     let layoutKey: ChatLayoutKey
     let content: Content
@@ -870,7 +873,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         desiredBottomGap: CGFloat,
         isKeyboardVisible: Bool,
         measuredHeight: Binding<CGFloat>,
-        versionText: String? = nil,
+        versionText: AttributedString? = nil,
         layoutCoordinator: ChatLayoutCoordinator,
         layoutKey: ChatLayoutKey,
         @ViewBuilder content: () -> Content
@@ -919,7 +922,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private var onBarHeightChange: ((CGFloat) -> Void)?
     private var lastMeasuredHeight: CGFloat = 0
 
-    init(rootView: Content, versionText: String?) {
+    init(rootView: Content, versionText: AttributedString?) {
         hostingController = UIHostingController(rootView: rootView)
         versionLabel = UILabel()
         super.init(frame: .zero)
@@ -935,7 +938,9 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         versionLabel.font = .preferredFont(forTextStyle: .caption2)
         versionLabel.textColor = .secondaryLabel
         versionLabel.textAlignment = .right
-        versionLabel.text = versionText
+        if let versionText {
+            versionLabel.attributedText = NSAttributedString(versionText)
+        }
         versionLabel.isHidden = versionText == nil
 
 #if !os(visionOS)
@@ -958,8 +963,12 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         onBarHeightChange = handler
     }
 
-    func updateVersionText(_ text: String?) {
-        versionLabel.text = text
+    func updateVersionText(_ text: AttributedString?) {
+        if let text {
+            versionLabel.attributedText = NSAttributedString(text)
+        } else {
+            versionLabel.attributedText = nil
+        }
         // Only hide for nil text; keyboard-driven hiding is handled by the coordinator
         if text == nil {
             versionLabel.isHidden = true
@@ -972,7 +981,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         bottomToContainerConstraint?.constant = -gap
 #else
         hostingBottomToKeyboard?.constant = -gap
-        let hasVersionText = versionLabel.text != nil && !versionLabel.text!.isEmpty
+        let hasVersionText = versionLabel.attributedText != nil && !versionLabel.attributedText!.string.isEmpty
         versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
     }
