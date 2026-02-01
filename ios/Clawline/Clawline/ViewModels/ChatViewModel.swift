@@ -99,6 +99,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private var uploadedAssetIds: [UUID: String] = [:]
     private var downloadedAssetData: [String: Data] = [:]
     private let channelDefaults = UserDefaults.standard
+    private var persistDebounceTasks: [String: Task<Void, Never>] = [:]
+    private var pendingPersistPayloads: [String: [Message]] = [:]
     private let messageCacheLimit = 500
     private var restoredSessionKeys: Set<String> = []
 
@@ -1170,36 +1172,51 @@ final class ChatViewModel: ChatViewModelHosting {
         guard restoredSessionKeys.contains(sessionKey) == false else { return }
         restoredSessionKeys.insert(sessionKey)
         guard let url = messageCacheURL(for: sessionKey) else { return }
-        guard let data = try? Data(contentsOf: url) else { return }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        do {
-            let decoded = try decoder.decode([Message].self, from: data)
-            let filtered = decoded.filter { $0.sessionKey == sessionKey }
-            guard !filtered.isEmpty else { return }
-            setMessages(filtered, for: sessionKey)
-            if lastServerMessageId == nil, let candidate = lastServerMessageId(from: filtered) {
-                lastServerMessageId = candidate
-                persistLastServerMessageId(candidate)
+        Task.detached { [weak self, sessionKey, url] in
+            guard let self else { return }
+            guard let data = try? Data(contentsOf: url) else { return }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            do {
+                let decoded = try decoder.decode([Message].self, from: data)
+                let filtered = decoded.filter { $0.sessionKey == sessionKey }
+                guard !filtered.isEmpty else { return }
+                await MainActor.run { [weak self, filtered] in
+                    guard let self else { return }
+                    self.setMessages(filtered, for: sessionKey)
+                    if self.lastServerMessageId == nil, let candidate = self.lastServerMessageId(from: filtered) {
+                        self.lastServerMessageId = candidate
+                        self.persistLastServerMessageId(candidate)
+                    }
+                    self.logger.info("message cache restored sessionKey=\(sessionKey, privacy: .public) count=\(filtered.count, privacy: .public)")
+                }
+            } catch {
+                let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
+                logger.error("message cache decode failed sessionKey=\(sessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             }
-            logger.info("message cache restored sessionKey=\(sessionKey, privacy: .public) count=\(filtered.count, privacy: .public)")
-        } catch {
-            logger.error("message cache decode failed sessionKey=\(sessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
         }
     }
 
     private func persistMessages(_ messages: [Message], for sessionKey: String) {
         guard let url = messageCacheURL(for: sessionKey) else { return }
         let payload = trimMessagesForCache(messages)
-        Task.detached { [payload, url, sessionKey] in
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            do {
-                let data = try encoder.encode(payload)
-                try data.write(to: url, options: [.atomic])
-            } catch {
-                let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
-                logger.error("message cache write failed sessionKey=\(sessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+        pendingPersistPayloads[sessionKey] = payload
+        persistDebounceTasks[sessionKey]?.cancel()
+        persistDebounceTasks[sessionKey] = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let pendingPayload = self.pendingPersistPayloads[sessionKey] else { return }
+            self.pendingPersistPayloads[sessionKey] = nil
+            Task.detached { [pendingPayload, url, sessionKey] in
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                do {
+                    let data = try encoder.encode(pendingPayload)
+                    try data.write(to: url, options: [.atomic])
+                } catch {
+                    let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
+                    logger.error("message cache write failed sessionKey=\(sessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                }
             }
         }
     }
