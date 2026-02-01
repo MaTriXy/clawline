@@ -489,8 +489,30 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             )
         }
 
-        // Add bodyLabel to dynamicContentStack if it has content
         let hasTextContent = !(bodyLabel.attributedText?.string.isEmpty ?? true)
+
+        // File attachments first so previews stay visible even with long text
+        let fileParts = presentation.parts.compactMap { part -> Attachment? in
+            if case .file(let attachment) = part { return attachment }
+            return nil
+        }
+        if !fileParts.isEmpty {
+            for attachment in fileParts {
+                if let fileView = makeFilePreviewView(
+                    attachment: attachment,
+                    maxWidth: maxWidth - (metrics.bubblePaddingHorizontal * 2),
+                    palette: palette,
+                    metrics: metrics,
+                    onTap: { [weak self] in
+                        self?.onRequestExpand?()
+                    }
+                ) {
+                    dynamicContentStack.addArrangedSubview(fileView)
+                    dynamicContentViews.append(fileView)
+                }
+            }
+        }
+
         if hasTextContent {
             dynamicContentStack.addArrangedSubview(bodyLabel)
             dynamicContentViews.append(bodyLabel)
@@ -555,7 +577,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             return max(120, metrics.truncationHeight - (headerHeight + headerSpacing + padding))
         }()
         var didRenderImages = false
-        var didRenderAttachments = false
+        var didRenderAttachments = !fileParts.isEmpty
         for part in presentation.parts {
             switch part {
             case .image(let attachment):
@@ -585,19 +607,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     }
                 }
             case .file(let attachment):
-                if let fileView = makeFilePreviewView(
-                    attachment: attachment,
-                    maxWidth: maxImageWidth,
-                    palette: palette,
-                    metrics: metrics,
-                    onTap: { [weak self] in
-                        self?.onRequestExpand?()
-                    }
-                ) {
-                    dynamicContentStack.addArrangedSubview(fileView)
-                    dynamicContentViews.append(fileView)
-                    didRenderAttachments = true
-                }
+                continue
             default:
                 continue
             }
