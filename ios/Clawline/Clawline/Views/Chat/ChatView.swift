@@ -839,11 +839,30 @@ private final class KeyboardLayoutGuideObserverView: UIView {
         let curve = UIView.AnimationCurve(rawValue: curveRaw) ?? .easeInOut
 #if os(visionOS)
         let screenHeight = window?.bounds.height ?? endFrame.maxY
-#else
-        let screenHeight = window?.windowScene?.screen.bounds.height
-            ?? UIScreen.main.bounds.height
-#endif
         let height = max(0, screenHeight - endFrame.origin.y)
+#else
+        let height: CGFloat
+        if let window {
+            let frameInWindow = window.convert(endFrame, from: nil)
+            let windowMaxY = window.bounds.maxY
+            let isDocked = abs(frameInWindow.maxY - windowMaxY) <= 1
+            if isDocked {
+                height = max(0, windowMaxY - frameInWindow.minY)
+            } else {
+                height = 0
+            }
+            NSLog(
+                "[KBTIMING] keyboardFrameChanged frame=%@ win=%@ docked=%d",
+                NSCoder.string(for: frameInWindow),
+                NSCoder.string(for: window.bounds),
+                isDocked ? 1 : 0
+            )
+        } else {
+            let screenHeight = window?.windowScene?.screen.bounds.height
+                ?? UIScreen.main.bounds.height
+            height = max(0, screenHeight - endFrame.origin.y)
+        }
+#endif
         if abs(height - lastHeight) > 0.5 {
             lastHeight = height
         }
