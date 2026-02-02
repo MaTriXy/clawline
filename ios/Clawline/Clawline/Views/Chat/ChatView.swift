@@ -92,6 +92,7 @@ struct ChatView: View {
     @State private var keyboardHeight: CGFloat = 0
     @State private var keyboardAnimationDuration: TimeInterval = 0.3
     @State private var keyboardAnimationCurve: UIView.AnimationCurve = .easeInOut
+    @State private var keyboardRefreshToken: Int = 0
     @State private var layoutCoordinator = ChatLayoutCoordinator()
     @State private var layoutRevision: Int = 0
     @State private var selectionRange = NSRange(location: 0, length: 0)
@@ -164,9 +165,10 @@ struct ChatView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             viewModel.handleSceneDidBecomeActive()
+            keyboardRefreshToken &+= 1
         }
         .background(
-            KeyboardLayoutGuideReader { height, duration, curve in
+            KeyboardLayoutGuideReader(refreshToken: keyboardRefreshToken) { height, duration, curve in
                 if abs(height - keyboardHeight) > 0.5 {
                     NSLog("[KBTIMING] keyboardHeight state set %.1f -> %.1f", keyboardHeight, height)
                     withAnimation(nil) {
@@ -791,6 +793,7 @@ struct ChatView: View {
 private struct KeyboardLayoutGuideReader: UIViewRepresentable {
     typealias UIViewType = KeyboardLayoutGuideObserverView
 
+    let refreshToken: Int
     let onChange: (CGFloat, TimeInterval, UIView.AnimationCurve) -> Void
 
     func makeUIView(context: Context) -> KeyboardLayoutGuideObserverView {
@@ -801,6 +804,7 @@ private struct KeyboardLayoutGuideReader: UIViewRepresentable {
 
     func updateUIView(_ uiView: KeyboardLayoutGuideObserverView, context: Context) {
         uiView.onChange = onChange
+        uiView.refreshIfNeeded(refreshToken)
     }
 }
 
@@ -809,6 +813,7 @@ private final class KeyboardLayoutGuideObserverView: UIView {
     private var lastHeight: CGFloat = 0
     private var lastDuration: TimeInterval = 0
     private var lastCurve: UIView.AnimationCurve = .easeInOut
+    private var lastRefreshToken: Int = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -831,6 +836,50 @@ private final class KeyboardLayoutGuideObserverView: UIView {
         NotificationCenter.default.removeObserver(self)
     }
 
+    func refreshIfNeeded(_ token: Int) {
+        guard token != lastRefreshToken else { return }
+        lastRefreshToken = token
+        refreshFromLayoutGuide()
+    }
+
+    private func refreshFromLayoutGuide() {
+        guard let window else { return }
+        window.layoutIfNeeded()
+        layoutIfNeeded()
+        let guideFrame = keyboardLayoutGuide.layoutFrame
+        let frameInWindow = convert(guideFrame, to: window)
+        let windowBounds = window.bounds
+        let result = heightFromFrame(frameInWindow, windowBounds: windowBounds)
+        let height = result.height
+        if abs(height - lastHeight) > 0.5 {
+            lastHeight = height
+        }
+        NSLog(
+            "[KBTIMING] keyboardFrameChanged foreground frame=%@ win=%@ floating=%d",
+            NSCoder.string(for: frameInWindow),
+            NSCoder.string(for: windowBounds),
+            result.isFloating ? 1 : 0
+        )
+        onChange?(height, lastDuration, lastCurve)
+    }
+
+    private func heightFromFrame(
+        _ frameInWindow: CGRect,
+        windowBounds: CGRect
+    ) -> (height: CGFloat, isFloating: Bool) {
+        let widthDelta = windowBounds.width - frameInWindow.width
+        let isFloating = widthDelta > 1
+            || frameInWindow.minX > 1
+            || frameInWindow.maxX < windowBounds.maxX - 1
+        let height: CGFloat
+        if isFloating {
+            height = 0
+        } else {
+            height = max(0, windowBounds.maxY - frameInWindow.minY)
+        }
+        return (height, isFloating)
+    }
+
     @objc private func keyboardFrameChanged(_ notification: Notification) {
         let t0 = CFAbsoluteTimeGetCurrent()
         guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
@@ -845,20 +894,13 @@ private final class KeyboardLayoutGuideObserverView: UIView {
         if let window {
             let frameInWindow = window.convert(endFrame, from: nil)
             let windowBounds = window.bounds
-            let widthDelta = windowBounds.width - frameInWindow.width
-            let isFloating = widthDelta > 1
-                || frameInWindow.minX > 1
-                || frameInWindow.maxX < windowBounds.maxX - 1
-            if isFloating {
-                height = 0
-            } else {
-                height = max(0, windowBounds.maxY - frameInWindow.minY)
-            }
+            let result = heightFromFrame(frameInWindow, windowBounds: windowBounds)
+            height = result.height
             NSLog(
                 "[KBTIMING] keyboardFrameChanged frame=%@ win=%@ floating=%d",
                 NSCoder.string(for: frameInWindow),
                 NSCoder.string(for: windowBounds),
-                isFloating ? 1 : 0
+                result.isFloating ? 1 : 0
             )
         } else {
             let screenHeight = window?.windowScene?.screen.bounds.height
