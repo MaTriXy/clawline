@@ -1227,7 +1227,12 @@ final class ChatViewModel: ChatViewModelHosting {
         guard let url = messageCacheURL(for: sessionKey) else { return }
         Task.detached { [weak self, sessionKey, url] in
             guard let self else { return }
-            guard let data = try? Data(contentsOf: url) else { return }
+            guard let data = try? Data(contentsOf: url) else {
+                await MainActor.run { [weak self] in
+                    self?.clearCursor(for: sessionKey)
+                }
+                return
+            }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             do {
@@ -1235,25 +1240,19 @@ final class ChatViewModel: ChatViewModelHosting {
                 let filtered = decoded.filter { $0.sessionKey == sessionKey }
                 guard !filtered.isEmpty else {
                     await MainActor.run { [weak self] in
-                        guard let self else { return }
-                        if self.sessionKey(for: self.activeChannel) == sessionKey {
-                            self.lastServerMessageId = nil
-                        }
-                        self.lastServerMessageIdBySession.removeValue(forKey: sessionKey)
-                        self.persistLastServerMessageId(nil, for: sessionKey)
+                        self?.clearCursor(for: sessionKey)
                     }
                     return
                 }
                 await MainActor.run { [weak self, filtered] in
                     guard let self else { return }
                     self.setMessages(filtered, for: sessionKey)
-                    if let candidate = self.lastServerMessageId(from: filtered) {
-                        self.lastServerMessageIdBySession[sessionKey] = candidate
-                        if self.sessionKey(for: self.activeChannel) == sessionKey {
-                            self.lastServerMessageId = candidate
-                        }
-                        self.persistLastServerMessageId(candidate, for: sessionKey)
+                    let cachedLast = self.lastServerMessageId(from: filtered)
+                    self.lastServerMessageIdBySession[sessionKey] = cachedLast
+                    if self.sessionKey(for: self.activeChannel) == sessionKey {
+                        self.lastServerMessageId = cachedLast
                     }
+                    self.persistLastServerMessageId(cachedLast, for: sessionKey)
                     self.logger.info("message cache restored sessionKey=\(sessionKey, privacy: .public) count=\(filtered.count, privacy: .public)")
                 }
             } catch {
@@ -1261,6 +1260,14 @@ final class ChatViewModel: ChatViewModelHosting {
                 logger.error("message cache decode failed sessionKey=\(sessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    private func clearCursor(for sessionKey: String) {
+        if self.sessionKey(for: self.activeChannel) == sessionKey {
+            self.lastServerMessageId = nil
+        }
+        self.lastServerMessageIdBySession.removeValue(forKey: sessionKey)
+        self.persistLastServerMessageId(nil, for: sessionKey)
     }
 
     private func persistMessages(_ messages: [Message], for sessionKey: String) {
