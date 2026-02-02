@@ -820,12 +820,6 @@ private final class KeyboardLayoutGuideObserverView: UIView {
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appDidBecomeActive(_:)),
-            name: UIApplication.didBecomeActiveNotification,
-            object: nil
-        )
     }
 
     @available(*, unavailable)
@@ -835,32 +829,6 @@ private final class KeyboardLayoutGuideObserverView: UIView {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-    }
-
-    @objc private func appDidBecomeActive(_ notification: Notification) {
-        guard let window else { return }
-        window.layoutIfNeeded()
-        layoutIfNeeded()
-        let guideFrame = keyboardLayoutGuide.layoutFrame
-        let frameInWindow = convert(guideFrame, to: window)
-        let windowBounds = window.bounds
-        let widthDelta = windowBounds.width - frameInWindow.width
-        let isFloating = widthDelta > 1
-            || frameInWindow.minX > 1
-            || frameInWindow.maxX < windowBounds.maxX - 1
-        let height: CGFloat
-        if isFloating {
-            height = 0
-        } else {
-            height = max(0, windowBounds.maxY - frameInWindow.minY)
-        }
-        NSLog(
-            "[KBTIMING] keyboardFrameChanged foreground frame=%@ win=%@ floating=%d",
-            NSCoder.string(for: frameInWindow),
-            NSCoder.string(for: windowBounds),
-            isFloating ? 1 : 0
-        )
-        onChange?(height, lastDuration, lastCurve)
     }
 
     @objc private func keyboardFrameChanged(_ notification: Notification) {
