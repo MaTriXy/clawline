@@ -1642,6 +1642,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
                    failureReason: String?,
                    isCompact: Bool,
                    maxWidth: CGFloat,
+                   showsHeader: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRetry: (() -> Void)?) {
@@ -1653,6 +1654,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             failureReason: failureReason,
             isCompact: isCompact,
             maxWidth: maxWidth,
+            showsHeader: showsHeader,
             isDark: isDark,
             onRequestExpand: onRequestExpand,
             onRetry: onRetry

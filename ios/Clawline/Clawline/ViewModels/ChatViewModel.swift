@@ -1356,6 +1356,13 @@ final class ChatViewModel: ChatViewModelHosting {
         if trimmedMessage.uppercased() == "NO_REPLY" {
             return true
         }
+        let lowered = trimmedMessage.lowercased()
+        if lowered.contains("no_reply") || lowered.contains("no reply") {
+            return true
+        }
+        if lowered.contains("unable to deliver reply") {
+            return true
+        }
         return false
     }
 
