@@ -79,6 +79,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private let deviceId: String
     private var observationTask: Task<Void, Never>?
     private var sessionMessages: [String: [Message]] = [:]
+    private var lastServerMessageIdBySession: [String: String] = [:]
     private var pendingLocalMessages: [PendingLocalMessage] = []
     private var reconnectTask: Task<Void, Never>?
     private var reconnectBackoff: Duration = .seconds(1)
@@ -177,9 +178,15 @@ final class ChatViewModel: ChatViewModelHosting {
             restoreLastServerMessageIdIfNeeded()
             restoreActiveChannelIfNeeded()
             if let sessionKey = sessionKey(for: activeChannel) {
+                restoreLastServerMessageIdIfNeeded(for: sessionKey)
                 restoreCachedMessagesIfNeeded(for: sessionKey)
             }
+            if let personalKey = SessionKey.sessionKey(for: .personal, userId: auth.currentUserId) {
+                restoreLastServerMessageIdIfNeeded(for: personalKey)
+                restoreCachedMessagesIfNeeded(for: personalKey)
+            }
             if auth.isAdmin {
+                restoreLastServerMessageIdIfNeeded(for: SessionKey.dm)
                 restoreCachedMessagesIfNeeded(for: SessionKey.dm)
             }
             switch connectionState {
@@ -207,9 +214,11 @@ final class ChatViewModel: ChatViewModelHosting {
         guard activeChannel != channel else { return }
         activeChannel = channel
         if let sessionKey = sessionKey(for: channel) {
+            restoreLastServerMessageIdIfNeeded(for: sessionKey)
             restoreCachedMessagesIfNeeded(for: sessionKey)
             ensureSessionStorage(for: sessionKey)
             messages = sessionMessages[sessionKey] ?? []
+            lastServerMessageId = lastServerMessageIdBySession[sessionKey]
         } else {
             messages = []
         }
@@ -416,6 +425,23 @@ final class ChatViewModel: ChatViewModelHosting {
             "incoming id=\(message.id, privacy: .public) sessionKey=\(message.sessionKey, privacy: .public) channel=\(message.channelType.rawValue, privacy: .public) role=\(String(describing: message.role), privacy: .public) streaming=\(message.streaming, privacy: .public) deviceId=\(message.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
         )
 
+        var resolvedMessage = message
+        if message.role == .assistant,
+           message.attachments.isEmpty,
+           isNoReplyContent(message.content) {
+            resolvedMessage = Message(
+                id: message.id,
+                role: message.role,
+                content: "👀",
+                timestamp: message.timestamp,
+                streaming: false,
+                attachments: [],
+                deviceId: message.deviceId,
+                sessionKey: message.sessionKey,
+                channelType: message.channelType
+            )
+        }
+
         // Check if this is an assistant message arriving while typing indicator is visible.
         // If so, the UI should morph the typing indicator into this message instead of inserting new.
         if message.role == .assistant,
@@ -429,25 +455,25 @@ final class ChatViewModel: ChatViewModelHosting {
             shouldMorphTypingIndicator = false
         }
 
-        if replacePendingMessageIfNeeded(with: message) {
-            logger.info("incoming replacePending id=\(message.id, privacy: .public)")
-            updateLastServerMessageIdIfNeeded(with: message)
-            resolveAssetAttachmentsIfNeeded(for: message)
+        if replacePendingMessageIfNeeded(with: resolvedMessage) {
+            logger.info("incoming replacePending id=\(resolvedMessage.id, privacy: .public)")
+            updateLastServerMessageIdIfNeeded(with: resolvedMessage)
+            resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
             return
         }
 
-        ensureSessionStorage(for: message.sessionKey)
-        var messageList = sessionMessages[message.sessionKey] ?? []
-        if let existingIndex = messageList.firstIndex(where: { $0.id == message.id }) {
-            logger.info("incoming duplicate id=\(message.id, privacy: .public) index=\(existingIndex, privacy: .public) sessionKey=\(message.sessionKey, privacy: .public)")
-            messageList[existingIndex] = message
+        ensureSessionStorage(for: resolvedMessage.sessionKey)
+        var messageList = sessionMessages[resolvedMessage.sessionKey] ?? []
+        if let existingIndex = messageList.firstIndex(where: { $0.id == resolvedMessage.id }) {
+            logger.info("incoming duplicate id=\(resolvedMessage.id, privacy: .public) index=\(existingIndex, privacy: .public) sessionKey=\(resolvedMessage.sessionKey, privacy: .public)")
+            messageList[existingIndex] = resolvedMessage
         } else {
-            messageList.append(message)
+            messageList.append(resolvedMessage)
         }
-        setMessages(messageList, for: message.sessionKey)
+        setMessages(messageList, for: resolvedMessage.sessionKey)
 
-        updateLastServerMessageIdIfNeeded(with: message)
-        resolveAssetAttachmentsIfNeeded(for: message)
+        updateLastServerMessageIdIfNeeded(with: resolvedMessage)
+        resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
     }
 
     private func resolveAssetAttachmentsIfNeeded(for message: Message) {
@@ -590,8 +616,11 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func updateLastServerMessageIdIfNeeded(with message: Message) {
         guard message.id.hasPrefix("s_") else { return }
-        lastServerMessageId = message.id
-        persistLastServerMessageId(message.id)
+        lastServerMessageIdBySession[message.sessionKey] = message.id
+        if message.sessionKey == sessionKey(for: activeChannel) {
+            lastServerMessageId = message.id
+        }
+        persistLastServerMessageId(message.id, for: message.sessionKey)
     }
 
 
@@ -1060,6 +1089,10 @@ final class ChatViewModel: ChatViewModelHosting {
     private func handle(serviceEvent: ChatServiceEvent) {
         switch serviceEvent {
         case .messageError(let messageId, let code, let message):
+            if isNoReply(code: code, message: message) {
+                handleNoReplyAck(messageId: messageId)
+                return
+            }
             let resolved = userFacingMessage(for: code, fallback: message)
             toastManager.show(resolved)
             guard let messageId else { return }
@@ -1115,17 +1148,18 @@ final class ChatViewModel: ChatViewModelHosting {
         return "clawline.lastChannel"
     }
 
-    private func lastServerMessageDefaultsKey() -> String {
+    private func lastServerMessageDefaultsKey(for sessionKey: String) -> String {
         var components = ["clawline.lastServerMessageId"]
         if let userId = auth.currentUserId, !userId.isEmpty {
             components.append(userId)
         }
         components.append(deviceId)
+        components.append(sessionKey)
         return components.joined(separator: ".")
     }
 
-    private func persistLastServerMessageId(_ value: String?) {
-        let key = lastServerMessageDefaultsKey()
+    private func persistLastServerMessageId(_ value: String?, for sessionKey: String) {
+        let key = lastServerMessageDefaultsKey(for: sessionKey)
         if let value, !value.isEmpty {
             channelDefaults.set(value, forKey: key)
         } else {
@@ -1135,7 +1169,16 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func restoreLastServerMessageIdIfNeeded() {
         guard lastServerMessageId == nil else { return }
-        lastServerMessageId = channelDefaults.string(forKey: lastServerMessageDefaultsKey())
+        guard let sessionKey = sessionKey(for: activeChannel) else { return }
+        restoreLastServerMessageIdIfNeeded(for: sessionKey)
+        lastServerMessageId = lastServerMessageIdBySession[sessionKey]
+    }
+
+    private func restoreLastServerMessageIdIfNeeded(for sessionKey: String) {
+        guard lastServerMessageIdBySession[sessionKey] == nil else { return }
+        if let stored = channelDefaults.string(forKey: lastServerMessageDefaultsKey(for: sessionKey)) {
+            lastServerMessageIdBySession[sessionKey] = stored
+        }
     }
 
     private func messageCacheDirectoryURL() -> URL? {
@@ -1180,13 +1223,26 @@ final class ChatViewModel: ChatViewModelHosting {
             do {
                 let decoded = try decoder.decode([Message].self, from: data)
                 let filtered = decoded.filter { $0.sessionKey == sessionKey }
-                guard !filtered.isEmpty else { return }
+                guard !filtered.isEmpty else {
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        if self.sessionKey(for: self.activeChannel) == sessionKey {
+                            self.lastServerMessageId = nil
+                        }
+                        self.lastServerMessageIdBySession.removeValue(forKey: sessionKey)
+                        self.persistLastServerMessageId(nil, for: sessionKey)
+                    }
+                    return
+                }
                 await MainActor.run { [weak self, filtered] in
                     guard let self else { return }
                     self.setMessages(filtered, for: sessionKey)
-                    if self.lastServerMessageId == nil, let candidate = self.lastServerMessageId(from: filtered) {
-                        self.lastServerMessageId = candidate
-                        self.persistLastServerMessageId(candidate)
+                    if let candidate = self.lastServerMessageId(from: filtered) {
+                        self.lastServerMessageIdBySession[sessionKey] = candidate
+                        if self.sessionKey(for: self.activeChannel) == sessionKey {
+                            self.lastServerMessageId = candidate
+                        }
+                        self.persistLastServerMessageId(candidate, for: sessionKey)
                     }
                     self.logger.info("message cache restored sessionKey=\(sessionKey, privacy: .public) count=\(filtered.count, privacy: .public)")
                 }
@@ -1291,6 +1347,51 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    private func isNoReply(code: String, message: String?) -> Bool {
+        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalizedCode == "no_reply" || normalizedCode == "no-reply" || normalizedCode.hasPrefix("no_reply") {
+            return true
+        }
+        let trimmedMessage = (message ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedMessage.uppercased() == "NO_REPLY" {
+            return true
+        }
+        return false
+    }
+
+    private func isNoReplyContent(_ content: String) -> Bool {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        return trimmed.uppercased() == "NO_REPLY"
+    }
+
+    private func handleNoReplyAck(messageId: String?) {
+        var resolvedSessionKey: String?
+        if let messageId,
+           let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == messageId }) {
+            resolvedSessionKey = pendingLocalMessages[pendingIndex].sessionKey
+            pendingLocalMessages.remove(at: pendingIndex)
+        }
+        if let messageId, activeClientMessageId == messageId {
+            activeClientMessageId = nil
+        }
+        isSending = false
+
+        guard let sessionKey = resolvedSessionKey ?? sessionKey(for: activeChannel) else { return }
+        let ack = Message(
+            id: "s_no_reply_\(UUID().uuidString)",
+            role: .assistant,
+            content: "👀",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: sessionKey,
+            channelType: SessionKey.channelType(for: sessionKey)
+        )
+        appendMessage(ack)
+    }
+
     private func trimPresentationCache() {
         let activeIds = Set(messages.map(\.id))
         guard !activeIds.isEmpty else { return }
@@ -1356,7 +1457,9 @@ final class ChatViewModel: ChatViewModelHosting {
 
     @MainActor
     private func connectionSnapshot() -> (token: String?, lastMessageId: String?) {
-        (auth.token, lastServerMessageId)
+        let activeKey = sessionKey(for: activeChannel)
+        let cursor = activeKey.flatMap { lastServerMessageIdBySession[$0] } ?? lastServerMessageId
+        return (auth.token, cursor)
     }
 
 #if DEBUG

@@ -6,6 +6,7 @@
 //
 
 import OSLog
+import QuartzCore
 import SwiftUI
 import UIKit
 
@@ -211,11 +212,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var pendingScrollToBottomAnimated: Bool = false
 
     /// Single source of truth for setting bottom content inset (driven by coordinator).
-    func setBottomInset(_ totalBottomInset: CGFloat) {
+    func setBottomInset(_ totalBottomInset: CGFloat,
+                        animatedDuration: TimeInterval? = nil,
+                        animationOptions: UIView.AnimationOptions = []) {
         currentBottomInset = totalBottomInset
-        collectionView.contentInset.bottom = totalBottomInset
-        collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
-        NSLog("[KBTIMING] setBottomInset total=%.1f", totalBottomInset)
+        if let animatedDuration, animatedDuration > 0, view.window != nil {
+            UIView.animate(withDuration: animatedDuration, delay: 0, options: animationOptions) {
+                self.collectionView.contentInset.bottom = totalBottomInset
+                self.collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
+            }
+        } else {
+            collectionView.contentInset.bottom = totalBottomInset
+            collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
+        }
+        NSLog("[KBTIMING] setBottomInset total=%.1f anim=%.2f", totalBottomInset, animatedDuration ?? 0)
     }
 
     func scheduleScrollToBottom(animated: Bool, attempts: Int = 2) {
@@ -325,13 +335,27 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         forceReconfigureAll = false
 
         // Animate when morphing from typing indicator to message for smooth transition
+        let morphDuration: TimeInterval = 0.45
+        if shouldMorph {
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(morphDuration)
 #if os(visionOS)
-        dataSource.apply(snapshot, animatingDifferences: shouldMorph) { [weak self] in
-            self?.updateVisibleCellOpacity()
-        }
+            dataSource.apply(snapshot, animatingDifferences: true) { [weak self] in
+                self?.updateVisibleCellOpacity()
+            }
 #else
-        dataSource.apply(snapshot, animatingDifferences: shouldMorph)
+            dataSource.apply(snapshot, animatingDifferences: true)
 #endif
+            CATransaction.commit()
+        } else {
+#if os(visionOS)
+            dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+                self?.updateVisibleCellOpacity()
+            }
+#else
+            dataSource.apply(snapshot, animatingDifferences: false)
+#endif
+        }
         NSLog("[KBTIMING] MFCV.update snapshotApply changed=%d morph=%d dt=%.4f", changedIds.count, shouldMorph ? 1 : 0, CFAbsoluteTimeGetCurrent() - t0)
         logger.info(
             "diffing apply snapshot count=\(messageCount, privacy: .public) changed=\(changedIds.count, privacy: .public) needsLayout=\(needsFullLayout, privacy: .public) morph=\(shouldMorph, privacy: .public)"
@@ -417,6 +441,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             guard let message = self.messagesById[id] else { return nil }
             let metrics = ChatFlowTheme.Metrics(isCompact: self.isCompact)
             let presentation = viewModel.presentation(for: message, metrics: metrics)
+            let hideHeader = shouldHideHeader(for: message, presentation: presentation)
             let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier,
                 for: indexPath
@@ -437,6 +462,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 failureReason: viewModel.failureMessage(for: message.id),
                 isCompact: self.isCompact,
                 maxWidth: configureWidth,
+                showsHeader: !hideHeader,
                 isDark: self.currentIsDark,
                 onRequestExpand: { [weak self] in
                     guard let self else { return }
@@ -547,6 +573,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let presentation = viewModel.presentation(for: message, metrics: metrics)
+        let hideHeader = shouldHideHeader(for: message, presentation: presentation)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
         let availableWidth = availableContentWidth()
         let maxWidth = maxItemWidth(
@@ -561,7 +588,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             message: message,
             presentation: presentation,
             failureReason: failureReason,
-            maxWidth: maxWidth
+            maxWidth: maxWidth,
+            showsHeader: !hideHeader
         )
         sizeCache[id] = measuredSize
         lastMeasuredSizes[id] = measuredSize
@@ -617,6 +645,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             height: height
         )
         return snapToPixel(clamped)
+    }
+
+    private func shouldHideHeader(for message: Message, presentation: MessagePresentation) -> Bool {
+        guard message.role == .assistant else { return false }
+        guard message.attachments.isEmpty else { return false }
+        guard presentation.chromelessStyle == .emoji else { return false }
+        return message.content.trimmingCharacters(in: .whitespacesAndNewlines) == "👀"
     }
 
     private func mediumMaxWidth(message: Message,
