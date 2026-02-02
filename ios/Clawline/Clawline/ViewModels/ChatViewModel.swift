@@ -396,6 +396,17 @@ final class ChatViewModel: ChatViewModelHosting {
         observationTask?.cancel()
         observationTask = nil
         chatService.disconnect()
+        var sessionKeysToClear = Set(lastServerMessageIdBySession.keys)
+        sessionKeysToClear.formUnion(sessionMessages.keys)
+        if let userId = auth.currentUserId, !userId.isEmpty {
+            sessionKeysToClear.insert(SessionKey.personal(userId: userId))
+        }
+        sessionKeysToClear.insert(SessionKey.dm)
+        for key in sessionKeysToClear {
+            persistLastServerMessageId(nil, for: key)
+        }
+        lastServerMessageId = nil
+        lastServerMessageIdBySession.removeAll()
         auth.clearCredentials()
         clearConnectionAlert()
         messageFailures.removeAll()
@@ -412,7 +423,6 @@ final class ChatViewModel: ChatViewModelHosting {
         connectionStableTask = nil
         restoredSessionKeys.removeAll()
         clearMessageCache()
-        persistLastServerMessageId(nil)
     }
 
     func clearError() {
