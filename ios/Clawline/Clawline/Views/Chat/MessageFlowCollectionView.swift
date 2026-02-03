@@ -314,9 +314,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Add typing indicator when assistant is typing (server-controlled)
         // Only show on the matching channel page (for paged TabView)
-        let effectiveChannel = channel ?? viewModel.activeStream
+        let effectiveStream = channel ?? viewModel.activeStream
         let showTypingIndicator = viewModel.isAssistantTyping
-            && viewModel.typingStream == effectiveChannel
+            && viewModel.typingStream == effectiveStream
         let typingIndicatorJustAppeared = showTypingIndicator && !wasShowingTypingIndicator
         let shouldMorph = viewModel.shouldMorphTypingIndicator && wasShowingTypingIndicator
         if showTypingIndicator != wasShowingTypingIndicator {

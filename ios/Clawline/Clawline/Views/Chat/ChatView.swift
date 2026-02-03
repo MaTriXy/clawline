@@ -113,7 +113,7 @@ struct ChatView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var inputBarHeight: CGFloat = 0
-    @State private var channelToastManager = StreamToastManager()
+    @State private var streamToastManager = StreamToastManager()
 
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0.5
@@ -215,7 +215,7 @@ struct ChatView: View {
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: toastManager.toast)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: channelToastManager.isVisible)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: streamToastManager.isVisible)
     }
 
     @ViewBuilder
@@ -263,9 +263,9 @@ struct ChatView: View {
         )
 
         ZStack(alignment: .top) {
-            // Paged channel view for admins, single channel for regular users
+            // Paged stream view for admins, single stream for regular users
             if authManager.isAdmin {
-                pagedChannelView(topInset: topInset)
+                pagedStreamView(topInset: topInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             } else {
@@ -274,11 +274,11 @@ struct ChatView: View {
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             }
 
-            // Channel toast (anchored above input bar)
-            if channelToastManager.isVisible {
+            // Stream toast (anchored above input bar)
+            if streamToastManager.isVisible {
                 let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
                     + belowBarGap + resolvedInputHeight
-                StreamToast(channelName: channelToastManager.channelName)
+                StreamToast(channelName: streamToastManager.channelName)
                     .padding(.bottom, inputBarTopFromScreenBottom + 50)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .ignoresSafeArea(.container, edges: .bottom)
@@ -466,9 +466,9 @@ struct ChatView: View {
         }
     }
 
-    /// Paged TabView for horizontal swipe between channels (admin only)
+    /// Paged TabView for horizontal swipe between streams (admin only)
     @ViewBuilder
-    private func pagedChannelView(topInset: CGFloat) -> some View {
+    private func pagedStreamView(topInset: CGFloat) -> some View {
         TabView(selection: streamBinding) {
             messageList(topInset: topInset, channel: .personal)
                 .background {
@@ -503,8 +503,8 @@ struct ChatView: View {
     private var streamBinding: Binding<ChatStream> {
         Binding(
             get: { viewModel.activeStream },
-            set: { newChannel in
-                guard newChannel != viewModel.activeStream else { return }
+            set: { newStream in
+                guard newStream != viewModel.activeStream else { return }
 
                 // Haptic feedback
 #if !os(visionOS)
@@ -512,10 +512,10 @@ struct ChatView: View {
                 generator.impactOccurred()
 #endif
 
-                // Switch channel and show toast
-                viewModel.setActiveStream(newChannel)
+                // Switch stream and show toast
+                viewModel.setActiveStream(newStream)
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    channelToastManager.show(channel: newChannel)
+                    streamToastManager.show(channel: newStream)
                 }
             }
         )
@@ -1149,7 +1149,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     }
 }
 
-private struct ChannelSwitcherHeightPreferenceKey: PreferenceKey {
+private struct StreamSwitcherHeightPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {

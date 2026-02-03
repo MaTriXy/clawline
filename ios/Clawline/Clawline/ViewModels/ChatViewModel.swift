@@ -105,7 +105,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var tableParseStates: [String: StreamingTableParseState] = [:]
     private var uploadedAssetIds: [UUID: String] = [:]
     private var downloadedAssetData: [String: Data] = [:]
-    private let channelDefaults = UserDefaults.standard
+    private let streamDefaults = UserDefaults.standard
     private var persistDebounceTasks: [String: Task<Void, Never>] = [:]
     private var pendingPersistPayloads: [String: [Message]] = [:]
     private let messageCacheLimit = 500
@@ -1204,11 +1204,11 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    private func channelDefaultsKey() -> String {
+    private func streamDefaultsKey() -> String {
         if let userId = auth.currentUserId, !userId.isEmpty {
-            return "clawline.lastChannel.\(userId)"
+            return "clawline.lastStream.\(userId)"
         }
-        return "clawline.lastChannel"
+        return "clawline.lastStream"
     }
 
     private func lastServerMessageDefaultsKey(for sessionKey: String) -> String {
@@ -1224,9 +1224,9 @@ final class ChatViewModel: ChatViewModelHosting {
     private func persistLastServerMessageId(_ value: String?, for sessionKey: String) {
         let key = lastServerMessageDefaultsKey(for: sessionKey)
         if let value, !value.isEmpty {
-            channelDefaults.set(value, forKey: key)
+            streamDefaults.set(value, forKey: key)
         } else {
-            channelDefaults.removeObject(forKey: key)
+            streamDefaults.removeObject(forKey: key)
         }
     }
 
@@ -1239,7 +1239,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func restoreLastServerMessageIdIfNeeded(for sessionKey: String) {
         guard lastServerMessageIdBySession[sessionKey] == nil else { return }
-        if let stored = channelDefaults.string(forKey: lastServerMessageDefaultsKey(for: sessionKey)) {
+        if let stored = streamDefaults.string(forKey: lastServerMessageDefaultsKey(for: sessionKey)) {
             lastServerMessageIdBySession[sessionKey] = stored
         }
     }
@@ -1370,13 +1370,20 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    private func persistActiveStream(_ channel: ChatStream) {
-        channelDefaults.set(channel.rawValue, forKey: channelDefaultsKey())
+    private func persistActiveStream(_ stream: ChatStream) {
+        streamDefaults.set(stream.rawValue, forKey: streamDefaultsKey())
     }
 
     private func persistedStream() -> ChatStream? {
-        guard let raw = channelDefaults.string(forKey: channelDefaultsKey()) else { return nil }
-        return ChatStream(rawValue: raw)
+        if let raw = streamDefaults.string(forKey: streamDefaultsKey()) {
+            return ChatStream(rawValue: raw)
+        }
+        let legacyKey = auth.currentUserId.map { "clawline.lastChannel.\($0)" } ?? "clawline.lastChannel"
+        if let raw = streamDefaults.string(forKey: legacyKey) {
+            streamDefaults.set(raw, forKey: streamDefaultsKey())
+            return ChatStream(rawValue: raw)
+        }
+        return nil
     }
 
     private func restoreActiveStreamIfNeeded() {

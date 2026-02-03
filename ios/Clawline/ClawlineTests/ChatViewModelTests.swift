@@ -392,7 +392,7 @@ struct ChatViewModelTests {
 
     @Test("Incoming messages route to matching stream")
     @MainActor
-    func incomingMessagesRoutePerChannel() async throws {
+    func incomingMessagesRoutePerStream() async throws {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         auth.updateAdminStatus(true)
