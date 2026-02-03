@@ -225,12 +225,12 @@ struct Attachment: Identifiable {
     let type: AttachmentType
     let data: Data?
     let localFileURL: URL?
-    let assetId: String?
+    let url: URL?
 
     enum AttachmentType {
         case image
         case document
-        case asset
+        case url
     }
 }
 ```

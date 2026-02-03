@@ -21,7 +21,7 @@ This document separates binding architectural/technology choices from guidance.
 - The provider MUST support multiple devices per account: `userId` is the account, while each installation has its own `deviceId`. All devices for the same `userId` observe the same ordered server event stream (assistant output + echoed user messages) and may temporarily diverge while replay catches them up. Ordering is defined by a per-`userId` server-side sequence, not by the lexical order of event IDs.
 - Operators MUST run at most one provider process per `statePath` (single-writer locking, no HA clustering in v1).
 - Pairing + JWT auth MUST be required; clawd MUST remain the source of truth and clients SHOULD stay thin.
-- Inline attachments MUST be small; large media/files MUST use upload + asset references stored on provider disk.
+- Inline attachments MUST be small; large media/files MUST use upload + URL references into the provider's web root.
 - Server keepalives MUST follow the WebSocket ping every 30s / timeout at 90s rules defined below; clients MUST treat the connection as dead after missing three server pings.
 - The provider MUST persist allowlist/denylist/token state under `statePath` and MAY drop in-flight message queues on crash (documented durability trade-off).
 
@@ -175,7 +175,7 @@ Security note:
 All messages are JSON with a `type` field:
 
 WebSocket endpoint: `/ws`.
-HTTP media endpoints (`/upload`, `/download/:assetId`) run on the same host/port as the WebSocket server.
+HTTP media endpoints (`/upload` plus static file URLs under the web root) run on the same host/port as the WebSocket server.
 Keepalive: rely on WebSocket ping/pong frames (not JSON messages). Server sends ping every 30s; client responds with pong. Client considers the connection dead after 90s without receiving a ping (three consecutive missed pings). Client does not send pings. Server closes the connection if no pong is received within 90s.
 Clients MUST include `protocolVersion: 1` in `pair_request` and `auth`. Missing or unknown versions are rejected with `invalid_message`, and the server closes the connection.
 
@@ -267,7 +267,7 @@ type ServerMessage =
 
 type Attachment =
   | { type: "image"; mimeType: string; data: string }
-  | { type: "asset"; assetId: string };
+  | { type: "url"; url: string; mimeType?: string; filename?: string; size?: number };
 ```
 
 The TypeScript-style definitions above are the canonical schema; JSON snippets that follow are illustrative examples only.
@@ -558,7 +558,7 @@ Error codes (v1):
 - `token_revoked`
 - `invalid_message`
 - `payload_too_large`
-- `asset_not_found`
+- `not_found`
 - `rate_limited`
 - `session_replaced`
 - `upload_failed_retryable`
@@ -580,7 +580,7 @@ Error/HTTP mapping:
 | `token_revoked`           | 403                        | Yes                  | Re-pair                   |
 | `invalid_message`         | 400                        | Sometimes (see text) | Fix payload and retry     |
 | `payload_too_large`       | 413                        | No                   | Reduce payload size       |
-| `asset_not_found`         | 404                        | No                   | Re-upload/re-attach       |
+| `not_found`               | 404                        | No                   | Verify URL / re-upload    |
 | `rate_limited`            | 429                        | No                   | Back off and retry        |
 | `session_replaced`        | n/a                        | Yes (immediately)    | Drop old connection       |
 | `upload_failed_retryable` | 503                        | No                   | Retry upload              |
@@ -676,31 +676,27 @@ Error/HTTP mapping:
 
 Inline attachments MUST be <= 256KB raw bytes. Base64 adds ~33% overhead. Larger files MUST use /upload (otherwise `payload_too_large`).
 Total inline attachment bytes per message MUST be <= 256KB. Total message payload (content bytes + inline attachment bytes) MUST be <= 320KB. Allowed inline image types: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
-Inline attachments are only for image payloads; non-image files MUST be uploaded via `/upload` and referenced as `asset`. Allowed inline `mimeType` values: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
-Assistant responses may include `attachments` as either inline images or `asset` references; clients MUST handle downloading `asset` attachments.
+Inline attachments are only for image payloads; non-image files MUST be uploaded via `/upload` and referenced as URLs under the provider's web root. Allowed inline `mimeType` values: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
+Assistant responses may include `attachments` as either inline images or URL references; clients MUST handle fetching URL attachments.
 
 ### Large File Upload (v1)
 
 1. Client uploads via HTTP `POST /upload` (auth required, multipart). Use `Authorization: Bearer <token>`. Max upload size is 100MB. Multipart field name: `file`.
-2. Server responds with asset metadata:
+2. Server writes bytes to the web root at `<webroot>/media/<id>` and returns a URL reference:
    ```json
-   { "assetId": "asset_123", "mimeType": "image/png", "size": 5242880 }
+   { "id": "m_123", "url": "http://host:port/media/m_123", "mimeType": "image/png", "size": 5242880 }
    ```
-3. Client sends a chat message that references the asset:
+3. Client sends a chat message that references the URL:
    ```json
    {
      "type": "message",
      "content": "Here is the file",
-     "attachments": [{ "type": "asset", "assetId": "asset_123" }]
+     "attachments": [{ "type": "url", "url": "http://host:port/media/m_123" }]
    }
    ```
-4. Client downloads via HTTP `GET /download/:assetId` (auth required). Use `Authorization: Bearer <token>`.
-   Asset IDs are unguessable; any authenticated device may download any asset in v1 (no per-device ACLs).
-   Security note: because asset download auth is device-scoped (not per-message), operators MUST deploy in environments where all authenticated devices are trusted (e.g., a single household).
+4. Any file under the web root is GETtable by URL; clients fetch the URL directly (no asset registry or `/download/:assetId`).
 
-Unreferenced uploads (assets that are never attached to a message) are deleted after 1 hour.
-Assets referenced by partial/in-progress messages are treated as referenced until the stream finalizes or fails; if no streaming `message` updates occur for 5 minutes, the stream is considered failed and the asset becomes unreferenced (1-hour TTL applies).
-Unreferenced uploads remain attachable by the same device while within the TTL.
+Unreferenced uploads are retained indefinitely in v1 unless an operator deletes files from the web root.
 
 HTTP error responses return JSON matching the `error` schema:
 
@@ -709,7 +705,7 @@ HTTP error responses return JSON matching the `error` schema:
 - `400` → `invalid_message`
 - `401` → `auth_failed`
 - `403` → `token_revoked`
-- `404` → `asset_not_found`
+- `404` → `not_found`
 - `413` → `payload_too_large`
 - `429` → `rate_limited`
 - `503` → `upload_failed_retryable`

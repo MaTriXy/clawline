@@ -158,7 +158,7 @@ Streaming (partial messages):
 { "type": "message", "id": "s_456", "role": "assistant", "content": "Hi there", "timestamp": 1704672000000, "streaming": true }
 ```
 
-Assistant messages may include `attachments`. Inline attachments (`type: "image"`) contain base64 data; asset attachments (`type: "asset"`) require a follow-up `GET /download/:assetId`.
+Assistant messages may include `attachments`. Inline attachments (`type: "image"`) contain base64 data; URL attachments (`type: "url"`) reference files under the provider web root and are fetched directly by URL.
 
 Client behavior:
 - Optimistically append user messages but track them by outgoing `c_*` id (e.g., `pendingMessages[c_id]`). When the server echoes the message with `role: "user"` and `deviceId` matching the local device, replace the optimistic entry with the echoed one (remove it from `pendingMessages`). Echoes from other devices are appended normally.
@@ -220,10 +220,10 @@ Admin users receive messages from both streams. Non-admin users receive only the
 
 ## Errors & status codes
 
-- WebSocket `error.code` values come from `docs/architecture.md` (`auth_failed`, `token_revoked`, `invalid_message`, `payload_too_large`, `asset_not_found`, `rate_limited`, `session_replaced`, `upload_failed_retryable`, `server_error`). Display them or map to user-friendly text.
+- WebSocket `error.code` values come from `docs/architecture.md` (`auth_failed`, `token_revoked`, `invalid_message`, `payload_too_large`, `not_found`, `rate_limited`, `session_replaced`, `upload_failed_retryable`, `server_error`). Display them or map to user-friendly text.
 - `auth_result.reason` values include `auth_failed`, `token_revoked`, `device_not_approved`, and `token_expired`. Treat `token_expired`/`auth_failed` as “clear token and restart pairing.”
 - For `device_not_approved`, keep the device on the “Awaiting approval” screen, retry pairing automatically every ~30s, and notify the user that an admin must approve.
-- HTTP uploads/downloads return JSON errors with HTTP statuses: 400 (`invalid_message`), 401 (`auth_failed`), 403 (`token_revoked`), 404 (`asset_not_found`), 413 (`payload_too_large`), 429 (`rate_limited`), 503 (`upload_failed_retryable`), 500 (`server_error`). Treat 401/403 as token failures (clear token).
+- HTTP uploads return JSON errors with HTTP statuses: 400 (`invalid_message`), 401 (`auth_failed`), 403 (`token_revoked`), 404 (`not_found`), 413 (`payload_too_large`), 429 (`rate_limited`), 503 (`upload_failed_retryable`), 500 (`server_error`). Treat 401/403 as token failures (clear token).
 - `session_replaced` is terminal: the old socket closes immediately when another connection authenticates. UI should show “connected elsewhere” and prompt the user to continue on the new device; do not auto-reconnect until the user explicitly chooses to, to avoid kicking the new session.
 - Provider URL configuration: v1 requires users to enter the provider’s base URL or IP manually in Settings. There is no discovery protocol; the app stores this value securely (Keychain/UserDefaults) and reuses it until the user edits it.
 
@@ -239,7 +239,7 @@ Admin users receive messages from both streams. Non-admin users receive only the
 
 ## Media and file transfer (client integration spec)
 
-Two tiers: inline images for small attachments (<= 256KB raw bytes; base64 adds ~33% overhead—expect ~341KB JSON payloads), and out-of-band uploads for larger files. HTTP upload/download uses the same host/port as the WebSocket endpoint. The provider enforces limits on decoded bytes before base64, so clients should preflight and reject oversize payloads locally.
+Two tiers: inline images for small attachments (<= 256KB raw bytes; base64 adds ~33% overhead—expect ~341KB JSON payloads), and out-of-band uploads for larger files. HTTP upload uses the same host/port as the WebSocket endpoint. The provider serves files from a web root; any file under that root is GETtable by URL. The provider enforces limits on decoded bytes before base64, so clients should preflight and reject oversize payloads locally.
 
 ### Attachment schema (bidirectional)
 
@@ -248,11 +248,11 @@ Attachments appear on both **client → server** messages and **server → clien
 ```json
 [
   { "type": "image", "mimeType": "image/jpeg", "data": "<base64>" },
-  { "type": "asset", "assetId": "asset_1" }
+  { "type": "url", "url": "http://host:port/media/m_123" }
 ]
 ```
 
-- Inline attachments are **image-only**. Non-image files MUST use `/upload` + `type: "asset"`.
+- Inline attachments are **image-only**. Non-image files MUST use `/upload` + `type: "url"`.
 - Clients MUST accept `attachments[]` on user echoes and assistant messages. These are **not** UI hints; they are canonical payloads.
 - Providers may include a `metadata` object on attachments (e.g., `filename`, `mimeType`, `size`, `width`, `height`). Clients should ignore unknown metadata fields and never require them.
 
@@ -278,55 +278,46 @@ Attachments appear on both **client → server** messages and **server → clien
 }
 ```
 
-**HTTP upload + asset reference (large files)**
+**HTTP upload + URL reference (large files)**
 
 1) Upload via HTTP `POST /upload` (auth required, multipart, field name `file`). Use `Authorization: Bearer <token>`. The part’s `Content-Type` is used as the stored `mimeType` (if missing, the server stores `application/octet-stream`).
 
-2) Provider responds with asset metadata (JSON):
+2) Provider responds with URL metadata (JSON):
 ```json
 {
-  "assetId": "asset_1",
+  "id": "m_123",
+  "url": "http://host:port/media/m_123",
   "mimeType": "image/png",
   "size": 5242880
 }
 ```
-   v1 does not include filename, checksum, or expiry in the response. `assetId` is opaque; do not assume a prefix or format. Clients SHOULD treat it as an opaque token and avoid validating the pattern beyond basic non-empty safety checks.
+   v1 does not include filename, checksum, or expiry in the response. Clients SHOULD treat the URL as opaque and avoid validating the path beyond basic non-empty safety checks.
 
-3) Send a message referencing the asset:
+3) Send a message referencing the URL:
 ```json
 {
   "type": "message",
   "content": "Here is the file",
-  "attachments": [{ "type": "asset", "assetId": "asset_1" }]
+  "attachments": [{ "type": "url", "url": "http://host:port/media/m_123" }]
 }
 ```
 
-If the referenced asset has expired or is unknown, the server returns `asset_not_found`.
+If the referenced URL is missing, the server returns `not_found`.
 
 ### Server → client flow
 
 Assistant messages (and user echoes) may include:
 
 - Inline images (`type: "image"` + base64) — decode and render directly.
-- Asset references (`type: "asset"` + `assetId`) — fetch bytes over HTTP:
-
-```
-GET /download/:assetId
-Authorization: Bearer <token>
-```
-
-The response `Content-Type` is the stored `mimeType`; body is raw bytes. Treat `assetId` as opaque, and handle `asset_not_found` by showing a retry UI and/or prompting a re-upload.
+- URL references (`type: "url"` + `url`) — fetch bytes directly by URL from the provider web root.
 
 ### HTTP endpoints, auth, TTLs, and storage
 
-- **Auth:** `/upload` and `/download/:assetId` require `Authorization: Bearer <token>`.
+- **Auth:** `/upload` requires `Authorization: Bearer <token>`.
 - **Endpoints:** same host/port as the WebSocket server; transport is plaintext in v1.
-- **Errors:** JSON error schema + HTTP status (`400` invalid_message, `401` auth_failed, `403` token_revoked, `404` asset_not_found, `413` payload_too_large, `429` rate_limited, `503` upload_failed_retryable, `500` server_error).
-- **Unreferenced upload TTL:** assets that are uploaded but never attached to a message are deleted after **1 hour**.
-- **Streaming guard:** assets referenced by a streaming response stay “referenced” until the stream finalizes or fails; if no streaming updates arrive for **5 minutes**, the stream is treated as failed and the asset becomes unreferenced (1-hour TTL then applies).
-- **Retention:** assets referenced by messages are retained indefinitely in v1 (no quotas/pruning).
-- **Storage:** server writes bytes under `media.storagePath` (default `~/.clawd/clawline-media`), stored at `${storagePath}/assets/<assetId>` with no extension.
-- **Access model:** any authenticated device can download any asset in v1 (no per-device ACLs). Deploy only in trusted networks/households.
+- **Errors:** JSON error schema + HTTP status (`400` invalid_message, `401` auth_failed, `403` token_revoked, `404` not_found, `413` payload_too_large, `429` rate_limited, `503` upload_failed_retryable, `500` server_error).
+- **Retention:** files are retained indefinitely in v1 unless an operator removes them from the web root.
+- **Storage:** server writes bytes under `<webroot>/media/<id>`; any file under the web root is GETtable by URL.
 
 ## Error handling
 
@@ -340,13 +331,13 @@ Error schema (from `docs/architecture.md`):
 - `error` messages: display inline banner and keep connection alive.
 - Upload errors: show retry action.
 - `upload_failed_retryable` means the client should retry the upload.
-- HTTP status codes for upload/download follow `docs/architecture.md`.
+- HTTP status codes for upload follow `docs/architecture.md`.
 - `pair_result` failure reasons include `pair_rejected`, `pair_denied`, or `pair_timeout`.
 - `pair_result` failure closes the WebSocket; client should retry by opening a new connection.
 - `session_replaced` means another connection took over the same deviceId. The server closes the old socket immediately after sending `session_replaced` and does not replay unacked messages from the old connection; the client must resend any pending messages after reconnect. Other devices that share the same `userId` stay active.
 - `error` may include `messageId` for stream-specific failures.
 - Rate limits: 5 messages/sec per device, 2 typing events/sec per device, 5 auth attempts/min per device, 5 pair requests/min per device. Pending pairing queue is capped; if full, `pair_request` returns `rate_limited`. On `rate_limited`, back off and show a subtle error.
-- Canonical error codes (v1): `auth_failed`, `token_revoked`, `invalid_message`, `payload_too_large`, `asset_not_found`, `rate_limited`, `session_replaced`, `upload_failed_retryable`, `server_error`.
+- Canonical error codes (v1): `auth_failed`, `token_revoked`, `invalid_message`, `payload_too_large`, `not_found`, `rate_limited`, `session_replaced`, `upload_failed_retryable`, `server_error`.
 
 ## Mapping to iOS services
 

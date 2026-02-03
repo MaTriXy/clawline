@@ -4,7 +4,7 @@
 
 Define the minimum functional and behavioral coverage required for the Clawline provider implementation. This is a contract for contributors, not optional guidance.
 
-All requirements in this document are normative. Treat each bullet as MUST for the provider implementation. Storage retention is an explicit product decision: v1 keeps all messages and assets indefinitely (no automatic pruning). Features explicitly marked “Not MVP” in `docs/architecture.md` are intentionally excluded from required tests.
+All requirements in this document are normative. Treat each bullet as MUST for the provider implementation. Storage retention is an explicit product decision: v1 keeps all messages and media files indefinitely (no automatic pruning). Features explicitly marked “Not MVP” in `docs/architecture.md` are intentionally excluded from required tests.
 
 ## Test layers
 
@@ -180,7 +180,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Duplicate handling decision tree (all checks run inside the single transaction):
   - Message records are inserted with `streaming = 1` (active) immediately after receipt; only the provider updates the field to `0` (finalized) or `2` (failed).
   1. If no message record exists: treat as a fresh generation.
-  2. If a record exists, compute the SHA-256 hash of the raw `content` bytes and compare attachments (order-sensitive; inline images match on `mimeType` + decoded bytes; assets match on `assetId`). If either mismatches—or if the attachment order differs—return `invalid_message`.
+  2. If a record exists, compute the SHA-256 hash of the raw `content` bytes and compare attachments (order-sensitive; inline images match on `mimeType` + decoded bytes; URL attachments match on `url`). If either mismatches—or if the attachment order differs—return `invalid_message`.
   3. If `messages.streaming = 2` (failed/inactive), return `invalid_message` (do not restart).
   4. If `messages.streaming = 1` (active stream): resend `ack` (if needed) and continue streaming on the currently active connection; no new generation starts.
   5. If `messages.streaming = 0` and the final assistant event exists: resend `ack` (if needed); do not regenerate.
@@ -209,7 +209,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Queued messages are processed only after replay completes.
 - Replay includes only finalized messages (partials are never replayed).
 - Replay includes server-sent assistant messages and echoed user messages.
-- Replay includes messages even if referenced assets have expired; clients may see `asset_not_found` when fetching those assets.
+- Replay includes messages even if referenced files are missing; clients may see `not_found` when fetching those URLs.
 - Because only one assistant stream may be active per device, an unfinished stream implies there are no later finalized assistant messages beyond it; stopping replay before it does not drop assistant output.
 - Replay never includes partials. If an unfinished stream exists, replay delivers all finalized messages before it, stops before the partial, and the client must retry with a new `id` (retrying the same `id` returns `invalid_message`). Unfinished streams are marked failed in the message record.
 - Client requirement: after a failed/inactive stream, retry with a new `id` (never reuse the old `id`).
@@ -247,37 +247,27 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Max inline attachments per message: 4. Exceeding this returns `payload_too_large`.
 - Total inline attachment bytes per message must be <= 256KB (sum of all inline attachment raw bytes).
 - Total message payload (UTF-8 `content` bytes + inline attachment raw bytes) must be <= 320KB; exceeding this returns `payload_too_large`.
-- Attachment count limit applies to both inline and `asset` attachments; byte limits apply only to inline data.
-- `POST /upload` returns `assetId`, `mimeType`, `size`.
+- Attachment count limit applies to both inline and URL attachments; byte limits apply only to inline data.
+- `POST /upload` returns `id`, `url`, `mimeType`, `size`.
 - Uploads over 100MB are rejected with `payload_too_large`.
 - Multipart field name is `file`.
 - Multipart uploads with a different field name are rejected with `invalid_message`.
-- Message referencing `assetId` is accepted and stored.
-- Message referencing an unknown `assetId` is rejected with `error` `asset_not_found`.
+- Message referencing a returned `url` is accepted and stored.
 - Endpoint coverage matrix for integration tests:
   | Path | Method | Auth | Expected behavior |
   | --- | --- | --- | --- |
   | `/ws` | WebSocket | JWT via `auth` message | Drives pairing/auth/chat. Verify `pair_request`, `auth`, `message`, `typing`, `pair_decision`, `pair_approval_request`. |
   | `/version` | GET | None | Returns `{ "protocolVersion": 1 }`. Use as preflight check. |
-  | `/upload` | POST multipart (`file` part) | `Authorization: Bearer <token>` | Enforce inline vs asset limits, emit `upload_failed_retryable` on disk errors. |
-  | `/download/:assetId` | GET | `Authorization: Bearer <token>` | Streams asset bytes, enforces `asset_not_found`/`auth_failed`/`token_revoked`. |
-- `GET /download/:assetId` returns the original bytes; auth required. If asset is missing, return `error` with `asset_not_found`.
-- Missing or malformed `Authorization` header (`Bearer` absent/empty) on `/upload` or `/download` returns `auth_failed`.
+  | `/upload` | POST multipart (`file` part) | `Authorization: Bearer <token>` | Enforce inline vs URL limits, emit `upload_failed_retryable` on disk errors. |
+  | `/media/<id>` | GET | None | Serves bytes from the web root; 404 if missing. |
+- Missing or malformed `Authorization` header (`Bearer` absent/empty) on `/upload` returns `auth_failed`.
 - HTTP error responses MUST return JSON bodies matching `{ "type": "error", "code": "<code>", "message": "<human-readable>" }`.
-- HTTP error responses return JSON error bodies with status mappings: 400 `invalid_message`, 401 `auth_failed`, 403 `token_revoked`, 404 `asset_not_found`, 413 `payload_too_large`, 429 `rate_limited`, 503 `upload_failed_retryable`, 500 `server_error`.
-- Unreferenced uploads are deleted after 1 hour.
-- TTL starts at upload time and does not reset. Assets referenced by an in-progress stream are protected even if the TTL elapses; once the stream finalizes or fails, the asset is subject to the original TTL and may be deleted immediately if already expired.
-- Unreferenced uploads remain attachable by any authenticated device within the TTL.
-- Assets referenced by in-progress streams remain protected until the stream finalizes or fails.
-- If an asset is referenced by multiple in-progress streams (including across devices), it remains protected until all referencing streams finalize or fail.
-- An asset becomes referenced when the containing message record is created (at receipt/ack) and remains referenced until the stream finalizes or fails.
-- Test multi-device asset protection: reference the same `assetId` from two devices; verify it remains protected until both streams finalize or fail. Cover mixed outcomes (one finalizes, the other fails) and ensure the asset stays until the last referencing stream transitions out of `streaming=1`, even if the original TTL already elapsed.
-- Assets referenced by finalized messages are retained indefinitely (no TTL while referenced).
-- After stream inactivity timeout, asset protection ends and the original 1-hour TTL (from upload time) continues; the asset may already be expired. Referencing an expired asset returns `asset_not_found`.
+- HTTP error responses return JSON error bodies with status mappings: 400 `invalid_message`, 401 `auth_failed`, 403 `token_revoked`, 404 `not_found`, 413 `payload_too_large`, 429 `rate_limited`, 503 `upload_failed_retryable`, 500 `server_error`.
+- Files are retained indefinitely in v1 unless an operator removes them from the web root.
 
 ### Error Handling
 - `error` schema matches `{ type: "error", code, message, messageId? }`.
-- Valid `error.code` values (v1): `auth_failed`, `token_revoked`, `invalid_message`, `payload_too_large`, `asset_not_found`, `rate_limited`, `session_replaced`, `upload_failed_retryable`, `server_error`.
+- Valid `error.code` values (v1): `auth_failed`, `token_revoked`, `invalid_message`, `payload_too_large`, `not_found`, `rate_limited`, `session_replaced`, `upload_failed_retryable`, `server_error`.
 - `auth_result.reason` is a separate enumeration (`auth_failed` / `token_revoked` / `device_not_approved`) and should not be conflated with `error.code`.
 - Upload errors return `error` with `upload_failed_retryable` when the server fails to persist bytes (e.g., disk full or write error).
 - Pairing outcomes (denylist/admin denial/timeout) are expressed via `pair_result` (not `error`).
@@ -307,7 +297,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 | `session_replaced` | `error` `session_replaced`, then close immediately |
 | `pair_result` failure (`pair_denied`/`pair_rejected`/`pair_timeout`) | `pair_result` `success: false`, then close |
 
-`asset_not_found` does not close the connection.
+`not_found` does not close the connection.
 
 WebSocket close codes (v1):
 - `1008` (Policy Violation) for `invalid_message`, `auth_failed`, `token_revoked`, `rate_limited`
@@ -332,8 +322,8 @@ WebSocket close codes (v1):
 - Empty-string `content` is rejected with `invalid_message`.
 - `typing` schema: `{ "type": "typing", "active": boolean, "role"?: "assistant" }` (client uses `active`, server may include `role: "assistant"`).
 - Client `typing` messages must not include `role`; if present, return `invalid_message`.
-- `attachments` schema: `attachments?: [{ "type": "image", "mimeType": string, "data": string }, { "type": "asset", "assetId": string }]`. Inline images use base64 `data`; assets reference `assetId`.
-- Each attachment object must include `type`; unknown `type` values return `invalid_message`. For `type: "image"`, `mimeType` and `data` are required and must be non-empty strings; for `type: "asset"`, `assetId` is required, must match the `a_<uuidv4>` pattern (per provider architecture), and empty strings/invalid formats return `invalid_message`.
+- `attachments` schema: `attachments?: [{ "type": "image", "mimeType": string, "data": string }, { "type": "url", "url": string }]`. Inline images use base64 `data`; URL attachments reference files under the web root.
+- Each attachment object must include `type`; unknown `type` values return `invalid_message`. For `type: "image"`, `mimeType` and `data` are required and must be non-empty strings; for `type: "url"`, `url` is required and must be non-empty.
 - Each `attachments` entry must be an object; non-object entries (`null`, string, number) return `invalid_message`.
 - Inline image `data` must be valid base64; invalid base64 returns `invalid_message`. Base64 decoding should ignore whitespace and padding; equality compares decoded bytes.
 - Allowed inline image `mimeType` values: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`. Other values return `invalid_message`.
@@ -373,8 +363,8 @@ On `pair_result` with `success: true`, `token` and `userId` are required; on `su
 - Use temp directories for media storage and state.
 - Provide a controllable clock or time-travel hook in tests (fake timers) to advance time for retention/timeout scenarios.
 - Provide a deterministic JWT signing key via config for auth tests.
-- Verify HTTP auth uses `Authorization: Bearer <token>` on `/upload` and `/download`.
-- Verify invalid/expired tokens on `/upload` and `/download` fail with `auth_failed` or `token_revoked`.
+- Verify HTTP auth uses `Authorization: Bearer <token>` on `/upload`.
+- Verify invalid/expired tokens on `/upload` fail with `auth_failed` or `token_revoked`.
 - Include keepalive coverage (server sends ping every 30s; server closes if no pong within 90s; client closes if no server ping within 90s).
 - Client must not send ping frames (server-initiated keepalive only).
 - If a client sends a ping frame, the server ignores it (no close).

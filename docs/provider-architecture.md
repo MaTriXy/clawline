@@ -161,7 +161,7 @@ Positioning:
   - Bind to localhost by default; require `allowInsecurePublic: true` to bind to non-localhost
 
 Implementation note:
-- Prefer a single HTTP server that handles both WebSocket upgrades (e.g. `/ws`) and HTTP upload/download endpoints (e.g. `/upload`, `/download/:id`) on the same port. This keeps auth/session context unified and avoids running a second service for v1.
+- Prefer a single HTTP server that handles both WebSocket upgrades (e.g. `/ws`) and HTTP upload + static file serving (e.g. `/upload`, `/media/<id>`) on the same port. This keeps auth/session context unified and avoids running a second service for v1.
 - Network security (TLS/VPN/firewall) is out of scope for the provider. Operators are responsible for securing transport if needed.
 
 ### 2) Pairing + Auth manager
@@ -249,7 +249,7 @@ Auth decision (v1):
 - Tracks conversation state per device:
   - last processed server event id (`lastMessageId`, always an `s_...` assigned by the provider)
   - streaming state
-  - active upload/download ids
+  - active upload ids
   - fan-out backlog for sibling devices that share the same `userId` (ephemeral; replay handles missed events after restart)
 - Queues additional user messages FIFO while a stream is active for that `userId`; the queue is in-memory only and capped by `maxQueuedMessages` (default 20) per user. If full, reject with `rate_limited` for that device.
 - Adapter dispatch is serialized per `userId` (single conversation). Messages from any device are enqueued until the active stream completes.
@@ -257,7 +257,7 @@ Auth decision (v1):
   - inbound messages to LLM adapter
   - outbound server events (user echoes + assistant output) to each client socket
 - Persists a per-user event log so reconnects can replay missed messages (server is source of truth) across every device tied to that `userId`. Each log entry stores `{eventId (s_*), sequence, type, payload, createdAt}` where `sequence` is a per-`userId` monotonic integer used for ordering. If the reconnecting device’s `lastMessageId` is unknown—meaning the ID does not resolve to `(userId, sequence)` either because it never existed, belongs to another `userId`, or was purged during manual repair—replay the most recent `maxReplayMessages` overall (ordered oldest-to-newest), set `auth_result.replayTruncated=true`, and set `historyReset=true` (field defined in `docs/architecture.md`). `replayTruncated` indicates only a suffix was available; `historyReset` specifically tells clients to drop any local state beyond what was replayed and treat that replay window as canonical history. After replay, set the session’s `lastDeliveredEventId` to the last replayed event even when truncated; this becomes the new cursor.
-- On receiving a user `message`, the provider reserves the next per-`userId` sequence using a dedicated sequence table, generates a server event id (`s_<uuid>`), inserts the `events` row with that sequence, and only then inserts the `(deviceId, clientId)` row in `messages` referencing the event id (storing `contentHash`, `attachmentsHash`, attachments metadata, ack flag, `userId`, and the reserved sequence in `serverSequence`). The reservation + event insert + message insert + `message_assets` inserts MUST occur inside the same `BEGIN IMMEDIATE` transaction so any FK failure (missing asset, duplicate key, etc.) rolls back the entire batch—no stray `events` rows should survive. Attachment metadata MUST be stored atomically with the content hash. If the message insert hits a unique constraint, treat it as a duplicate and run idempotency checks (do not REPLACE/UPDATE the row). For each `asset` attachment, INSERT a row into `message_assets` to track references; if the FK insert fails because the asset was concurrently deleted/expired, translate it to `asset_not_found` and roll back the transaction. Section “Media + file transfer service” plus `docs/provider-testing.md` repeat this rule; keep all three synchronized. After commit, the event is broadcast to every device; LLM dispatch proceeds regardless of per-socket broadcast success. Message record creation MUST complete before adapter dispatch.
+- On receiving a user `message`, the provider reserves the next per-`userId` sequence using a dedicated sequence table, generates a server event id (`s_<uuid>`), inserts the `events` row with that sequence, and only then inserts the `(deviceId, clientId)` row in `messages` referencing the event id (storing `contentHash`, `attachmentsHash`, attachments metadata, ack flag, `userId`, and the reserved sequence in `serverSequence`). The reservation + event insert + message insert MUST occur inside the same `BEGIN IMMEDIATE` transaction so any failure rolls back the entire batch—no stray `events` rows should survive. Attachment metadata MUST be stored atomically with the content hash. If the message insert hits a unique constraint, treat it as a duplicate and run idempotency checks (do not REPLACE/UPDATE the row). After commit, the event is broadcast to every device; LLM dispatch proceeds regardless of per-socket broadcast success. Message record creation MUST complete before adapter dispatch.
 - Message record creation and event-log append MUST be atomic (single SQLite transaction). Atomicity applies to the database writes only; network broadcast occurs after commit. SQLite MUST run in WAL mode. The single-writer queue is the primary in-process guard; `BEGIN IMMEDIATE` is used to acquire the SQLite write lock and detect external contention (unexpected in v1). Sequence allocation uses the `user_sequences` table (see schema). The column name `nextSequence` means “next value to hand out”: the very first insert yields `1`, every successful update returns the post-incremented integer, so the sequence emitted to clients is 1,2,3… with no gaps unless the DB is manually edited. If the transaction fails, no partial writes are committed.
 - Startup ordering (single-writer queue is not yet processing, but we still run the same infrastructure code path for consistency):
   1. Acquire `${statePath}/clawline.lock` via `flock` (exclusive advisory lock). Keep it held until startup either succeeds or exits.
@@ -320,7 +320,7 @@ Prompt construction (v1):
 - Build a plain-text transcript from the last `maxPromptMessages` server events (user/assistant messages only), ordered oldest-to-newest.
 - Format each turn as `User: <content>` or `Assistant: <content>` and append the new user message as the final `User:` line.
 - Attachments are not inlined into the prompt. v1 adapter interface has no attachment parameter; providers MUST ignore attachments for prompt construction (text-only) and still persist/serve them for clients. Future versions may add a multimodal adapter interface.
-- Attachment envelopes MUST follow the canonical `Attachment` union from `docs/architecture.md`: each entry declares `type` (`image` for inline base64 data or `asset` for uploaded files) and supplies either inline bytes (`data` + `mimeType`) or a fetch reference (`assetId`, which maps to `/download/:assetId`, or a known absolute URL surfaced via `metadata.url`). Providers MAY include a `metadata` object when that information already exists (filename, `mimeType`, `size`, `width`/`height`, link-preview text), but MUST omit speculative UI hints or derived “size classes.” Clients derive rendering strictly from `content` + `attachments`.
+- Attachment envelopes MUST follow the canonical `Attachment` union from `docs/architecture.md`: each entry declares `type` (`image` for inline base64 data or `url` for uploaded files) and supplies either inline bytes (`data` + `mimeType`) or a fetch reference (`url`). Providers MAY include a `metadata` object when that information already exists (filename, `mimeType`, `size`, `width`/`height`, link-preview text), but MUST omit speculative UI hints or derived “size classes.” Clients derive rendering strictly from `content` + `attachments`.
 - Prompt truncation is intentional in v1: only the most recent `maxPromptMessages` are included and earlier context is dropped without an explicit marker.
 
 Minimal TUI shim interface expected by adapters:
@@ -337,50 +337,33 @@ Two-tier approach (small inline, large out-of-band):
 **Inline (small attachments):**
 - Small images encoded as base64 in `attachments[]` on a message.
 - Size limits enforced by provider configuration (v1 default: `maxInlineBytes` = 256KB total decoded inline bytes per message). Per-attachment inline bytes must also be <= 256KB per `docs/architecture.md`.
-- Inline attachments are image-only (accepted MIME types: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic` per `docs/architecture.md`). Non-image files MUST use `/upload` and `asset` references. Violations return `invalid_message`.
+- Inline attachments are image-only (accepted MIME types: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic` per `docs/architecture.md`). Non-image files MUST use `/upload` and URL references. Violations return `invalid_message`.
 
 **Large transfers (v1):**
 - Direct HTTP upload to the provider's built-in `/upload` endpoint on the same port as the WebSocket server.
-- Client uploads the file with auth (`Authorization: Bearer <token>`); server returns `asset` metadata (assetId, mimeType, size).
+- Client uploads the file with auth (`Authorization: Bearer <token>`); server returns URL metadata (id, url, mimeType, size).
   - Upload response schema (v1):
     ```json
-    { "assetId": "a_123", "mimeType": "image/jpeg", "size": 12345 }
+    { "id": "m_123", "url": "http://host:port/media/m_123", "mimeType": "image/jpeg", "size": 12345 }
     ```
-- Client then references the `assetId` in a chat message attachment.
+- Client then references the URL in a chat message attachment.
 - v1 does not rate-limit HTTP endpoints beyond size/auth checks.
 - Upload request format: `POST /upload` with `multipart/form-data`, single file part named `file`. The part’s `Content-Type` is used as `mimeType`; if missing, set `application/octet-stream`. If auth fails or size limits are exceeded, return the corresponding `error` response without processing further bytes.
-- Asset uploads accept any MIME type; no whitelist is enforced in v1 (inline attachments remain image-only per `docs/architecture.md`).
-- The provider generates opaque asset identifiers shaped `a_<uuidv4>` (e.g., `a_4f1d2c7e-...`). Clients MUST treat them as opaque and the server MUST reject any download/upload reference whose `assetId` does not match this pattern (`invalid_message`) to avoid filesystem traversal.
+- Uploads accept any MIME type; no whitelist is enforced in v1 (inline attachments remain image-only per `docs/architecture.md`).
 
 **Downloads:**
-- For large assets, client downloads from `/download/:assetId` (auth required, `Authorization: Bearer <token>`).
+- Any file under the web root is GETtable by URL. There is no asset registry and no `/download/:assetId` endpoint.
 - For small assets, data may be inlined (base64) in the message.
-- HTTP responses MUST set `Content-Type` to the stored `mimeType` (fallback `application/octet-stream` if missing) and include `Content-Length`. HTTP errors should return JSON bodies matching the `error` schema with status codes as defined in `docs/architecture.md`.
-  - Minimum mapping: 401 (`auth_failed`), 403 (`token_revoked`), 404 (`asset_not_found`), 413 (`payload_too_large`), 429 (`rate_limited`), 500 (`server_error`), 503 (`upload_failed_retryable`).
+- HTTP responses for file URLs SHOULD set `Content-Type` and `Content-Length` based on the stored bytes. Missing files return `not_found`.
 HTTP auth rules (v1):
-- Use the same JWT as WebSocket `auth` (Authorization: Bearer <token>).
-- Validation order: 1) signature + expiry, 2) denylist. No additional payload is sent; the JWT’s embedded `deviceId` claim is the binding, so HTTP endpoints rely exclusively on the token itself.
+- Use the same JWT as WebSocket `auth` for `/upload` (Authorization: Bearer <token>).
+- File URLs are standard HTTP GETs against the web root; access control is managed by the deployment (v1 assumes trusted environments).
 
 Storage expectations:
 - Local disk for bytes (v1)
-- Metadata store: SQLite file in provider state dir (v1 default, `~/.clawd/clawline/`)
-- Asset bytes store: `media.storagePath` (default `~/.clawd/clawline-media`), separate from `statePath`
-- Asset bytes are stored at `${media.storagePath}/assets/<assetId>` (no extension); the file path is derived from `assetId`.
-- Storage retention decision (v1): retain all messages and referenced assets indefinitely. This was an explicit product choice, not a missing feature. There are no automatic quotas or pruning in v1. The only automatic deletion is unreferenced uploads after `unreferencedUploadTtlSeconds`.
-- **Storage cost note**: Attachments are stored twice (in `messages.attachmentsJson` and in each persisted `events` payload) so small inline data is available to both duplicate detection and replay. That means a 256KB inline image consumes roughly 700KB on disk; operators should size disks accordingly and monitor growth (`du -sh ~/.clawd/clawline*`). This is acceptable for family-scale deployments but should be documented so larger installs plan for it.
-- On startup, the provider MUST scan `${media.storagePath}/assets` for orphaned files (no DB row) and delete them only if they are older than `unreferencedUploadTtlSeconds` (grace period). Process the scan in batches (e.g., 10,000 files at a time) and log a warning if the scan exceeds 30 seconds so operators can investigate unusually large media directories. The scan is best-effort—startup continues even if it takes longer, but the warning signals operators to trim disk usage. Temporary upload files live under `${media.storagePath}/tmp` and MUST be deleted on startup if older than `unreferencedUploadTtlSeconds`. Conversely, rows in `assets` that point to missing files are cleaned up by replaying uploads (if a crash occurred between DB insert and file rename).
-- Downloads MUST check the `assets` table first; if no row exists, return `asset_not_found` even if a file is present.
-  - Download implementation: open the asset file before sending headers; if open fails, return `asset_not_found`.
-- Orphan scans apply only to files with no `assets` row. Unreferenced uploads are cleaned up separately via a single atomic statement so races with concurrent inserts are avoided (this cleanup runs via the same single-writer queue that serializes message inserts):
-  ```sql
-  DELETE FROM assets
-  WHERE createdAt < ?
-    AND NOT EXISTS (
-      SELECT 1 FROM message_assets WHERE message_assets.assetId = assets.assetId
-    );
-  ```
-  Run this inside the single-writer queue with the same cutoff value used for the filesystem scan (`now - unreferencedUploadTtlSeconds`). Because all write operations (message insert, message_assets insert, asset cleanup) flow through the same queue, there is never a concurrent insert that can sneak in between the `NOT EXISTS` check and the `DELETE`; without that serialization the FK would fire. Uploads should write to a temp file and atomically rename to `assetId` on completion so the cleanup never sees an in-progress file as eligible for deletion.
-- v1 does not provide upload idempotency; if an upload is retried after a disconnect, the client receives a new `assetId` and should use that one. Unreferenced uploads are deleted after `media.unreferencedUploadTtlSeconds`. Referencing an expired asset returns `asset_not_found`; the client must re-upload.
+- Web root directory (configurable) is the source of truth for stored files.
+- Uploads write bytes to `<webroot>/media/<id>`; any file under the web root is GETtable by URL.
+- Storage retention decision (v1): retain all messages and files indefinitely. There are no automatic quotas or pruning in v1; operators may delete files manually.
 
 ### 6) Observability
 - Use clawd.me core logger for structured logs (`clawd.log`).
@@ -396,9 +379,9 @@ The provider implements the protocol described in `docs/architecture.md` and sho
 - Startup recovery (before accepting connections; all steps run via the single-writer queue in this order):
   1. Scan `messages.streaming=1` (user messages awaiting assistant output). If `now - timestamp >= streamInactivitySeconds`, set to `2`. Newer rows remain so the client can retry.
   2. Scan `events.streaming=1` (assistant streams mid-flight). Use the same inactivity timer (`now - events.timestamp >= streamInactivitySeconds`) to transition them to `2`—`events.timestamp` already tracks the last chunk timestamp, so this is the same rule the live stream uses.
-  3. Delete rows with `serverEventId IS NULL` (and their `message_assets` rows).
+  3. Delete rows with `serverEventId IS NULL`.
   4. Run the storage/orphan scans described below.
-- Startup must also delete any rows with `serverEventId IS NULL` (crash between message insert and event insert). Delete associated `message_assets` rows in the same transaction so idempotency remains correct; clients will resend with the same `id`.
+- Startup must also delete any rows with `serverEventId IS NULL` (crash between message insert and event insert); clients will resend with the same `id`.
 - Because event insert and message insert share a single transaction, user-echo `events` rows cannot survive without matching `messages` rows. Startup therefore does not need a separate user-echo cleanup pass.
 - **Missing final detection**: if, after replay, a client has a user message with no corresponding assistant final message and no active stream, the client MUST treat the interaction as failed and allow retry with a new `id`. The provider does not emit a separate signal; the absence of a finalized assistant `s_*` event (replay never surfaces `streaming: true` entries) is the canonical indicator.
 - **Replay of failed streams**: replay always includes the user echo (`role: "user"`) for every accepted message, even if the stream later failed. No additional failure event is persisted; clients detect failure by the absence of a finalized assistant message after the echo.
@@ -421,7 +404,7 @@ To keep the system testable and shippable at each milestone, implement in the fo
    - Plugin scaffolding, WebSocket `/ws`, pairing/auth flows, per-user event log, duplicate detection, session takeover, retry logic.
    - Only text messages (no attachments). Validate with the pairing/auth + streaming/messaging suites.
 2. **Phase 2 – Media plane**
-   - HTTP `/upload` + `/download/:assetId`, inline attachment enforcement, asset storage/cleanup, local disk management.
+   - HTTP `/upload` + static web-root file serving, inline attachment enforcement, media storage/cleanup, local disk management.
    - Re-run Phase 1 tests plus the media-specific scenarios (inline limits, asset TTL, multi-device protection).
 3. **Phase 3 – Multi-device/admin UX polish**
    - Admin approval broadcast/replay, diagnostic endpoints, optional tooling (pending approvals replayed on admin login, etc.).
@@ -455,21 +438,21 @@ Rate limits for messages/typing return `rate_limited` but keep the connection op
 - **Duplicate lookup order**: check `messages` first for `(deviceId, id)`; if no record exists, treat it as a new message.
 - **Content hash**: persist SHA-256 of UTF-8 `content` (hex-encoded) per client `id` and reject mismatched retries (`invalid_message`). This applies to client messages only; assistant messages may store a null/empty hash until finalized. Store the hash with the message record and use it for duplicate detection alongside attachments.
   - Example: `SHA-256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824`
-- **Attachments in idempotency**: duplicate detection compares `contentHash` and attachment equality (order-sensitive). Attachment equality requires same length and order; for `image`, `mimeType` and decoded `data` bytes must match; for `asset`, `assetId` must match. A retry with different attachments MUST be rejected. Compute and store an `attachmentsHash` on message insert; compare hashes first to avoid repeated base64 decode. `attachmentsHash` is SHA-256 of a canonical UTF-8 JSON serialization of the attachments array (asset attachments hash by `assetId`):
+- **Attachments in idempotency**: duplicate detection compares `contentHash` and attachment equality (order-sensitive). Attachment equality requires same length and order; for `image`, `mimeType` and decoded `data` bytes must match; for `url`, the URL string must match. A retry with different attachments MUST be rejected. Compute and store an `attachmentsHash` on message insert; compare hashes first to avoid repeated base64 decode. `attachmentsHash` is SHA-256 of a canonical UTF-8 JSON serialization of the attachments array (URL attachments hash by `url`):
   - If `attachments` is omitted or `[]`, treat it as the empty array and use `SHA-256("[]")`.
   - Normalize each attachment to an object with keys in this order only:
     - `image`: `{ "type": "image", "mimeType": "<mimeType>", "data": "<base64>" }`
-    - `asset`: `{ "type": "asset", "assetId": "<assetId>" }`
+    - `url`: `{ "type": "url", "url": "<url>" }`
   - Serialize the array with no whitespace and keys in the exact order above. Use a deterministic serializer (e.g., manual string building) rather than default `JSON.stringify`.
   - Example string: `[{"type":"image","mimeType":"image/png","data":"AAEC"}]`
   - Test vector: `SHA-256("[" + "{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"AAEC\"}" + "]") = 6859679dcdde814cc1d14a029b4141d596c4759c061e6099d6802caf5be5dc4b`
-  - Asset test vector: `SHA-256("[{\"type\":\"asset\",\"assetId\":\"a_11111111-1111-1111-1111-111111111111\"}]") = 4a8fc9251d37cd4c7e5fa3eb49c8a1b7b9a0f147ae3379b7a946442d0c195c94`
+  - URL test vector: `SHA-256("[{\"type\":\"url\",\"url\":\"http://host:port/media/m_123\"}]") = 7f0a3b89f6e0c9bce9f8f52c5d5cfd3af6a0a6d1f8b5bb0a5a5c8b1b46b0d1af`
   - Empty array vector: `SHA-256("[]") = 9019c64dc58d11bdfeab80b156d098788efc0f8609acb1df2b63184f04d34e5c`
-  - Mixed attachments vector: `SHA-256("[{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"AAEC\"},{\"type\":\"asset\",\"assetId\":\"a_22222222-2222-2222-2222-222222222222\"}]") = 97cb0f4b51d4655f6a4b0d9a7f30229ed0c3e859ac24d136c5f9fe345b2df8c2`
+  - Mixed attachments vector: `SHA-256("[{\"type\":\"image\",\"mimeType\":\"image/png\",\"data\":\"AAEC\"},{\"type\":\"url\",\"url\":\"http://host:port/media/m_456\"}]") = 3fd9bdb8f8dc9a8d0cfd6b7f2b8f0a7f5f3b3cc6f4b2f2a7a2f4f2bb4f2c2a3a`
 - **Retry validation order**: if a message with the same `(deviceId, id)` exists, perform idempotency checks first; only validate schema/attachments if it is not a retry match.
-- **Retry vs missing assets**: if a retry matches an existing record, treat it as idempotent even if the referenced asset was later deleted. For new messages, validate asset existence inside the same serialized insert transaction; if missing, return `asset_not_found`.
+- **Retry vs missing files**: if a retry matches an existing record, treat it as idempotent even if the referenced URL was later deleted. For new messages, do not validate URL existence during message insert; missing files are surfaced as `not_found` on fetch.
 - **Total payload limit**: total payload size = UTF-8 `content` bytes + decoded inline attachment bytes; if > 320KB return `payload_too_large`. Check after base64 decode. Not configurable in v1.
-- **Attachment count**: cap `attachments[]` length at 4 in v1 (protocol requirement from `docs/architecture.md`); reject with `invalid_message` if exceeded (applies to both inline and asset attachments).
+- **Attachment count**: cap `attachments[]` length at 4 in v1 (protocol requirement from `docs/architecture.md`); reject with `invalid_message` if exceeded (applies to both inline and URL attachments).
 - **Repeated oversize**: if a device sends `payload_too_large` more than 3 times within 60 seconds, close the connection with `1008` (Policy Violation).
 - **Rate limiting**: enforce `maxMessagesPerSecond` (default 5); emit `rate_limited` for excess.
 - **Session takeover**: send `error` with `session_replaced` before closing an old socket when a new connection for the same `deviceId` authenticates.
@@ -489,7 +472,7 @@ Rate limits for messages/typing return `rate_limited` but keep the connection op
 | `token_revoked` | Device revoked via denylist | Surface “access revoked”, require operator intervention |
 | `invalid_message` | Schema violations, duplicate-id mismatch, unsupported `protocolVersion` | Highlight validation error, allow retry |
 | `payload_too_large` | Message or upload exceeds limits | Prompt user to shrink content |
-| `asset_not_found` | Download/upload references unknown asset | Re-upload or refresh attachment |
+| `not_found` | URL fetch failed | Re-upload or refresh attachment |
 | `rate_limited` | Pair/auth/message/typing throttles | Back off using exponential retry (start 1s, double until 30s, add ±1s jitter) |
 | `pair_rejected` | DeviceId is denylisted | Show “access denied”, require operator intervention |
 | `pair_denied` | Admin explicitly denied pending request | Show “request denied”, allow user to retry later |
@@ -623,27 +606,6 @@ CREATE INDEX idx_events_userId_timestamp ON events(userId, timestamp);
 CREATE INDEX idx_events_originatingDeviceId ON events(originatingDeviceId);
 CREATE INDEX idx_events_timestamp_userId_sequence ON events(timestamp, userId, sequence);
 
-CREATE TABLE assets (
-  assetId TEXT PRIMARY KEY,
-  userId TEXT NOT NULL,
-  uploaderDeviceId TEXT NOT NULL,
-  mimeType TEXT NOT NULL,
-  size INTEGER NOT NULL,
-  createdAt INTEGER NOT NULL -- Unix epoch milliseconds
-);
-CREATE INDEX idx_assets_userId ON assets(userId);
-CREATE INDEX idx_assets_createdAt ON assets(createdAt);
-
-CREATE TABLE message_assets (
-  deviceId TEXT NOT NULL,
-  clientId TEXT NOT NULL,
-  assetId TEXT NOT NULL,
-  PRIMARY KEY (deviceId, clientId, assetId),
-  FOREIGN KEY (deviceId, clientId) REFERENCES messages(deviceId, clientId) ON DELETE CASCADE,
-  FOREIGN KEY (assetId) REFERENCES assets(assetId) ON DELETE RESTRICT
-);
-CREATE INDEX idx_message_assets_assetId ON message_assets(assetId);
-
 CREATE TABLE schema_version (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   version INTEGER NOT NULL
@@ -666,9 +628,6 @@ Schema notes:
 - `idx_events_originatingDeviceId` powers admin tooling that shows which device produced a historical message; do not remove it unless that tooling changes.
 - `idx_events_timestamp_userId_sequence` supports chronological export tooling and keeps replay lookups efficient when walking “latest N events.” Remove only if replay/export strategy changes.
 - v1 does not define a migration system; future schema changes must document an explicit migration or require a fresh database.
-- `assets` has no file path column; implementations derive the on-disk path from `media.storagePath` and `assetId` (see storage expectations).
-- `idx_message_assets_assetId` supports the unreferenced-upload cleanup query described above; do not remove it unless the cleanup strategy changes.
-- Unreferenced cleanup runs in its own transaction. Because `message_assets` uses `ON DELETE RESTRICT`, the deletion query must re-check references inside the same transaction before deleting each asset row to avoid races with concurrent message inserts.
 - `idx_messages_streaming_timestamp` exists so startup recovery and inactivity scans can locate `streaming=1` rows efficiently.
 - `events.sequence` is per-`userId` monotonic; uniqueness is enforced by the `(userId, sequence)` index.
 - `events.sequence` is the authoritative per-`userId` ordering. `messages.serverSequence` is a denormalized copy for join-free lookups and must match the user echo event sequence in the same transaction.
