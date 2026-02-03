@@ -352,6 +352,10 @@ struct MessageInputBar: View {
             .background(Capsule().fill(sendBackgroundColor.opacity(isSendEnabled ? 1 : 0.35)))
 #endif
             .buttonStyle(.plain)
+#if os(visionOS)
+            .tint(sendIconColor)
+            .foregroundStyle(sendIconColor)
+#endif
             .allowsHitTesting(isSendEnabled)
             .opacity(sendIconOpacity)
             .accessibilityHint(connectionAlertHint ?? "")
