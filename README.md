@@ -1,6 +1,6 @@
 # Clawline
 
-A native iOS chat app for communicating with your [Clawd](https://clawd.me) assistant.
+A native iOS chat app for communicating with your [OpenClaw](https://github.com/openclaw/openclaw) assistant.
 
 ![Platform](https://img.shields.io/badge/platform-iOS%2026+-blue)
 ![Swift](https://img.shields.io/badge/Swift-5.0-orange)
@@ -9,9 +9,9 @@ A native iOS chat app for communicating with your [Clawd](https://clawd.me) assi
 <!-- TODO: Add screenshot or demo GIF -->
 <!-- ![Clawline Demo](docs/assets/demo.gif) -->
 
-## What is Clawd?
+## What is OpenClaw?
 
-[Clawd](https://clawd.me) is a personal AI assistant platform. Clawline gives you a dedicated mobile interface to chat with your Clawd instance — with slick native animations and media support.
+[OpenClaw](https://github.com/openclaw/openclaw) is a personal AI assistant platform. Clawline gives you a dedicated mobile interface to chat with your OpenClaw instance — with slick native animations and media support.
 
 ## Features
 
@@ -54,10 +54,10 @@ A native iOS chat app for communicating with your [Clawd](https://clawd.me) assi
 
 ### Connecting to a Provider
 
-Clawline connects to a Clawd provider via WebSocket. To pair:
+Clawline connects to an OpenClaw provider via WebSocket. To pair:
 
 1. Launch the app
-2. Enter your provider URL (e.g., `https://your-clawd-instance.example.com`)
+2. Enter your provider URL (e.g., `https://your-openclaw-instance.example.com`)
 3. Complete the pairing flow with your provider's approval
 
 ## Project Structure
@@ -107,7 +107,7 @@ Clawline uses a WebSocket-based protocol with JSON messages:
 - `event` — Activity signals (typing indicators)
 - `error` — Error responses
 
-See [docs/protocol.md](docs/protocol.md) for full specification.
+See [docs/architecture.md](docs/architecture.md) and [docs/ios-provider-connection.md](docs/ios-provider-connection.md) for the current protocol details.
 
 ## Development
 
@@ -126,5 +126,4 @@ MIT — see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- Built with assistance from [Claude Code](https://claude.ai/claude-code)
 - Design inspired by modern chat interfaces
