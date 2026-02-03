@@ -368,7 +368,7 @@ struct ChatView: View {
     }
 
     private var inputPlaceholderText: String {
-        viewModel.messageStorageKey(for: viewModel.activeStream)
+        viewModel.serverSessionKey(for: viewModel.activeStream) ?? "missing session key"
     }
 
     private var appVersionLabel: AttributedString? {

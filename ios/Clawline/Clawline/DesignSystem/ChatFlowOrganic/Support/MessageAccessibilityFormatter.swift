@@ -10,7 +10,7 @@ import Foundation
 enum MessageAccessibilityFormatter {
     static func label(for message: Message, presentation: MessagePresentation) -> String {
         var parts: [String] = []
-        parts.append(message.role == .user ? "You" : "Assistant")
+        parts.append(message.role == .user ? "You" : "CLU")
 
         if presentation.isEmojiOnly {
             parts.append("emoji only message")
