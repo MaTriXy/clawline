@@ -239,7 +239,7 @@ Admin users receive messages from both streams. Non-admin users receive only the
 
 ## Media and file transfer (client integration spec)
 
-Two tiers: inline images for small attachments (<= 256KB raw bytes; base64 adds ~33% overhead—expect ~341KB JSON payloads), and out-of-band uploads for larger files. HTTP upload uses the same host/port as the WebSocket endpoint. The provider serves files from a web root; any file under that root is GETtable by URL. The provider enforces limits on decoded bytes before base64, so clients should preflight and reject oversize payloads locally.
+Two tiers: inline images for small attachments (<= 256KB raw bytes; base64 adds ~33% overhead—expect ~341KB JSON payloads), and out-of-band uploads for larger files. HTTP upload uses the same host/port as the WebSocket endpoint. The provider serves files from a `/www` web root; any file under that root is GETtable by URL. The `/www` tree is an unmanaged dumping-ground for user-hosted files and is distinct from any tracked/managed media storage. The provider enforces limits on decoded bytes before base64, so clients should preflight and reject oversize payloads locally.
 
 ### Attachment schema (bidirectional)
 
@@ -317,7 +317,7 @@ Assistant messages (and user echoes) may include:
 - **Endpoints:** same host/port as the WebSocket server; transport is plaintext in v1.
 - **Errors:** JSON error schema + HTTP status (`400` invalid_message, `401` auth_failed, `403` token_revoked, `404` not_found, `413` payload_too_large, `429` rate_limited, `503` upload_failed_retryable, `500` server_error).
 - **Retention:** files are retained indefinitely in v1 unless an operator removes them from the web root.
-- **Storage:** server writes bytes under `<webroot>/media/<id>`; any file under the web root is GETtable by URL.
+- **Storage:** server writes bytes under `<webroot>/media/<id>`; `/www` is served from a configurable filesystem root (default `workspace/www`) and any file under it is GETtable by URL.
 
 ## Error handling
 

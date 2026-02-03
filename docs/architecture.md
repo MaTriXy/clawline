@@ -66,6 +66,7 @@ These items were considered and explicitly deferred as non‑MVP:
 - The provider assumes a single-writer deployment: exactly one provider process per `statePath`. Do not place `statePath` on network filesystems that do not honor POSIX advisory locks.
 - Clients discover the provider via out-of-band configuration (operator specifies host/port); there is no automatic discovery in v1.
 - Media bytes default to `~/.clawd/clawline-media` (configurable); treat this path as sensitive because it stores user attachments.
+- Static file webroot `/www` is served from a configurable filesystem root (default `workspace/www`). This webroot is an unmanaged dumping-ground for user-hosted files and is distinct from any tracked/managed media storage.
 - Multiple devices that belong to the same account reuse the same `userId`. Replay cursors are tracked per `userId`, while rate limits and keepalives remain per `deviceId`.
 
 ### Multi-device policy (Normative)
@@ -175,7 +176,7 @@ Security note:
 All messages are JSON with a `type` field:
 
 WebSocket endpoint: `/ws`.
-HTTP media endpoints (`/upload` plus static file URLs under the web root) run on the same host/port as the WebSocket server.
+HTTP media endpoints (`/upload` plus static file URLs under the web root, e.g. `/www/...`) run on the same host/port as the WebSocket server.
 Keepalive: rely on WebSocket ping/pong frames (not JSON messages). Server sends ping every 30s; client responds with pong. Client considers the connection dead after 90s without receiving a ping (three consecutive missed pings). Client does not send pings. Server closes the connection if no pong is received within 90s.
 Clients MUST include `protocolVersion: 1` in `pair_request` and `auth`. Missing or unknown versions are rejected with `invalid_message`, and the server closes the connection.
 

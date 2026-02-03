@@ -161,7 +161,7 @@ Positioning:
   - Bind to localhost by default; require `allowInsecurePublic: true` to bind to non-localhost
 
 Implementation note:
-- Prefer a single HTTP server that handles both WebSocket upgrades (e.g. `/ws`) and HTTP upload + static file serving (e.g. `/upload`, `/media/<id>`) on the same port. This keeps auth/session context unified and avoids running a second service for v1.
+- Prefer a single HTTP server that handles both WebSocket upgrades (e.g. `/ws`) and HTTP upload + static file serving (e.g. `/upload`, `/www/...`) on the same port. This keeps auth/session context unified and avoids running a second service for v1.
 - Network security (TLS/VPN/firewall) is out of scope for the provider. Operators are responsible for securing transport if needed.
 
 ### 2) Pairing + Auth manager
@@ -362,7 +362,7 @@ HTTP auth rules (v1):
 Storage expectations:
 - Local disk for bytes (v1)
 - Web root directory (configurable) is the source of truth for stored files.
-- Uploads write bytes to `<webroot>/media/<id>`; any file under the web root is GETtable by URL.
+- Static file webroot `/www` is served from a configurable filesystem root (default `workspace/www`). Uploads write bytes to `<webroot>/media/<id>`; any file under the web root is GETtable by URL. The `/www` tree is an unmanaged dumping-ground for user-hosted files and is distinct from any tracked/managed media storage.
 - Storage retention decision (v1): retain all messages and files indefinitely. There are no automatic quotas or pruning in v1; operators may delete files manually.
 
 ### 6) Observability

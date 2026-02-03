@@ -259,11 +259,11 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
   | `/ws` | WebSocket | JWT via `auth` message | Drives pairing/auth/chat. Verify `pair_request`, `auth`, `message`, `typing`, `pair_decision`, `pair_approval_request`. |
   | `/version` | GET | None | Returns `{ "protocolVersion": 1 }`. Use as preflight check. |
   | `/upload` | POST multipart (`file` part) | `Authorization: Bearer <token>` | Enforce inline vs URL limits, emit `upload_failed_retryable` on disk errors. |
-  | `/media/<id>` | GET | None | Serves bytes from the web root; 404 if missing. |
+  | `/www/...` | GET | None | Serves bytes from the web root (default `workspace/www`); 404 if missing. |
 - Missing or malformed `Authorization` header (`Bearer` absent/empty) on `/upload` returns `auth_failed`.
 - HTTP error responses MUST return JSON bodies matching `{ "type": "error", "code": "<code>", "message": "<human-readable>" }`.
 - HTTP error responses return JSON error bodies with status mappings: 400 `invalid_message`, 401 `auth_failed`, 403 `token_revoked`, 404 `not_found`, 413 `payload_too_large`, 429 `rate_limited`, 503 `upload_failed_retryable`, 500 `server_error`.
-- Files are retained indefinitely in v1 unless an operator removes them from the web root.
+- Files are retained indefinitely in v1 unless an operator removes them from the `/www` web root (unmanaged dumping-ground).
 
 ### Error Handling
 - `error` schema matches `{ type: "error", code, message, messageId? }`.
