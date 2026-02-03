@@ -368,7 +368,7 @@ struct ChatView: View {
     }
 
     private var inputPlaceholderText: String {
-        "Message"
+        viewModel.sessionKey(for: viewModel.activeStream) ?? "Message"
     }
 
     private var appVersionLabel: AttributedString? {
