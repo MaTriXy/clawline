@@ -83,8 +83,8 @@ protocol KeyboardPinnedContainerViewProtocol: AnyObject {
 @Observable
 final class ChatLayoutCoordinator {
     @ObservationIgnored private var barView: KeyboardPinnedContainerViewProtocol?
-    @ObservationIgnored private var listViews: [ChatChannelType: WeakBox<MessageFlowCollectionViewController>] = [:]
-    @ObservationIgnored private var activeChannel: ChatChannelType = .personal
+    @ObservationIgnored private var listViews: [ChatStream: WeakBox<MessageFlowCollectionViewController>] = [:]
+    @ObservationIgnored private var activeStream: ChatStream = .personal
     @ObservationIgnored private var latestInputs: ChatLayoutInputs?
     @ObservationIgnored private var latestMetrics: ChatLayoutMetrics?
     @ObservationIgnored private var previousInputs: ChatLayoutInputs?
@@ -107,15 +107,15 @@ final class ChatLayoutCoordinator {
         applyTransitionIfPossible(reason: "registerBarView")
     }
 
-    func registerListView(_ view: MessageFlowCollectionViewController, channel: ChatChannelType) {
+    func registerListView(_ view: MessageFlowCollectionViewController, channel: ChatStream) {
         dispatchPrecondition(condition: .onQueue(.main))
         listViews[channel] = WeakBox(view)
-        applyLatestInset(to: view, isActive: channel == activeChannel)
+        applyLatestInset(to: view, isActive: channel == activeStream)
     }
 
-    func setActiveChannel(_ channel: ChatChannelType) {
+    func setActiveStream(_ channel: ChatStream) {
         dispatchPrecondition(condition: .onQueue(.main))
-        activeChannel = channel
+        activeStream = channel
     }
 
     func updateInputs(_ inputs: ChatLayoutInputs, metrics: ChatLayoutMetrics) {
@@ -319,7 +319,7 @@ final class ChatLayoutCoordinator {
     }
 
     private func activeListView() -> MessageFlowCollectionViewController? {
-        listViews[activeChannel]?.value
+        listViews[activeStream]?.value
     }
 
     private func applyLatestInset(to view: MessageFlowCollectionViewController, isActive: Bool) {

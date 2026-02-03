@@ -113,7 +113,7 @@ struct ChatView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var inputBarHeight: CGFloat = 0
-    @State private var channelToastManager = ChannelToastManager()
+    @State private var channelToastManager = StreamToastManager()
 
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0.5
@@ -278,7 +278,7 @@ struct ChatView: View {
             if channelToastManager.isVisible {
                 let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
                     + belowBarGap + resolvedInputHeight
-                ChannelToast(channelName: channelToastManager.channelName)
+                StreamToast(channelName: channelToastManager.channelName)
                     .padding(.bottom, inputBarTopFromScreenBottom + 50)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .ignoresSafeArea(.container, edges: .bottom)
@@ -312,11 +312,11 @@ struct ChatView: View {
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
         }
-        .onChange(of: viewModel.activeChannel) { _, newValue in
-            layoutCoordinator.setActiveChannel(newValue)
+        .onChange(of: viewModel.activeStream) { _, newValue in
+            layoutCoordinator.setActiveStream(newValue)
         }
         .onAppear {
-            layoutCoordinator.setActiveChannel(viewModel.activeChannel)
+            layoutCoordinator.setActiveStream(viewModel.activeStream)
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
         }
@@ -400,7 +400,7 @@ struct ChatView: View {
         return textWidth + chromeWidth
     }
 
-    private func messageList(topInset: CGFloat, channel: ChatChannelType) -> some View {
+    private func messageList(topInset: CGFloat, channel: ChatStream) -> some View {
         let list = MessageFlowCollectionView(
             viewModel: viewModel,
             topInset: topInset,
@@ -469,7 +469,7 @@ struct ChatView: View {
     /// Paged TabView for horizontal swipe between channels (admin only)
     @ViewBuilder
     private func pagedChannelView(topInset: CGFloat) -> some View {
-        TabView(selection: channelBinding) {
+        TabView(selection: streamBinding) {
             messageList(topInset: topInset, channel: .personal)
                 .background {
 #if os(visionOS)
@@ -480,7 +480,7 @@ struct ChatView: View {
                         .overlay(NoiseOverlayView().ignoresSafeArea())
 #endif
                 }
-                .tag(ChatChannelType.personal)
+                .tag(ChatStream.personal)
 
             messageList(topInset: topInset, channel: .admin)
                 .background {
@@ -492,19 +492,19 @@ struct ChatView: View {
                         .overlay(NoiseOverlayView().ignoresSafeArea())
 #endif
                 }
-                .tag(ChatChannelType.admin)
+                .tag(ChatStream.admin)
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .scrollContentBackground(.hidden)
         .background(Color.clear)
     }
 
-    /// Binding that syncs TabView selection with viewModel.activeChannel
-    private var channelBinding: Binding<ChatChannelType> {
+    /// Binding that syncs TabView selection with viewModel.activeStream
+    private var streamBinding: Binding<ChatStream> {
         Binding(
-            get: { viewModel.activeChannel },
+            get: { viewModel.activeStream },
             set: { newChannel in
-                guard newChannel != viewModel.activeChannel else { return }
+                guard newChannel != viewModel.activeStream else { return }
 
                 // Haptic feedback
 #if !os(visionOS)
@@ -513,7 +513,7 @@ struct ChatView: View {
 #endif
 
                 // Switch channel and show toast
-                viewModel.setActiveChannel(newChannel)
+                viewModel.setActiveStream(newChannel)
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     channelToastManager.show(channel: newChannel)
                 }
@@ -1186,7 +1186,7 @@ private final class PreviewChatService: ChatServicing {
     }
     func connect(token: String, lastMessageId: String?) async throws {}
     func disconnect() {}
-    func send(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType, sessionKey: String?) async throws {}
+    func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String?) async throws {}
 }
 
 private struct AttachmentSourceSheet: View {

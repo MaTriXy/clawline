@@ -82,7 +82,7 @@ final class TypingIndicatorCell: UICollectionViewCell {
         dotsView.stopAnimating()
     }
 
-    static func makeMessage(sessionKey: String, channelType: ChatChannelType) -> Message {
+    static func makeMessage(sessionKey: String) -> Message {
         return Message(
             id: itemId,
             role: .assistant,
@@ -91,8 +91,7 @@ final class TypingIndicatorCell: UICollectionViewCell {
             streaming: false,
             attachments: [],
             deviceId: nil,
-            sessionKey: sessionKey,
-            channelType: channelType
+            sessionKey: sessionKey
         )
     }
 

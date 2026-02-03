@@ -129,7 +129,6 @@ final class ProviderChatService: ChatServicing {
         let role: Message.Role?
         let active: Bool
         let sessionKey: String?
-        let channelType: String?
     }
 
     private struct ActivityEventPayload: Decodable {
@@ -140,7 +139,6 @@ final class ProviderChatService: ChatServicing {
         struct ActivityPayload: Decodable {
             let isActive: Bool
             let sessionKey: String?
-            let channelType: String?
         }
     }
 
@@ -256,7 +254,6 @@ final class ProviderChatService: ChatServicing {
         id: String,
         content: String,
         attachments: [WireAttachment],
-        channelType: ChatChannelType,
         sessionKey: String?
     ) async throws {
         guard let socket else {
@@ -270,8 +267,7 @@ final class ProviderChatService: ChatServicing {
             id: id,
             content: content,
             attachments: attachments,
-            sessionKey: sessionKey,
-            channelType: channelType
+            sessionKey: sessionKey
         )
         let data = try encoder.encode(payload)
         guard let text = String(data: data, encoding: .utf8) else { return }
@@ -463,8 +459,6 @@ final class ProviderChatService: ChatServicing {
                 logger.warning("Failed to decode activity event payload")
                 return
             }
-            // Map server channelType to iOS channel type
-            // Server sends channelType: "admin" or "personal"
             let sessionKey = resolveSessionKey(from: payload.payload)
             logger.info("activity event isActive=\(payload.payload.isActive, privacy: .public) sessionKey=\(sessionKey ?? "nil", privacy: .public)")
             if let sessionKey {
@@ -476,33 +470,15 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func resolveSessionKey(from payload: TypingEventPayload) -> String? {
-        if let sessionKey = payload.sessionKey {
-            return sessionKey
-        }
-        if payload.channelType != nil {
-            logger.warning("Typing payload missing sessionKey")
-        }
-        return nil
+        payload.sessionKey
     }
 
     private func resolveSessionKey(from payload: ServerMessagePayload) -> String? {
-        if let sessionKey = payload.sessionKey {
-            return sessionKey
-        }
-        if payload.channelType != nil {
-            logger.warning("Message payload missing sessionKey")
-        }
-        return nil
+        payload.sessionKey
     }
 
     private func resolveSessionKey(from payload: ActivityEventPayload.ActivityPayload) -> String? {
-        if let sessionKey = payload.sessionKey {
-            return sessionKey
-        }
-        if payload.channelType != nil {
-            logger.warning("Activity payload missing sessionKey")
-        }
-        return nil
+        payload.sessionKey
     }
 
     private func updateState(_ state: ConnectionState) {

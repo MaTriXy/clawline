@@ -8,9 +8,9 @@
 import Foundation
 
 enum SessionKey {
-    static let adminFallback = "agent:main:main"
+    static let admin = "agent:main:main"
 
-    static func channelType(for sessionKey: String) -> ChatChannelType {
-        sessionKey == adminFallback ? .admin : .personal
+    static func stream(for sessionKey: String) -> ChatStream {
+        sessionKey == admin ? .admin : .personal
     }
 }

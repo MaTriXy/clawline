@@ -1,5 +1,5 @@
 //
-//  ChannelSwitcherView.swift
+//  StreamSwitcherView.swift
 //  Clawline
 //
 //  Created by Codex on 1/16/26.
@@ -10,9 +10,9 @@ import SwiftUI
 import UIKit
 #endif
 
-struct ChannelSwitcherView: View {
-    let activeChannel: ChatChannelType
-    let onSelect: (ChatChannelType) -> Void
+struct StreamSwitcherView: View {
+    let activeStream: ChatStream
+    let onSelect: (ChatStream) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.settingsManager) private var settings
@@ -54,12 +54,12 @@ struct ChannelSwitcherView: View {
 #endif
     }
 
-    private func switchButton(for channel: ChatChannelType) -> some View {
-        let isSelected = channel == activeChannel
+    private func switchButton(for channel: ChatStream) -> some View {
+        let isSelected = channel == activeStream
         let accent = accentColor(for: channel)
 
         return Button {
-            guard channel != activeChannel else { return }
+            guard channel != activeStream else { return }
 #if !os(visionOS)
             feedbackGenerator.impactOccurred()
 #endif
@@ -78,14 +78,14 @@ struct ChannelSwitcherView: View {
                         .stroke(accent.opacity(isSelected ? 0.9 : 0.3), lineWidth: isSelected ? 2 : 1)
                 )
                 .foregroundColor(accent)
-                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: activeChannel)
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: activeStream)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(channel.displayName)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
     }
 
-    private func accentColor(for channel: ChatChannelType) -> Color {
+    private func accentColor(for channel: ChatStream) -> Color {
         switch channel {
         case .personal:
             return ChatFlowTheme.terracotta(effectiveColorScheme)

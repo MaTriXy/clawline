@@ -34,8 +34,7 @@ struct ChatViewModelTests {
                 attachments: [],
                 deviceId: nil,
                 sessionKey: personalSessionKey,
-                channelType: .personal
-            )
+                )
         )
 
         try await Task.sleep(forDuration: .milliseconds(50))
@@ -73,8 +72,7 @@ struct ChatViewModelTests {
                 attachments: [],
                 deviceId: nil,
                 sessionKey: personalSessionKey,
-                channelType: .personal
-            )
+                )
         )
 
         try await Task.sleep(forDuration: .milliseconds(50))
@@ -91,8 +89,7 @@ struct ChatViewModelTests {
                 attachments: [],
                 deviceId: nil,
                 sessionKey: personalSessionKey,
-                channelType: .personal
-            )
+                )
         )
 
         try await Task.sleep(forDuration: .milliseconds(10))
@@ -136,8 +133,7 @@ struct ChatViewModelTests {
                 attachments: [],
                 deviceId: "device",
                 sessionKey: personalSessionKey,
-                channelType: .personal
-            )
+                )
         )
 
         try await Task.sleep(forDuration: .milliseconds(10))
@@ -260,7 +256,6 @@ struct ChatViewModelTests {
             attachments: [],
             deviceId: nil,
             sessionKey: personalSessionKey,
-            channelType: .personal
         )
 
         await viewModel.onAppear()
@@ -372,16 +367,30 @@ struct ChatViewModelTests {
             toastManager: ToastManager()
         )
 
-        viewModel.setActiveChannel(.admin)
+        await viewModel.onAppear()
+        chatService.emit(
+            Message(
+                id: "s_admin_seed",
+                role: .assistant,
+                content: "Admin seed",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: adminSessionKey
+            )
+        )
+        try await Task.sleep(for: .milliseconds(10))
+
+        viewModel.setActiveStream(.admin)
         viewModel.inputContent = NSAttributedString(string: "Admin ping")
         viewModel.send()
         try await Task.sleep(for: .milliseconds(10))
 
-        #expect(chatService.lastSessionKey == nil)
-        #expect(chatService.lastChannelType == .admin)
+        #expect(chatService.lastSessionKey == adminSessionKey)
     }
 
-    @Test("Incoming messages route to matching channel")
+    @Test("Incoming messages route to matching stream")
     @MainActor
     func incomingMessagesRoutePerChannel() async throws {
         let auth = TestAuthManager()
@@ -407,15 +416,14 @@ struct ChatViewModelTests {
             streaming: false,
             attachments: [],
             deviceId: nil,
-            sessionKey: adminSessionKey,
-            channelType: .admin
+            sessionKey: adminSessionKey
         )
 
         chatService.emit(adminMessage)
         try await Task.sleep(for: .milliseconds(10))
 
         #expect(viewModel.messages.isEmpty)
-        viewModel.setActiveChannel(.admin)
+        viewModel.setActiveStream(.admin)
         try await Task.sleep(forDuration: .milliseconds(50))
         #expect(viewModel.messages.count == 1)
         #expect(viewModel.messages.first?.id == "s_admin")
@@ -490,7 +498,7 @@ private final class TestChatService: ChatServicing {
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
     private(set) var lastSessionKey: String?
-    private(set) var lastChannelType: ChatChannelType?
+    private(set) var lastStream: ChatStream?
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -523,11 +531,11 @@ private final class TestChatService: ChatServicing {
         stateContinuation?.yield(.disconnected)
     }
 
-    func send(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType, sessionKey: String?) async throws {
+    func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String?) async throws {
         lastSentId = id
         lastSentAttachments = attachments
         lastSessionKey = sessionKey
-        lastChannelType = channelType
+        lastStream = sessionKey.map(SessionKey.stream)
     }
 
     func emit(_ message: Message) {

@@ -146,7 +146,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var onRequestExpand: (() -> Void)?
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
-    private var currentChannelType: ChatChannelType = .personal
+    private var currentStream: ChatStream = .personal
     private var currentContentPaddingHorizontal: CGFloat = 16
     private var currentContentPaddingVertical: CGFloat = 14
     private var contentLeadingConstraint: NSLayoutConstraint!
@@ -424,7 +424,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    onRequestExpand: (() -> Void)?) {
         // Store for trait collection updates
         currentMessageRole = message.role
-        currentChannelType = message.channelType
+        currentStream = message.stream
         self.showsHeader = showsHeader
         contentPaddingScale = paddingScale
         self.useContinuousCorners = useContinuousCorners
@@ -442,9 +442,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         let effectiveIsDark = isDark ?? (traitCollection.userInterfaceStyle == .dark)
         Self.logger.debug("configure: isDark=\(isDark.map { String($0) } ?? "nil", privacy: .public) effectiveIsDark=\(effectiveIsDark, privacy: .public) role=\(String(describing: message.role), privacy: .public)")
         let palette = ChatFlowUIKitTheme.palette(isDark: effectiveIsDark)
-        let senderColor = (message.channelType == .admin) ? palette.adminAccent : palette.warmBrown
+        let senderColor = (message.stream == .admin) ? palette.adminAccent : palette.warmBrown
         senderLabel.font = UIFont.systemFont(ofSize: metrics.senderFontSize, weight: .semibold)
-        senderLabel.textColor = senderColor.withAlphaComponent(message.channelType == .admin ? 1.0 : 0.7)
+        senderLabel.textColor = senderColor.withAlphaComponent(message.stream == .admin ? 1.0 : 0.7)
         senderLabel.text = (message.role == .user) ? "You" : "Assistant"
         headerStack.isHidden = !showsHeader
         bodyLabel.linkTextAttributes = [
@@ -750,8 +750,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         let palette = ChatFlowUIKitTheme.palette(isDark: isDark)
 
         // Update sender label color
-        let senderColor = (currentChannelType == .admin) ? palette.adminAccent : palette.warmBrown
-        senderLabel.textColor = senderColor.withAlphaComponent(currentChannelType == .admin ? 1.0 : 0.7)
+        let senderColor = (currentStream == .admin) ? palette.adminAccent : palette.warmBrown
+        senderLabel.textColor = senderColor.withAlphaComponent(currentStream == .admin ? 1.0 : 0.7)
 
         // Update body text color - must update attributed string since textColor is ignored for attributed text
         if let attributedText = bodyLabel.attributedText, attributedText.length > 0 {

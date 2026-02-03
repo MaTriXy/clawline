@@ -25,28 +25,28 @@ final class ChatViewModel: ChatViewModelHosting {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     private let instanceId = UUID().uuidString
     private(set) var messages: [Message] = []
-    private(set) var activeChannel: ChatChannelType = .personal
-    private var didRestoreActiveChannel = false
+    private(set) var activeStream: ChatStream = .personal
+    private var didRestoreActiveStream = false
 
-    /// Returns messages for a specific channel (used by paged channel views)
-    func messages(for channel: ChatChannelType) -> [Message] {
-        let storageKey = storageKey(for: channel)
+    /// Returns messages for a specific stream (used by paged stream views)
+    func messages(for stream: ChatStream) -> [Message] {
+        let storageKey = storageKey(for: stream)
         return sessionMessages[storageKey] ?? []
     }
-    func serverSessionKey(for channel: ChatChannelType) -> String? {
-        if channel == .admin, auth.isAdmin == false {
+    func serverSessionKey(for stream: ChatStream) -> String? {
+        if stream == .admin, auth.isAdmin == false {
             return nil
         }
-        return sessionKeyByChannel[channel]
+        return sessionKeyByStream[stream]
     }
-    func messageStorageKey(for channel: ChatChannelType) -> String {
-        storageKey(for: channel)
+    func messageStorageKey(for stream: ChatStream) -> String {
+        storageKey(for: stream)
     }
-    private func storageKey(for channel: ChatChannelType) -> String {
-        sessionKeyByChannel[channel] ?? localStorageKey(for: channel)
+    private func storageKey(for stream: ChatStream) -> String {
+        sessionKeyByStream[stream] ?? localStorageKey(for: stream)
     }
-    private func localStorageKey(for channel: ChatChannelType) -> String {
-        "local:\(channel.rawValue)"
+    private func localStorageKey(for stream: ChatStream) -> String {
+        "local:\(stream.rawValue)"
     }
     private(set) var lastServerMessageId: String?
     var inputContent: NSAttributedString = NSAttributedString() {
@@ -59,7 +59,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var isSending: Bool = false
     private(set) var isAssistantTyping: Bool = false
     private(set) var typingSessionKey: String?
-    private(set) var typingChannel: ChatChannelType?
+    private(set) var typingStream: ChatStream?
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var connectionAlert: ConnectionAlertSeverity? {
         didSet {
@@ -110,12 +110,12 @@ final class ChatViewModel: ChatViewModelHosting {
     private var pendingPersistPayloads: [String: [Message]] = [:]
     private let messageCacheLimit = 500
     private var restoredSessionKeys: Set<String> = []
-    private var sessionKeyByChannel: [ChatChannelType: String] = [:]
+    private var sessionKeyByStream: [ChatStream: String] = [:]
 
     private struct PendingLocalMessage: Equatable {
         let id: String
         let sessionKey: String
-        let channel: ChatChannelType
+        let stream: ChatStream
     }
 
     init(auth: any AuthManaging,
@@ -184,8 +184,8 @@ final class ChatViewModel: ChatViewModelHosting {
                 startObserving()
             }
             restoreLastServerMessageIdIfNeeded()
-            restoreActiveChannelIfNeeded()
-            let activeStorageKey = storageKey(for: activeChannel)
+            restoreActiveStreamIfNeeded()
+            let activeStorageKey = storageKey(for: activeStream)
             restoreLastServerMessageIdIfNeeded(for: activeStorageKey)
             restoreCachedMessagesIfNeeded(for: activeStorageKey)
             let personalStorageKey = storageKey(for: .personal)
@@ -203,7 +203,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 scheduleReconnect(immediate: true, reason: .authStateChange)
             }
         } else {
-            didRestoreActiveChannel = false
+            didRestoreActiveStream = false
             observationTask?.cancel()
             observationTask = nil
             reconnectTask?.cancel()
@@ -214,19 +214,19 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    func setActiveChannel(_ channel: ChatChannelType) {
-        if channel == .admin, auth.isAdmin == false {
+    func setActiveStream(_ stream: ChatStream) {
+        if stream == .admin, auth.isAdmin == false {
             return
         }
-        guard activeChannel != channel else { return }
-        activeChannel = channel
-        let activeStorageKey = storageKey(for: channel)
+        guard activeStream != stream else { return }
+        activeStream = stream
+        let activeStorageKey = storageKey(for: stream)
         restoreLastServerMessageIdIfNeeded(for: activeStorageKey)
         restoreCachedMessagesIfNeeded(for: activeStorageKey)
         ensureSessionStorage(for: activeStorageKey)
         messages = sessionMessages[activeStorageKey] ?? []
         lastServerMessageId = lastServerMessageIdBySession[activeStorageKey]
-        persistActiveChannel(channel)
+        persistActiveStream(stream)
     }
 
     func handleSceneDidBecomeActive() {
@@ -310,9 +310,9 @@ final class ChatViewModel: ChatViewModelHosting {
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
 
-        let channel = activeChannel
-        let storageKey = storageKey(for: channel)
-        let outboundSessionKey = serverSessionKey(for: channel)
+        let stream = activeStream
+        let storageKey = storageKey(for: stream)
+        let outboundSessionKey = serverSessionKey(for: stream)
         let placeholder = Message(
             id: clientId,
             role: .user,
@@ -321,11 +321,10 @@ final class ChatViewModel: ChatViewModelHosting {
             streaming: false,
             attachments: makeDisplayAttachments(from: pendingAttachments),
             deviceId: deviceId,
-            sessionKey: storageKey,
-            channelType: channel
+            sessionKey: storageKey
         )
         appendMessage(placeholder)
-        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: storageKey, channel: channel))
+        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: storageKey, stream: stream))
 
         error = nil
 
@@ -334,7 +333,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 clientId: clientId,
                 content: text,
                 pendingAttachments: pendingAttachments,
-                channel: channel,
                 sessionKey: outboundSessionKey
             )
         }
@@ -353,8 +351,7 @@ final class ChatViewModel: ChatViewModelHosting {
             streaming: false,
             attachments: message.attachments,
             deviceId: deviceId,
-            sessionKey: sessionKey,
-            channelType: message.channelType
+            sessionKey: sessionKey
         )
 
         var messageList = sessionMessages[sessionKey] ?? []
@@ -362,19 +359,18 @@ final class ChatViewModel: ChatViewModelHosting {
         setMessages(messageList, for: sessionKey)
 
         pendingLocalMessages.removeAll { $0.id == messageId }
-        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey, channel: message.channelType))
+        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey, stream: message.stream))
         messageFailures.removeValue(forKey: messageId)
 
         isSending = true
         activeClientMessageId = clientId
 
-        let outboundSessionKey = serverSessionKey(for: message.channelType)
+        let outboundSessionKey = serverSessionKey(for: message.stream)
         sendTask = Task { [weak self] in
             await self?.performRetrySend(
                 clientId: clientId,
                 content: retryMessage.content,
                 attachments: retryMessage.attachments,
-                channel: message.channelType,
                 sessionKey: outboundSessionKey
             )
         }
@@ -414,11 +410,11 @@ final class ChatViewModel: ChatViewModelHosting {
         clearInput()
         sessionMessages = [:]
         messages = []
-        activeChannel = .personal
+        activeStream = .personal
         pendingLocalMessages.removeAll()
         isAssistantTyping = false
         typingSessionKey = nil
-        typingChannel = nil
+        typingStream = nil
         shouldMorphTypingIndicator = false
         connectionStableTask?.cancel()
         connectionStableTask = nil
@@ -433,7 +429,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func handleIncoming(_ message: Message) {
         let snippet = String(message.content.prefix(80))
         logger.info(
-            "incoming id=\(message.id, privacy: .public) sessionKey=\(message.sessionKey, privacy: .public) channel=\(message.channelType.rawValue, privacy: .public) role=\(String(describing: message.role), privacy: .public) streaming=\(message.streaming, privacy: .public) deviceId=\(message.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
+            "incoming id=\(message.id, privacy: .public) sessionKey=\(message.sessionKey, privacy: .public) stream=\(message.stream.rawValue, privacy: .public) role=\(String(describing: message.role), privacy: .public) streaming=\(message.streaming, privacy: .public) deviceId=\(message.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
         )
 
         var resolvedMessage = message
@@ -448,23 +444,22 @@ final class ChatViewModel: ChatViewModelHosting {
                 streaming: false,
                 attachments: [],
                 deviceId: message.deviceId,
-                sessionKey: message.sessionKey,
-                channelType: message.channelType
+                sessionKey: message.sessionKey
             )
         }
 
         // Check if this is an assistant message arriving while typing indicator is visible.
         // If so, the UI should morph the typing indicator into this message instead of inserting new.
-        updateSessionKey(message.sessionKey, for: message.channelType)
+        updateSessionKey(message.sessionKey, for: message.stream)
 
         if message.role == .assistant,
            isAssistantTyping,
-           let typingChannel,
-           typingChannel == message.channelType {
+           let typingStream,
+           typingStream == message.stream {
             shouldMorphTypingIndicator = true
             isAssistantTyping = false
             self.typingSessionKey = nil
-            self.typingChannel = nil
+            self.typingStream = nil
         } else {
             shouldMorphTypingIndicator = false
         }
@@ -490,11 +485,11 @@ final class ChatViewModel: ChatViewModelHosting {
         resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
     }
 
-    private func updateSessionKey(_ sessionKey: String, for channel: ChatChannelType) {
-        let existing = sessionKeyByChannel[channel]
+    private func updateSessionKey(_ sessionKey: String, for stream: ChatStream) {
+        let existing = sessionKeyByStream[stream]
         guard existing != sessionKey else { return }
 
-        let localKey = localStorageKey(for: channel)
+        let localKey = localStorageKey(for: stream)
         if let localMessages = sessionMessages[localKey] {
             var merged = sessionMessages[sessionKey] ?? []
             for message in localMessages where !merged.contains(where: { $0.id == message.id }) {
@@ -508,14 +503,14 @@ final class ChatViewModel: ChatViewModelHosting {
             lastServerMessageIdBySession[sessionKey] = localLast
         }
 
-        sessionKeyByChannel[channel] = sessionKey
+        sessionKeyByStream[stream] = sessionKey
 
         pendingLocalMessages = pendingLocalMessages.map { pending in
-            guard pending.channel == channel else { return pending }
-            return PendingLocalMessage(id: pending.id, sessionKey: sessionKey, channel: pending.channel)
+            guard pending.stream == stream else { return pending }
+            return PendingLocalMessage(id: pending.id, sessionKey: sessionKey, stream: pending.stream)
         }
 
-        if activeChannel == channel {
+        if activeStream == stream {
             messages = sessionMessages[sessionKey] ?? []
             lastServerMessageId = lastServerMessageIdBySession[sessionKey]
         }
@@ -590,8 +585,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 streaming: message.streaming,
                 attachments: updatedAttachments,
                 deviceId: message.deviceId,
-                sessionKey: message.sessionKey,
-                channelType: message.channelType
+                sessionKey: message.sessionKey
             )
 
             await MainActor.run {
@@ -614,7 +608,7 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.sessionKey == message.sessionKey })
-            ?? pendingLocalMessages.firstIndex(where: { $0.channel == message.channelType })
+            ?? pendingLocalMessages.firstIndex(where: { $0.stream == message.stream })
         guard let pendingIndex else {
             return false
         }
@@ -658,7 +652,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func setMessages(_ newMessages: [Message], for sessionKey: String) {
         sessionMessages[sessionKey] = newMessages
         persistMessages(newMessages, for: sessionKey)
-        if sessionKey == storageKey(for: activeChannel) {
+        if sessionKey == storageKey(for: activeStream) {
             messages = newMessages
             let total = newMessages.count
             let uniqueCount = Set(newMessages.map(\.id)).count
@@ -677,7 +671,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func updateLastServerMessageIdIfNeeded(with message: Message) {
         guard message.id.hasPrefix("s_") else { return }
         lastServerMessageIdBySession[message.sessionKey] = message.id
-        if message.sessionKey == storageKey(for: activeChannel) {
+        if message.sessionKey == storageKey(for: activeStream) {
             lastServerMessageId = message.id
         }
         persistLastServerMessageId(message.id, for: message.sessionKey)
@@ -721,7 +715,7 @@ final class ChatViewModel: ChatViewModelHosting {
             lastForegroundReconnectTrigger = nil
             isAssistantTyping = false
             typingSessionKey = nil
-            typingChannel = nil
+            typingStream = nil
         case .disconnected:
             connectionStableTask?.cancel()
             connectionStableTask = nil
@@ -729,7 +723,7 @@ final class ChatViewModel: ChatViewModelHosting {
             scheduleReconnect(reason: .connectionStateDisconnected)
             isAssistantTyping = false
             typingSessionKey = nil
-            typingChannel = nil
+            typingStream = nil
         case .failed(let err):
             connectionStableTask?.cancel()
             connectionStableTask = nil
@@ -737,12 +731,12 @@ final class ChatViewModel: ChatViewModelHosting {
             scheduleReconnect(reason: .connectionStateFailed)
             isAssistantTyping = false
             typingSessionKey = nil
-            typingChannel = nil
+            typingStream = nil
         case .connecting, .reconnecting:
             beginConnectionAlert(message: "Reconnecting…", shouldAnnounce: false)
             isAssistantTyping = false
             typingSessionKey = nil
-            typingChannel = nil
+            typingStream = nil
         }
     }
 
@@ -880,7 +874,6 @@ final class ChatViewModel: ChatViewModelHosting {
     private func performSend(clientId: String,
                              content: String,
                              pendingAttachments: [PendingAttachment],
-                             channel: ChatChannelType,
                              sessionKey: String?) async {
         defer { sendTask = nil }
         do {
@@ -890,7 +883,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 id: clientId,
                 content: content,
                 attachments: wireAttachments,
-                channelType: channel,
                 sessionKey: sessionKey
             )
             await MainActor.run {
@@ -924,7 +916,6 @@ final class ChatViewModel: ChatViewModelHosting {
     private func performRetrySend(clientId: String,
                                   content: String,
                                   attachments: [Attachment],
-                                  channel: ChatChannelType,
                                   sessionKey: String?) async {
         defer { sendTask = nil }
         do {
@@ -934,7 +925,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 id: clientId,
                 content: content,
                 attachments: wireAttachments,
-                channelType: channel,
                 sessionKey: sessionKey
             )
             await MainActor.run {
@@ -1186,30 +1176,30 @@ final class ChatViewModel: ChatViewModelHosting {
                 if !wasAdmin {
                     toastManager.show("DM channel unlocked")
                 }
-                if activeChannel != .admin, persistedChannel() == .admin {
-                    setActiveChannel(.admin)
+                if activeStream != .admin, persistedStream() == .admin {
+                    setActiveStream(.admin)
                 }
             } else if wasAdmin {
                 toastManager.show("DM access revoked")
-                if activeChannel == .admin {
-                    setActiveChannel(.personal)
+                if activeStream == .admin {
+                    setActiveStream(.personal)
                 }
             }
         case .typingStateChanged(let isTyping, let sessionKey):
-            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) sessionKey=\(sessionKey, privacy: .public) activeChannel=\(self.activeChannel.rawValue, privacy: .public)")
+            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) sessionKey=\(sessionKey, privacy: .public) activeStream=\(self.activeStream.rawValue, privacy: .public)")
             // Track which session has the typing indicator
             // (used by paged TabView to show indicator only on the correct page)
             if isTyping {
-                let channel = SessionKey.channelType(for: sessionKey)
-                updateSessionKey(sessionKey, for: channel)
+                let stream = SessionKey.stream(for: sessionKey)
+                updateSessionKey(sessionKey, for: stream)
                 self.isAssistantTyping = true
                 self.typingSessionKey = sessionKey
-                self.typingChannel = channel
+                self.typingStream = stream
             } else if self.typingSessionKey == sessionKey {
                 // Only clear if the stop event is for the same session we're tracking
                 self.isAssistantTyping = false
                 self.typingSessionKey = nil
-                self.typingChannel = nil
+                self.typingStream = nil
             }
         }
     }
@@ -1242,7 +1232,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func restoreLastServerMessageIdIfNeeded() {
         guard lastServerMessageId == nil else { return }
-        let sessionKey = storageKey(for: activeChannel)
+        let sessionKey = storageKey(for: activeStream)
         restoreLastServerMessageIdIfNeeded(for: sessionKey)
         lastServerMessageId = lastServerMessageIdBySession[sessionKey]
     }
@@ -1312,7 +1302,7 @@ final class ChatViewModel: ChatViewModelHosting {
                     self.setMessages(filtered, for: sessionKey)
                     let cachedLast = self.lastServerMessageId(from: filtered)
                     self.lastServerMessageIdBySession[sessionKey] = cachedLast
-                    if self.storageKey(for: self.activeChannel) == sessionKey {
+                    if self.storageKey(for: self.activeStream) == sessionKey {
                         self.lastServerMessageId = cachedLast
                     }
                     self.persistLastServerMessageId(cachedLast, for: sessionKey)
@@ -1326,7 +1316,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func clearCursor(for sessionKey: String) {
-        if self.storageKey(for: self.activeChannel) == sessionKey {
+        if self.storageKey(for: self.activeStream) == sessionKey {
             self.lastServerMessageId = nil
         }
         self.lastServerMessageIdBySession.removeValue(forKey: sessionKey)
@@ -1380,23 +1370,23 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    private func persistActiveChannel(_ channel: ChatChannelType) {
+    private func persistActiveStream(_ channel: ChatStream) {
         channelDefaults.set(channel.rawValue, forKey: channelDefaultsKey())
     }
 
-    private func persistedChannel() -> ChatChannelType? {
+    private func persistedStream() -> ChatStream? {
         guard let raw = channelDefaults.string(forKey: channelDefaultsKey()) else { return nil }
-        return ChatChannelType(rawValue: raw)
+        return ChatStream(rawValue: raw)
     }
 
-    private func restoreActiveChannelIfNeeded() {
-        guard !didRestoreActiveChannel else { return }
-        didRestoreActiveChannel = true
-        guard let stored = persistedChannel() else { return }
+    private func restoreActiveStreamIfNeeded() {
+        guard !didRestoreActiveStream else { return }
+        didRestoreActiveStream = true
+        guard let stored = persistedStream() else { return }
         if stored == .admin, auth.isAdmin == false {
             return
         }
-        setActiveChannel(stored)
+        setActiveStream(stored)
     }
 
     private func userFacingMessage(for code: String, fallback: String?) -> String {
@@ -1464,7 +1454,7 @@ final class ChatViewModel: ChatViewModelHosting {
         }
         isSending = false
 
-        let sessionKey = resolvedSessionKey ?? storageKey(for: activeChannel)
+        let sessionKey = resolvedSessionKey ?? storageKey(for: activeStream)
         let ack = Message(
             id: "s_no_reply_\(UUID().uuidString)",
             role: .assistant,
@@ -1473,8 +1463,7 @@ final class ChatViewModel: ChatViewModelHosting {
             streaming: false,
             attachments: [],
             deviceId: nil,
-            sessionKey: sessionKey,
-            channelType: activeChannel
+            sessionKey: sessionKey
         )
         appendMessage(ack)
     }
@@ -1544,7 +1533,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     @MainActor
     private func connectionSnapshot() -> (token: String?, lastMessageId: String?) {
-        let activeKey = storageKey(for: activeChannel)
+        let activeKey = storageKey(for: activeStream)
         let cursor = lastServerMessageIdBySession[activeKey] ?? lastServerMessageId
         return (auth.token, cursor)
     }

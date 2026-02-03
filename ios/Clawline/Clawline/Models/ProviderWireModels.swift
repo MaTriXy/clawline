@@ -17,7 +17,6 @@ struct ServerMessagePayload: Codable, Equatable {
     let deviceId: String?
     let sessionKey: String?
     let attachments: [Attachment]
-    let channelType: ChatChannelType?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -30,7 +29,6 @@ struct ServerMessagePayload: Codable, Equatable {
         case deviceId
         case sessionKey
         case attachments
-        case channelType
     }
 
     init(type: String = "message",
@@ -41,8 +39,7 @@ struct ServerMessagePayload: Codable, Equatable {
          streaming: Bool,
          deviceId: String?,
          sessionKey: String?,
-         attachments: [Attachment],
-         channelType: ChatChannelType? = nil) {
+         attachments: [Attachment]) {
         self.type = type
         self.id = id
         self.role = role
@@ -52,7 +49,6 @@ struct ServerMessagePayload: Codable, Equatable {
         self.deviceId = deviceId
         self.sessionKey = sessionKey
         self.attachments = attachments
-        self.channelType = channelType
     }
 
     init(from decoder: Decoder) throws {
@@ -76,7 +72,6 @@ struct ServerMessagePayload: Codable, Equatable {
         deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
         sessionKey = try container.decodeIfPresent(String.self, forKey: .sessionKey)
         attachments = try container.decodeIfPresent([Attachment].self, forKey: .attachments) ?? []
-        channelType = try container.decodeIfPresent(ChatChannelType.self, forKey: .channelType)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -90,7 +85,6 @@ struct ServerMessagePayload: Codable, Equatable {
         try container.encodeIfPresent(deviceId, forKey: .deviceId)
         try container.encodeIfPresent(sessionKey, forKey: .sessionKey)
         try container.encode(attachments, forKey: .attachments)
-        try container.encodeIfPresent(channelType, forKey: .channelType)
     }
 }
 
@@ -100,7 +94,6 @@ struct ClientMessagePayload: Codable, Equatable {
     let content: String
     let attachments: [WireAttachment]
     let sessionKey: String?
-    let channelType: ChatChannelType?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -108,16 +101,14 @@ struct ClientMessagePayload: Codable, Equatable {
         case content
         case attachments
         case sessionKey
-        case channelType
     }
 
-    init(id: String, content: String, attachments: [WireAttachment], sessionKey: String?, channelType: ChatChannelType? = nil, type: String = "message") {
+    init(id: String, content: String, attachments: [WireAttachment], sessionKey: String?, type: String = "message") {
         self.type = type
         self.id = id
         self.content = content
         self.attachments = attachments
         self.sessionKey = sessionKey
-        self.channelType = channelType
     }
 
     init(from decoder: Decoder) throws {
@@ -127,7 +118,6 @@ struct ClientMessagePayload: Codable, Equatable {
         self.content = try container.decode(String.self, forKey: .content)
         self.attachments = try container.decodeIfPresent([WireAttachment].self, forKey: .attachments) ?? []
         self.sessionKey = try container.decodeIfPresent(String.self, forKey: .sessionKey)
-        self.channelType = try container.decodeIfPresent(ChatChannelType.self, forKey: .channelType)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -137,7 +127,6 @@ struct ClientMessagePayload: Codable, Equatable {
         try container.encode(content, forKey: .content)
         try container.encode(attachments, forKey: .attachments)
         try container.encodeIfPresent(sessionKey, forKey: .sessionKey)
-        try container.encodeIfPresent(channelType, forKey: .channelType)
     }
 }
 
@@ -151,8 +140,7 @@ extension Message {
             streaming: payload.streaming,
             attachments: payload.attachments,
             deviceId: payload.deviceId,
-            sessionKey: sessionKey,
-            channelType: payload.channelType ?? SessionKey.channelType(for: sessionKey)
+            sessionKey: sessionKey
         )
     }
 
@@ -170,8 +158,7 @@ extension Message {
             id: id,
             content: content,
             attachments: wireAttachments,
-            sessionKey: sessionKey,
-            channelType: channelType
+            sessionKey: sessionKey
         )
     }
 }

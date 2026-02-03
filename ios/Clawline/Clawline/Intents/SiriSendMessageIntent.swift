@@ -64,13 +64,13 @@ struct SendMessageIntent: AppIntent {
             SiriBotNameStore.storeName(explicit)
         }
 
-        let channel: ChatChannelType = authSnapshot.isAdmin ? .admin : .personal
+        let stream: ChatStream = authSnapshot.isAdmin ? .admin : .personal
         let sessionKey: String? = nil
         let content = SiriBotNameStore.formatContent(
             message: trimmedMessage,
             botName: resolvedBotName.value
         )
-        NSLog("[SiriIntent][6] sending – channel=%@ bot=%@", channel.rawValue, resolvedBotName.value)
+        NSLog("[SiriIntent][6] sending – stream=%@ bot=%@", stream.rawValue, resolvedBotName.value)
 
         let device = DeviceIdentifier()
         let connector = URLSessionWebSocketConnector(
@@ -108,7 +108,6 @@ struct SendMessageIntent: AppIntent {
                     id: messageId,
                     content: content,
                     attachments: [],
-                    channelType: channel,
                     sessionKey: sessionKey
                 )
             }

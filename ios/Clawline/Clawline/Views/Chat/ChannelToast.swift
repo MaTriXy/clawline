@@ -1,5 +1,5 @@
 //
-//  ChannelToast.swift
+//  StreamToast.swift
 //  Clawline
 //
 //  Created by Claude on 1/24/26.
@@ -9,7 +9,7 @@ import SwiftUI
 
 /// A Liquid Glass toast that displays the current channel name.
 /// Designed for debounced display during swipe-to-switch gestures.
-struct ChannelToast: View {
+struct StreamToast: View {
     let channelName: String
 
     @Environment(\.colorScheme) private var colorScheme
@@ -59,7 +59,7 @@ struct ChannelToast: View {
 /// Toast stays visible while switching and only dismisses after 1 second of no activity.
 @Observable
 @MainActor
-final class ChannelToastManager {
+final class StreamToastManager {
     private(set) var isVisible = false
     private(set) var channelName: String = ""
 
@@ -68,7 +68,7 @@ final class ChannelToastManager {
 
     /// Shows or updates the toast with the given channel name.
     /// If already visible, just updates the name without dismissing.
-    func show(channel: ChatChannelType) {
+    func show(channel: ChatStream) {
         // Cancel any pending dismiss
         dismissTask?.cancel()
         dismissTask = nil
@@ -98,6 +98,6 @@ final class ChannelToastManager {
         Color.gray.opacity(0.3)
             .ignoresSafeArea()
 
-        ChannelToast(channelName: "Personal")
+        StreamToast(channelName: "Personal")
     }
 }

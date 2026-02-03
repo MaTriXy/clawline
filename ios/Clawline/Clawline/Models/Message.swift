@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum ChatChannelType: String, Codable, CaseIterable, Equatable {
+enum ChatStream: String, Codable, CaseIterable, Equatable {
     case personal
     case admin
 
@@ -35,7 +35,10 @@ struct Message: Identifiable, Equatable, Codable {
     let attachments: [Attachment]
     let deviceId: String?
     let sessionKey: String
-    let channelType: ChatChannelType
+
+    var stream: ChatStream {
+        SessionKey.stream(for: sessionKey)
+    }
 
     enum Role: String, Codable {
         case user

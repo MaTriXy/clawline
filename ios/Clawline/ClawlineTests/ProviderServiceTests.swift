@@ -150,14 +150,12 @@ struct ProviderServiceTests {
             id: "c_test",
             content: "Hello",
             attachments: [],
-            channelType: .admin,
             sessionKey: nil
         )
 
         #expect(mockSocket.sentTexts.contains {
             $0.contains("\"type\":\"message\"")
             && $0.contains("\"content\":\"Hello\"")
-            && $0.contains("\"channelType\":\"admin\"")
         })
     }
 }
