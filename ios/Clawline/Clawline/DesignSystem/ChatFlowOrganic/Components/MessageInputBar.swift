@@ -52,7 +52,6 @@ struct MessageInputBar: View {
     let bottomSafeAreaInset: CGFloat
     /// Keyboard visibility state owned by parent view to survive geometry changes.
     let isKeyboardVisible: Bool
-    let placeholderText: String
     let onSend: () -> Void
     let onCancel: () -> Void
     let onAdd: () -> Void
@@ -286,7 +285,7 @@ struct MessageInputBar: View {
                 .opacity(isSending ? 0.5 : 1)
 
                 if content.length == 0 {
-                    Text(placeholderText)
+                    Text("Message")
                         .foregroundColor(placeholderColor)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                         .frame(maxHeight: .infinity, alignment: .center)
@@ -401,7 +400,6 @@ struct MessageInputBar: View {
                 focusTrigger: 0,
                 bottomSafeAreaInset: 34,
                 isKeyboardVisible: false,
-                placeholderText: "Message",
                 onSend: {},
                 onCancel: {},
                 onAdd: {},

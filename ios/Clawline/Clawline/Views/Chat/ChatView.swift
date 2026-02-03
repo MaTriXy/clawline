@@ -347,7 +347,6 @@ struct ChatView: View {
                     focusTrigger: focusRequestID,
                     bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
                     isKeyboardVisible: isKeyboardVisible,
-                    placeholderText: inputPlaceholderText,
                     onSend: {
                         viewModel.send()
                     },
@@ -365,10 +364,6 @@ struct ChatView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .ignoresSafeArea(.container, edges: .bottom)
         }
-    }
-
-    private var inputPlaceholderText: String {
-        viewModel.serverSessionKey(for: viewModel.activeStream) ?? "missing session key"
     }
 
     private var appVersionLabel: AttributedString? {
@@ -519,8 +514,9 @@ struct ChatView: View {
 
                 // Switch stream and show toast
                 viewModel.setActiveStream(newStream)
+                let sessionKey = viewModel.messageStorageKey(for: newStream)
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    streamToastManager.show(channel: newStream)
+                    streamToastManager.show(sessionKey: sessionKey)
                 }
             }
         )

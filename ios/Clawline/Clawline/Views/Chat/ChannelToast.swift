@@ -66,15 +66,15 @@ final class StreamToastManager {
     private var dismissTask: Task<Void, Never>?
     private let dismissDelay: Duration = .seconds(1)
 
-    /// Shows or updates the toast with the given channel name.
+    /// Shows or updates the toast with the given session key.
     /// If already visible, just updates the name without dismissing.
-    func show(channel: ChatStream) {
+    func show(sessionKey: String) {
         // Cancel any pending dismiss
         dismissTask?.cancel()
         dismissTask = nil
 
         // Update channel name and show
-        channelName = channel.displayName
+        channelName = sessionKey
         isVisible = true
 
         // Schedule new dismiss
@@ -98,6 +98,6 @@ final class StreamToastManager {
         Color.gray.opacity(0.3)
             .ignoresSafeArea()
 
-        StreamToast(channelName: "Personal")
+        StreamToast(channelName: "sessionKey:personal:123")
     }
 }
