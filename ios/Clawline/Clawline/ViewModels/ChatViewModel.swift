@@ -72,6 +72,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var supportsSessionProvisioning: Bool = false
     private var hasProvisionedSessions: Bool = false
     private var pendingSendAfterProvisioning: Bool = false
+    private var pendingProvisionedSend: PendingProvisionedSend?
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
     private(set) var shouldMorphTypingIndicator: Bool = false
 
@@ -118,6 +119,12 @@ final class ChatViewModel: ChatViewModelHosting {
     private struct PendingLocalMessage: Equatable {
         let id: String
         let sessionKey: String
+        let stream: ChatStream
+    }
+
+    private struct PendingProvisionedSend {
+        let content: String
+        let attachments: [PendingAttachment]
         let stream: ChatStream
     }
 
@@ -303,7 +310,6 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         if pendingAttachments.isEmpty && handleSlashCommand(text) {
-            isSending = false
             return
         }
 
@@ -314,6 +320,14 @@ final class ChatViewModel: ChatViewModelHosting {
         if supportsSessionProvisioning,
            (!hasProvisionedSessions || serverSessionKey(for: stream) == nil) {
             pendingSendAfterProvisioning = true
+            pendingProvisionedSend = PendingProvisionedSend(
+                content: text,
+                attachments: pendingAttachments,
+                stream: stream
+            )
+            if stream != activeStream {
+                activeStream = stream
+            }
             toastManager.show("Connecting to stream…")
             return
         }
@@ -429,6 +443,7 @@ final class ChatViewModel: ChatViewModelHosting {
         supportsSessionProvisioning = false
         hasProvisionedSessions = false
         pendingSendAfterProvisioning = false
+        pendingProvisionedSend = nil
         restoredSessionKeys.removeAll()
         clearMessageCache()
     }
@@ -732,6 +747,7 @@ final class ChatViewModel: ChatViewModelHosting {
             connectionStableTask = nil
             supportsSessionProvisioning = false
             hasProvisionedSessions = false
+            pendingProvisionedSend = nil
             beginConnectionAlert(message: "Not connected to provider.")
             scheduleReconnect(reason: .connectionStateDisconnected)
             isAssistantTyping = false
@@ -742,6 +758,7 @@ final class ChatViewModel: ChatViewModelHosting {
             connectionStableTask = nil
             supportsSessionProvisioning = false
             hasProvisionedSessions = false
+            pendingProvisionedSend = nil
             handleConnectionFailure(err)
             scheduleReconnect(reason: .connectionStateFailed)
             isAssistantTyping = false
@@ -1422,11 +1439,12 @@ final class ChatViewModel: ChatViewModelHosting {
             messages = sessionMessages[sessionKey] ?? []
             lastServerMessageId = lastServerMessageIdBySession[sessionKey]
         }
-        if pendingSendAfterProvisioning && canSend {
+        if pendingSendAfterProvisioning, let pending = pendingProvisionedSend {
             pendingSendAfterProvisioning = false
+            pendingProvisionedSend = nil
+            inputContent = NSAttributedString(string: pending.content)
+            stageAttachments(pending.attachments)
             send()
-        } else if pendingSendAfterProvisioning, !canSend {
-            pendingSendAfterProvisioning = false
         }
     }
 

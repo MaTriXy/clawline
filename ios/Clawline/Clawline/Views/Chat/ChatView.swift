@@ -368,8 +368,7 @@ struct ChatView: View {
     }
 
     private var inputPlaceholderText: String {
-        let sessionKey = viewModel.serverSessionKey(for: viewModel.activeStream)
-        return "Message (sessionKey: \(sessionKey ?? "nil"))"
+        "Message"
     }
 
     private var appVersionLabel: AttributedString? {

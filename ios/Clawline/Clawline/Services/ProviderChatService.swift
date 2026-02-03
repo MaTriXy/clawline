@@ -467,7 +467,10 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func handleSessionInfo(data: Data) {
-        guard let payload = try? decoder.decode(SessionInfoPayload.self, from: data) else { return }
+        guard let payload = try? decoder.decode(SessionInfoPayload.self, from: data) else {
+            logger.warning("Failed to decode session_info payload")
+            return
+        }
         emitServiceEvent(.sessionInfo(sessionMap(from: payload.sessions)))
     }
 
