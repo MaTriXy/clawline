@@ -35,6 +35,8 @@ enum ChatServiceEvent: Equatable {
     case connectionInterrupted(reason: String?)
     case userInfo(ChatUserInfo)
     case typingStateChanged(isTyping: Bool, sessionKey: String)
+    case sessionProvisioningAvailable(Bool)
+    case sessionInfo([ChatStream: String])
 }
 
 protocol ChatServicing {

@@ -347,6 +347,7 @@ struct ChatView: View {
                     focusTrigger: focusRequestID,
                     bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
                     isKeyboardVisible: isKeyboardVisible,
+                    placeholderText: inputPlaceholderText,
                     onSend: {
                         viewModel.send()
                     },
@@ -364,6 +365,11 @@ struct ChatView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .ignoresSafeArea(.container, edges: .bottom)
         }
+    }
+
+    private var inputPlaceholderText: String {
+        let sessionKey = viewModel.serverSessionKey(for: viewModel.activeStream)
+        return "Message (sessionKey: \(sessionKey ?? "nil"))"
     }
 
     private var appVersionLabel: AttributedString? {

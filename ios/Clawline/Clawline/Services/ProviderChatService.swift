@@ -98,6 +98,8 @@ final class ProviderChatService: ChatServicing {
         let success: Bool
         let userId: String?
         let isAdmin: Bool?
+        let features: [String]?
+        let sessions: [SessionDescriptor]?
         let reason: String?
     }
 
@@ -117,6 +119,16 @@ final class ProviderChatService: ChatServicing {
         let type: String
         let userId: String
         let isAdmin: Bool
+    }
+
+    private struct SessionDescriptor: Decodable, Equatable {
+        let stream: ChatStream
+        let sessionKey: String
+    }
+
+    private struct SessionInfoPayload: Decodable, Equatable {
+        let type: String
+        let sessions: [SessionDescriptor]
     }
 
     private struct EventEnvelope: Decodable {
@@ -321,6 +333,8 @@ final class ProviderChatService: ChatServicing {
                 handleUserInfo(data: data)
             case "typing":
                 handleTyping(data: data)
+            case "session_info":
+                handleSessionInfo(data: data)
             case "event":
                 handleEvent(data: data)
             default:
@@ -336,6 +350,12 @@ final class ProviderChatService: ChatServicing {
             resolveAuthContinuation(with: .success(()))
             logger.info("state -> connected (auth success)")
             updateState(.connected)
+            if let features = result.features {
+                emitServiceEvent(.sessionProvisioningAvailable(features.contains("session_info")))
+            }
+            if let sessions = result.sessions, !sessions.isEmpty {
+                emitServiceEvent(.sessionInfo(sessionMap(from: sessions)))
+            }
             if let isAdmin = result.isAdmin {
                 logger.info("Auth result received (userId: \(result.userId ?? "unknown", privacy: .public), isAdmin: \(isAdmin, privacy: .public))")
                 let info = ChatUserInfo(userId: result.userId ?? "", isAdmin: isAdmin)
@@ -446,6 +466,11 @@ final class ProviderChatService: ChatServicing {
         emitServiceEvent(.userInfo(info))
     }
 
+    private func handleSessionInfo(data: Data) {
+        guard let payload = try? decoder.decode(SessionInfoPayload.self, from: data) else { return }
+        emitServiceEvent(.sessionInfo(sessionMap(from: payload.sessions)))
+    }
+
     private func handleEvent(data: Data) {
         guard let envelope = try? decoder.decode(EventEnvelope.self, from: data) else {
             logger.warning("Failed to decode event envelope")
@@ -488,6 +513,14 @@ final class ProviderChatService: ChatServicing {
 
     private func emitServiceEvent(_ event: ChatServiceEvent) {
         serviceEventBroadcaster.send(event)
+    }
+
+    private func sessionMap(from sessions: [SessionDescriptor]) -> [ChatStream: String] {
+        var map: [ChatStream: String] = [:]
+        for session in sessions {
+            map[session.stream] = session.sessionKey
+        }
+        return map
     }
 
     private func handleSocketClose() {

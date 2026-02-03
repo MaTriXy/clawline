@@ -69,6 +69,9 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var inputResetToken: Int = 0
     private(set) var error: String?
     private(set) var sendTask: Task<Void, Never>?
+    private var supportsSessionProvisioning: Bool = false
+    private var hasProvisionedSessions: Bool = false
+    private var pendingSendAfterProvisioning: Bool = false
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
     private(set) var shouldMorphTypingIndicator: Bool = false
 
@@ -291,14 +294,11 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func send() {
         guard !isSending else { return }
-        isSending = true  // Set immediately to prevent double-tap race condition
-
         pruneAttachmentData()
         let (text, pendingIds) = inputContent.contentForSending()
         let pendingAttachments = pendingIds.compactMap { attachmentData[$0] }
 
         guard !text.isEmpty || !pendingAttachments.isEmpty else {
-            isSending = false
             return
         }
 
@@ -311,6 +311,14 @@ final class ChatViewModel: ChatViewModelHosting {
         activeClientMessageId = clientId
 
         let stream = activeStream
+        if supportsSessionProvisioning,
+           (!hasProvisionedSessions || serverSessionKey(for: stream) == nil) {
+            pendingSendAfterProvisioning = true
+            toastManager.show("Connecting to stream…")
+            return
+        }
+
+        isSending = true  // Set immediately to prevent double-tap race condition
         let storageKey = storageKey(for: stream)
         let outboundSessionKey = serverSessionKey(for: stream)
         let placeholder = Message(
@@ -418,6 +426,9 @@ final class ChatViewModel: ChatViewModelHosting {
         shouldMorphTypingIndicator = false
         connectionStableTask?.cancel()
         connectionStableTask = nil
+        supportsSessionProvisioning = false
+        hasProvisionedSessions = false
+        pendingSendAfterProvisioning = false
         restoredSessionKeys.removeAll()
         clearMessageCache()
     }
@@ -719,6 +730,8 @@ final class ChatViewModel: ChatViewModelHosting {
         case .disconnected:
             connectionStableTask?.cancel()
             connectionStableTask = nil
+            supportsSessionProvisioning = false
+            hasProvisionedSessions = false
             beginConnectionAlert(message: "Not connected to provider.")
             scheduleReconnect(reason: .connectionStateDisconnected)
             isAssistantTyping = false
@@ -727,6 +740,8 @@ final class ChatViewModel: ChatViewModelHosting {
         case .failed(let err):
             connectionStableTask?.cancel()
             connectionStableTask = nil
+            supportsSessionProvisioning = false
+            hasProvisionedSessions = false
             handleConnectionFailure(err)
             scheduleReconnect(reason: .connectionStateFailed)
             isAssistantTyping = false
@@ -1201,6 +1216,10 @@ final class ChatViewModel: ChatViewModelHosting {
                 self.typingSessionKey = nil
                 self.typingStream = nil
             }
+        case .sessionProvisioningAvailable(let supported):
+            supportsSessionProvisioning = supported
+        case .sessionInfo(let sessions):
+            applySessionInfo(sessions)
         }
     }
 
@@ -1394,6 +1413,21 @@ final class ChatViewModel: ChatViewModelHosting {
             return
         }
         setActiveStream(stored)
+    }
+
+    private func applySessionInfo(_ sessions: [ChatStream: String]) {
+        hasProvisionedSessions = !sessions.isEmpty
+        sessionKeyByStream = sessions
+        if let sessionKey = sessions[activeStream] {
+            messages = sessionMessages[sessionKey] ?? []
+            lastServerMessageId = lastServerMessageIdBySession[sessionKey]
+        }
+        if pendingSendAfterProvisioning && canSend {
+            pendingSendAfterProvisioning = false
+            send()
+        } else if pendingSendAfterProvisioning, !canSend {
+            pendingSendAfterProvisioning = false
+        }
     }
 
     private func userFacingMessage(for code: String, fallback: String?) -> String {
