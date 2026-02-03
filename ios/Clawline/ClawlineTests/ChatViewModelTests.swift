@@ -3,6 +3,9 @@ import UIKit
 import Testing
 @testable import Clawline
 
+private let personalSessionKey = "server:personal"
+private let adminSessionKey = "server:admin"
+
 struct ChatViewModelTests {
     @Test("Records last server message id for reconnects")
     @MainActor
@@ -30,7 +33,7 @@ struct ChatViewModelTests {
                 streaming: false,
                 attachments: [],
                 deviceId: nil,
-                sessionKey: SessionKey.personal(userId: "user"),
+                sessionKey: personalSessionKey,
                 channelType: .personal
             )
         )
@@ -69,7 +72,7 @@ struct ChatViewModelTests {
                 streaming: true,
                 attachments: [],
                 deviceId: nil,
-                sessionKey: SessionKey.personal(userId: "user"),
+                sessionKey: personalSessionKey,
                 channelType: .personal
             )
         )
@@ -87,7 +90,7 @@ struct ChatViewModelTests {
                 streaming: false,
                 attachments: [],
                 deviceId: nil,
-                sessionKey: SessionKey.personal(userId: "user"),
+                sessionKey: personalSessionKey,
                 channelType: .personal
             )
         )
@@ -132,7 +135,7 @@ struct ChatViewModelTests {
                 streaming: false,
                 attachments: [],
                 deviceId: "device",
-                sessionKey: SessionKey.personal(userId: "user"),
+                sessionKey: personalSessionKey,
                 channelType: .personal
             )
         )
@@ -256,7 +259,7 @@ struct ChatViewModelTests {
             streaming: false,
             attachments: [],
             deviceId: nil,
-            sessionKey: SessionKey.personal(userId: "user"),
+            sessionKey: personalSessionKey,
             channelType: .personal
         )
 
@@ -374,7 +377,8 @@ struct ChatViewModelTests {
         viewModel.send()
         try await Task.sleep(for: .milliseconds(10))
 
-        #expect(chatService.lastSessionKey == SessionKey.dm)
+        #expect(chatService.lastSessionKey == nil)
+        #expect(chatService.lastChannelType == .admin)
     }
 
     @Test("Incoming messages route to matching channel")
@@ -403,7 +407,7 @@ struct ChatViewModelTests {
             streaming: false,
             attachments: [],
             deviceId: nil,
-            sessionKey: SessionKey.dm,
+            sessionKey: adminSessionKey,
             channelType: .admin
         )
 
@@ -486,6 +490,7 @@ private final class TestChatService: ChatServicing {
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
     private(set) var lastSessionKey: String?
+    private(set) var lastChannelType: ChatChannelType?
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -518,10 +523,11 @@ private final class TestChatService: ChatServicing {
         stateContinuation?.yield(.disconnected)
     }
 
-    func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String) async throws {
+    func send(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType, sessionKey: String?) async throws {
         lastSentId = id
         lastSentAttachments = attachments
         lastSessionKey = sessionKey
+        lastChannelType = channelType
     }
 
     func emit(_ message: Message) {

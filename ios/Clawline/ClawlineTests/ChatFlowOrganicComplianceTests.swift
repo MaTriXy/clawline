@@ -9,6 +9,9 @@ import SwiftUI
 import Testing
 @testable import Clawline
 
+private let personalSessionKey = "server:personal"
+private let adminSessionKey = "server:admin"
+
 struct ChatFlowOrganicComplianceTests {
 
     // MARK: Message presentation (§5/§6)
@@ -234,7 +237,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [sampleAttachment(id: "img1"), sampleAttachment(id: "img2")],
             deviceId: nil,
-            sessionKey: SessionKey.personal(userId: "user"),
+            sessionKey: personalSessionKey,
             channelType: .personal
         )
         let presentation = buildPresentation(message)
@@ -272,7 +275,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [sampleAttachment(id: "img")],
             deviceId: nil,
-            sessionKey: SessionKey.personal(userId: "user"),
+            sessionKey: personalSessionKey,
             channelType: .personal
         )
         let presentation = buildPresentation(message)
@@ -388,7 +391,7 @@ struct ChatFlowOrganicComplianceTests {
         }
         """
         let payload = try! JSONDecoder().decode(ServerMessagePayload.self, from: Data(json.utf8))
-        let message = Message(payload: payload, sessionKey: payload.sessionKey ?? SessionKey.personal(userId: "user"))
+        let message = Message(payload: payload, sessionKey: payload.sessionKey ?? personalSessionKey)
         #expect(message.id == "s_789")
         #expect(message.role == .assistant)
         #expect(message.content == "Hello")
@@ -424,7 +427,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [attachment],
             deviceId: nil,
-            sessionKey: SessionKey.personal(userId: "user"),
+            sessionKey: personalSessionKey,
             channelType: .personal
         )
         let payload = message.toClientPayload()
@@ -433,7 +436,7 @@ struct ChatFlowOrganicComplianceTests {
             Issue.record("Expected attachment entry")
             return
         }
-        #expect(decoded.sessionKey == SessionKey.personal(userId: "user"))
+        #expect(decoded.sessionKey == personalSessionKey)
         #expect(decoded.channelType == .personal)
         switch first {
         case .image(let mimeType, let data):
@@ -453,16 +456,16 @@ struct ChatFlowOrganicComplianceTests {
             timestamp: Date(),
             streaming: true,
             deviceId: "device",
-            sessionKey: SessionKey.personal(userId: "user"),
+            sessionKey: personalSessionKey,
             attachments: []
         )
-        let message = Message(payload: payload, sessionKey: payload.sessionKey ?? SessionKey.personal(userId: "user"))
+        let message = Message(payload: payload, sessionKey: payload.sessionKey ?? personalSessionKey)
         #expect(message.id == payload.id)
         #expect(message.role == payload.role)
         #expect(message.streaming == payload.streaming)
         #expect(message.attachments == payload.attachments)
         #expect(message.sessionKey == payload.sessionKey)
-        #expect(message.channelType == SessionKey.channelType(for: payload.sessionKey ?? SessionKey.dm))
+        #expect(message.channelType == SessionKey.channelType(for: payload.sessionKey ?? adminSessionKey))
     }
 
     @Test("Doc §5: MessagePart.isTextual lives with model")
@@ -487,7 +490,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [sampleAttachment(id: "img1"), sampleAttachment(id: "img2")],
             deviceId: nil,
-            sessionKey: SessionKey.personal(userId: "user"),
+            sessionKey: personalSessionKey,
             channelType: .personal
         )
         let presentation = buildPresentation(message)
@@ -515,7 +518,7 @@ struct ChatFlowOrganicComplianceTests {
             streaming: false,
             attachments: [],
             deviceId: nil,
-            sessionKey: SessionKey.personal(userId: "user"),
+            sessionKey: personalSessionKey,
             channelType: .personal
         )
     }

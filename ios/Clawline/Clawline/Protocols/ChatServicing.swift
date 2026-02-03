@@ -48,6 +48,7 @@ protocol ChatServicing {
         id: String,
         content: String,
         attachments: [WireAttachment],
-        sessionKey: String
+        channelType: ChatChannelType,
+        sessionKey: String?
     ) async throws
 }

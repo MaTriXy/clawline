@@ -1186,7 +1186,7 @@ private final class PreviewChatService: ChatServicing {
     }
     func connect(token: String, lastMessageId: String?) async throws {}
     func disconnect() {}
-    func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String) async throws {}
+    func send(id: String, content: String, attachments: [WireAttachment], channelType: ChatChannelType, sessionKey: String?) async throws {}
 }
 
 private struct AttachmentSourceSheet: View {

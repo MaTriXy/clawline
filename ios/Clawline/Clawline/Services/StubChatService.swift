@@ -49,10 +49,17 @@ final class StubChatService: ChatServicing {
         stateContinuation?.yield(.disconnected)
     }
 
-    func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String) async throws {
+    func send(
+        id: String,
+        content: String,
+        attachments: [WireAttachment],
+        channelType: ChatChannelType,
+        sessionKey: String?
+    ) async throws {
         try await Task.sleep(for: .seconds(responseDelay))
         serviceEventContinuation?.yield(.messageAcked(id: id))
 
+        let resolvedSessionKey = sessionKey ?? "local:\(channelType.rawValue)"
         let response = Message(
             id: UUID().uuidString,
             role: .assistant,
@@ -61,8 +68,8 @@ final class StubChatService: ChatServicing {
             streaming: false,
             attachments: [],
             deviceId: nil,
-            sessionKey: sessionKey,
-            channelType: SessionKey.channelType(for: sessionKey)
+            sessionKey: resolvedSessionKey,
+            channelType: channelType
         )
 
         messageContinuation?.yield(response)

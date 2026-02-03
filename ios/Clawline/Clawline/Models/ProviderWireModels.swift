@@ -99,7 +99,7 @@ struct ClientMessagePayload: Codable, Equatable {
     let id: String
     let content: String
     let attachments: [WireAttachment]
-    let sessionKey: String
+    let sessionKey: String?
     let channelType: ChatChannelType?
 
     enum CodingKeys: String, CodingKey {
@@ -111,7 +111,7 @@ struct ClientMessagePayload: Codable, Equatable {
         case channelType
     }
 
-    init(id: String, content: String, attachments: [WireAttachment], sessionKey: String, channelType: ChatChannelType? = nil, type: String = "message") {
+    init(id: String, content: String, attachments: [WireAttachment], sessionKey: String?, channelType: ChatChannelType? = nil, type: String = "message") {
         self.type = type
         self.id = id
         self.content = content
@@ -126,7 +126,7 @@ struct ClientMessagePayload: Codable, Equatable {
         self.id = try container.decode(String.self, forKey: .id)
         self.content = try container.decode(String.self, forKey: .content)
         self.attachments = try container.decodeIfPresent([WireAttachment].self, forKey: .attachments) ?? []
-        self.sessionKey = try container.decode(String.self, forKey: .sessionKey)
+        self.sessionKey = try container.decodeIfPresent(String.self, forKey: .sessionKey)
         self.channelType = try container.decodeIfPresent(ChatChannelType.self, forKey: .channelType)
     }
 
@@ -136,7 +136,7 @@ struct ClientMessagePayload: Codable, Equatable {
         try container.encode(id, forKey: .id)
         try container.encode(content, forKey: .content)
         try container.encode(attachments, forKey: .attachments)
-        try container.encode(sessionKey, forKey: .sessionKey)
+        try container.encodeIfPresent(sessionKey, forKey: .sessionKey)
         try container.encodeIfPresent(channelType, forKey: .channelType)
     }
 }
@@ -152,7 +152,7 @@ extension Message {
             attachments: payload.attachments,
             deviceId: payload.deviceId,
             sessionKey: sessionKey,
-            channelType: SessionKey.channelType(for: sessionKey)
+            channelType: payload.channelType ?? SessionKey.channelType(for: sessionKey)
         )
     }
 

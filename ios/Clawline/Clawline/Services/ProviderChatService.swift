@@ -252,7 +252,13 @@ final class ProviderChatService: ChatServicing {
         updateState(.disconnected)
     }
 
-    func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String) async throws {
+    func send(
+        id: String,
+        content: String,
+        attachments: [WireAttachment],
+        channelType: ChatChannelType,
+        sessionKey: String?
+    ) async throws {
         guard let socket else {
             throw Error.notConnected
         }
@@ -265,7 +271,7 @@ final class ProviderChatService: ChatServicing {
             content: content,
             attachments: attachments,
             sessionKey: sessionKey,
-            channelType: SessionKey.channelType(for: sessionKey)
+            channelType: channelType
         )
         let data = try encoder.encode(payload)
         guard let text = String(data: data, encoding: .utf8) else { return }
@@ -473,21 +479,9 @@ final class ProviderChatService: ChatServicing {
         if let sessionKey = payload.sessionKey {
             return sessionKey
         }
-        guard let raw = payload.channelType?.lowercased() else { return nil }
-        let channelType: ChatChannelType
-        switch raw {
-        case "admin":
-            channelType = .admin
-        case "personal":
-            channelType = .personal
-        default:
-            logger.warning("Unknown channelType: \(payload.channelType ?? "nil", privacy: .public)")
-            return nil
+        if payload.channelType != nil {
+            logger.warning("Typing payload missing sessionKey")
         }
-        if let sessionKey = SessionKey.sessionKey(for: channelType, userId: userIdProvider()) {
-            return sessionKey
-        }
-        logger.warning("Unable to derive sessionKey from channelType=\(channelType.rawValue, privacy: .public)")
         return nil
     }
 
@@ -495,11 +489,9 @@ final class ProviderChatService: ChatServicing {
         if let sessionKey = payload.sessionKey {
             return sessionKey
         }
-        guard let channelType = payload.channelType else { return nil }
-        if let sessionKey = SessionKey.sessionKey(for: channelType, userId: userIdProvider()) {
-            return sessionKey
+        if payload.channelType != nil {
+            logger.warning("Message payload missing sessionKey")
         }
-        logger.warning("Unable to derive sessionKey from channelType=\(channelType.rawValue, privacy: .public)")
         return nil
     }
 
@@ -507,21 +499,9 @@ final class ProviderChatService: ChatServicing {
         if let sessionKey = payload.sessionKey {
             return sessionKey
         }
-        guard let raw = payload.channelType?.lowercased() else { return nil }
-        let channelType: ChatChannelType
-        switch raw {
-        case "admin":
-            channelType = .admin
-        case "personal":
-            channelType = .personal
-        default:
-            logger.warning("Unknown channelType: \(payload.channelType ?? "nil", privacy: .public)")
-            return nil
+        if payload.channelType != nil {
+            logger.warning("Activity payload missing sessionKey")
         }
-        if let sessionKey = SessionKey.sessionKey(for: channelType, userId: userIdProvider()) {
-            return sessionKey
-        }
-        logger.warning("Unable to derive sessionKey from channelType=\(channelType.rawValue, privacy: .public)")
         return nil
     }
 
