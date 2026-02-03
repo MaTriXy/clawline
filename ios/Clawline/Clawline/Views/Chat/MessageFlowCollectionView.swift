@@ -251,7 +251,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    func update(viewModel: ChatViewModel, isCompact: Bool, topInset: CGFloat, onExpand: ((Message) -> Void)? = nil, channel: ChatChannelType? = nil, isDark: Bool? = nil) {
+    func update(
+        viewModel: ChatViewModel,
+        isCompact: Bool,
+        topInset: CGFloat,
+        onExpand: ((Message) -> Void)? = nil,
+        channel: ChatChannelType? = nil,
+        isDark: Bool? = nil,
+        keyboardHeight: CGFloat = 0
+    ) {
         loadViewIfNeeded()
         let t0 = CFAbsoluteTimeGetCurrent()
         self.viewModel = viewModel
