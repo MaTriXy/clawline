@@ -690,6 +690,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     top: bottomColor.withAlphaComponent(0),
                     bottom: bottomColor
                 )
+#if os(visionOS)
+                fadeView.setFadeStartLocation(0.95)
+#else
+                fadeView.setFadeStartLocation(nil)
+#endif
                 let fadeHeight: CGFloat = 100
                 dynamicContentScrollView.contentInset.bottom = fadeHeight
                 fadeConstraints = [
@@ -1606,6 +1611,15 @@ final class TruncationFadeView: UIView {
 
     func updateColors(top: UIColor, bottom: UIColor) {
         gradientLayer.colors = [top.cgColor, bottom.cgColor]
+    }
+
+    func setFadeStartLocation(_ start: CGFloat?) {
+        if let start {
+            let clampedStart = max(0, min(start, 1))
+            gradientLayer.locations = [NSNumber(value: Double(clampedStart)), 1.0]
+        } else {
+            gradientLayer.locations = nil
+        }
     }
 }
 
