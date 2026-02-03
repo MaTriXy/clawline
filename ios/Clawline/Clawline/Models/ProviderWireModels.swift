@@ -11,6 +11,7 @@ struct ServerMessagePayload: Codable, Equatable {
     let type: String
     let id: String
     let role: Message.Role
+    let sender: String?
     let content: String
     let timestamp: Date
     let streaming: Bool
@@ -55,9 +56,10 @@ struct ServerMessagePayload: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         type = try container.decode(String.self, forKey: .type)
         id = try container.decode(String.self, forKey: .id)
+        sender = try container.decodeIfPresent(String.self, forKey: .sender)
         if let decodedRole = try container.decodeIfPresent(Message.Role.self, forKey: .role) {
             role = decodedRole
-        } else if let sender = try container.decodeIfPresent(String.self, forKey: .sender) {
+        } else if let sender {
             role = sender.lowercased() == Message.Role.assistant.rawValue ? .assistant : .user
         } else {
             throw DecodingError.keyNotFound(
@@ -79,6 +81,7 @@ struct ServerMessagePayload: Codable, Equatable {
         try container.encode(type, forKey: .type)
         try container.encode(id, forKey: .id)
         try container.encode(role, forKey: .role)
+        try container.encodeIfPresent(sender, forKey: .sender)
         try container.encode(content, forKey: .content)
         try container.encode(timestamp.timeIntervalSince1970 * 1000, forKey: .timestamp)
         try container.encode(streaming, forKey: .streaming)
@@ -140,7 +143,8 @@ extension Message {
             streaming: payload.streaming,
             attachments: payload.attachments,
             deviceId: payload.deviceId,
-            sessionKey: sessionKey
+            sessionKey: sessionKey,
+            sender: payload.sender
         )
     }
 

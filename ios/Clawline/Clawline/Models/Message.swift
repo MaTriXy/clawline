@@ -35,9 +35,22 @@ struct Message: Identifiable, Equatable, Codable {
     let attachments: [Attachment]
     let deviceId: String?
     let sessionKey: String
+    let sender: String? = nil
 
     var stream: ChatStream {
         SessionKey.stream(for: sessionKey)
+    }
+
+    var displayName: String {
+        switch role {
+        case .user:
+            return "You"
+        case .assistant:
+            if let sender, !sender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return sender
+            }
+            return "Assistant"
+        }
     }
 
     enum Role: String, Codable {

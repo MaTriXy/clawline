@@ -40,7 +40,7 @@ struct ExpandedMessageSheet: View {
                 .padding()
             }
             .background(sheetBackground)
-            .navigationTitle(message.role == .user ? "Your Message" : "CLU")
+            .navigationTitle(message.role == .user ? "Your Message" : message.displayName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -74,7 +74,7 @@ struct ExpandedMessageSheet: View {
             Circle()
                 .fill(message.role == .user ? ChatFlowTheme.sage(effectiveColorScheme) : ChatFlowTheme.softCoral(effectiveColorScheme))
                 .frame(width: 8, height: 8)
-            Text(message.role == .user ? "You" : "CLU")
+            Text(message.displayName)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(ChatFlowTheme.warmBrown(effectiveColorScheme))
         }

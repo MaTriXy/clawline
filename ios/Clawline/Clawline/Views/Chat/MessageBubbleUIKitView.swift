@@ -445,7 +445,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         let senderColor = (message.stream == .admin) ? palette.adminAccent : palette.warmBrown
         senderLabel.font = UIFont.systemFont(ofSize: metrics.senderFontSize, weight: .semibold)
         senderLabel.textColor = senderColor.withAlphaComponent(message.stream == .admin ? 1.0 : 0.7)
-        senderLabel.text = (message.role == .user) ? "You" : "CLU"
+        senderLabel.text = message.displayName
         headerStack.isHidden = !showsHeader
         bodyLabel.linkTextAttributes = [
             .foregroundColor: palette.ink,
