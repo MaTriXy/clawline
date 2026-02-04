@@ -473,8 +473,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 failureReason: viewModel.failureMessage(for: message.id),
                 isCompact: self.isCompact,
                 maxWidth: configureWidth,
-                showsHeader: !hideHeader,
                 truncationHeightOverride: truncationHeight,
+                showsHeader: !hideHeader,
                 isDark: self.currentIsDark,
                 onRequestExpand: { [weak self] in
                     guard let self else { return }
@@ -703,11 +703,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sizeClass: sizeClass,
             metrics: metrics,
             maxWidth: maxWidth,
+            truncationHeightOverride: truncationHeightOverride,
             showsHeader: showsHeader,
             paddingScale: paddingScale,
             minWidthOverride: minWidthOverride,
             maxWidthOverride: maxWidthOverride,
-            truncationHeightOverride: truncationHeightOverride,
             onRequestExpand: nil,
             onRequestLayout: nil
         )
