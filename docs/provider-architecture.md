@@ -359,6 +359,18 @@ HTTP auth rules (v1):
 - Use the same JWT as WebSocket `auth` for `/upload` (Authorization: Bearer <token>).
 - File URLs are standard HTTP GETs against the web root; access control is managed by the deployment (v1 assumes trusted environments).
 
+### /alert endpoint
+
+- **Purpose:** Inject a message into an agent session over HTTP so external systems can wake a session and deliver text without a WebSocket connection.
+- **Payload:** `POST /alert` with JSON `{ "sessionKey": string, "message": string, "source"?: string }`.
+- **Auth:** No bearer token is required; the caller is assumed to be localhost-trusted infrastructure.
+- **Targeting:** The caller must specify the exact session key. Alerts are routed to whichever session is subscribed to that key.
+- **Response:** Returns `{"ok": true}` when the gateway accepts the alert (not a delivery confirmation).
+- **Delivery invariant:** The alert reaches the gateway queue but will only broadcast if a WebSocket client is subscribed to that session key. No client on the key means the alert silently stops after queue acceptance.
+- **Common keys:**
+  - `agent:main:main` targets the main agent session shared with Discord/Telegram/gateway clients.
+  - `agent:main:clawline:{userId}:main` targets a specific user’s Clawline stream.
+
 Storage expectations:
 - Local disk for bytes (v1)
 - Web root directory (configurable) is the source of truth for stored files.
