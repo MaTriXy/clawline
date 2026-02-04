@@ -19,7 +19,7 @@ final class MessageBubbleUIKitContainerView: UIView {
     private var badgeBottomConstraint: NSLayoutConstraint!
     private var badgeLeadingConstraint: NSLayoutConstraint!
     private var onRetry: (() -> Void)?
-    private var onRequestLayout: (() -> Void)?
+    private var onRequestLayout: ((String) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -66,7 +66,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
-                   onRequestLayout: (() -> Void)?,
+                   onRequestLayout: ((String) -> Void)?,
                    onRetry: (() -> Void)?) {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
@@ -148,7 +148,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var shouldTruncate = false
     private var fileTapHandlers: [ObjectIdentifier: () -> Void] = [:]
     private var onRequestExpand: (() -> Void)?
-    private var onRequestLayout: (() -> Void)?
+    private var onRequestLayout: ((String) -> Void)?
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
     private var currentStream: ChatStream = .personal
@@ -427,7 +427,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
-                   onRequestLayout: (() -> Void)?) {
+                   onRequestLayout: ((String) -> Void)?) {
         // Store for trait collection updates
         currentMessageRole = message.role
         currentStream = message.stream
@@ -465,6 +465,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Remove old dynamic content views
         for view in dynamicContentViews {
+            if let previewView = view as? LinkPreviewView {
+                previewView.prepareForReuse()
+            }
             dynamicContentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
@@ -532,7 +535,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             let previewView = LinkPreviewView()
             previewView.configure(url: linkPreviewURL)
             previewView.onHeightChange = { [weak self] in
-                self?.onRequestLayout?()
+                self?.onRequestLayout?(message.id)
             }
             dynamicContentStack.addArrangedSubview(previewView)
             dynamicContentViews.append(previewView)
@@ -921,8 +924,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 return value
             case .table(let model):
                 return "Table (\(model.rows.count) rows)"
-            case .linkPreview(let url):
-                return url.absoluteString
+            case .linkPreview:
+                return ""
             case .image, .gallery, .file:
                 return ""
             }
@@ -964,9 +967,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         // Filter to only text parts (no code blocks or tables - those are rendered as separate views)
         let textParts = presentation.parts.filter {
             switch $0 {
-            case .text, .markdown, .inlineEmoji, .linkPreview:
+            case .text, .markdown, .inlineEmoji:
                 return true
-            case .code, .table, .image, .gallery, .file:
+            case .linkPreview, .code, .table, .image, .gallery, .file:
                 return false
             }
         }
@@ -991,13 +994,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             case .inlineEmoji(let value):
                 result.append(NSAttributedString(string: value, attributes: baseAttributes))
 
-            case .linkPreview(let url):
-                var linkAttributes = baseAttributes
-                linkAttributes[.link] = url
-                linkAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
-                result.append(NSAttributedString(string: url.absoluteString, attributes: linkAttributes))
-
-            case .code, .table, .image, .gallery, .file:
+            case .linkPreview, .code, .table, .image, .gallery, .file:
                 break
             }
         }
@@ -1679,10 +1676,14 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
                    showsHeader: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
-                   onRequestLayout: (() -> Void)?,
+                   onRequestLayout: ((String) -> Void)?,
                    onRetry: (() -> Void)?) {
         messageId = message.id
         messageSnippet = String(message.content.prefix(80))
+        let guardedRequestLayout: (String) -> Void = { [weak self] requestedId in
+            guard let self, self.messageId == requestedId else { return }
+            onRequestLayout?(requestedId)
+        }
         containerView.configure(
             message: message,
             presentation: presentation,
@@ -1692,7 +1693,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             showsHeader: showsHeader,
             isDark: isDark,
             onRequestExpand: onRequestExpand,
-            onRequestLayout: onRequestLayout,
+            onRequestLayout: guardedRequestLayout,
             onRetry: onRetry
         )
     }

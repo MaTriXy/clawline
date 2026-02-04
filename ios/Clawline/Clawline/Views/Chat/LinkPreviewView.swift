@@ -173,11 +173,29 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
+    override var intrinsicContentSize: CGSize {
+        let height = webViewHeightConstraint?.constant ?? Constants.minHeight
+        return CGSize(width: UIView.noIntrinsicMetric, height: height)
+    }
+
     func configure(url: URL) {
         if currentURL == url, state != .failed { return }
         resetState()
         currentURL = url
+        let hostLabel = url.host ?? url.absoluteString
+        overlayButton.isAccessibilityElement = true
+        overlayButton.accessibilityLabel = "Link preview: \(hostLabel)"
+        overlayButton.accessibilityTraits = .link
         requestSlotIfNeeded()
+    }
+
+    func prepareForReuse() {
+        cancelLoad(releaseSlot: true)
+        currentURL = nil
+        currentHost = nil
+        pinnedIPs = []
+        redirectCount = 0
+        state = .idle
     }
 
     private func setupViews() {
@@ -241,6 +259,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         statusLabel.text = "Preview unavailable"
         statusLabel.font = UIFont.preferredFont(forTextStyle: .footnote)
         statusLabel.textColor = .secondaryLabel
+        statusLabel.textAlignment = .left
         statusLabel.numberOfLines = 0
         statusLabel.isHidden = true
         stackView.addArrangedSubview(statusLabel)
@@ -251,6 +270,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         guard !hasSlot, let currentURL else { return }
         guard state == .idle else { return }
 
+        setLoadingState()
         LinkPreviewLoadCoordinator.shared.acquireSlot { [weak self] in
             guard let self else { return }
             guard self.window != nil else {
@@ -262,11 +282,15 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    private func startLoad(url: URL) {
+    private func setLoadingState() {
         state = .loading
         statusLabel.isHidden = true
         webContainer.isHidden = false
         spinner.startAnimating()
+    }
+
+    private func startLoad(url: URL) {
+        setLoadingState()
         redirectCount = 0
         currentHost = url.host
         pinnedIPs = []
@@ -346,7 +370,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     private func scheduleFallbackMeasurement() {
         fallbackTimer?.invalidate()
         fallbackTimer = Timer.scheduledTimer(withTimeInterval: Constants.emptyBodyDelay, repeats: false) { [weak self] _ in
-            self?.evaluateHeightFallback()
+            if self?.heightUpdates == 0 {
+                self?.evaluateHeightFallback()
+            }
             self?.evaluateEmptyBodyFallback()
         }
     }
@@ -376,9 +402,13 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     private func applyMeasuredHeight(_ rawHeight: Double) {
         guard rawHeight.isFinite else { return }
         let clamped = max(Constants.minHeight, min(Constants.maxHeight, CGFloat(rawHeight)))
-        webViewHeightConstraint.constant = clamped
         let needsScroll = rawHeight > Double(Constants.maxHeight)
         webView.scrollView.isScrollEnabled = needsScroll
+        if abs(webViewHeightConstraint.constant - clamped) <= 10 {
+            return
+        }
+        webViewHeightConstraint.constant = clamped
+        invalidateIntrinsicContentSize()
         onHeightChange?()
     }
 
@@ -388,6 +418,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         cancelLoad(releaseSlot: true)
         webContainer.isHidden = true
         statusLabel.isHidden = false
+        invalidateIntrinsicContentSize()
         onHeightChange?()
     }
 
@@ -415,6 +446,18 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         if isBlockedIPAddressHost(url.host) {
             decisionHandler(.cancel)
             handleFailure()
+            return
+        }
+        if let host = url.host, host == currentHost, navigationAction.targetFrame?.isMainFrame == true {
+            validatePinnedHost(host) { [weak self] allowed in
+                guard let self else { return }
+                guard allowed else {
+                    decisionHandler(.cancel)
+                    self.handleFailure()
+                    return
+                }
+                decisionHandler(.allow)
+            }
             return
         }
         if let host = url.host, host != currentHost {
@@ -452,6 +495,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         guard state == .loading else { return }
         spinner.stopAnimating()
         state = .loaded
+        if heightUpdates == 0 {
+            evaluateHeightFallback()
+        }
         scheduleFallbackMeasurement()
     }
 
@@ -487,6 +533,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         (function(){
           var handler = '\(handler)';
           var token = '\(token)';
+          var store = window.__clawlineLinkPreviewObservers || (window.__clawlineLinkPreviewObservers = {});
           function postHeight(){
             try {
               var body = document.body;
@@ -503,6 +550,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
               if (!target) { return; }
               var obs = new ResizeObserver(function(){ postHeight(); });
               obs.observe(target);
+              store[handler] = obs;
               postHeight();
             } else {
               postHeight();
@@ -520,12 +568,27 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func removeHeightObserver() {
+        disconnectHeightObserver()
         webView.configuration.userContentController.removeAllUserScripts()
         if let handlerName, handlerRegistered {
             webView.configuration.userContentController.removeScriptMessageHandler(forName: handlerName)
         }
         handlerRegistered = false
         handlerName = nil
+    }
+
+    private func disconnectHeightObserver() {
+        guard let handlerName else { return }
+        let js = """
+        (function(){
+          var store = window.__clawlineLinkPreviewObservers;
+          if (store && store['\(handlerName)']) {
+            store['\(handlerName)'].disconnect();
+            delete store['\(handlerName)'];
+          }
+        })();
+        """
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     // MARK: - Helpers
@@ -609,6 +672,29 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         }
 
         return host == "localhost"
+    }
+
+    private func validatePinnedHost(_ host: String, completion: @escaping (Bool) -> Void) {
+        guard !pinnedIPs.isEmpty else {
+            completion(true)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let resolution = self.resolveHost(host)
+            DispatchQueue.main.async {
+                switch resolution {
+                case .blocked:
+                    completion(false)
+                case .allowed(let ipSet):
+                    if ipSet.isEmpty {
+                        completion(true)
+                        return
+                    }
+                    completion(ipSet.isSubset(of: self.pinnedIPs))
+                }
+            }
+        }
     }
 }
 

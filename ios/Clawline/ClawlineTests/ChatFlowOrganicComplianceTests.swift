@@ -222,7 +222,13 @@ struct ChatFlowOrganicComplianceTests {
             return false
         }))
 
-        let codeBlock = buildPresentation(sampleMessage(content: "```\\nhttps://example.com\\n```"))
+        let duplicate = buildPresentation(sampleMessage(content: "https://example.com https://example.com"))
+        #expect(!duplicate.parts.contains(where: { part in
+            if case .linkPreview = part { return true }
+            return false
+        }))
+
+        let codeBlock = buildPresentation(sampleMessage(content: "```\nhttps://example.com\n```"))
         #expect(!codeBlock.parts.contains(where: { part in
             if case .linkPreview = part { return true }
             return false

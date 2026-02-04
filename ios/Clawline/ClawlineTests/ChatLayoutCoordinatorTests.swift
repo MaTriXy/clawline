@@ -1,4 +1,6 @@
+import CoreFoundation
 import Testing
+import UIKit
 @testable import Clawline
 
 struct ChatLayoutCoordinatorTests {

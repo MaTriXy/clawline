@@ -472,8 +472,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     guard let self else { return }
                     self.onExpand?(message)
                 },
-                onRequestLayout: { [weak self] in
-                    self?.invalidateLayout(for: message.id)
+                onRequestLayout: { [weak self] messageId in
+                    self?.invalidateLayout(for: messageId)
                 },
                 onRetry: { [weak self] in
                     self?.viewModel?.retryMessage(messageId: message.id)
