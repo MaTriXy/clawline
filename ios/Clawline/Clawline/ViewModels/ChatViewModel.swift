@@ -640,21 +640,33 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         let pending = pendingLocalMessages.remove(at: pendingIndex)
-        ensureSessionStorage(for: pending.sessionKey)
-        var pendingList = sessionMessages[pending.sessionKey] ?? []
-        guard let placeholderIndex = pendingList.firstIndex(where: { $0.id == pending.id }) else {
+        var placeholderSessionKey = pending.sessionKey
+        ensureSessionStorage(for: placeholderSessionKey)
+        var pendingList = sessionMessages[placeholderSessionKey] ?? []
+        var placeholderIndex = pendingList.firstIndex(where: { $0.id == pending.id })
+        if placeholderIndex == nil {
+            for (sessionKey, list) in sessionMessages {
+                if let index = list.firstIndex(where: { $0.id == pending.id }) {
+                    placeholderSessionKey = sessionKey
+                    pendingList = list
+                    placeholderIndex = index
+                    break
+                }
+            }
+        }
+        guard let resolvedIndex = placeholderIndex else {
             return false
         }
 
-        if pending.sessionKey == message.sessionKey {
-            pendingList[placeholderIndex] = message
-            setMessages(pendingList, for: pending.sessionKey)
+        if placeholderSessionKey == message.sessionKey {
+            pendingList[resolvedIndex] = message
+            setMessages(pendingList, for: placeholderSessionKey)
         } else {
-            pendingList.remove(at: placeholderIndex)
+            pendingList.remove(at: resolvedIndex)
             if pendingList.isEmpty {
-                sessionMessages.removeValue(forKey: pending.sessionKey)
+                sessionMessages.removeValue(forKey: placeholderSessionKey)
             } else {
-                setMessages(pendingList, for: pending.sessionKey)
+                setMessages(pendingList, for: placeholderSessionKey)
             }
             ensureSessionStorage(for: message.sessionKey)
             var targetList = sessionMessages[message.sessionKey] ?? []

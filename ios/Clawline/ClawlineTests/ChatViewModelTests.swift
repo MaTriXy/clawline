@@ -4,7 +4,7 @@ import Testing
 @testable import Clawline
 
 private let personalSessionKey = "server:personal"
-private let adminSessionKey = "server:admin"
+private let adminSessionKey = SessionKey.admin
 
 struct ChatViewModelTests {
     @Test("Records last server message id for reconnects")
@@ -59,8 +59,9 @@ struct ChatViewModelTests {
             toastManager: toastManager
         )
 
-        await viewModel.onAppear()
+        await resetViewModelForTest(viewModel, auth: auth)
 
+        let sessionKey = "test:\(UUID().uuidString)"
         let messageId = "s_stream"
         chatService.emit(
             Message(
@@ -71,7 +72,7 @@ struct ChatViewModelTests {
                 streaming: true,
                 attachments: [],
                 deviceId: nil,
-                sessionKey: personalSessionKey,
+                sessionKey: sessionKey,
                 )
         )
 
@@ -88,7 +89,7 @@ struct ChatViewModelTests {
                 streaming: false,
                 attachments: [],
                 deviceId: nil,
-                sessionKey: personalSessionKey,
+                sessionKey: sessionKey,
                 )
         )
 
@@ -367,7 +368,12 @@ struct ChatViewModelTests {
             toastManager: ToastManager()
         )
 
-        await viewModel.onAppear()
+        await resetViewModelForTest(viewModel, auth: auth)
+        chatService.emitServiceEvent(.sessionInfo([
+            .personal: personalSessionKey,
+            .admin: adminSessionKey
+        ]))
+        try await Task.sleep(for: .milliseconds(10))
         chatService.emit(
             Message(
                 id: "s_admin_seed",
@@ -406,7 +412,7 @@ struct ChatViewModelTests {
             toastManager: ToastManager()
         )
 
-        await viewModel.onAppear()
+        await resetViewModelForTest(viewModel, auth: auth)
 
         let adminMessage = Message(
             id: "s_admin",
@@ -557,6 +563,13 @@ private final class TestChatService: ChatServicing {
             bufferedEvents.append(event)
         }
     }
+}
+
+@MainActor
+private func resetViewModelForTest(_ viewModel: ChatViewModel, auth: TestAuthManager) async {
+    viewModel.logout()
+    auth.storeCredentials(token: "jwt", userId: "user")
+    await viewModel.onAppear()
 }
 
 @MainActor
