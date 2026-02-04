@@ -67,7 +67,7 @@ final class StreamToastManager {
     private(set) var channelName: String = ""
 
     private var dismissTask: Task<Void, Never>?
-    private let dismissDelay: Duration = .seconds(1)
+    private let dismissDelay: Duration = .seconds(2)
 
     /// Shows or updates the toast with the given session key.
     /// If already visible, just updates the name without dismissing.
