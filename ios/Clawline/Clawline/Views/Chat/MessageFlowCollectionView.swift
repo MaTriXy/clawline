@@ -677,8 +677,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             presentation: presentation,
             failureReason: failureReason,
             maxWidth: maxWidth,
-            showsHeader: !hideHeader,
-            truncationHeightOverride: truncationHeight
+            truncationHeightOverride: truncationHeight,
+            showsHeader: !hideHeader
         )
         sizeCache[id] = measuredSize
         lastMeasuredSizes[id] = measuredSize
@@ -689,12 +689,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                         presentation: MessagePresentation,
                                         failureReason: String?,
                                         maxWidth: CGFloat,
+                                        truncationHeightOverride: CGFloat? = nil,
                                         showsHeader: Bool = true,
                                         paddingScale: CGFloat = 1,
                                         minWidthOverride: CGFloat? = nil,
                                         maxWidthOverride: CGFloat? = nil,
-                                        minHeightOverride: CGFloat? = nil,
-                                        truncationHeightOverride: CGFloat? = nil) -> CGSize {
+                                        minHeightOverride: CGFloat? = nil) -> CGSize {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
         uiKitBubbleSizer.configure(
