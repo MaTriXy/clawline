@@ -241,7 +241,14 @@ struct ChatView: View {
         // last bubble and the input bar top equals exactly flowGap.
         let listBottomInset = keyboardInset + belowBarGap + resolvedInputHeight
             + metrics.flowGap - metrics.containerPadding
-        let truncationKeyboardHeight = max(keyboardHeight, lastNonZeroKeyboardHeight)
+        let cachedKeyboardHeight = max(keyboardHeight, lastNonZeroKeyboardHeight)
+        let estimatedKeyboardHeight: CGFloat = {
+            if horizontalSizeClass == .regular {
+                return min(max(320, geometry.size.height * 0.33), 420)
+            }
+            return min(max(260, geometry.size.height * 0.36), 360)
+        }()
+        let truncationKeyboardHeight = cachedKeyboardHeight > 0.5 ? cachedKeyboardHeight : estimatedKeyboardHeight
         let truncationBottomInset = truncationKeyboardHeight + 12 + resolvedInputHeight
             + metrics.flowGap - metrics.containerPadding
         let layoutInputs = ChatLayoutInputs(
