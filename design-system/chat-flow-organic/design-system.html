@@ -955,6 +955,37 @@
                 </tbody>
             </table>
 
+            <h3>Width Diagram</h3>
+            <div style="border: 1px solid rgba(0,0,0,0.08); border-radius: 16px; padding: 16px; background: rgba(255,255,255,0.6);">
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">
+                    <span>Screen edge</span>
+                    <div style="flex: 1; height: 1px; background: rgba(0,0,0,0.15);"></div>
+                    <span>Screen edge</span>
+                </div>
+                <div style="display: flex; align-items: stretch; gap: 6px;">
+                    <div style="flex: 1; border: 1px dashed rgba(0,0,0,0.15); border-radius: 10px; padding: 10px; text-align: center; font-size: 12px; color: var(--text-muted);">
+                        Container padding
+                    </div>
+                    <div style="border: 1px solid rgba(0,0,0,0.15); border-radius: 12px; padding: 10px; flex: 4; background: rgba(255,255,255,0.7);">
+                        <div style="display: flex; gap: 6px; align-items: stretch;">
+                            <div style="flex: 1; border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 8px; text-align: center; font-size: 12px; color: var(--text-muted);">
+                                Bubble padding
+                            </div>
+                            <div style="flex: 6; border: 1px solid rgba(0,0,0,0.18); border-radius: 8px; padding: 8px; text-align: center;">
+                                <div style="font-size: 12px; color: var(--text-muted);">CONTENT AREA</div>
+                                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Text wraps at OTW · Tables/Images/Previews can use full width</div>
+                            </div>
+                            <div style="flex: 1; border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 8px; text-align: center; font-size: 12px; color: var(--text-muted);">
+                                Bubble padding
+                            </div>
+                        </div>
+                    </div>
+                    <div style="flex: 1; border: 1px dashed rgba(0,0,0,0.15); border-radius: 10px; padding: 10px; text-align: center; font-size: 12px; color: var(--text-muted);">
+                        Container padding
+                    </div>
+                </div>
+            </div>
+
             <h3>Text Wrapping in Wide Bubbles</h3>
             <p><strong>Critical:</strong> When a bubble is wider than OTW (due to wide content), text and markdown text still wrap at OTW. Only tables, images, and web previews stretch to the full bubble content width.</p>
             <p>Example: A bubble containing text + a wide table might be 600pt wide, but the text paragraphs above/below the table still wrap at OTW.</p>
@@ -970,6 +1001,28 @@
                 <li><strong>iPhone / iPad:</strong> Top of screen to top of message bar with keyboard up, minus theme padding for content embedded in a bubble.</li>
                 <li><strong>visionOS spatial:</strong> iPad mini equivalent (apply rules as if on iPad mini).</li>
             </ul>
+
+            <h3>Height Diagram</h3>
+            <div style="border: 1px solid rgba(0,0,0,0.08); border-radius: 16px; padding: 16px; background: rgba(255,255,255,0.6);">
+                <div style="font-size: 12px; color: var(--text-muted); text-align: center; margin-bottom: 6px;">Status bar bottom</div>
+                <div style="border: 1px solid rgba(0,0,0,0.15); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.7);">
+                    <div style="display: flex; flex-direction: column; gap: 6px; text-align: center; font-size: 12px;">
+                        <div style="border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 6px; color: var(--text-muted);">Flow gap</div>
+                        <div style="border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 6px; color: var(--text-muted);">Bubble padding (top)</div>
+                        <div style="border: 1px solid rgba(0,0,0,0.18); border-radius: 8px; padding: 10px;">CONTENT AREA</div>
+                        <div style="border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 6px; color: var(--text-muted);">Bubble padding (bottom)</div>
+                        <div style="border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 6px; color: var(--text-muted);">Flow gap</div>
+                    </div>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 6px;">Message bar top (keyboard up)</div>
+                <div style="font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 8px;">
+                    Content Height = (Status bar bottom → Message bar top) − (flow gap) − (2 × bubble vertical padding)
+                </div>
+            </div>
+
+            <div class="callout" style="margin-top: 16px;">
+                <p><strong>visionOS note:</strong> Spatial sizing uses iPad mini equivalent dimensions for both width and height calculations.</p>
+            </div>
         </section>
 
         <!-- SPACING SECTION -->
