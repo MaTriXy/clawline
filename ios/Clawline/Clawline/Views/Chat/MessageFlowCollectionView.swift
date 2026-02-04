@@ -562,6 +562,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                               containerWidth: CGFloat) -> CGFloat {
         let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
         let paddedLineWidth = maxLineWidth + metrics.bubblePaddingHorizontal * 2
+        if hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth) {
+            return containerWidth
+        }
         let result: CGFloat
         switch sizeClass {
         case .short:
