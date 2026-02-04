@@ -24,15 +24,10 @@ final class SettingsManager {
         didSet { saveAppearanceMode() }
     }
 
-    var enableLinkPreviews: Bool {
-        didSet { saveEnableLinkPreviews() }
-    }
-
     var isSettingsPresented: Bool = false
 
     private static let effectConfigKey = "backgroundEffectConfiguration"
     private static let appearanceModeKey = "appearanceMode"
-    private static let enableLinkPreviewsKey = "enableLinkPreviews"
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.effectConfigKey),
@@ -49,11 +44,6 @@ final class SettingsManager {
             self.appearanceMode = .dark
         }
 
-        if UserDefaults.standard.object(forKey: Self.enableLinkPreviewsKey) != nil {
-            self.enableLinkPreviews = UserDefaults.standard.bool(forKey: Self.enableLinkPreviewsKey)
-        } else {
-            self.enableLinkPreviews = false
-        }
     }
 
     private func save() {
@@ -66,14 +56,9 @@ final class SettingsManager {
         UserDefaults.standard.set(appearanceMode.rawValue, forKey: Self.appearanceModeKey)
     }
 
-    private func saveEnableLinkPreviews() {
-        UserDefaults.standard.set(enableLinkPreviews, forKey: Self.enableLinkPreviewsKey)
-    }
-
     func resetToDefaults() {
         effectConfig = .default
         appearanceMode = .dark
-        enableLinkPreviews = false
     }
 
     func toggleSettings() {

@@ -7,6 +7,7 @@
 
 import Darwin
 import Foundation
+import OSLog
 import SafariServices
 import UIKit
 import WebKit
@@ -98,6 +99,7 @@ final class LinkPreviewSharedResources {
 }
 
 final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
+    private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "LinkPreview")
     enum State {
         case idle
         case loading
@@ -187,6 +189,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         overlayButton.accessibilityLabel = "Link preview: \(hostLabel)"
         overlayButton.accessibilityTraits = .link
         requestSlotIfNeeded()
+        logger.info("configure url=\(url.absoluteString, privacy: .public)")
     }
 
     func prepareForReuse() {
@@ -305,6 +308,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
 
     private func resolveHostAndLoad(url: URL) {
         guard let host = url.host else {
+            logger.error("resolveHostAndLoad failed: missing host for url=\(url.absoluteString, privacy: .public)")
             handleFailure()
             return
         }
@@ -318,9 +322,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
                 guard self.currentURL == url else { return }
                 switch resolution {
                 case .allowed(let ipSet):
+                    self.logger.info("host resolved host=\(host, privacy: .public) ips=\(ipSet.joined(separator: ","), privacy: .public)")
                     self.pinnedIPs = ipSet
                     self.loadURL(url)
                 case .blocked:
+                    self.logger.error("host blocked host=\(host, privacy: .public)")
                     self.handleFailure()
                 }
             }
@@ -401,6 +407,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
 
     private func applyMeasuredHeight(_ rawHeight: Double) {
         guard rawHeight.isFinite else { return }
+        markLoadedIfNeeded()
         let clamped = max(Constants.minHeight, min(Constants.maxHeight, CGFloat(rawHeight)))
         let needsScroll = rawHeight > Double(Constants.maxHeight)
         webView.scrollView.isScrollEnabled = needsScroll
@@ -420,6 +427,15 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         statusLabel.isHidden = false
         invalidateIntrinsicContentSize()
         onHeightChange?()
+    }
+
+    private func markLoadedIfNeeded() {
+        guard state == .loading else { return }
+        timeoutTimer?.invalidate()
+        timeoutTimer = nil
+        spinner.stopAnimating()
+        state = .loaded
+        releaseSlotIfNeeded()
     }
 
     @objc private func handleOverlayTap() {
@@ -445,6 +461,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         }
         if isBlockedIPAddressHost(url.host) {
             decisionHandler(.cancel)
+            logger.error("navigationAction blocked host=\(url.host ?? "nil", privacy: .public) url=\(url.absoluteString, privacy: .public)")
             handleFailure()
             return
         }
@@ -453,6 +470,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
                 guard let self else { return }
                 guard allowed else {
                     decisionHandler(.cancel)
+                    self.logger.error("pinned host validation failed host=\(host, privacy: .public) url=\(url.absoluteString, privacy: .public)")
                     self.handleFailure()
                     return
                 }
@@ -464,11 +482,34 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
             redirectCount += 1
             guard redirectCount <= Constants.maxRedirects else {
                 decisionHandler(.cancel)
+                logger.error("redirect limit exceeded host=\(host, privacy: .public) url=\(url.absoluteString, privacy: .public)")
                 handleFailure()
                 return
             }
-            decisionHandler(.cancel)
-            resolveHostAndLoad(url: url)
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else {
+                    DispatchQueue.main.async { decisionHandler(.cancel) }
+                    return
+                }
+                let resolution = self.resolveHost(host)
+                DispatchQueue.main.async {
+                    guard self.state == .loading else {
+                        decisionHandler(.cancel)
+                        return
+                    }
+                    switch resolution {
+                    case .blocked:
+                        decisionHandler(.cancel)
+                        self.logger.error("redirect host blocked host=\(host, privacy: .public) url=\(url.absoluteString, privacy: .public)")
+                        self.handleFailure()
+                    case .allowed(let ipSet):
+                        self.currentURL = url
+                        self.currentHost = host
+                        self.pinnedIPs = ipSet
+                        decisionHandler(.allow)
+                    }
+                }
+            }
             return
         }
         decisionHandler(.allow)
@@ -485,6 +526,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         }
         if isBlockedIPAddressHost(url.host) {
             decisionHandler(.cancel)
+            logger.error("navigationResponse blocked host=\(url.host ?? "nil", privacy: .public) url=\(url.absoluteString, privacy: .public)")
             handleFailure()
             return
         }
@@ -493,8 +535,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard state == .loading else { return }
-        spinner.stopAnimating()
-        state = .loaded
+        markLoadedIfNeeded()
         if heightUpdates == 0 {
             evaluateHeightFallback()
         }
@@ -502,10 +543,20 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if isIgnorableNavigationError(error) {
+            logger.info("didFail navigation ignored error=\(error.localizedDescription, privacy: .public)")
+            return
+        }
+        logger.error("didFail navigation error=\(error.localizedDescription, privacy: .public)")
         handleFailure()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if isIgnorableNavigationError(error) {
+            logger.info("didFailProvisionalNavigation ignored error=\(error.localizedDescription, privacy: .public)")
+            return
+        }
+        logger.error("didFailProvisionalNavigation error=\(error.localizedDescription, privacy: .public)")
         handleFailure()
     }
 
@@ -695,6 +746,18 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
                 }
             }
         }
+    }
+
+    private func isIgnorableNavigationError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+            return true
+        }
+        if (nsError.domain == WKErrorDomain || nsError.domain == "WebKitErrorDomain"),
+           nsError.code == 102 {
+            return true
+        }
+        return false
     }
 }
 

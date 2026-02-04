@@ -1155,8 +1155,7 @@ final class ChatViewModel: ChatViewModelHosting {
         let presentation = MessagePresentationBuilder.build(
             from: message,
             metrics: metrics,
-            streamingState: &state,
-            enableLinkPreviews: settings.enableLinkPreviews
+            streamingState: &state
         )
         var resolvedPresentation = presentation
 
@@ -1165,8 +1164,7 @@ final class ChatViewModel: ChatViewModelHosting {
             resolvedPresentation = MessagePresentationBuilder.build(
                 from: message,
                 metrics: metrics,
-                streamingState: &canonicalState,
-                enableLinkPreviews: settings.enableLinkPreviews
+                streamingState: &canonicalState
             )
         }
 

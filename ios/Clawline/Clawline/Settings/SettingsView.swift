@@ -93,13 +93,6 @@ struct SettingsView: View {
                     Text("Preview")
                 }
 
-                Section {
-                    Toggle("Enable Link Previews", isOn: $settings.enableLinkPreviews)
-                } header: {
-                    Text("Link Previews")
-                } footer: {
-                    Text("Link previews load remote web content.")
-                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

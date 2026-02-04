@@ -108,16 +108,8 @@ struct ExpandedMessageSheet: View {
         case .code(let language, let code):
             CodeBlockView(language: language, code: code)
         case .linkPreview(let url):
-            if settings.enableLinkPreviews {
-                LinkPreviewRepresentable(url: url)
-                    .frame(maxWidth: .infinity)
-            } else {
-                Link(destination: url) {
-                    Text(url.absoluteString)
-                        .foregroundColor(.blue)
-                        .underline()
-                }
-            }
+            LinkPreviewRepresentable(url: url)
+                .frame(maxWidth: .infinity)
         case .table(let model):
             MarkdownTableView(
                 model: model,

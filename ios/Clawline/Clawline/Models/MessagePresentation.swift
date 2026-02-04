@@ -194,8 +194,7 @@ enum MessagePresentationBuilder {
     static func build(
         from message: Message,
         metrics: ChatFlowTheme.Metrics,
-        streamingState: inout StreamingTableParseState,
-        enableLinkPreviews: Bool
+        streamingState: inout StreamingTableParseState
     ) -> MessagePresentation {
         let segments = Segmenter.split(message.content)
         let imageAttachments = imageAttachments(from: message.attachments)
@@ -225,9 +224,7 @@ enum MessagePresentationBuilder {
                 hasBlockedParts = true
                 emojiOnly = false
             case .text:
-                if enableLinkPreviews {
-                    detectedURLs.append(contentsOf: extractURLs(from: segment.content))
-                }
+                detectedURLs.append(contentsOf: extractURLs(from: segment.content))
                 processTextSegment(
                     segment.content,
                     message: message,
@@ -244,8 +241,7 @@ enum MessagePresentationBuilder {
             }
         }
 
-        if enableLinkPreviews,
-           !hasBlockedParts,
+        if !hasBlockedParts,
            detectedURLs.count == 1 {
             parts.append(.linkPreview(detectedURLs[0]))
         }
