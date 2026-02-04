@@ -1004,19 +1004,19 @@
 
             <h3>Height Diagram</h3>
             <div style="border: 1px solid rgba(0,0,0,0.08); border-radius: 16px; padding: 16px; background: rgba(255,255,255,0.6);">
-                <div style="font-size: 12px; color: var(--text-muted); text-align: center; margin-bottom: 6px;">Status bar bottom</div>
                 <div style="border: 1px solid rgba(0,0,0,0.15); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.7);">
                     <div style="display: flex; flex-direction: column; gap: 6px; text-align: center; font-size: 12px;">
+                        <div style="border: 1px dashed rgba(0,0,0,0.2); border-radius: 8px; padding: 6px; color: var(--text-muted);">Status bar height</div>
                         <div style="border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 6px; color: var(--text-muted);">Flow gap</div>
                         <div style="border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 6px; color: var(--text-muted);">Bubble padding (top)</div>
                         <div style="border: 1px solid rgba(0,0,0,0.18); border-radius: 8px; padding: 10px;">CONTENT AREA</div>
                         <div style="border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 6px; color: var(--text-muted);">Bubble padding (bottom)</div>
                         <div style="border: 1px dashed rgba(0,0,0,0.12); border-radius: 8px; padding: 6px; color: var(--text-muted);">Flow gap</div>
+                        <div style="border: 1px dashed rgba(0,0,0,0.2); border-radius: 8px; padding: 6px; color: var(--text-muted);">Message bar height (keyboard up)</div>
                     </div>
                 </div>
-                <div style="font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 6px;">Message bar top (keyboard up)</div>
                 <div style="font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 8px;">
-                    Content Height = (Status bar bottom → Message bar top) − (flow gap) − (2 × bubble vertical padding)
+                    Content Height = (Screen height) − (status bar height) − (message bar height with keyboard) − (2 × flow gap) − (2 × bubble vertical padding)
                 </div>
             </div>
 
