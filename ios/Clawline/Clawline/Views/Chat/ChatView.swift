@@ -111,6 +111,7 @@ struct ChatView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.settingsManager) private var settings
 
     @State private var inputBarHeight: CGFloat = 0
     @State private var streamToastManager = StreamToastManager()
@@ -274,6 +275,12 @@ struct ChatView: View {
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             }
 
+            if topInset > 0 {
+                statusBarFadeOverlay(height: topInset + 20)
+                    .frame(maxWidth: .infinity, height: topInset + 20, alignment: .top)
+                    .allowsHitTesting(false)
+            }
+
             // Stream toast (anchored above input bar)
             if streamToastManager.isVisible {
                 let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
@@ -381,6 +388,26 @@ struct ChatView: View {
             return AttributedString("v\(version) (build ") + buildText + AttributedString(")")
         }
         return AttributedString("v\(version)")
+    }
+
+    @ViewBuilder
+    private func statusBarFadeOverlay(height: CGFloat) -> some View {
+#if os(visionOS)
+        let isDark = settings.appearanceMode == .dark
+#else
+        let isDark = colorScheme == .dark
+#endif
+        let topColor = isDark ? Color.black.opacity(0.35) : Color.white.opacity(0.6)
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [topColor, Color.clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(height: height)
+            .ignoresSafeArea(.container, edges: .top)
     }
 
     private func inputBarMaxWidth(bottomSafeAreaInset: CGFloat) -> CGFloat? {
