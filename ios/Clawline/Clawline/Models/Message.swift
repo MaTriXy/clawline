@@ -37,6 +37,26 @@ struct Message: Identifiable, Equatable, Codable {
     let sessionKey: String
     let sender: String? = nil
 
+    init(id: String,
+         role: Role,
+         content: String,
+         timestamp: Date,
+         streaming: Bool,
+         attachments: [Attachment],
+         deviceId: String?,
+         sessionKey: String,
+         sender: String? = nil) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+        self.streaming = streaming
+        self.attachments = attachments
+        self.deviceId = deviceId
+        self.sessionKey = sessionKey
+        self.sender = sender
+    }
+
     var stream: ChatStream {
         SessionKey.stream(for: sessionKey)
     }
