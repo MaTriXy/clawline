@@ -8,9 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		2747398E2F2AE61500FEE90E /* RealityKitContent in Frameworks */ = {isa = PBXBuildFile; productRef = 2747398D2F2AE61500FEE90E /* RealityKitContent */; };
-		F679AC8CEBF54DF08B2AB80D /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 27HL00022F1000000073BF45 /* HighlightSwift */; };
 		274F7BA92F0F24F20073BF45 /* Clawline Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 274F7BA82F0F24F20073BF45 /* Clawline Watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		278B578A2F248E2C00E501B1 /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 27HL00022F1000000073BF45 /* HighlightSwift */; };
+		F679AC8CEBF54DF08B2AB80D /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 27HL00022F1000000073BF45 /* HighlightSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */

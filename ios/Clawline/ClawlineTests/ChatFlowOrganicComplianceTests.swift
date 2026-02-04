@@ -198,8 +198,8 @@ struct ChatFlowOrganicComplianceTests {
         #expect(duration < .milliseconds(500))
     }
 
-    @Test("Doc §5: Exact URL detection")
-    func messagePresentationDetectsExactURLs() {
+    @Test("Doc §5: Link preview detection")
+    func messagePresentationDetectsSingleLinkPreviews() {
         let exact = buildPresentation(sampleMessage(content: "https://example.com/path"))
         #expect(exact.parts.contains(where: { part in
             if case .linkPreview(let url) = part {
@@ -208,8 +208,50 @@ struct ChatFlowOrganicComplianceTests {
             return false
         }))
 
-        let partial = buildPresentation(sampleMessage(content: "Visit https://example.com now"))
-        #expect(!partial.parts.contains(where: { part in
+        let withText = buildPresentation(sampleMessage(content: "Visit https://example.com now"))
+        #expect(withText.parts.contains(where: { part in
+            if case .linkPreview(let url) = part {
+                return url.absoluteString == "https://example.com"
+            }
+            return false
+        }))
+
+        let multiple = buildPresentation(sampleMessage(content: "https://a.com https://b.com"))
+        #expect(!multiple.parts.contains(where: { part in
+            if case .linkPreview = part { return true }
+            return false
+        }))
+
+        let codeBlock = buildPresentation(sampleMessage(content: "```\\nhttps://example.com\\n```"))
+        #expect(!codeBlock.parts.contains(where: { part in
+            if case .linkPreview = part { return true }
+            return false
+        }))
+
+        let messageWithAttachment = Message(
+            id: "with-attachment",
+            role: .assistant,
+            content: "https://example.com",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [sampleAttachment(id: "img1")],
+            deviceId: nil,
+            sessionKey: personalSessionKey
+        )
+        let attachmentPresentation = buildPresentation(messageWithAttachment)
+        #expect(!attachmentPresentation.parts.contains(where: { part in
+            if case .linkPreview = part { return true }
+            return false
+        }))
+    }
+
+    @Test("Doc §5: Link previews disabled by setting")
+    func linkPreviewsRespectDisabledSetting() {
+        let presentation = buildPresentation(
+            sampleMessage(content: "https://example.com"),
+            enableLinkPreviews: false
+        )
+        #expect(!presentation.parts.contains(where: { part in
             if case .linkPreview = part { return true }
             return false
         }))
@@ -516,10 +558,17 @@ struct ChatFlowOrganicComplianceTests {
         )
     }
 
-    private func buildPresentation(_ message: Message, isCompact: Bool = true) -> MessagePresentation {
+    private func buildPresentation(_ message: Message,
+                                   isCompact: Bool = true,
+                                   enableLinkPreviews: Bool = true) -> MessagePresentation {
         var state = StreamingTableParseState()
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-        return MessagePresentationBuilder.build(from: message, metrics: metrics, streamingState: &state)
+        return MessagePresentationBuilder.build(
+            from: message,
+            metrics: metrics,
+            streamingState: &state,
+            enableLinkPreviews: enableLinkPreviews
+        )
     }
 
     private func sampleAttachment(id: String) -> Clawline.Attachment {

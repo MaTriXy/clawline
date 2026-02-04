@@ -19,6 +19,7 @@ final class MessageBubbleUIKitContainerView: UIView {
     private var badgeBottomConstraint: NSLayoutConstraint!
     private var badgeLeadingConstraint: NSLayoutConstraint!
     private var onRetry: (() -> Void)?
+    private var onRequestLayout: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -65,6 +66,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
+                   onRequestLayout: (() -> Void)?,
                    onRetry: (() -> Void)?) {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
@@ -80,9 +82,11 @@ final class MessageBubbleUIKitContainerView: UIView {
             maxWidthOverride: maxWidthOverride,
             useContinuousCorners: useContinuousCorners,
             isDark: isDark,
-            onRequestExpand: onRequestExpand
+            onRequestExpand: onRequestExpand,
+            onRequestLayout: onRequestLayout
         )
         self.onRetry = onRetry
+        self.onRequestLayout = onRequestLayout
 
         if let reason = failureReason {
             badgeView.isHidden = false
@@ -144,6 +148,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var shouldTruncate = false
     private var fileTapHandlers: [ObjectIdentifier: () -> Void] = [:]
     private var onRequestExpand: (() -> Void)?
+    private var onRequestLayout: (() -> Void)?
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
     private var currentStream: ChatStream = .personal
@@ -421,7 +426,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    maxWidthOverride: CGFloat? = nil,
                    useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
-                   onRequestExpand: (() -> Void)?) {
+                   onRequestExpand: (() -> Void)?,
+                   onRequestLayout: (() -> Void)?) {
         // Store for trait collection updates
         currentMessageRole = message.role
         currentStream = message.stream
@@ -437,6 +443,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fixedWidthConstraint?.isActive = false
         fixedWidthConstraint = nil
         self.onRequestExpand = onRequestExpand
+        self.onRequestLayout = onRequestLayout
 
         // Use explicit isDark if provided, otherwise fall back to trait collection
         let effectiveIsDark = isDark ?? (traitCollection.userInterfaceStyle == .dark)
@@ -516,6 +523,19 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         if hasTextContent {
             dynamicContentStack.addArrangedSubview(bodyLabel)
             dynamicContentViews.append(bodyLabel)
+        }
+
+        if let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
+            if case .linkPreview(let url) = part { return url }
+            return nil
+        }).first {
+            let previewView = LinkPreviewView()
+            previewView.configure(url: linkPreviewURL)
+            previewView.onHeightChange = { [weak self] in
+                self?.onRequestLayout?()
+            }
+            dynamicContentStack.addArrangedSubview(previewView)
+            dynamicContentViews.append(previewView)
         }
 
         // Add code block views to dynamicContentStack
@@ -1659,6 +1679,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
                    showsHeader: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
+                   onRequestLayout: (() -> Void)?,
                    onRetry: (() -> Void)?) {
         messageId = message.id
         messageSnippet = String(message.content.prefix(80))
@@ -1671,6 +1692,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             showsHeader: showsHeader,
             isDark: isDark,
             onRequestExpand: onRequestExpand,
+            onRequestLayout: onRequestLayout,
             onRetry: onRetry
         )
     }

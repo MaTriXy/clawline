@@ -62,6 +62,7 @@ final class TypingIndicatorCell: UICollectionViewCell {
             maxWidthOverride: Self.bubbleWidth,
             isDark: isDark,
             onRequestExpand: nil,
+            onRequestLayout: nil,
             onRetry: nil
         )
         containerView.setCenteredOverlayView(dotsView)

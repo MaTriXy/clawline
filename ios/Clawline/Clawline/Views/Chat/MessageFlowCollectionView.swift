@@ -472,6 +472,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     guard let self else { return }
                     self.onExpand?(message)
                 },
+                onRequestLayout: { [weak self] in
+                    self?.invalidateLayout(for: message.id)
+                },
                 onRetry: { [weak self] in
                     self?.viewModel?.retryMessage(messageId: message.id)
                 }
@@ -619,7 +622,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             paddingScale: paddingScale,
             minWidthOverride: minWidthOverride,
             maxWidthOverride: maxWidthOverride,
-            onRequestExpand: nil
+            onRequestExpand: nil,
+            onRequestLayout: nil
         )
         let effectiveMaxWidth = maxWidthOverride ?? maxWidth
         let preferredWidth: CGFloat

@@ -194,7 +194,8 @@ enum MessagePresentationBuilder {
     static func build(
         from message: Message,
         metrics: ChatFlowTheme.Metrics,
-        streamingState: inout StreamingTableParseState
+        streamingState: inout StreamingTableParseState,
+        enableLinkPreviews: Bool
     ) -> MessagePresentation {
         let segments = Segmenter.split(message.content)
         let imageAttachments = imageAttachments(from: message.attachments)
@@ -205,6 +206,8 @@ enum MessagePresentationBuilder {
         var hasTextual = false
         var emojiOnly = true
         var totalTableCells = 0
+        var hasBlockedParts = hasAttachments
+        var detectedURLs: [URL] = []
         let suppressTextForFiles = shouldSuppressTextForFileAttachments(
             content: message.content,
             fileAttachments: fileAttachments
@@ -219,8 +222,12 @@ enum MessagePresentationBuilder {
             switch segment.kind {
             case .code(let language):
                 parts.append(.code(language: language, code: segment.content))
+                hasBlockedParts = true
                 emojiOnly = false
             case .text:
+                if enableLinkPreviews {
+                    detectedURLs.append(contentsOf: extractURLs(from: segment.content))
+                }
                 processTextSegment(
                     segment.content,
                     message: message,
@@ -231,9 +238,16 @@ enum MessagePresentationBuilder {
                     hasTextual: &hasTextual,
                     emojiOnly: &emojiOnly,
                     totalTableCells: &totalTableCells,
+                    hasBlockedParts: &hasBlockedParts,
                     streamingState: &streamingState
                 )
             }
+        }
+
+        if enableLinkPreviews,
+           !hasBlockedParts,
+           detectedURLs.count == 1 {
+            parts.append(.linkPreview(detectedURLs[0]))
         }
 
         var hasMedia = false
@@ -276,6 +290,7 @@ enum MessagePresentationBuilder {
         hasTextual: inout Bool,
         emojiOnly: inout Bool,
         totalTableCells: inout Int,
+        hasBlockedParts: inout Bool,
         streamingState: inout StreamingTableParseState
     ) {
         let lines = text.components(separatedBy: CharacterSet.newlines)
@@ -298,6 +313,7 @@ enum MessagePresentationBuilder {
                     collectedPlainText.append(contentsOf: plainText)
                     hasTextual = true
                     emojiOnly = false
+                    hasBlockedParts = true
                     streamingState.clearPending()
                     index = consumed
                     continue
@@ -335,10 +351,7 @@ enum MessagePresentationBuilder {
             }
 
             emojiOnly = false
-            if let url = exactURL(from: trimmedLine) {
-                parts.append(.linkPreview(url))
-                hasTextual = true
-            } else if looksLikeMarkdown(trimmedLine) {
+            if looksLikeMarkdown(trimmedLine) {
                 parts.append(.markdown(trimmedLine))
                 hasTextual = true
             } else {
@@ -874,13 +887,20 @@ enum MessagePresentationBuilder {
         return false
     }
 
-    private static func exactURL(from text: String) -> URL? {
-        guard !text.contains(where: { $0.isWhitespace }) else { return nil }
-        guard let detector = linkDetector else { return nil }
+    private static func extractURLs(from text: String) -> [URL] {
+        guard let detector = linkDetector else { return [] }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = detector.firstMatch(in: text, options: [], range: range) else { return nil }
-        guard match.range.length == range.length else { return nil }
-        return match.url
+        var urls: [URL] = []
+        detector.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
+            guard let match, let url = match.url else { return }
+            guard let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else { return }
+            guard url.host != nil else { return }
+            guard url.user == nil, url.password == nil else { return }
+            if url.absoluteString.count > 2048 { return }
+            urls.append(url)
+        }
+        return urls
     }
 
     private static func isEmojiOnly(_ text: String) -> Bool {
