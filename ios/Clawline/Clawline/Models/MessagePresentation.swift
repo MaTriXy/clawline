@@ -300,6 +300,32 @@ enum MessagePresentationBuilder {
             if totalTableCells >= maxCellsPerMessage {
                 break
             }
+
+            let trimmedLine = lines[index].trimmingCharacters(in: .whitespaces)
+            // Fallback: handle fenced code blocks that leak into text segments.
+            // Observed when a fence follows a colon-terminated paragraph.
+            if trimmedLine.hasPrefix("```") {
+                let languageSpec = trimmedLine.dropFirst(3).trimmingCharacters(in: .whitespaces)
+                let language = languageSpec.isEmpty ? nil : String(languageSpec)
+                index += 1
+                var codeLines: [String] = []
+                while index < lines.count {
+                    let line = lines[index]
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("```")
+                        && trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces).isEmpty {
+                        index += 1
+                        break
+                    }
+                    codeLines.append(line)
+                    index += 1
+                }
+                parts.append(.code(language: language, code: codeLines.joined(separator: "\n")))
+                hasTextual = true
+                emojiOnly = false
+                hasBlockedParts = true
+                continue
+            }
             if let result = parseTable(
                 lines: lines,
                 startIndex: index,
@@ -334,7 +360,6 @@ enum MessagePresentationBuilder {
                 streamingState.clearPending()
             }
 
-            let trimmedLine = lines[index].trimmingCharacters(in: .whitespaces)
             index += 1
             guard !trimmedLine.isEmpty else { continue }
             if hasAttachments, isAttachmentSummaryLine(trimmedLine) {
