@@ -177,8 +177,9 @@ struct ChatView: View {
                         keyboardHeight = height
                     }
                 }
-                if height > 0.5, abs(height - lastNonZeroKeyboardHeight) > 0.5 {
+                if height > 0.5, lastNonZeroKeyboardHeight <= 0.5 {
                     lastNonZeroKeyboardHeight = height
+                    layoutRevision &+= 1
                 }
                 if abs(duration - keyboardAnimationDuration) > 0.001 {
                     keyboardAnimationDuration = duration
@@ -242,11 +243,12 @@ struct ChatView: View {
         let listBottomInset = keyboardInset + belowBarGap + resolvedInputHeight
             + metrics.flowGap - metrics.containerPadding
         let cachedKeyboardHeight = max(keyboardHeight, lastNonZeroKeyboardHeight)
+        let isLandscape = geometry.size.width > geometry.size.height
         let estimatedKeyboardHeight: CGFloat = {
             if horizontalSizeClass == .regular {
-                return min(max(320, geometry.size.height * 0.33), 420)
+                return isLandscape ? 300 : 360
             }
-            return min(max(260, geometry.size.height * 0.36), 360)
+            return isLandscape ? 216 : 300
         }()
         let truncationKeyboardHeight = cachedKeyboardHeight > 0.5 ? cachedKeyboardHeight : estimatedKeyboardHeight
         let truncationBottomInset = truncationKeyboardHeight + 12 + resolvedInputHeight
