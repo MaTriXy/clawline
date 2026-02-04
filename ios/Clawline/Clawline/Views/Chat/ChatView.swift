@@ -90,6 +90,7 @@ struct ChatView: View {
     // State in recreated views resets silently. See header comment for full explanation.
     @State private var isInputFocused = false
     @State private var keyboardHeight: CGFloat = 0
+    @State private var lastNonZeroKeyboardHeight: CGFloat = 0
     @State private var keyboardAnimationDuration: TimeInterval = 0.3
     @State private var keyboardAnimationCurve: UIView.AnimationCurve = .easeInOut
     @State private var keyboardRefreshToken: Int = 0
@@ -176,6 +177,9 @@ struct ChatView: View {
                         keyboardHeight = height
                     }
                 }
+                if height > 0.5, abs(height - lastNonZeroKeyboardHeight) > 0.5 {
+                    lastNonZeroKeyboardHeight = height
+                }
                 if abs(duration - keyboardAnimationDuration) > 0.001 {
                     keyboardAnimationDuration = duration
                 }
@@ -237,6 +241,9 @@ struct ChatView: View {
         // last bubble and the input bar top equals exactly flowGap.
         let listBottomInset = keyboardInset + belowBarGap + resolvedInputHeight
             + metrics.flowGap - metrics.containerPadding
+        let truncationKeyboardHeight = max(keyboardHeight, lastNonZeroKeyboardHeight)
+        let truncationBottomInset = truncationKeyboardHeight + 12 + resolvedInputHeight
+            + metrics.flowGap - metrics.containerPadding
         let layoutInputs = ChatLayoutInputs(
             keyboardHeight: keyboardHeight,
             keyboardVisible: isKeyboardVisible,
@@ -265,14 +272,14 @@ struct ChatView: View {
 
         let messageLayer: AnyView = authManager.isAdmin
             ? AnyView(
-                pagedStreamView(topInset: topInset, truncationBottomInset: listBottomInset)
+                pagedStreamView(topInset: topInset, truncationBottomInset: truncationBottomInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             )
             : AnyView(
                 messageList(
                     topInset: topInset,
-                    truncationBottomInset: listBottomInset,
+                    truncationBottomInset: truncationBottomInset,
                     channel: .personal
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
