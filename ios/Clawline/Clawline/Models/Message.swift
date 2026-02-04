@@ -35,7 +35,7 @@ struct Message: Identifiable, Equatable, Codable {
     let attachments: [Attachment]
     let deviceId: String?
     let sessionKey: String
-    let sender: String? = nil
+    let sender: String?
 
     init(id: String,
          role: Role,
