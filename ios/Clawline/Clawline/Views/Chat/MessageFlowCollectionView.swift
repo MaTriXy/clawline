@@ -15,6 +15,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var viewModel: ChatViewModel
     var topInset: CGFloat
     var isCompact: Bool
+    var truncationBottomInset: CGFloat
     var onExpand: ((Message) -> Void)?
     var layoutCoordinator: ChatLayoutCoordinator
     /// Optional channel override - if provided, shows messages for this channel instead of activeStream
@@ -34,6 +35,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             viewModel: viewModel,
             isCompact: isCompact,
             topInset: topInset,
+            truncationBottomInset: truncationBottomInset,
             onExpand: onExpand,
             channel: channel,
             isDark: isDark
@@ -54,6 +56,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             viewModel: viewModel,
             isCompact: isCompact,
             topInset: topInset,
+            truncationBottomInset: truncationBottomInset,
             onExpand: onExpand,
             channel: channel,
             isDark: isDark
@@ -85,6 +88,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var viewModel: ChatViewModel?
     private var isCompact: Bool = true
     private var topInset: CGFloat = 0
+    private var truncationBottomInset: CGFloat = 0
     private var lastBoundsSize: CGSize = .zero
     private var forceReconfigureAll = false
     private var wasShowingTypingIndicator = false
@@ -147,7 +151,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         forceReconfigureAll = true
         updateLayout()
         if let viewModel {
-            update(viewModel: viewModel, isCompact: isCompact, topInset: topInset)
+            update(
+                viewModel: viewModel,
+                isCompact: isCompact,
+                topInset: topInset,
+                truncationBottomInset: truncationBottomInset
+            )
         }
 #if os(visionOS)
         updateVisibleCellOpacity()
@@ -259,16 +268,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         viewModel: ChatViewModel,
         isCompact: Bool,
         topInset: CGFloat,
+        truncationBottomInset: CGFloat,
         onExpand: ((Message) -> Void)? = nil,
         channel: ChatStream? = nil,
-        isDark: Bool? = nil,
-        keyboardHeight: CGFloat = 0
+        isDark: Bool? = nil
     ) {
         loadViewIfNeeded()
         let t0 = CFAbsoluteTimeGetCurrent()
         self.viewModel = viewModel
         self.channelOverride = channel
         self.onExpand = onExpand
+        self.truncationBottomInset = truncationBottomInset
 
         // Handle appearance change from SwiftUI colorScheme
         if let isDark = isDark, currentIsDark != isDark {
@@ -540,7 +550,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func effectiveTruncationHeight(metrics: ChatFlowTheme.Metrics) -> CGFloat {
         let baseHeight = effectiveContainerHeight()
-        let available = baseHeight - topInset - currentBottomInset - (metrics.containerPadding * 2)
+        let bottomInset = max(currentBottomInset, truncationBottomInset)
+        let available = baseHeight - topInset - bottomInset - (metrics.containerPadding * 2)
         return max(120, floor(available))
     }
 

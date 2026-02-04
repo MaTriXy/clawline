@@ -265,12 +265,16 @@ struct ChatView: View {
 
         let messageLayer: AnyView = authManager.isAdmin
             ? AnyView(
-                pagedStreamView(topInset: topInset)
+                pagedStreamView(topInset: topInset, truncationBottomInset: listBottomInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             )
             : AnyView(
-                messageList(topInset: topInset, channel: .personal)
+                messageList(
+                    topInset: topInset,
+                    truncationBottomInset: listBottomInset,
+                    channel: .personal
+                )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
             )
@@ -472,11 +476,14 @@ struct ChatView: View {
         return textWidth + chromeWidth
     }
 
-    private func messageList(topInset: CGFloat, channel: ChatStream) -> some View {
+    private func messageList(topInset: CGFloat,
+                             truncationBottomInset: CGFloat,
+                             channel: ChatStream) -> some View {
         let list = MessageFlowCollectionView(
             viewModel: viewModel,
             topInset: topInset,
             isCompact: horizontalSizeClass == .compact,
+            truncationBottomInset: truncationBottomInset,
             onExpand: { message in
                 activeSheet = .expandedMessage(message)
             },
@@ -540,9 +547,13 @@ struct ChatView: View {
 
     /// Paged TabView for horizontal swipe between streams (admin only)
     @ViewBuilder
-    private func pagedStreamView(topInset: CGFloat) -> some View {
+    private func pagedStreamView(topInset: CGFloat, truncationBottomInset: CGFloat) -> some View {
         TabView(selection: streamBinding) {
-            messageList(topInset: topInset, channel: .personal)
+            messageList(
+                topInset: topInset,
+                truncationBottomInset: truncationBottomInset,
+                channel: .personal
+            )
                 .background {
 #if os(visionOS)
                     Color.clear
@@ -554,7 +565,11 @@ struct ChatView: View {
                 }
                 .tag(ChatStream.personal)
 
-            messageList(topInset: topInset, channel: .admin)
+            messageList(
+                topInset: topInset,
+                truncationBottomInset: truncationBottomInset,
+                channel: .admin
+            )
                 .background {
 #if os(visionOS)
                     Color.clear
