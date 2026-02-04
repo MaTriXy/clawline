@@ -59,6 +59,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    failureReason: String?,
                    isCompact: Bool,
                    maxWidth: CGFloat,
+                   truncationHeightOverride: CGFloat? = nil,
                    showsHeader: Bool = true,
                    paddingScale: CGFloat = 1,
                    minWidthOverride: CGFloat? = nil,
@@ -76,6 +77,7 @@ final class MessageBubbleUIKitContainerView: UIView {
             sizeClass: sizeClass,
             metrics: metrics,
             maxWidth: maxWidth,
+            truncationHeightOverride: truncationHeightOverride,
             showsHeader: showsHeader,
             paddingScale: paddingScale,
             minWidthOverride: minWidthOverride,
@@ -420,6 +422,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    sizeClass: MessageSizeClass,
                    metrics: ChatFlowTheme.Metrics,
                    maxWidth: CGFloat,
+                   truncationHeightOverride: CGFloat? = nil,
                    showsHeader: Bool = true,
                    paddingScale: CGFloat = 1,
                    minWidthOverride: CGFloat? = nil,
@@ -436,6 +439,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         self.useContinuousCorners = useContinuousCorners
 
         let effectiveMaxWidth = maxWidthOverride ?? maxWidth
+        let effectiveTruncationHeight = truncationHeightOverride ?? metrics.truncationHeight
         // Reset width constraints per size class.
         currentMetrics = metrics
         minWidthConstraint.constant = minWidthOverride ?? 120
@@ -597,7 +601,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             let headerHeight: CGFloat = showsHeader ? 32 : 0
             let headerSpacing: CGFloat = showsHeader ? contentStack.spacing : 0
             let padding = currentContentPaddingVertical * 2
-            return max(120, metrics.truncationHeight - (headerHeight + headerSpacing + padding))
+            return max(120, effectiveTruncationHeight - (headerHeight + headerSpacing + padding))
         }()
         var didRenderImages = false
         var didRenderAttachments = !fileParts.isEmpty
@@ -691,10 +695,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 }
             }
 
-            if totalHeight > metrics.truncationHeight {
+            if totalHeight > effectiveTruncationHeight {
                 shouldTruncate = true
                 // Simply constrain the wrapper height - it will clip the overflow
-                let heightConstraint = dynamicContentWrapper.heightAnchor.constraint(equalToConstant: metrics.truncationHeight)
+                let heightConstraint = dynamicContentWrapper.heightAnchor.constraint(equalToConstant: effectiveTruncationHeight)
                 heightConstraint.isActive = true
                 dynamicContentHeightConstraint = heightConstraint
                 scrollViewContentHeightConstraint?.isActive = false
@@ -1673,6 +1677,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
                    failureReason: String?,
                    isCompact: Bool,
                    maxWidth: CGFloat,
+                   truncationHeightOverride: CGFloat? = nil,
                    showsHeader: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
@@ -1690,6 +1695,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             failureReason: failureReason,
             isCompact: isCompact,
             maxWidth: maxWidth,
+            truncationHeightOverride: truncationHeightOverride,
             showsHeader: showsHeader,
             isDark: isDark,
             onRequestExpand: onRequestExpand,

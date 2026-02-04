@@ -89,6 +89,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var forceReconfigureAll = false
     private var wasShowingTypingIndicator = false
     private var onExpand: ((Message) -> Void)?
+#if os(visionOS)
+    // iPad mini 6th gen portrait reference size for spatial layout rules.
+    private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
+#endif
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         false
@@ -424,12 +428,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 let message = TypingIndicatorCell.makeMessage(sessionKey: storageKey)
                 let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
                 let sizeClass = MessageFlowRules.sizeClass(for: presentation)
+                let contentWidth = self.effectiveContentWidth(metrics: metrics)
                 let maxWidth = self.maxItemWidth(
                     for: sizeClass,
                     message: message,
                     presentation: presentation,
                     metrics: metrics,
-                    containerWidth: self.availableContentWidth()
+                    containerWidth: contentWidth
                 )
                 cell?.configure(
                     message: message,
@@ -451,13 +456,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 for: indexPath
             ) as? MessageBubbleUIKitCell
             let sizeClass = MessageFlowRules.sizeClass(for: presentation)
+            let contentWidth = self.effectiveContentWidth(metrics: metrics)
             let maxWidth = self.maxItemWidth(
                 for: sizeClass,
                 message: message,
                 presentation: presentation,
                 metrics: metrics,
-                containerWidth: self.availableContentWidth()
+                containerWidth: contentWidth
             )
+            let truncationHeight = self.effectiveTruncationHeight(metrics: metrics)
             // Use cached size width for consistent sizing with measurement
             let configureWidth = self.sizeCache[id]?.width ?? maxWidth
             cell?.configure(
@@ -467,6 +474,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 isCompact: self.isCompact,
                 maxWidth: configureWidth,
                 showsHeader: !hideHeader,
+                truncationHeightOverride: truncationHeight,
                 isDark: self.currentIsDark,
                 onRequestExpand: { [weak self] in
                     guard let self else { return }
@@ -511,6 +519,31 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.bounds.width - flowLayout.sectionInset.left - flowLayout.sectionInset.right
     }
 
+    private func effectiveContentWidth(metrics: ChatFlowTheme.Metrics) -> CGFloat {
+        let width = availableContentWidth()
+#if os(visionOS)
+        let referenceWidth = max(0, Self.visionOSReferenceSize.width - (metrics.containerPadding * 2))
+        return min(width, referenceWidth)
+#else
+        return width
+#endif
+    }
+
+    private func effectiveContainerHeight() -> CGFloat {
+        let height = collectionView.bounds.height
+#if os(visionOS)
+        return min(height, Self.visionOSReferenceSize.height)
+#else
+        return height
+#endif
+    }
+
+    private func effectiveTruncationHeight(metrics: ChatFlowTheme.Metrics) -> CGFloat {
+        let baseHeight = effectiveContainerHeight()
+        let available = baseHeight - topInset - currentBottomInset - (metrics.containerPadding * 2)
+        return max(120, floor(available))
+    }
+
     private func maxItemWidth(for sizeClass: MessageSizeClass,
                               message: Message,
                               presentation: MessagePresentation,
@@ -530,9 +563,58 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 containerWidth: containerWidth
             )
         case .long:
-            result = min(containerWidth, paddedLineWidth)
+            if hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth) {
+                result = containerWidth
+            } else {
+                result = min(containerWidth, paddedLineWidth)
+            }
         }
         return result
+    }
+
+    private func hasWideContent(presentation: MessagePresentation,
+                                maxLineWidth: CGFloat) -> Bool {
+        if presentation.parts.contains(where: { part in
+            switch part {
+            case .image, .gallery, .linkPreview:
+                return true
+            default:
+                return false
+            }
+        }) {
+            return true
+        }
+
+        let tables = presentation.parts.compactMap { part -> TableModel? in
+            if case .table(let model) = part { return model }
+            return nil
+        }
+        if tables.contains(where: { tableContentWidth($0) > maxLineWidth }) {
+            return true
+        }
+
+        return false
+    }
+
+    private func tableContentWidth(_ model: TableModel) -> CGFloat {
+        let columnCount = model.columns.count
+        guard columnCount > 0 else { return 0 }
+        var widths: [CGFloat] = Array(repeating: 0, count: columnCount)
+        if let header = model.header {
+            for (idx, cell) in header.prefix(columnCount).enumerated() {
+                widths[idx] = max(widths[idx], cell.intrinsicWidth)
+            }
+        }
+        for row in model.rows {
+            for (idx, cell) in row.cells.prefix(columnCount).enumerated() {
+                widths[idx] = max(widths[idx], cell.intrinsicWidth)
+            }
+        }
+        let cellPaddingHorizontal: CGFloat = 12
+        let paddingWidth = CGFloat(columnCount) * cellPaddingHorizontal * 2
+        let separatorLineWidth: CGFloat = 1
+        let separatorsWidth = CGFloat(max(columnCount - 1, 0)) * separatorLineWidth
+        return widths.reduce(0, +) + paddingWidth + separatorsWidth
     }
 
     private func sizeForItem(at indexPath: IndexPath) -> CGSize {
@@ -548,7 +630,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             let message = TypingIndicatorCell.makeMessage(sessionKey: storageKey)
             let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
             let sizeClass = MessageFlowRules.sizeClass(for: presentation)
-            let availableWidth = availableContentWidth()
+            let availableWidth = effectiveContentWidth(metrics: metrics)
             let maxWidth = maxItemWidth(
                 for: sizeClass,
                 message: message,
@@ -580,7 +662,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let presentation = viewModel.presentation(for: message, metrics: metrics)
         let hideHeader = shouldHideHeader(for: message, presentation: presentation)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
-        let availableWidth = availableContentWidth()
+        let availableWidth = effectiveContentWidth(metrics: metrics)
         let maxWidth = maxItemWidth(
             for: sizeClass,
             message: message,
@@ -589,12 +671,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             containerWidth: availableWidth
         )
         let failureReason = viewModel.failureMessage(for: message.id)
+        let truncationHeight = effectiveTruncationHeight(metrics: metrics)
         let measuredSize = measureUIKitBubbleSize(
             message: message,
             presentation: presentation,
             failureReason: failureReason,
             maxWidth: maxWidth,
-            showsHeader: !hideHeader
+            showsHeader: !hideHeader,
+            truncationHeightOverride: truncationHeight
         )
         sizeCache[id] = measuredSize
         lastMeasuredSizes[id] = measuredSize
@@ -609,7 +693,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                         paddingScale: CGFloat = 1,
                                         minWidthOverride: CGFloat? = nil,
                                         maxWidthOverride: CGFloat? = nil,
-                                        minHeightOverride: CGFloat? = nil) -> CGSize {
+                                        minHeightOverride: CGFloat? = nil,
+                                        truncationHeightOverride: CGFloat? = nil) -> CGSize {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
         uiKitBubbleSizer.configure(
@@ -622,6 +707,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             paddingScale: paddingScale,
             minWidthOverride: minWidthOverride,
             maxWidthOverride: maxWidthOverride,
+            truncationHeightOverride: truncationHeightOverride,
             onRequestExpand: nil,
             onRequestLayout: nil
         )
@@ -909,7 +995,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             message: message,
             presentation: presentation,
             metrics: metrics,
-            containerWidth: availableContentWidth()
+            containerWidth: effectiveContentWidth(metrics: metrics)
         )
         let clamped = CGSize(
             width: min(maxWidth, measuredSize.width),
