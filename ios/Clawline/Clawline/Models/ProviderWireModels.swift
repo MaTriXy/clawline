@@ -35,6 +35,7 @@ struct ServerMessagePayload: Codable, Equatable {
     init(type: String = "message",
          id: String,
          role: Message.Role,
+         sender: String? = nil,
          content: String,
          timestamp: Date,
          streaming: Bool,
@@ -44,6 +45,7 @@ struct ServerMessagePayload: Codable, Equatable {
         self.type = type
         self.id = id
         self.role = role
+        self.sender = sender
         self.content = content
         self.timestamp = timestamp
         self.streaming = streaming
