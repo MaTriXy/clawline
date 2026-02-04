@@ -932,6 +932,46 @@
             </div>
         </section>
 
+        <!-- BUBBLE SIZING SECTION -->
+        <section class="section" id="bubble-sizing">
+            <h2>Bubble Sizing</h2>
+
+            <h3>Optimized Text Width (OTW)</h3>
+            <p><strong>OTW</strong> is the ideal maximum line width for comfortable reading of plain text and simple markdown.</p>
+            <ul>
+                <li>Typography standard: optimal line length is 45-75 characters per line, with ~66 characters (the measure) as the ideal target.</li>
+                <li>Implementation reference: <code>ChatFlowTheme.maxLineWidth(bodyFontSize:)</code> (65ch sample width in code).</li>
+                <li>OTW is derived from the typography system and scales with Dynamic Type.</li>
+            </ul>
+
+            <h3>Bubble Width Rules</h3>
+            <table class="spec-table">
+                <thead>
+                    <tr><th>Content Type</th><th>Bubble Width</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Plain text / simple markdown only</td><td>OTW</td></tr>
+                    <tr><td>Wide content (markdown tables &gt; OTW, images &gt; OTW, URL previews)</td><td>Device width with proper theme padding</td></tr>
+                </tbody>
+            </table>
+
+            <h3>Text Wrapping in Wide Bubbles</h3>
+            <p><strong>Critical:</strong> When a bubble is wider than OTW (due to wide content), text and markdown text still wrap at OTW. Only tables, images, and web previews stretch to the full bubble content width.</p>
+            <p>Example: A bubble containing text + a wide table might be 600pt wide, but the text paragraphs above/below the table still wrap at OTW.</p>
+
+            <h3>Device-Specific Width</h3>
+            <ul>
+                <li><strong>iPhone / iPad:</strong> Device width with proper theme padding for embedded content in a bubble (no max cap).</li>
+                <li><strong>visionOS spatial:</strong> Apply sizing rules at iPad mini equivalent dimensions — use the resulting bubble content width (not literal iPad mini screen dimensions).</li>
+            </ul>
+
+            <h3>Truncated Max Height</h3>
+            <ul>
+                <li><strong>iPhone / iPad:</strong> Top of screen to top of message bar with keyboard up, minus theme padding for content embedded in a bubble.</li>
+                <li><strong>visionOS spatial:</strong> iPad mini equivalent (apply rules as if on iPad mini).</li>
+            </ul>
+        </section>
+
         <!-- SPACING SECTION -->
         <section class="section" id="spacing">
             <h2>Spacing System</h2>
