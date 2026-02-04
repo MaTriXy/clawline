@@ -251,6 +251,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         headerStack.axis = .horizontal
         headerStack.spacing = 10
         headerStack.alignment = .center
+        headerStack.setContentHuggingPriority(.required, for: .vertical)
+        headerStack.setContentCompressionResistancePriority(.required, for: .vertical)
 
         senderLabel.numberOfLines = 1
         senderLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
