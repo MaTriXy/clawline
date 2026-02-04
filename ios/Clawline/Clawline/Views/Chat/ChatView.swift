@@ -263,52 +263,31 @@ struct ChatView: View {
             containerPadding: metrics.containerPadding
         )
 
-        ZStack(alignment: .top) {
-            // Paged stream view for admins, single stream for regular users
-            if authManager.isAdmin {
+        let messageLayer: AnyView = authManager.isAdmin
+            ? AnyView(
                 pagedStreamView(topInset: topInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
-            } else {
+            )
+            : AnyView(
                 messageList(topInset: topInset, channel: .personal)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea(.container, edges: [.top, .bottom])
-            }
+            )
 
-            if topInset > 0 {
-                statusBarFadeOverlay(height: topInset + 20)
-                    .frame(maxWidth: .infinity, height: topInset + 20, alignment: .top)
-                    .allowsHitTesting(false)
-            }
+        ZStack(alignment: .top) {
+            // Paged stream view for admins, single stream for regular users
+            messageLayer
 
-            // Stream toast (anchored above input bar)
-            if streamToastManager.isVisible {
-                let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
-                    + belowBarGap + resolvedInputHeight
-                StreamToast(channelName: streamToastManager.channelName)
-                    .padding(.bottom, inputBarTopFromScreenBottom + 50)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .ignoresSafeArea(.container, edges: .bottom)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            }
-
-            if let error = viewModel.error {
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    errorBanner(error)
-                }
-                .padding(.bottom, listBottomInset)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            if let toast = toastManager.toast {
-                ToastBanner(message: toast.message) {
-                    toastManager.dismiss()
-                }
-                .padding(.top, geometry.safeAreaInsets.top + 12)
-                .padding(.horizontal, 24)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
+            statusBarFadeView(topInset: topInset)
+            streamToastView(
+                geometry: geometry,
+                belowBarGap: belowBarGap,
+                resolvedInputHeight: resolvedInputHeight,
+                keyboardHeight: keyboardHeight
+            )
+            errorBannerView(viewModel: viewModel, listBottomInset: listBottomInset)
+            toastBannerView(geometry: geometry, toastManager: toastManager)
         }
         .ignoresSafeArea(.keyboard)
         .onChange(of: layoutInputs) { _, _ in
@@ -335,41 +314,13 @@ struct ChatView: View {
         .onChange(of: geometry.safeAreaInsets.bottom) { _, _ in layoutRevision &+= 1 }
         .onChange(of: horizontalSizeClass) { _, _ in layoutRevision &+= 1 }
         .overlay(alignment: .bottom) {
-            KeyboardPinnedContainer(
-                desiredBottomGap: belowBarGap,
+            inputBarOverlay(
+                geometry: geometry,
+                viewModel: viewModel,
+                belowBarGap: belowBarGap,
                 isKeyboardVisible: isKeyboardVisible,
-                measuredHeight: $inputBarHeight,
-                versionText: appVersionLabel,
-                layoutCoordinator: layoutCoordinator,
                 layoutKey: layoutKey
-            ) {
-                MessageInputBar(
-                    content: $viewModel.inputContent,
-                    selectionRange: $selectionRange,
-                    pendingInsertions: $pendingInputInsertions,
-                    resetToken: viewModel.inputResetToken,
-                    canSend: viewModel.canSend,
-                    isSending: viewModel.isSending,
-                    connectionAlert: viewModel.connectionAlert,
-                    focusTrigger: focusRequestID,
-                    bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
-                    isKeyboardVisible: isKeyboardVisible,
-                    onSend: {
-                        viewModel.send()
-                    },
-                    onCancel: { viewModel.cancelSend() },
-                    onAdd: {
-                        activeSheet = .attachmentMenu
-                    },
-                    // ⚠️ This callback is how focus state survives view recreation.
-                    // DO NOT replace with @Binding or try to use @FocusState directly.
-                    onFocusChange: { focused in isInputFocused = focused },
-                    onPasteImages: handlePastedImages,
-                    isCompact: horizontalSizeClass == .compact
-                )
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            .ignoresSafeArea(.container, edges: .bottom)
+            )
         }
     }
 
@@ -388,6 +339,100 @@ struct ChatView: View {
             return AttributedString("v\(version) (build ") + buildText + AttributedString(")")
         }
         return AttributedString("v\(version)")
+    }
+
+    @ViewBuilder
+    private func statusBarFadeView(topInset: CGFloat) -> some View {
+        if topInset > 0 {
+            statusBarFadeOverlay(height: topInset + 20)
+                .frame(height: topInset + 20, alignment: .top)
+                .frame(maxWidth: .infinity, alignment: .top)
+                .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private func streamToastView(geometry: GeometryProxy,
+                                 belowBarGap: CGFloat,
+                                 resolvedInputHeight: CGFloat,
+                                 keyboardHeight: CGFloat) -> some View {
+        if streamToastManager.isVisible {
+            let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
+                + belowBarGap + resolvedInputHeight
+            StreamToast(channelName: streamToastManager.channelName)
+                .padding(.bottom, inputBarTopFromScreenBottom + 50)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea(.container, edges: .bottom)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        }
+    }
+
+    @ViewBuilder
+    private func errorBannerView(viewModel: ChatViewModel,
+                                 listBottomInset: CGFloat) -> some View {
+        if let error = viewModel.error {
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                errorBanner(error)
+            }
+            .padding(.bottom, listBottomInset)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    @ViewBuilder
+    private func toastBannerView(geometry: GeometryProxy,
+                                 toastManager: ToastManager) -> some View {
+        if let toast = toastManager.toast {
+            ToastBanner(message: toast.message) {
+                toastManager.dismiss()
+            }
+            .padding(.top, geometry.safeAreaInsets.top + 12)
+            .padding(.horizontal, 24)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private func inputBarOverlay(geometry: GeometryProxy,
+                                 viewModel: ChatViewModel,
+                                 belowBarGap: CGFloat,
+                                 isKeyboardVisible: Bool,
+                                 layoutKey: ChatLayoutKey) -> some View {
+        KeyboardPinnedContainer(
+            desiredBottomGap: belowBarGap,
+            isKeyboardVisible: isKeyboardVisible,
+            measuredHeight: $inputBarHeight,
+            versionText: appVersionLabel,
+            layoutCoordinator: layoutCoordinator,
+            layoutKey: layoutKey
+        ) {
+            MessageInputBar(
+                content: $viewModel.inputContent,
+                selectionRange: $selectionRange,
+                pendingInsertions: $pendingInputInsertions,
+                resetToken: viewModel.inputResetToken,
+                canSend: viewModel.canSend,
+                isSending: viewModel.isSending,
+                connectionAlert: viewModel.connectionAlert,
+                focusTrigger: focusRequestID,
+                bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
+                isKeyboardVisible: isKeyboardVisible,
+                onSend: {
+                    viewModel.send()
+                },
+                onCancel: { viewModel.cancelSend() },
+                onAdd: {
+                    activeSheet = .attachmentMenu
+                },
+                // ⚠️ This callback is how focus state survives view recreation.
+                // DO NOT replace with @Binding or try to use @FocusState directly.
+                onFocusChange: { focused in isInputFocused = focused },
+                onPasteImages: handlePastedImages,
+                isCompact: horizontalSizeClass == .compact
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     @ViewBuilder
