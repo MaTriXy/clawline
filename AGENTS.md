@@ -27,3 +27,12 @@ When working on GitHub issues, follow these rules:
 2. **Comment when starting.** When you begin work on an issue, comment on it noting that you're starting.
 3. **Post progress updates.** Comment on the issue as you work — what you found, what you changed, what you committed.
 4. **Comment when done, don't close.** When finished, comment with a final summary (commit hash, what changed, deploy status) but do NOT close the issue.
+
+## Shipping Discipline
+
+- **Main-only shipping.** Only ship/deploy from `origin/main`. Do not deploy from pinned/local-only commits or non-main branches.
+
+## Shipping Policy (Main Only)
+
+- Ship only from `origin/main`. Do not request or expect deploys of pinned commits or branch SHAs.
+- When reporting a fix, always state `pushed to origin/main @ <hash>` or `not on main yet`.
