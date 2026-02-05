@@ -1186,6 +1186,9 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
             addSubview(hostingView)
 
+            versionLabel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(versionLabel)
+
             let bottomToContainerConstraint = hostingView.bottomAnchor.constraint(
                 equalTo: bottomAnchor,
                 constant: -desiredBottomGap
@@ -1200,6 +1203,9 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
                 bottomToContainerConstraint,
                 topConstraint,
+                versionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
+                versionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+                versionLabel.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -4),
             ])
             self.bottomToContainerConstraint = bottomToContainerConstraint
         }
