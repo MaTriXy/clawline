@@ -170,7 +170,7 @@ struct MessageInputBar: View {
 
     private var visionOSBorderColor: Color {
         isLightMode
-            ? ChatFlowTheme.ink(.light).opacity(0.80)
+            ? ChatFlowTheme.ink(.light).opacity(0.95)
             : Color.white.opacity(0.5)
     }
 
