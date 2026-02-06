@@ -134,6 +134,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         static let minHeight: CGFloat = 140
         static let defaultMaxHeight: CGFloat = 360
         static let loadTimeout: TimeInterval = 12
+        static let slotWaitTimeout: TimeInterval = 60
         static let emptyBodyDelay: TimeInterval = 0.5
         static let maxRedirects = 5
         static let mediaCornerRadius: CGFloat = 12
@@ -160,7 +161,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private var handlerRegistered = false
     private var heightUpdates = 0
 
-    private var timeoutTimer: Timer?
+    private var slotWaitTimer: Timer?
+    private var loadTimeoutTimer: Timer?
     private var fallbackTimer: Timer?
 
     private var hasSlot = false
@@ -351,13 +353,14 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         guard !hasSlot, let currentURL else { return }
         guard state == .idle else { return }
 
-        // If we're queued behind other previews, we still need a timeout so we don't
-        // spin forever waiting for a slot.
+        // If we're queued behind other previews, keep a long watchdog so we don't
+        // spin forever waiting for a slot. The actual "load timeout" starts when
+        // WKWebView load begins (see startLoad).
         setLoadingState()
         if !slotWaitStarted {
             slotWaitStarted = true
             loadStartedAt = CACurrentMediaTime()
-            scheduleTimeout()
+            scheduleSlotWaitTimeout()
         }
         LinkPreviewLoadCoordinator.shared.acquireSlot { [weak self] in
             guard let self else { return }
@@ -369,6 +372,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             }
             self.hasSlot = true
             self.slotWaitStarted = false
+            self.slotWaitTimer?.invalidate()
+            self.slotWaitTimer = nil
             self.startLoad(url: currentURL)
         }
     }
@@ -393,7 +398,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         slotWaitStarted = false
 
         configureHeightObserver()
-        scheduleTimeout()
+        scheduleLoadTimeout()
 
         resolveHostAndLoad(url: url)
     }
@@ -447,9 +452,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     }
 
     private func cancelLoad(releaseSlot: Bool) {
-        timeoutTimer?.invalidate()
+        slotWaitTimer?.invalidate()
+        loadTimeoutTimer?.invalidate()
         fallbackTimer?.invalidate()
-        timeoutTimer = nil
+        slotWaitTimer = nil
+        loadTimeoutTimer = nil
         fallbackTimer = nil
         webView.stopLoading()
         spinner.stopAnimating()
@@ -466,10 +473,17 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         }
     }
 
-    private func scheduleTimeout() {
-        timeoutTimer?.invalidate()
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: Constants.loadTimeout, repeats: false) { [weak self] _ in
-            self?.handleFailure(.timeout)
+    private func scheduleSlotWaitTimeout() {
+        slotWaitTimer?.invalidate()
+        slotWaitTimer = Timer.scheduledTimer(withTimeInterval: Constants.slotWaitTimeout, repeats: false) { [weak self] _ in
+            self?.handleFailure(.timeout, detail: "slot_wait")
+        }
+    }
+
+    private func scheduleLoadTimeout() {
+        loadTimeoutTimer?.invalidate()
+        loadTimeoutTimer = Timer.scheduledTimer(withTimeInterval: Constants.loadTimeout, repeats: false) { [weak self] _ in
+            self?.handleFailure(.timeout, detail: "load")
         }
     }
 
@@ -576,8 +590,10 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     private func markLoadedIfNeeded() {
         guard state == .loading else { return }
-        timeoutTimer?.invalidate()
-        timeoutTimer = nil
+        slotWaitTimer?.invalidate()
+        loadTimeoutTimer?.invalidate()
+        slotWaitTimer = nil
+        loadTimeoutTimer = nil
         spinner.stopAnimating()
         state = .loaded
         releaseSlotIfNeeded()
