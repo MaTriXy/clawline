@@ -1123,16 +1123,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         nsAttributed.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
 
         // Walk through and update fonts while preserving traits.
-        // Important: preserve relative markdown sizes (e.g. #..###### heading levels).
-        var sizeBuckets: [CGFloat: Int] = [:]
-        nsAttributed.enumerateAttribute(.font, in: fullRange, options: []) { value, _, _ in
-            guard let font = value as? UIFont else { return }
-            let bucket = (font.pointSize * 2).rounded() / 2
-            sizeBuckets[bucket, default: 0] += 1
-        }
-        let baselineSize = sizeBuckets.max(by: { $0.value < $1.value })?.key ?? baseFont.pointSize
-        let scale = baselineSize > 0 ? (baseFont.pointSize / baselineSize) : 1
-
         nsAttributed.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
             guard let existingFont = value as? UIFont else {
                 nsAttributed.addAttribute(.font, value: baseFont, range: range)
@@ -1140,29 +1130,121 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
 
             let traits = existingFont.fontDescriptor.symbolicTraits
-            let scaledSize = max(10, existingFont.pointSize * scale)
-            var newFont = UIFont(descriptor: baseFont.fontDescriptor, size: scaledSize)
+            let size = baseFont.pointSize
+            var newFont = UIFont(descriptor: baseFont.fontDescriptor, size: size)
 
             if traits.contains(.traitBold) && traits.contains(.traitItalic) {
                 if let descriptor = baseFont.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
-                    newFont = UIFont(descriptor: descriptor, size: scaledSize)
+                    newFont = UIFont(descriptor: descriptor, size: size)
                 }
             } else if traits.contains(.traitBold) {
-                newFont = UIFont.systemFont(ofSize: scaledSize, weight: .bold)
+                newFont = UIFont.systemFont(ofSize: size, weight: .bold)
             } else if traits.contains(.traitItalic) {
                 if let descriptor = baseFont.fontDescriptor.withSymbolicTraits(.traitItalic) {
-                    newFont = UIFont(descriptor: descriptor, size: scaledSize)
+                    newFont = UIFont(descriptor: descriptor, size: size)
                 }
             } else if traits.contains(.traitMonoSpace) {
                 // Inline code runs: keep slightly smaller and add background fill.
-                newFont = UIFont.monospacedSystemFont(ofSize: max(9, scaledSize - 1), weight: .medium)
+                newFont = UIFont.monospacedSystemFont(ofSize: max(9, size - 1), weight: .medium)
                 nsAttributed.addAttribute(.backgroundColor, value: UIColor.tertiarySystemFill, range: range)
             }
 
             nsAttributed.addAttribute(.font, value: newFont, range: range)
         }
 
+        // #44: Ensure all ATX heading levels (#..######) get visible styling.
+        applyHeadingStyles(markdown: markdown, nsAttributed: nsAttributed, baseFont: baseFont)
+
         return nsAttributed
+    }
+
+    private static func applyHeadingStyles(markdown: String,
+                                          nsAttributed: NSMutableAttributedString,
+                                          baseFont: UIFont) {
+        let headings = extractMarkdownHeadings(markdown)
+        guard !headings.isEmpty else { return }
+
+        let fullText = nsAttributed.string as NSString
+        var searchStart = 0
+
+        for heading in headings {
+            let target = heading.text
+            guard !target.isEmpty else { continue }
+
+            // Find the heading text at the start of a line to reduce false matches.
+            var foundRange: NSRange?
+            while searchStart < fullText.length {
+                let searchRange = NSRange(location: searchStart, length: fullText.length - searchStart)
+                let range = fullText.range(of: target, options: [], range: searchRange)
+                if range.location == NSNotFound { break }
+
+                let isLineStart = (range.location == 0) || (fullText.substring(with: NSRange(location: range.location - 1, length: 1)) == "\n")
+                if isLineStart {
+                    foundRange = range
+                    break
+                }
+                searchStart = range.location + range.length
+            }
+
+            guard let range = foundRange else { continue }
+
+            let level = max(1, min(6, heading.level))
+            let delta: CGFloat
+            switch level {
+            case 1: delta = 8
+            case 2: delta = 6
+            case 3: delta = 4
+            case 4: delta = 2
+            case 5: delta = 1
+            default: delta = 0
+            }
+
+            let size = min(32, baseFont.pointSize + delta)
+            let weight: UIFont.Weight = (level <= 2) ? .bold : .semibold
+            nsAttributed.addAttribute(.font, value: UIFont.systemFont(ofSize: size, weight: weight), range: range)
+
+            searchStart = range.location + range.length
+        }
+    }
+
+    private static func extractMarkdownHeadings(_ markdown: String) -> [(level: Int, text: String)] {
+        var results: [(level: Int, text: String)] = []
+        var inFence = false
+
+        for rawLine in markdown.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+
+            if line.hasPrefix("```") {
+                inFence.toggle()
+                continue
+            }
+            if inFence { continue }
+
+            // ATX headings: #..###### <text> (optionally closing with trailing #'s)
+            guard line.hasPrefix("#") else { continue }
+
+            var level = 0
+            for ch in line {
+                if ch == "#" { level += 1 } else { break }
+            }
+            guard level >= 1 && level <= 6 else { continue }
+
+            let afterHashes = line.dropFirst(level)
+            guard afterHashes.first == " " || afterHashes.first == "\t" else { continue }
+            var text = afterHashes.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Strip optional closing #'s: "### Title ###"
+            if let hashIndex = text.firstIndex(of: "#") {
+                let suffix = text[hashIndex...]
+                if suffix.allSatisfy({ $0 == "#" || $0 == " " || $0 == "\t" }) {
+                    text = text[..<hashIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            results.append((level: level, text: String(text)))
+        }
+
+        return results
     }
 
     private static func makeImageView(attachment: Attachment,
