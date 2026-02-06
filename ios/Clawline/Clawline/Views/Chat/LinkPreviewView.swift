@@ -500,7 +500,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     }
 
     private func loadURL(_ url: URL) {
-        let request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: Constants.loadTimeout)
+        // Temporarily disabled (#35) - re-enable useProtocolCachePolicy once stabilization is proven solid.
+        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Constants.loadTimeout)
         webView.load(request)
     }
 

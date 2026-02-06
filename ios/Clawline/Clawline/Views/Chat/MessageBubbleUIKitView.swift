@@ -1099,11 +1099,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                                       baseFont: UIFont,
                                       inkColor: UIColor,
                                       lineSpacing: CGFloat) -> NSAttributedString? {
-        // Use AttributedString for markdown parsing, then convert to NSAttributedString
-        guard let attributed = try? AttributedString(
-            markdown: markdown,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        ) else {
+        // Use AttributedString for markdown parsing, then convert to NSAttributedString.
+        // #44: headings are block-level markdown, so prefer full parsing (falls back if parsing fails).
+        let attributed: AttributedString
+        if let full = try? AttributedString(markdown: markdown, options: .init(interpretedSyntax: .full)) {
+            attributed = full
+        } else if let inline = try? AttributedString(markdown: markdown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            attributed = inline
+        } else {
             return nil
         }
 
@@ -1119,7 +1122,17 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         nsAttributed.addAttribute(.foregroundColor, value: inkColor, range: fullRange)
         nsAttributed.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
 
-        // Walk through and update fonts while preserving traits
+        // Walk through and update fonts while preserving traits.
+        // Important: preserve relative markdown sizes (e.g. #..###### heading levels).
+        var sizeBuckets: [CGFloat: Int] = [:]
+        nsAttributed.enumerateAttribute(.font, in: fullRange, options: []) { value, _, _ in
+            guard let font = value as? UIFont else { return }
+            let bucket = (font.pointSize * 2).rounded() / 2
+            sizeBuckets[bucket, default: 0] += 1
+        }
+        let baselineSize = sizeBuckets.max(by: { $0.value < $1.value })?.key ?? baseFont.pointSize
+        let scale = baselineSize > 0 ? (baseFont.pointSize / baselineSize) : 1
+
         nsAttributed.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
             guard let existingFont = value as? UIFont else {
                 nsAttributed.addAttribute(.font, value: baseFont, range: range)
@@ -1127,21 +1140,22 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
 
             let traits = existingFont.fontDescriptor.symbolicTraits
-            var newFont = baseFont
+            let scaledSize = max(10, existingFont.pointSize * scale)
+            var newFont = UIFont(descriptor: baseFont.fontDescriptor, size: scaledSize)
 
             if traits.contains(.traitBold) && traits.contains(.traitItalic) {
                 if let descriptor = baseFont.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
-                    newFont = UIFont(descriptor: descriptor, size: baseFont.pointSize)
+                    newFont = UIFont(descriptor: descriptor, size: scaledSize)
                 }
             } else if traits.contains(.traitBold) {
-                newFont = UIFont.systemFont(ofSize: baseFont.pointSize, weight: .bold)
+                newFont = UIFont.systemFont(ofSize: scaledSize, weight: .bold)
             } else if traits.contains(.traitItalic) {
                 if let descriptor = baseFont.fontDescriptor.withSymbolicTraits(.traitItalic) {
-                    newFont = UIFont(descriptor: descriptor, size: baseFont.pointSize)
+                    newFont = UIFont(descriptor: descriptor, size: scaledSize)
                 }
             } else if traits.contains(.traitMonoSpace) {
-                newFont = UIFont.monospacedSystemFont(ofSize: baseFont.pointSize - 1, weight: .medium)
-                // Add code-style background using system fill for proper appearance
+                // Inline code runs: keep slightly smaller and add background fill.
+                newFont = UIFont.monospacedSystemFont(ofSize: max(9, scaledSize - 1), weight: .medium)
                 nsAttributed.addAttribute(.backgroundColor, value: UIColor.tertiarySystemFill, range: range)
             }
 
