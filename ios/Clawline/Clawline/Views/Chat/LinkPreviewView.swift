@@ -499,25 +499,47 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     private func evaluateHeightFallback() {
         // document.*.scrollHeight bottoms out at viewport height, so small pages can appear "tall"
-        // if we start the preview at a large height. Use the max bottom of content elements instead.
+        // if we start the preview at a large height. Use rendered content extents instead.
         let js = """
         (function(){
           try {
             var body = document.body;
             if (!body) { return null; }
             var maxBottom = 0;
-            var walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT, null);
-            var count = 0;
-            while (walker.nextNode()) {
-              var el = walker.currentNode;
-              if (el === body) { continue; }
-              if (!el.getBoundingClientRect) { continue; }
-              var rect = el.getBoundingClientRect();
-              if (rect && rect.bottom && rect.bottom > maxBottom) { maxBottom = rect.bottom; }
-              count++;
-              if (count > 2500) { break; }
+            // 4 == NodeFilter.SHOW_TEXT
+            var textWalker = document.createTreeWalker(body, 4, null);
+            var textCount = 0;
+            while (textWalker.nextNode()) {
+              var node = textWalker.currentNode;
+              if (!node || !node.textContent) { continue; }
+              if (!node.textContent.trim()) { continue; }
+              var r = document.createRange();
+              r.selectNodeContents(node);
+              var rect = r.getBoundingClientRect();
+              var bottom = (rect && rect.bottom) ? rect.bottom : 0;
+              if (bottom > maxBottom) { maxBottom = bottom; }
+              textCount++;
+              if (textCount > 4000) { break; }
             }
-            return Math.max(0, maxBottom);
+
+            // 1 == NodeFilter.SHOW_ELEMENT
+            var elementWalker = document.createTreeWalker(body, 1, null);
+            var elementCount = 0;
+            while (elementWalker.nextNode()) {
+              var el = elementWalker.currentNode;
+              if (!el || !el.getBoundingClientRect) { continue; }
+              var tag = (el.tagName || '').toUpperCase();
+              if (tag === 'IMG' || tag === 'VIDEO' || tag === 'IFRAME' || tag === 'CANVAS' || tag === 'SVG') {
+                var eRect = el.getBoundingClientRect();
+                var eBottom = (eRect && eRect.bottom) ? eRect.bottom : 0;
+                if (eBottom > maxBottom) { maxBottom = eBottom; }
+              }
+              elementCount++;
+              if (elementCount > 2500) { break; }
+            }
+
+            var scrollY = (window.scrollY || 0);
+            return Math.max(0, maxBottom + scrollY);
           } catch(e) { return null; }
         })();
         """
@@ -789,26 +811,64 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
           var handler = '\(handler)';
           var token = '\(token)';
           var store = window.__clawlineLinkPreviewObservers || (window.__clawlineLinkPreviewObservers = {});
+          function contentBottom(){
+            try {
+              var body = document.body;
+              if (!body) { return 0; }
+              var maxBottom = 0;
+
+              // Prefer measuring real rendered content (text nodes / replaced elements) rather than
+              // container boxes, because many pages set full-height wrappers that would force
+              // element.getBoundingClientRect().bottom to be viewport-height even for short pages.
+
+              // 4 == NodeFilter.SHOW_TEXT
+              var textWalker = document.createTreeWalker(body, 4, null);
+              var textCount = 0;
+              while (textWalker.nextNode()) {
+                var node = textWalker.currentNode;
+                if (!node || !node.textContent) { continue; }
+                if (!node.textContent.trim()) { continue; }
+                var r = document.createRange();
+                r.selectNodeContents(node);
+                var rect = r.getBoundingClientRect();
+                var bottom = (rect && rect.bottom) ? rect.bottom : 0;
+                if (bottom > maxBottom) { maxBottom = bottom; }
+                textCount++;
+                if (textCount > 4000) { break; }
+              }
+
+              // 1 == NodeFilter.SHOW_ELEMENT
+              var elementWalker = document.createTreeWalker(body, 1, null);
+              var elementCount = 0;
+              while (elementWalker.nextNode()) {
+                var el = elementWalker.currentNode;
+                if (!el || !el.getBoundingClientRect) { continue; }
+                var tag = (el.tagName || '').toUpperCase();
+                if (tag === 'IMG' || tag === 'VIDEO' || tag === 'IFRAME' || tag === 'CANVAS' || tag === 'SVG') {
+                  var eRect = el.getBoundingClientRect();
+                  var eBottom = (eRect && eRect.bottom) ? eRect.bottom : 0;
+                  if (eBottom > maxBottom) { maxBottom = eBottom; }
+                }
+                elementCount++;
+                if (elementCount > 2500) { break; }
+              }
+
+              // Convert viewport-relative bottom to a document-height estimate.
+              var scrollY = (window.scrollY || 0);
+              return Math.max(0, maxBottom + scrollY);
+            } catch(e) {
+              return 0;
+            }
+          }
           function postHeight(){
             try {
               var body = document.body;
               if (!body) { return; }
-              // scrollHeight bottoms out at viewport height; use the max bottom of content elements,
-              // then fall back to scrollHeight if we can't find any elements.
-              var maxBottom = 0;
-              var walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT, null);
-              var count = 0;
-              while (walker.nextNode()) {
-                var el = walker.currentNode;
-                if (el === body) { continue; }
-                if (!el.getBoundingClientRect) { continue; }
-                var rect = el.getBoundingClientRect();
-                if (rect && rect.bottom && rect.bottom > maxBottom) { maxBottom = rect.bottom; }
-                count++;
-                if (count > 2500) { break; }
-              }
+              // scrollHeight bottoms out at viewport height; measure rendered content extents first,
+              // then fall back to scrollHeight if the document has no measurable content.
+              var bottom = contentBottom();
               var scrollH = Math.max(body.scrollHeight || 0, (document.documentElement && document.documentElement.scrollHeight) || 0);
-              var height = maxBottom > 0 ? maxBottom : scrollH;
+              var height = bottom > 0 ? bottom : scrollH;
               if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers[handler]) {
                 window.webkit.messageHandlers[handler].postMessage({token: token, height: height});
               }
