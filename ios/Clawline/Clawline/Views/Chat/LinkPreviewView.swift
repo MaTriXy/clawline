@@ -231,7 +231,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             }
 
             // Evict offscreen work first. This avoids killing a visible load and helps relieve pressure.
-            if self.state == .loading || self.hasSlot || self.pendingSlotRequestId != nil {
+            let isLoading: Bool = {
+                if case .loading = self.state { return true }
+                return false
+            }()
+            if isLoading || self.hasSlot || self.pendingSlotRequestId != nil {
                 self.logger.warning("memory warning: evicting offscreen preview url=\(self.currentURL?.absoluteString ?? "nil", privacy: .public)")
                 self.cancelLoad(releaseSlot: true)
                 self.state = .idle
