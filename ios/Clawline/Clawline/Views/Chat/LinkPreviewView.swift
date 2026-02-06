@@ -268,6 +268,12 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         // Match other embedded media (images/tables) with continuous rounded corners.
         webContainer.layer.cornerRadius = Constants.mediaCornerRadius
         webContainer.layer.cornerCurve = .continuous
+        webContainer.layer.maskedCorners = [
+            .layerMinXMinYCorner,
+            .layerMaxXMinYCorner,
+            .layerMinXMaxYCorner,
+            .layerMaxXMaxYCorner
+        ]
         stackView.addArrangedSubview(webContainer)
 
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -276,6 +282,15 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.clipsToBounds = true
+        // Apply the same continuous corner mask to WKWebView internals to ensure the
+        // bottom corners clip correctly (WKWebView uses internal tiled layers).
+        webView.layer.cornerRadius = Constants.mediaCornerRadius
+        webView.layer.cornerCurve = .continuous
+        webView.layer.maskedCorners = webContainer.layer.maskedCorners
+        webView.scrollView.clipsToBounds = true
+        webView.scrollView.layer.cornerRadius = Constants.mediaCornerRadius
+        webView.scrollView.layer.cornerCurve = .continuous
+        webView.scrollView.layer.maskedCorners = webContainer.layer.maskedCorners
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.showsVerticalScrollIndicator = false
         webView.scrollView.alwaysBounceVertical = true
