@@ -695,17 +695,27 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
         // Flynn #28: for text + link preview, enable the outer scroll view only if the combined
         // content height exceeds the bubble max height (truncation cap), regardless of sizeClass.
-        let hasTextAndLinkPreview = hasTextContent && (linkPreviewURL != nil)
+        let hasLinkPreviewView = dynamicContentViews.contains(where: { $0 is LinkPreviewView })
+        let hasTextAndLinkPreview = hasTextContent && hasLinkPreviewView
         if (!isSingleImageOnly) && ((sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview) {
             let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
             let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-            let measureWidth = min(contentWidth, maxLineWidth)
+            let textMeasureWidth = min(contentWidth, maxLineWidth)
 
             // Calculate total height of all dynamic content (text + code blocks)
             var totalHeight: CGFloat = 0
             let spacing = dynamicContentStack.spacing
             for (index, view) in dynamicContentViews.enumerated() {
-                let viewHeight = view.sizeThatFits(CGSize(width: measureWidth, height: .greatestFiniteMagnitude)).height
+                // Text stays constrained to OTW; wide content (previews/tables/images) uses full content width.
+                let measureWidth: CGFloat
+                if view === bodyLabel {
+                    measureWidth = textMeasureWidth
+                } else {
+                    measureWidth = contentWidth
+                }
+                let viewHeight = view.sizeThatFits(
+                    CGSize(width: measureWidth, height: .greatestFiniteMagnitude)
+                ).height
                 totalHeight += viewHeight
                 if index > 0 {
                     totalHeight += spacing
