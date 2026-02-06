@@ -93,6 +93,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var forceReconfigureAll = false
     private var wasShowingTypingIndicator = false
     private var onExpand: ((Message) -> Void)?
+    private var pendingEntranceAnimationIds: Set<String> = []
 #if os(visionOS)
     // iPad mini 6th gen portrait reference size for spatial layout rules.
     private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
@@ -217,6 +218,27 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
 #if os(visionOS)
         updateVisibleCellOpacity()
+#else
+        guard let id = dataSource.itemIdentifier(for: indexPath) else { return }
+        guard pendingEntranceAnimationIds.contains(id) else {
+            // Reset any reused cells that might have been animated previously.
+            cell.alpha = 1
+            cell.transform = .identity
+            return
+        }
+        pendingEntranceAnimationIds.remove(id)
+
+        // Subtle entrance: scale up + fade in.
+        cell.alpha = 0
+        cell.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        UIView.animate(
+            withDuration: 0.18,
+            delay: 0,
+            options: [.curveEaseOut, .allowUserInteraction]
+        ) {
+            cell.alpha = 1
+            cell.transform = .identity
+        }
 #endif
     }
 
@@ -325,6 +347,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
         snapshot.appendItems(messages.map(\.id))
+        let oldItemIds = Set(dataSource.snapshot().itemIdentifiers)
 
         // Add typing indicator when assistant is typing (server-controlled)
         // Only show on the matching channel page (for paged TabView)
@@ -341,6 +364,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             snapshot.appendItems([TypingIndicatorCell.itemId])
         }
 
+        let newItemIds = Set(snapshot.itemIdentifiers)
+        let insertedIds = newItemIds.subtracting(oldItemIds)
+        let newestMessageId = messages.last?.id
+
+        // #51: Subtle entrance animation for newly inserted bubbles when we're already at the bottom.
+        if let newestMessageId,
+           insertedIds.contains(newestMessageId),
+           insertedIds.count <= 2,
+           isNearBottom(extraMargin: 200),
+           !shouldMorph,
+           !needsFullLayout {
+            pendingEntranceAnimationIds.insert(newestMessageId)
+        }
+
         let changedIds = needsFullLayout
             ? messages.map(\.id)
             : newFingerprints.compactMap { id, fingerprint in
@@ -354,21 +391,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         forceReconfigureAll = false
 
-        // Animate when morphing from typing indicator to message for smooth transition.
-        // #19: slow down so the morph is perceptible (avoid snap-cut feel).
-        let morphDuration: TimeInterval = 0.85
         if shouldMorph {
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(morphDuration)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
 #if os(visionOS)
-            dataSource.apply(snapshot, animatingDifferences: true) { [weak self] in
+            applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
                 self?.updateVisibleCellOpacity()
             }
 #else
-            dataSource.apply(snapshot, animatingDifferences: true)
+            applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId, onApplied: nil)
 #endif
-            CATransaction.commit()
         } else {
 #if os(visionOS)
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
@@ -505,6 +535,60 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 }
             )
             return cell
+        }
+    }
+
+    private func applySnapshotWithTypingMorphIfPossible(
+        snapshot: NSDiffableDataSourceSnapshot<Int, String>,
+        targetMessageId: String?,
+        onApplied: (() -> Void)?
+    ) {
+        guard let targetMessageId,
+              let typingIndexPath = dataSource.indexPath(for: TypingIndicatorCell.itemId),
+              let typingCell = collectionView.cellForItem(at: typingIndexPath) else {
+            // Fallback: let diffable handle it (better than skipping updates).
+            dataSource.apply(snapshot, animatingDifferences: true, completion: onApplied)
+            return
+        }
+
+        collectionView.layoutIfNeeded()
+        let startFrame = typingCell.convert(typingCell.bounds, to: collectionView)
+        guard let typingSnapshotView = typingCell.snapshotView(afterScreenUpdates: false) else {
+            dataSource.apply(snapshot, animatingDifferences: true, completion: onApplied)
+            return
+        }
+
+        typingSnapshotView.frame = startFrame
+        collectionView.addSubview(typingSnapshotView)
+
+        // Apply without diffable animations; we animate the visual transform ourselves.
+        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+            guard let self else { return }
+            self.collectionView.layoutIfNeeded()
+            onApplied?()
+
+            guard let targetIndexPath = self.dataSource.indexPath(for: targetMessageId),
+                  let targetCell = self.collectionView.cellForItem(at: targetIndexPath) else {
+                typingSnapshotView.removeFromSuperview()
+                return
+            }
+
+            let endFrame = targetCell.convert(targetCell.bounds, to: self.collectionView)
+            targetCell.alpha = 0
+
+            UIView.animate(
+                withDuration: 0.32,
+                delay: 0,
+                usingSpringWithDamping: 0.92,
+                initialSpringVelocity: 0.25,
+                options: [.curveEaseInOut, .allowUserInteraction]
+            ) {
+                typingSnapshotView.frame = endFrame
+                typingSnapshotView.alpha = 0
+                targetCell.alpha = 1
+            } completion: { _ in
+                typingSnapshotView.removeFromSuperview()
+            }
         }
     }
 
