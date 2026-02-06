@@ -1077,37 +1077,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private func isPrivateIPAddress(_ host: String) -> Bool {
         // Policy: show everything (match browser behavior). Do not treat private IPs / localhost as blocked.
         return false
-
-        var addr4 = in_addr()
-        if host.withCString({ inet_pton(AF_INET, $0, &addr4) }) == 1 {
-            let ip = UInt32(bigEndian: addr4.s_addr)
-            return isPrivateIPv4(ip)
-        }
-
-        var addr6 = in6_addr()
-        if host.withCString({ inet_pton(AF_INET6, $0, &addr6) }) == 1 {
-            let bytes = withUnsafeBytes(of: addr6) { Array($0) }
-            if bytes.count >= 16 {
-                if bytes.allSatisfy({ $0 == 0 }) { return true }                 // ::
-                if bytes[0] == 0xFE && (bytes[1] & 0xC0) == 0x80 { return true } // fe80::/10
-                if (bytes[0] & 0xFE) == 0xFC { return true }                     // fc00::/7
-                if bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 0 && bytes[3] == 0 &&
-                    bytes[4] == 0 && bytes[5] == 0 && bytes[6] == 0 && bytes[7] == 0 &&
-                    bytes[8] == 0 && bytes[9] == 0 && bytes[10] == 0xFF && bytes[11] == 0xFF {
-                    let ip = (UInt32(bytes[12]) << 24) | (UInt32(bytes[13]) << 16) | (UInt32(bytes[14]) << 8) | UInt32(bytes[15])
-                    return isPrivateIPv4(ip)
-                }
-                if bytes[0] == 0 && bytes[1] == 0 && bytes[2] == 0 && bytes[3] == 0 &&
-                   bytes[4] == 0 && bytes[5] == 0 && bytes[6] == 0 && bytes[7] == 0 &&
-                   bytes[8] == 0 && bytes[9] == 0 && bytes[10] == 0 && bytes[11] == 0 &&
-                   bytes[12] == 0 && bytes[13] == 0 && bytes[14] == 0 && bytes[15] == 1 { // ::1
-                    return true
-                }
-            }
-            return false
-        }
-
-        return host == "localhost"
     }
 
     private func isPrivateIPv4(_ ip: UInt32) -> Bool {
