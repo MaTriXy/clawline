@@ -25,6 +25,11 @@ See global rules in `~/AGENTS.md`. Summary:
 3. **Comment progress updates** on the issue as you work.
 4. **Comment final summary** (commit hash, changes, deploy status) when done. Do NOT close.
 
+## iOS Git Workflow (Flynn Rule)
+
+- Do NOT create git worktrees or new branches for iOS work unless Flynn explicitly instructs you to.
+- Work directly on `main` and keep the working tree clean.
+
 ## Code Reviews
 
 Use **Codex** for code reviews (cross-validation with GPT):

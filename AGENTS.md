@@ -36,3 +36,8 @@ When working on GitHub issues, follow these rules:
 
 - Ship only from `origin/main`. Do not request or expect deploys of pinned commits or branch SHAs.
 - When reporting a fix, always state `pushed to origin/main @ <hash>` or `not on main yet`.
+
+## iOS Git Workflow (Flynn Rule)
+
+- Do NOT create git worktrees or new branches for iOS work unless Flynn explicitly instructs you to.
+- Work directly on `main` and keep the working tree clean.
