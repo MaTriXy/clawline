@@ -298,8 +298,10 @@ struct ChatView: View {
         ZStack(alignment: .top) {
             // Paged stream view for admins, single stream for regular users
             messageLayer
+                // #31: fade out message content behind the system status bar (mask, not overlay tint).
+                .compositingGroup()
+                .mask(statusBarFadeMask(topInset: topInset))
 
-            statusBarFadeView(topInset: topInset)
             streamToastView(
                 geometry: geometry,
                 belowBarGap: belowBarGap,
@@ -359,16 +361,6 @@ struct ChatView: View {
             return AttributedString("v\(version) (build ") + buildText + AttributedString(")")
         }
         return AttributedString("v\(version)")
-    }
-
-    @ViewBuilder
-    private func statusBarFadeView(topInset: CGFloat) -> some View {
-        if topInset > 0 {
-            statusBarFadeOverlay(height: topInset + 20)
-                .frame(height: topInset + 20, alignment: .top)
-                .frame(maxWidth: .infinity, alignment: .top)
-                .allowsHitTesting(false)
-        }
     }
 
     @ViewBuilder
@@ -456,23 +448,24 @@ struct ChatView: View {
     }
 
     @ViewBuilder
-    private func statusBarFadeOverlay(height: CGFloat) -> some View {
-#if os(visionOS)
-        let isDark = settings.appearanceMode == .dark
-#else
-        let isDark = colorScheme == .dark
-#endif
-        let topColor = isDark ? Color.black.opacity(0.35) : Color.white.opacity(0.6)
-        Rectangle()
-            .fill(
+    private func statusBarFadeMask(topInset: CGFloat) -> some View {
+        // Top of mask is transparent (hide content), then fades to opaque (show content).
+        // Subtle fade: just enough to keep the status bar legible without looking heavy.
+        if topInset <= 0 {
+            Rectangle().fill(Color.white)
+        } else {
+            let fadeHeight = topInset + 22
+            VStack(spacing: 0) {
                 LinearGradient(
-                    colors: [topColor, Color.clear],
+                    colors: [Color.white.opacity(0), Color.white],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-            )
-            .frame(height: height)
+                .frame(height: fadeHeight)
+                Rectangle().fill(Color.white)
+            }
             .ignoresSafeArea(.container, edges: .top)
+        }
     }
 
     private func inputBarMaxWidth(bottomSafeAreaInset: CGFloat) -> CGFloat? {
