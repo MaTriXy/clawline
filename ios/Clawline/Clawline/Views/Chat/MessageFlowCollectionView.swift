@@ -354,11 +354,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         forceReconfigureAll = false
 
-        // Animate when morphing from typing indicator to message for smooth transition
-        let morphDuration: TimeInterval = 0.45
+        // Animate when morphing from typing indicator to message for smooth transition.
+        // #19: slow down so the morph is perceptible (avoid snap-cut feel).
+        let morphDuration: TimeInterval = 0.85
         if shouldMorph {
             CATransaction.begin()
             CATransaction.setAnimationDuration(morphDuration)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
 #if os(visionOS)
             dataSource.apply(snapshot, animatingDifferences: true) { [weak self] in
                 self?.updateVisibleCellOpacity()
