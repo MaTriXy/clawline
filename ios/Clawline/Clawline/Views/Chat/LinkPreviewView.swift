@@ -203,6 +203,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
 
     private func setupViews() {
         backgroundColor = .clear
+        // Prevent the web content from painting outside the preview bounds, which can
+        // visually overlap adjacent arranged subviews (message text above/below).
+        clipsToBounds = true
 
         stackView.axis = .vertical
         stackView.spacing = 8
@@ -218,6 +221,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
 
         webContainer.translatesAutoresizingMaskIntoConstraints = false
         webContainer.backgroundColor = .clear
+        webContainer.clipsToBounds = true
         stackView.addArrangedSubview(webContainer)
 
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -225,8 +229,14 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         webView.uiDelegate = self
         webView.isOpaque = false
         webView.backgroundColor = .clear
+        webView.clipsToBounds = true
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.showsVerticalScrollIndicator = false
+        // Ensure the page starts at the top of the preview viewport and doesn't
+        // apply safe-area based insets inside message bubbles.
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.scrollView.contentInset = .zero
+        webView.scrollView.scrollIndicatorInsets = .zero
         webView.allowsLinkPreview = false
         webView.isUserInteractionEnabled = false
         webContainer.addSubview(webView)
