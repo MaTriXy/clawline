@@ -474,7 +474,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 containerWidth: contentWidth
             )
-            let truncationHeight = self.effectiveTruncationHeight(metrics: metrics)
+            // Only wide content (previews/tables/images) gets the full screen-aware truncation height.
+            // Plain text/markdown bubbles keep the design-system cap (metrics.truncationHeight).
+            let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
+            let truncationHeightOverride: CGFloat? = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
+                ? self.effectiveTruncationHeight(metrics: metrics)
+                : nil
             // Use cached size width for consistent sizing with measurement
             let configureWidth = self.sizeCache[id]?.width ?? maxWidth
             cell?.configure(
@@ -483,7 +488,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 failureReason: viewModel.failureMessage(for: message.id),
                 isCompact: self.isCompact,
                 maxWidth: configureWidth,
-                truncationHeightOverride: truncationHeight,
+                truncationHeightOverride: truncationHeightOverride,
                 showsHeader: !hideHeader,
                 isDark: self.currentIsDark,
                 onRequestExpand: { [weak self] in
@@ -696,13 +701,18 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             containerWidth: availableWidth
         )
         let failureReason = viewModel.failureMessage(for: message.id)
-        let truncationHeight = effectiveTruncationHeight(metrics: metrics)
+        // Only wide content (previews/tables/images) gets the full screen-aware truncation height.
+        // Plain text/markdown bubbles keep the design-system cap (metrics.truncationHeight).
+        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
+        let truncationHeightOverride: CGFloat? = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
+            ? effectiveTruncationHeight(metrics: metrics)
+            : nil
         let measuredSize = measureUIKitBubbleSize(
             message: message,
             presentation: presentation,
             failureReason: failureReason,
             maxWidth: maxWidth,
-            truncationHeightOverride: truncationHeight,
+            truncationHeightOverride: truncationHeightOverride,
             showsHeader: !hideHeader
         )
         sizeCache[id] = measuredSize

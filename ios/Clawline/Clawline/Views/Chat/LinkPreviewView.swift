@@ -98,7 +98,7 @@ final class LinkPreviewSharedResources {
     }
 }
 
-final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
+final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestureRecognizerDelegate {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "LinkPreview")
     enum State {
         case idle
@@ -132,7 +132,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
 
     private enum Constants {
         static let minHeight: CGFloat = 140
-        static let maxHeight: CGFloat = 360
+        static let defaultMaxHeight: CGFloat = 360
         static let loadTimeout: TimeInterval = 12
         static let emptyBodyDelay: TimeInterval = 0.5
         static let maxRedirects = 5
@@ -146,6 +146,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     private let overlayButton = UIButton(type: .custom)
     private let webView: WKWebView
     private var webViewHeightConstraint: NSLayoutConstraint!
+    private var maxHeight: CGFloat = Constants.defaultMaxHeight
 
     private var state: State = .idle
     private var currentURL: URL?
@@ -209,14 +210,19 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         return CGSize(width: UIView.noIntrinsicMetric, height: height)
     }
 
-    func configure(url: URL) {
+    func configure(url: URL, maxHeight: CGFloat? = nil) {
         if currentURL == url, state != .failed { return }
         resetState()
+        if let maxHeight {
+            self.maxHeight = max(Constants.minHeight, maxHeight)
+        } else {
+            self.maxHeight = Constants.defaultMaxHeight
+        }
         currentURL = url
         let hostLabel = url.host ?? url.absoluteString
-        overlayButton.isAccessibilityElement = true
-        overlayButton.accessibilityLabel = "Link preview: \(hostLabel)"
-        overlayButton.accessibilityTraits = .link
+        isAccessibilityElement = true
+        accessibilityLabel = "Link preview: \(hostLabel)"
+        accessibilityTraits = .link
         requestSlotIfNeeded()
         logger.info("configure url=\(url.absoluteString, privacy: .public)")
     }
@@ -263,21 +269,24 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.clipsToBounds = true
-        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.isScrollEnabled = true
         webView.scrollView.showsVerticalScrollIndicator = false
+        webView.scrollView.alwaysBounceVertical = true
         // Ensure the page starts at the top of the preview viewport and doesn't
         // apply safe-area based insets inside message bubbles.
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.contentInset = .zero
         webView.scrollView.scrollIndicatorInsets = .zero
         webView.allowsLinkPreview = false
-        webView.isUserInteractionEnabled = false
+        webView.isUserInteractionEnabled = true
         webContainer.addSubview(webView)
 
-        overlayButton.translatesAutoresizingMaskIntoConstraints = false
-        overlayButton.backgroundColor = .clear
-        overlayButton.addTarget(self, action: #selector(handleOverlayTap), for: .touchUpInside)
-        webContainer.addSubview(overlayButton)
+        // Tap anywhere on the preview to open in the browser, but allow scrolling.
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleOverlayTap))
+        tap.cancelsTouchesInView = false
+        tap.delaysTouchesBegan = false
+        tap.delegate = self
+        webContainer.addGestureRecognizer(tap)
 
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.hidesWhenStopped = true
@@ -291,11 +300,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
             webView.topAnchor.constraint(equalTo: webContainer.topAnchor),
             webView.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor),
             webViewHeightConstraint,
-
-            overlayButton.leadingAnchor.constraint(equalTo: webContainer.leadingAnchor),
-            overlayButton.trailingAnchor.constraint(equalTo: webContainer.trailingAnchor),
-            overlayButton.topAnchor.constraint(equalTo: webContainer.topAnchor),
-            overlayButton.bottomAnchor.constraint(equalTo: webContainer.bottomAnchor),
 
             spinner.centerXAnchor.constraint(equalTo: webContainer.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: webContainer.centerYAnchor)
@@ -454,9 +458,10 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     private func applyMeasuredHeight(_ rawHeight: Double) {
         guard rawHeight.isFinite else { return }
         markLoadedIfNeeded()
-        let clamped = max(Constants.minHeight, min(Constants.maxHeight, CGFloat(rawHeight)))
-        let needsScroll = rawHeight > Double(Constants.maxHeight)
-        webView.scrollView.isScrollEnabled = needsScroll
+        let clamped = max(Constants.minHeight, min(maxHeight, CGFloat(rawHeight)))
+        let needsScroll = rawHeight > Double(maxHeight)
+        webView.scrollView.isScrollEnabled = true
+        webView.scrollView.showsVerticalScrollIndicator = needsScroll
         if abs(webViewHeightConstraint.constant - clamped) <= 10 {
             return
         }
@@ -504,6 +509,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
 #endif
     }
 
+    override func accessibilityActivate() -> Bool {
+        handleOverlayTap()
+        return true
+    }
+
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -518,6 +528,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else {
             logger.info("navigationAction cancelled: missing url token=\(self.loadToken.uuidString, privacy: .public)")
+            decisionHandler(.cancel)
+            return
+        }
+        if navigationAction.navigationType == .linkActivated {
+            UIApplication.shared.open(url)
             decisionHandler(.cancel)
             return
         }
@@ -651,6 +666,12 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
                  type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
         decisionHandler(.deny)
+    }
+
+    // MARK: - UIGestureRecognizerDelegate
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        otherGestureRecognizer == webView.scrollView.panGestureRecognizer
     }
 
     // MARK: - Height Observer

@@ -541,7 +541,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             return nil
         }).first {
             let previewView = LinkPreviewView()
-            previewView.configure(url: linkPreviewURL)
+            // Let the preview grow up to the same truncation cap as long text bubbles.
+            previewView.configure(url: linkPreviewURL, maxHeight: effectiveTruncationHeight)
             previewView.onHeightChange = { [weak self] in
                 self?.onRequestLayout?(message.id)
             }
