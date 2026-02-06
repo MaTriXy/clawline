@@ -219,6 +219,12 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         } else {
             self.maxHeight = Constants.defaultMaxHeight
         }
+        // Flynn directive / #28: wide-content previews occupy the full available height cap.
+        if abs(webViewHeightConstraint.constant - self.maxHeight) > 1 {
+            webViewHeightConstraint.constant = self.maxHeight
+            invalidateIntrinsicContentSize()
+            onHeightChange?()
+        }
         currentURL = url
         let hostLabel = url.host ?? url.absoluteString
         isAccessibilityElement = true
