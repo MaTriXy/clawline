@@ -462,9 +462,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     }
 
     private func loadURL(_ url: URL) {
-        // Flynn directive: do not rely on caching to mask cell reuse/reload bugs.
-        // Force a real reload so scroll-back exercises the full load pipeline (slots/timeouts/state).
-        let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Constants.loadTimeout)
+        let request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: Constants.loadTimeout)
         webView.load(request)
     }
 
