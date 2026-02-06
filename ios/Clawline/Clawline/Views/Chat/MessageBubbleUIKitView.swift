@@ -539,6 +539,26 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentViews.append(bodyLabel)
         }
 
+        // Flynn: URLs should render as tappable cards per the design-system, independent of embedded preview success.
+        // For multi-URL messages, cards render for each unique URL; for single-URL messages, card renders above preview.
+        var cardURLs = presentation.detectedURLs
+        if let previewURL = presentation.parts.compactMap({ part -> URL? in
+            if case .linkPreview(let url) = part { return url }
+            return nil
+        }).first {
+            if !cardURLs.contains(where: { $0.absoluteString == previewURL.absoluteString }) {
+                cardURLs.append(previewURL)
+            }
+        }
+        if !cardURLs.isEmpty {
+            for url in cardURLs {
+                let card = LinkCardUIKitView()
+                card.configure(url: url, palette: palette)
+                dynamicContentStack.addArrangedSubview(card)
+                dynamicContentViews.append(card)
+            }
+        }
+
         let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
             if case .linkPreview(let url) = part { return url }
             return nil
