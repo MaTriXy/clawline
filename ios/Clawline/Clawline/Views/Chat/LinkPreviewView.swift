@@ -163,6 +163,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private var fallbackTimer: Timer?
 
     private var hasSlot = false
+    private var slotWaitStarted = false
 
     var onHeightChange: (() -> Void)?
 
@@ -320,14 +321,24 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         guard !hasSlot, let currentURL else { return }
         guard state == .idle else { return }
 
+        // If we're queued behind other previews, we still need a timeout so we don't
+        // spin forever waiting for a slot.
         setLoadingState()
+        if !slotWaitStarted {
+            slotWaitStarted = true
+            loadStartedAt = CACurrentMediaTime()
+            scheduleTimeout()
+        }
         LinkPreviewLoadCoordinator.shared.acquireSlot { [weak self] in
             guard let self else { return }
-            guard self.window != nil else {
-                self.releaseSlotIfNeeded()
+            // acquireSlot() increments activeCount before calling us. If we can't use
+            // the slot, we must release it explicitly.
+            guard self.window != nil, self.state == .loading, self.currentURL == currentURL else {
+                LinkPreviewLoadCoordinator.shared.releaseSlot()
                 return
             }
             self.hasSlot = true
+            self.slotWaitStarted = false
             self.startLoad(url: currentURL)
         }
     }
@@ -348,6 +359,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         heightUpdates = 0
         loadStartedAt = CACurrentMediaTime()
         lastFailureReason = nil
+        slotWaitStarted = false
 
         configureHeightObserver()
         scheduleTimeout()
@@ -394,6 +406,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         webContainer.isHidden = false
         state = .idle
         currentURL = nil
+        slotWaitStarted = false
     }
 
     private func cancelLoad(releaseSlot: Bool) {
