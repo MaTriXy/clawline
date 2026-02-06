@@ -107,6 +107,9 @@ struct MessagePresentation: Equatable {
     let hasTextualContent: Bool
     let isEmojiOnly: Bool
     let hasMediaOnly: Bool
+    /// True when the message contains exactly one unique URL (http/https) in its text content.
+    /// This is used for sizing/routing decisions even if we don't render a preview card.
+    let hasSingleURL: Bool
 }
 
 enum MessagePart: Equatable {
@@ -245,6 +248,8 @@ enum MessagePresentationBuilder {
            detectedURLs.count == 1 {
             parts.append(.linkPreview(detectedURLs[0]))
         }
+        let uniqueURLCount = Set(detectedURLs.map(\.absoluteString)).count
+        let hasSingleURL = uniqueURLCount == 1
 
         var hasMedia = false
         if !imageAttachments.isEmpty {
@@ -272,7 +277,8 @@ enum MessagePresentationBuilder {
             wordCount: plainWordCount,
             hasTextualContent: hasTextual,
             isEmojiOnly: emojiOnly && hasTextual,
-            hasMediaOnly: hasMedia && !hasTextual
+            hasMediaOnly: hasMedia && !hasTextual,
+            hasSingleURL: hasSingleURL
         )
     }
 

@@ -102,7 +102,8 @@ final class TypingIndicatorCell: UICollectionViewCell {
             wordCount: 0,
             hasTextualContent: false,
             isEmojiOnly: false,
-            hasMediaOnly: false
+            hasMediaOnly: false,
+            hasSingleURL: false
         )
     }
 }

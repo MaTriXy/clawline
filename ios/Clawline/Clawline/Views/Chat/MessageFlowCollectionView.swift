@@ -588,6 +588,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func hasWideContent(presentation: MessagePresentation,
                                 maxLineWidth: CGFloat) -> Bool {
+        if presentation.hasSingleURL {
+            return true
+        }
+
+        let tableCount = presentation.parts.reduce(into: 0) { count, part in
+            if case .table = part { count += 1 }
+        }
+        if tableCount == 1 {
+            return true
+        }
+
         if presentation.parts.contains(where: { part in
             switch part {
             case .image, .gallery, .linkPreview:
@@ -727,7 +738,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         )
         let effectiveMaxWidth = maxWidthOverride ?? maxWidth
         let preferredWidth: CGFloat
-        if sizeClass == .short {
+        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
+        let isWide = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
+        if isWide {
+            preferredWidth = effectiveMaxWidth
+        } else if sizeClass == .short {
             preferredWidth = uiKitBubbleSizer.preferredWidth(maxWidth: effectiveMaxWidth)
         } else {
             preferredWidth = effectiveMaxWidth
