@@ -21,7 +21,8 @@ final class LinkPreviewLoadCoordinator {
     private let maxConcurrent: Int
     private let queue = DispatchQueue(label: "co.clicketyclacks.Clawline.LinkPreviewLoadCoordinator")
     private var activeCount: Int = 0
-    private var pending: [(id: UUID, onGranted: () -> Void)] = []
+    private var nextSeq: Int64 = 0
+    private var pending: [(id: UUID, priority: Int, seq: Int64, onGranted: () -> Void)] = []
     var onActiveCountZero: (() -> Void)?
 
     init(maxConcurrent: Int) {
@@ -29,14 +30,15 @@ final class LinkPreviewLoadCoordinator {
     }
 
     @discardableResult
-    func acquireSlot(_ onGranted: @escaping () -> Void) -> UUID {
+    func acquireSlot(priority: Int, _ onGranted: @escaping () -> Void) -> UUID {
         let id = UUID()
         queue.async {
             if self.activeCount < self.maxConcurrent {
                 self.activeCount += 1
                 DispatchQueue.main.async { onGranted() }
             } else {
-                self.pending.append((id: id, onGranted: onGranted))
+                self.nextSeq += 1
+                self.pending.append((id: id, priority: priority, seq: self.nextSeq, onGranted: onGranted))
             }
         }
         return id
@@ -54,7 +56,16 @@ final class LinkPreviewLoadCoordinator {
                 self.activeCount -= 1
             }
             if !self.pending.isEmpty {
-                let next = self.pending.removeFirst().onGranted
+                // Prefer on-screen (high priority) previews so scroll-back doesn't starve.
+                var bestIndex = 0
+                for i in 1..<self.pending.count {
+                    let a = self.pending[i]
+                    let b = self.pending[bestIndex]
+                    if a.priority > b.priority || (a.priority == b.priority && a.seq < b.seq) {
+                        bestIndex = i
+                    }
+                }
+                let next = self.pending.remove(at: bestIndex).onGranted
                 self.activeCount += 1
                 DispatchQueue.main.async { next() }
             }
@@ -188,6 +199,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     private var loadStartedAt: CFTimeInterval?
     private var lastFailureReason: FailureReason?
+    private var didShowEmptyBodyWarning = false
 
     override init(frame: CGRect) {
         let configuration = WKWebViewConfiguration()
@@ -475,6 +487,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         state = .idle
         canLockHeight = false
         isHeightLocked = false
+        didShowEmptyBodyWarning = false
         if !keepURL {
             currentURL = nil
             configuredURLKey = nil
@@ -599,7 +612,14 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
                   let textLength = dict["textLength"] as? Int,
                   let childCount = dict["childCount"] as? Int else { return }
             if textLength < 16 && childCount < 1 {
-                self.handleFailure(.emptyBodyHeuristic)
+                // #39: Do not treat "empty body" as terminal failure. Many JS-heavy pages
+                // render late, use canvas/shadow DOM, or populate after initial load.
+                guard !self.didShowEmptyBodyWarning else { return }
+                self.didShowEmptyBodyWarning = true
+                self.logger.warning("page appears empty (non-fatal) url=\(self.currentURL?.absoluteString ?? "nil", privacy: .public)")
+                self.statusLabel.text = "Page appears empty. You can reload to try again."
+                self.statusLabel.isHidden = false
+                self.reloadButton.isHidden = false
             }
         }
     }
