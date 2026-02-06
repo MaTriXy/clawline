@@ -15,106 +15,12 @@ import WebKit
 import SwiftUI
 #endif
 
-final class LinkPreviewLoadCoordinator {
-    static let shared = LinkPreviewLoadCoordinator(maxConcurrent: 3)
-
-    private let maxConcurrent: Int
-    private let queue = DispatchQueue(label: "co.clicketyclacks.Clawline.LinkPreviewLoadCoordinator")
-    private var activeCount: Int = 0
-    private var nextSeq: Int64 = 0
-    private var pending: [(id: UUID, priority: Int, seq: Int64, onGranted: () -> Void)] = []
-    var onActiveCountZero: (() -> Void)?
-
-    init(maxConcurrent: Int) {
-        self.maxConcurrent = maxConcurrent
-    }
-
-    @discardableResult
-    func acquireSlot(priority: Int, _ onGranted: @escaping () -> Void) -> UUID {
-        let id = UUID()
-        queue.async {
-            if self.activeCount < self.maxConcurrent {
-                self.activeCount += 1
-                DispatchQueue.main.async { onGranted() }
-            } else {
-                self.nextSeq += 1
-                self.pending.append((id: id, priority: priority, seq: self.nextSeq, onGranted: onGranted))
-            }
-        }
-        return id
-    }
-
-    func cancelPending(_ id: UUID) {
-        queue.async {
-            self.pending.removeAll(where: { $0.id == id })
-        }
-    }
-
-    func releaseSlot() {
-        queue.async {
-            if self.activeCount > 0 {
-                self.activeCount -= 1
-            }
-            if !self.pending.isEmpty {
-                // Prefer on-screen (high priority) previews so scroll-back doesn't starve.
-                var bestIndex = 0
-                for i in 1..<self.pending.count {
-                    let a = self.pending[i]
-                    let b = self.pending[bestIndex]
-                    if a.priority > b.priority || (a.priority == b.priority && a.seq < b.seq) {
-                        bestIndex = i
-                    }
-                }
-                let next = self.pending.remove(at: bestIndex).onGranted
-                self.activeCount += 1
-                DispatchQueue.main.async { next() }
-            }
-            if self.activeCount == 0 {
-                let callback = self.onActiveCountZero
-                DispatchQueue.main.async { callback?() }
-            }
-        }
-    }
-
-    func isIdle() -> Bool {
-        queue.sync { activeCount == 0 }
-    }
-}
-
 final class LinkPreviewSharedResources {
     static let shared = LinkPreviewSharedResources()
 
     private(set) var processPool: WKProcessPool = WKProcessPool()
-    private var pendingReset = false
 
     private init() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleMemoryWarning),
-            name: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil
-        )
-        LinkPreviewLoadCoordinator.shared.onActiveCountZero = { [weak self] in
-            self?.handleActiveCountZero()
-        }
-    }
-
-    @objc private func handleMemoryWarning() {
-        pendingReset = true
-        if LinkPreviewLoadCoordinator.shared.isIdle() {
-            resetProcessPool()
-        }
-    }
-
-    private func handleActiveCountZero() {
-        if pendingReset {
-            resetProcessPool()
-        }
-    }
-
-    private func resetProcessPool() {
-        processPool = WKProcessPool()
-        pendingReset = false
     }
 }
 
@@ -155,7 +61,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         static let minHeight: CGFloat = 140
         static let defaultMaxHeight: CGFloat = 360
         static let loadTimeout: TimeInterval = 12
-        static let slotWaitTimeout: TimeInterval = 60
         static let emptyBodyDelay: TimeInterval = 0.5
         static let maxRedirects = 5
         static let mediaCornerRadius: CGFloat = 12
@@ -182,13 +87,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private var handlerRegistered = false
     private var heightUpdates = 0
 
-    private var slotWaitTimer: Timer?
     private var loadTimeoutTimer: Timer?
     private var fallbackTimer: Timer?
-
-    private var hasSlot = false
-    private var slotWaitStarted = false
-    private var pendingSlotRequestId: UUID?
 
     private var canLockHeight = false
     private var isHeightLocked = false
@@ -231,13 +131,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             }
 
             // Evict offscreen work first. This avoids killing a visible load and helps relieve pressure.
-            let isLoading: Bool = {
-                if case .loading = self.state { return true }
-                return false
-            }()
-            if isLoading || self.hasSlot || self.pendingSlotRequestId != nil {
+            if self.state == .loading {
                 self.logger.warning("memory warning: evicting offscreen preview url=\(self.currentURL?.absoluteString ?? "nil", privacy: .public)")
-                self.cancelLoad(releaseSlot: true)
+                self.cancelLoad()
                 self.state = .idle
             }
         }
@@ -252,16 +148,16 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         if let memoryWarningObserver {
             NotificationCenter.default.removeObserver(memoryWarningObserver)
         }
-        cancelLoad(releaseSlot: true)
+        cancelLoad()
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil {
-            requestSlotIfNeeded()
+            startLoadIfNeeded()
         } else {
             logCancel(.removedFromWindow)
-            cancelLoad(releaseSlot: true)
+            cancelLoad()
         }
     }
 
@@ -297,19 +193,18 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         isAccessibilityElement = true
         accessibilityLabel = "Link preview: \(hostLabel)"
         accessibilityTraits = .link
-        requestSlotIfNeeded()
+        startLoadIfNeeded()
         logger.info("configure url=\(url.absoluteString, privacy: .public)")
     }
 
     func prepareForReuse() {
         logCancel(.reuse)
-        cancelLoad(releaseSlot: true)
+        cancelLoad()
         currentURL = nil
         configuredURLKey = nil
         currentHost = nil
         redirectCount = 0
         state = .idle
-        pendingSlotRequestId = nil
         canLockHeight = false
         isHeightLocked = false
     }
@@ -414,36 +309,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         stackView.addArrangedSubview(reloadButton)
     }
 
-    private func requestSlotIfNeeded() {
+    private func startLoadIfNeeded() {
         guard window != nil else { return }
-        guard !hasSlot, let currentURL else { return }
+        guard let currentURL else { return }
         guard state == .idle else { return }
-
-        // If we're queued behind other previews, keep a long watchdog so we don't
-        // spin forever waiting for a slot. The actual "load timeout" starts when
-        // WKWebView load begins (see startLoad).
-        setLoadingState()
-        if !slotWaitStarted {
-            slotWaitStarted = true
-            loadStartedAt = CACurrentMediaTime()
-            scheduleSlotWaitTimeout()
-        }
-        let priority = isActuallyVisible() ? 10 : 0
-        pendingSlotRequestId = LinkPreviewLoadCoordinator.shared.acquireSlot(priority: priority) { [weak self] in
-            guard let self else { return }
-            self.pendingSlotRequestId = nil
-            // acquireSlot() increments activeCount before calling us. If we can't use
-            // the slot, we must release it explicitly.
-            guard self.window != nil, self.state == .loading, self.currentURL == currentURL else {
-                LinkPreviewLoadCoordinator.shared.releaseSlot()
-                return
-            }
-            self.hasSlot = true
-            self.slotWaitStarted = false
-            self.slotWaitTimer?.invalidate()
-            self.slotWaitTimer = nil
-            self.startLoad(url: currentURL)
-        }
+        startLoad(url: currentURL)
     }
 
     private func setLoadingState() {
@@ -462,7 +332,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         heightUpdates = 0
         loadStartedAt = CACurrentMediaTime()
         lastFailureReason = nil
-        slotWaitStarted = false
         canLockHeight = false
 
         if !isHeightLocked {
@@ -507,7 +376,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     private func resetState(keepURL: Bool = false) {
         logCancel(.resetState)
-        cancelLoad(releaseSlot: true)
+        cancelLoad()
         statusLabel.isHidden = true
         reloadButton.isHidden = true
         webContainer.isHidden = false
@@ -521,43 +390,16 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         }
         currentHost = nil
         redirectCount = 0
-        slotWaitStarted = false
     }
 
-    private func cancelLoad(releaseSlot: Bool) {
-        cancelPendingSlotRequestIfNeeded()
-        slotWaitTimer?.invalidate()
+    private func cancelLoad() {
         loadTimeoutTimer?.invalidate()
         fallbackTimer?.invalidate()
-        slotWaitTimer = nil
         loadTimeoutTimer = nil
         fallbackTimer = nil
         webView.stopLoading()
         spinner.stopAnimating()
         removeHeightObserver()
-        if releaseSlot {
-            releaseSlotIfNeeded()
-        }
-    }
-
-    private func cancelPendingSlotRequestIfNeeded() {
-        guard let id = pendingSlotRequestId else { return }
-        pendingSlotRequestId = nil
-        LinkPreviewLoadCoordinator.shared.cancelPending(id)
-    }
-
-    private func releaseSlotIfNeeded() {
-        if hasSlot {
-            hasSlot = false
-            LinkPreviewLoadCoordinator.shared.releaseSlot()
-        }
-    }
-
-    private func scheduleSlotWaitTimeout() {
-        slotWaitTimer?.invalidate()
-        slotWaitTimer = Timer.scheduledTimer(withTimeInterval: Constants.slotWaitTimeout, repeats: false) { [weak self] _ in
-            self?.handleFailure(.timeout, detail: "slot_wait")
-        }
     }
 
     private func scheduleLoadTimeout() {
@@ -684,7 +526,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         lastFailureReason = reason
         logFailure(reason, detail: detail)
         logCancel(.failureCleanup)
-        cancelLoad(releaseSlot: true)
+        cancelLoad()
         webContainer.isHidden = true
         statusLabel.isHidden = false
         reloadButton.isHidden = false
@@ -720,18 +562,15 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             Self.heightCache.removeObject(forKey: configuredURLKey as NSString)
         }
         resetState(keepURL: true)
-        requestSlotIfNeeded()
+        startLoadIfNeeded()
     }
 
     private func markLoadedIfNeeded() {
         guard state == .loading else { return }
-        slotWaitTimer?.invalidate()
         loadTimeoutTimer?.invalidate()
-        slotWaitTimer = nil
         loadTimeoutTimer = nil
         spinner.stopAnimating()
         state = .loaded
-        releaseSlotIfNeeded()
     }
 
     @objc private func handleOverlayTap() {
