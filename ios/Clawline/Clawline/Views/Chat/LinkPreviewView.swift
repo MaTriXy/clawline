@@ -729,8 +729,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func isBlockedIPAddressHost(_ host: String?) -> Bool {
-        guard let host else { return false }
-        return isPrivateIPAddress(host)
+        // Policy: show everything (match browser behavior). Do not block local/LAN/Tailscale hosts.
+        return false
     }
 
     private enum HostResolutionResult {
@@ -739,10 +739,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func resolveHost(_ host: String) -> HostResolutionResult {
-        if isPrivateIPAddress(host) {
-            return .blocked
-        }
-
         var resolved: Set<String> = []
         var hints = addrinfo(ai_flags: 0, ai_family: AF_UNSPEC, ai_socktype: SOCK_STREAM, ai_protocol: 0, ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
         var res: UnsafeMutablePointer<addrinfo>?
@@ -756,7 +752,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
                     var addr4 = addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
                     if inet_ntop(AF_INET, &addr4, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil {
                         let ip = String(cString: buffer)
-                        if isPrivateIPAddress(ip) { return .blocked }
                         resolved.insert(ip)
                     }
                 } else if current.pointee.ai_family == AF_INET6, let addr {
@@ -764,7 +759,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
                     var addr6 = addr.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
                     if inet_ntop(AF_INET6, &addr6, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil {
                         let ip = String(cString: buffer)
-                        if isPrivateIPAddress(ip) { return .blocked }
                         resolved.insert(ip)
                     }
                 }
@@ -775,6 +769,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func isPrivateIPAddress(_ host: String) -> Bool {
+        // Policy: show everything (match browser behavior). Do not treat private IPs / localhost as blocked.
+        return false
+
         var addr4 = in_addr()
         if host.withCString({ inet_pton(AF_INET, $0, &addr4) }) == 1 {
             let ip = UInt32(bigEndian: addr4.s_addr)
