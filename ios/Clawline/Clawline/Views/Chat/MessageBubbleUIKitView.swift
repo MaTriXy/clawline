@@ -290,6 +290,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.showsHorizontalScrollIndicator = false
         dynamicContentScrollView.alwaysBounceVertical = false
         dynamicContentScrollView.alwaysBounceHorizontal = false
+        // Outer bubble scroll view is vertical-only. Horizontal scrolling belongs to inner views
+        // (code blocks, tables, link previews) so the bubble itself never pans sideways.
+        dynamicContentScrollView.isDirectionalLockEnabled = true
         dynamicContentScrollView.isScrollEnabled = false
         dynamicContentStack.axis = .vertical
         dynamicContentStack.spacing = 10
@@ -718,9 +721,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 scrollViewContentHeightConstraint?.isActive = false
                 dynamicContentScrollView.isScrollEnabled = true
                 dynamicContentScrollView.showsVerticalScrollIndicator = true
-                dynamicContentScrollView.showsHorizontalScrollIndicator = true
+                dynamicContentScrollView.showsHorizontalScrollIndicator = false
                 dynamicContentScrollView.alwaysBounceVertical = true
-                dynamicContentScrollView.alwaysBounceHorizontal = true
+                dynamicContentScrollView.alwaysBounceHorizontal = false
 
                 truncationContainer.isHidden = false
                 truncationLabel.textColor = (message.role == .user) ? palette.terracotta : palette.warmBrown
