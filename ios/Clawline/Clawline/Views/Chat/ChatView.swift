@@ -237,11 +237,19 @@ struct ChatView: View {
         let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
         // Gap below input bar: version label area (keyboard hidden) or minimal gap (keyboard up)
         let belowBarGap: CGFloat = isKeyboardVisible ? 12 : 24
+        let effectiveFlowGap: CGFloat = {
+#if os(visionOS)
+            // #49: visionOS needs more breathing room between the message flow and the input bar.
+            return metrics.flowGap * 2
+#else
+            return metrics.flowGap
+#endif
+        }()
         // The flow layout's sectionInset.bottom (containerPadding) already provides
         // padding below the last cell. Subtract it so the effective gap between the
         // last bubble and the input bar top equals exactly flowGap.
         let listBottomInset = keyboardInset + belowBarGap + resolvedInputHeight
-            + metrics.flowGap - metrics.containerPadding
+            + effectiveFlowGap - metrics.containerPadding
         let cachedKeyboardHeight = max(keyboardHeight, lastNonZeroKeyboardHeight)
         let isLandscape = geometry.size.width > geometry.size.height
         let estimatedKeyboardHeight: CGFloat = {
@@ -252,7 +260,7 @@ struct ChatView: View {
         }()
         let truncationKeyboardHeight = cachedKeyboardHeight > 0.5 ? cachedKeyboardHeight : estimatedKeyboardHeight
         let truncationBottomInset = truncationKeyboardHeight + 12 + resolvedInputHeight
-            + metrics.flowGap - metrics.containerPadding
+            + effectiveFlowGap - metrics.containerPadding
         let layoutInputs = ChatLayoutInputs(
             keyboardHeight: keyboardHeight,
             keyboardVisible: isKeyboardVisible,
@@ -264,7 +272,7 @@ struct ChatView: View {
         )
         let layoutMetrics = ChatLayoutMetrics(
             belowBarGap: belowBarGap,
-            flowGap: metrics.flowGap,
+            flowGap: effectiveFlowGap,
             containerPadding: metrics.containerPadding
         )
         let layoutKey = ChatLayoutKey(
@@ -275,7 +283,7 @@ struct ChatView: View {
             isInputFocused: isInputFocused,
             keyboardVisible: isKeyboardVisible,
             belowBarGap: belowBarGap,
-            flowGap: metrics.flowGap,
+            flowGap: effectiveFlowGap,
             containerPadding: metrics.containerPadding
         )
 
@@ -445,6 +453,7 @@ struct ChatView: View {
                 isCompact: horizontalSizeClass == .compact
             )
         }
+        .visionOSInputBarDepthOffset()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .ignoresSafeArea(.container, edges: .bottom)
     }
@@ -887,6 +896,23 @@ struct ChatView: View {
         }
     }
 
+}
+
+private struct VisionOSInputBarDepthOffset: ViewModifier {
+    func body(content: Content) -> some View {
+#if os(visionOS)
+        // #49: subtle z-plane separation for spatial affordance (do not apply on iOS/iPadOS).
+        content.offset(z: 12)
+#else
+        content
+#endif
+    }
+}
+
+private extension View {
+    func visionOSInputBarDepthOffset() -> some View {
+        modifier(VisionOSInputBarDepthOffset())
+    }
 }
 
 private struct KeyboardLayoutGuideReader: UIViewRepresentable {
