@@ -199,7 +199,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         NSLayoutConstraint.activate([
             bubbleBackgroundView.leadingAnchor.constraint(equalTo: leadingAnchor),
             bubbleBackgroundView.topAnchor.constraint(equalTo: topAnchor),
-            bubbleBackgroundView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            // Fill the allocated cell width. The flow layout decides the cell width; the bubble background
+            // should match it so "wide" bubbles don't render with a right-side gap.
+            bubbleBackgroundView.trailingAnchor.constraint(equalTo: trailingAnchor),
             bubbleBackgroundView.bottomAnchor.constraint(equalTo: bottomAnchor),
             maxWidthConstraint,
             minWidthConstraint,
