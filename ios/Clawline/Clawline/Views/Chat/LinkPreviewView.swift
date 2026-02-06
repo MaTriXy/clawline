@@ -136,6 +136,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         static let loadTimeout: TimeInterval = 12
         static let emptyBodyDelay: TimeInterval = 0.5
         static let maxRedirects = 5
+        static let mediaCornerRadius: CGFloat = 12
     }
 
     private let stackView = UIStackView()
@@ -251,6 +252,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate {
         webContainer.translatesAutoresizingMaskIntoConstraints = false
         webContainer.backgroundColor = .clear
         webContainer.clipsToBounds = true
+        // Match other embedded media (images/tables) with continuous rounded corners.
+        webContainer.layer.cornerRadius = Constants.mediaCornerRadius
+        webContainer.layer.cornerCurve = .continuous
         stackView.addArrangedSubview(webContainer)
 
         webView.translatesAutoresizingMaskIntoConstraints = false
