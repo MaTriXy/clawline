@@ -136,7 +136,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         case blockedIPAddressHost
         case redirectLimitExceeded
         case redirectHostBlocked
-        case pinnedHostValidationFailed
         case nonHTMLMimeType
         case navigationError
         case provisionalNavigationError
@@ -176,7 +175,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private var currentURL: URL?
     private var configuredURLKey: String?
     private var currentHost: String?
-    private var pinnedIPs: Set<String> = []
     private var redirectCount = 0
 
     private var loadToken = UUID()
@@ -201,6 +199,10 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private var lastFailureReason: FailureReason?
     private var didShowEmptyBodyWarning = false
 
+    // Invariant (#40): never cancel a preview load that is currently visible (in-window and onscreen)
+    // due to memory pressure. Evict queued/offscreen loads first.
+    private var memoryWarningObserver: NSObjectProtocol?
+
     override init(frame: CGRect) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = WKWebsiteDataStore.nonPersistent()
@@ -216,6 +218,25 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         super.init(frame: frame)
 
         setupViews()
+
+        memoryWarningObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            guard !self.isActuallyVisible() else {
+                self.logger.info("memory warning: keeping visible preview url=\(self.currentURL?.absoluteString ?? "nil", privacy: .public)")
+                return
+            }
+
+            // Evict offscreen work first. This avoids killing a visible load and helps relieve pressure.
+            if self.state == .loading || self.hasSlot || self.pendingSlotRequestId != nil {
+                self.logger.warning("memory warning: evicting offscreen preview url=\(self.currentURL?.absoluteString ?? "nil", privacy: .public)")
+                self.cancelLoad(releaseSlot: true)
+                self.state = .idle
+            }
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -224,6 +245,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     deinit {
         logCancel(.deinitCancel)
+        if let memoryWarningObserver {
+            NotificationCenter.default.removeObserver(memoryWarningObserver)
+        }
         cancelLoad(releaseSlot: true)
     }
 
@@ -279,7 +303,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         currentURL = nil
         configuredURLKey = nil
         currentHost = nil
-        pinnedIPs = []
         redirectCount = 0
         state = .idle
         pendingSlotRequestId = nil
@@ -431,7 +454,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         setLoadingState()
         redirectCount = 0
         currentHost = url.host
-        pinnedIPs = []
         loadToken = UUID()
         heightUpdates = 0
         loadStartedAt = CACurrentMediaTime()
@@ -464,7 +486,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
                 switch resolution {
                 case .allowed(let ipSet):
                     self.logger.info("host resolved host=\(host, privacy: .public) ips=\(ipSet.joined(separator: ","), privacy: .public)")
-                    self.pinnedIPs = ipSet
                     self.loadURL(url)
                 case .blocked:
                     self.logger.error("host blocked host=\(host, privacy: .public)")
@@ -494,7 +515,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             configuredURLKey = nil
         }
         currentHost = nil
-        pinnedIPs = []
         redirectCount = 0
         slotWaitStarted = false
     }
@@ -746,22 +766,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             handleFailure(.blockedIPAddressHost, detail: "navAction")
             return
         }
-        if let host = url.host, host == currentHost, navigationAction.targetFrame?.isMainFrame == true {
-            validatePinnedHost(host) { [weak self] allowed in
-                guard let self else {
-                    decisionHandler(.cancel)
-                    return
-                }
-                guard allowed else {
-                    decisionHandler(.cancel)
-                    self.logger.error("pinned host validation failed host=\(host, privacy: .public) url=\(url.absoluteString, privacy: .public)")
-                    self.handleFailure(.pinnedHostValidationFailed, detail: host)
-                    return
-                }
-                decisionHandler(.allow)
-            }
-            return
-        }
         if let host = url.host, host != currentHost {
             redirectCount += 1
             guard redirectCount <= Constants.maxRedirects else {
@@ -786,10 +790,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
                         decisionHandler(.cancel)
                         self.logger.error("redirect host blocked host=\(host, privacy: .public) url=\(url.absoluteString, privacy: .public)")
                         self.handleFailure(.redirectHostBlocked, detail: host)
-                    case .allowed(let ipSet):
+                    case .allowed:
                         self.currentURL = url
                         self.currentHost = host
-                        self.pinnedIPs = ipSet
                         decisionHandler(.allow)
                     }
                 }
@@ -1089,32 +1092,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         if (ip & 0xFF000000) == 0x00000000 { return true }          // 0.0.0.0/8
         if (ip & 0xFFC00000) == 0x64400000 { return true }          // 100.64.0.0/10
         return false
-    }
-
-    private func validatePinnedHost(_ host: String, completion: @escaping (Bool) -> Void) {
-        guard !pinnedIPs.isEmpty else {
-            completion(true)
-            return
-        }
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else {
-                DispatchQueue.main.async { completion(false) }
-                return
-            }
-            let resolution = self.resolveHost(host)
-            DispatchQueue.main.async {
-                switch resolution {
-                case .blocked:
-                    completion(false)
-                case .allowed(let ipSet):
-                    if ipSet.isEmpty {
-                        completion(true)
-                        return
-                    }
-                    completion(ipSet.isSubset(of: self.pinnedIPs))
-                }
-            }
-        }
     }
 
     private func isIgnorableNavigationError(_ error: Error) -> Bool {
