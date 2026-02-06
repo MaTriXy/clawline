@@ -496,7 +496,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     self.onExpand?(message)
                 },
                 onRequestLayout: { [weak self] messageId in
-                    self?.invalidateLayout(for: messageId)
+                    self?.handleCellRequestedLayout(messageId: messageId)
                 },
                 onRetry: { [weak self] in
                     self?.viewModel?.retryMessage(messageId: message.id)
@@ -1005,6 +1005,28 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func invalidateLayout(for messageId: String) {
         dirtySizeIds.insert(messageId)
         scheduleLayoutInvalidation()
+    }
+
+    private func handleCellRequestedLayout(messageId: String) {
+        guard let indexPath = dataSource.indexPath(for: messageId),
+              let cell = collectionView.cellForItem(at: indexPath) else {
+            invalidateLayout(for: messageId)
+            return
+        }
+
+        // Link previews (WKWebView) can only determine their true height when attached to a window.
+        // The offscreen sizer used by sizeForItem(...) will never load the preview, so we must
+        // measure the live cell and feed the result into the size cache.
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+        let width = max(1, cell.contentView.bounds.width)
+        let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
+        let measured = cell.contentView.systemLayoutSizeFitting(
+            target,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        applyMeasuredSize(measured, for: messageId)
     }
 
     private func scheduleReconfigure(for messageId: String) {
