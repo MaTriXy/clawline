@@ -21,21 +21,30 @@ final class LinkPreviewLoadCoordinator {
     private let maxConcurrent: Int
     private let queue = DispatchQueue(label: "co.clicketyclacks.Clawline.LinkPreviewLoadCoordinator")
     private var activeCount: Int = 0
-    private var pending: [() -> Void] = []
+    private var pending: [(id: UUID, onGranted: () -> Void)] = []
     var onActiveCountZero: (() -> Void)?
 
     init(maxConcurrent: Int) {
         self.maxConcurrent = maxConcurrent
     }
 
-    func acquireSlot(_ onGranted: @escaping () -> Void) {
+    @discardableResult
+    func acquireSlot(_ onGranted: @escaping () -> Void) -> UUID {
+        let id = UUID()
         queue.async {
             if self.activeCount < self.maxConcurrent {
                 self.activeCount += 1
                 DispatchQueue.main.async { onGranted() }
             } else {
-                self.pending.append(onGranted)
+                self.pending.append((id: id, onGranted: onGranted))
             }
+        }
+        return id
+    }
+
+    func cancelPending(_ id: UUID) {
+        queue.async {
+            self.pending.removeAll(where: { $0.id == id })
         }
     }
 
@@ -45,7 +54,7 @@ final class LinkPreviewLoadCoordinator {
                 self.activeCount -= 1
             }
             if !self.pending.isEmpty {
-                let next = self.pending.removeFirst()
+                let next = self.pending.removeFirst().onGranted
                 self.activeCount += 1
                 DispatchQueue.main.async { next() }
             }
@@ -100,6 +109,8 @@ final class LinkPreviewSharedResources {
 
 final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestureRecognizerDelegate {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "LinkPreview")
+    private static let heightCache = NSCache<NSString, NSNumber>()
+
     enum State {
         case idle
         case loading
@@ -152,6 +163,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     private var state: State = .idle
     private var currentURL: URL?
+    private var configuredURLKey: String?
     private var currentHost: String?
     private var pinnedIPs: Set<String> = []
     private var redirectCount = 0
@@ -167,6 +179,10 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     private var hasSlot = false
     private var slotWaitStarted = false
+    private var pendingSlotRequestId: UUID?
+
+    private var canLockHeight = false
+    private var isHeightLocked = false
 
     var onHeightChange: (() -> Void)?
 
@@ -222,9 +238,16 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         } else {
             self.maxHeight = Constants.defaultMaxHeight
         }
-        // Start at the minimum and grow/shrink to the measured HTML content height,
-        // capped at maxHeight (Flynn #28: short pages should be short; tall pages capped).
-        if abs(webViewHeightConstraint.constant - Constants.minHeight) > 1 {
+        configuredURLKey = url.absoluteString
+        // Flynn directive: keep link preview height stable once determined. Use cached height
+        // on scroll-back; only re-measure after explicit reload.
+        if let cached = Self.heightCache.object(forKey: url.absoluteString as NSString) {
+            isHeightLocked = true
+            canLockHeight = false
+            webViewHeightConstraint.constant = max(Constants.minHeight, min(self.maxHeight, CGFloat(truncating: cached)))
+            invalidateIntrinsicContentSize()
+            onHeightChange?()
+        } else if abs(webViewHeightConstraint.constant - Constants.minHeight) > 1 {
             webViewHeightConstraint.constant = Constants.minHeight
             invalidateIntrinsicContentSize()
             onHeightChange?()
@@ -242,10 +265,14 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         logCancel(.reuse)
         cancelLoad(releaseSlot: true)
         currentURL = nil
+        configuredURLKey = nil
         currentHost = nil
         pinnedIPs = []
         redirectCount = 0
         state = .idle
+        pendingSlotRequestId = nil
+        canLockHeight = false
+        isHeightLocked = false
     }
 
     private func setupViews() {
@@ -362,8 +389,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             loadStartedAt = CACurrentMediaTime()
             scheduleSlotWaitTimeout()
         }
-        LinkPreviewLoadCoordinator.shared.acquireSlot { [weak self] in
+        pendingSlotRequestId = LinkPreviewLoadCoordinator.shared.acquireSlot { [weak self] in
             guard let self else { return }
+            self.pendingSlotRequestId = nil
             // acquireSlot() increments activeCount before calling us. If we can't use
             // the slot, we must release it explicitly.
             guard self.window != nil, self.state == .loading, self.currentURL == currentURL else {
@@ -396,8 +424,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         loadStartedAt = CACurrentMediaTime()
         lastFailureReason = nil
         slotWaitStarted = false
+        canLockHeight = false
 
-        configureHeightObserver()
+        if !isHeightLocked {
+            configureHeightObserver()
+        }
         scheduleLoadTimeout()
 
         resolveHostAndLoad(url: url)
@@ -431,6 +462,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     }
 
     private func loadURL(_ url: URL) {
+        // Flynn directive: do not rely on caching to mask cell reuse/reload bugs.
+        // Force a real reload so scroll-back exercises the full load pipeline (slots/timeouts/state).
         let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Constants.loadTimeout)
         webView.load(request)
     }
@@ -442,8 +475,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         reloadButton.isHidden = true
         webContainer.isHidden = false
         state = .idle
+        canLockHeight = false
+        isHeightLocked = false
         if !keepURL {
             currentURL = nil
+            configuredURLKey = nil
         }
         currentHost = nil
         pinnedIPs = []
@@ -452,6 +488,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     }
 
     private func cancelLoad(releaseSlot: Bool) {
+        cancelPendingSlotRequestIfNeeded()
         slotWaitTimer?.invalidate()
         loadTimeoutTimer?.invalidate()
         fallbackTimer?.invalidate()
@@ -464,6 +501,12 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         if releaseSlot {
             releaseSlotIfNeeded()
         }
+    }
+
+    private func cancelPendingSlotRequestIfNeeded() {
+        guard let id = pendingSlotRequestId else { return }
+        pendingSlotRequestId = nil
+        LinkPreviewLoadCoordinator.shared.cancelPending(id)
     }
 
     private func releaseSlotIfNeeded() {
@@ -571,12 +614,24 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.showsVerticalScrollIndicator = needsScroll
         webView.scrollView.alwaysBounceVertical = needsScroll
+        if isHeightLocked {
+            return
+        }
         if abs(webViewHeightConstraint.constant - clamped) <= 10 {
             return
         }
         webViewHeightConstraint.constant = clamped
         invalidateIntrinsicContentSize()
         onHeightChange?()
+
+        // Flynn directive: lock and cache preview height once it's determined post-load.
+        if canLockHeight {
+            isHeightLocked = true
+            canLockHeight = false
+            if let configuredURLKey {
+                Self.heightCache.setObject(NSNumber(value: Double(clamped)), forKey: configuredURLKey as NSString)
+            }
+        }
     }
 
     private func handleFailure(_ reason: FailureReason, detail: String? = nil) {
@@ -606,6 +661,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     @objc private func handleReloadTap() {
         guard currentURL != nil else { return }
         logger.info("reload tapped url=\(self.currentURL?.absoluteString ?? "nil", privacy: .public)")
+        if let configuredURLKey {
+            Self.heightCache.removeObject(forKey: configuredURLKey as NSString)
+        }
         resetState(keepURL: true)
         requestSlotIfNeeded()
     }
@@ -754,6 +812,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard state == .loading else { return }
         markLoadedIfNeeded()
+        canLockHeight = !isHeightLocked
         if heightUpdates == 0 {
             evaluateHeightFallback()
         }
