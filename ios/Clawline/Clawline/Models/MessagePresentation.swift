@@ -959,9 +959,34 @@ private struct Segment {
 }
 
 private enum Segmenter {
+    // Some providers/models occasionally emit "fences" with invisible scalars between backticks
+    // (e.g. zero-width space), which breaks naive substring matching for "```".
+    // Normalizing away those scalars makes fence detection stable without impacting visible text.
+    private static let invisibleScalars: Set<UnicodeScalar> = [
+        "\u{200B}", // zero-width space
+        "\u{200C}", // zero-width non-joiner
+        "\u{200D}", // zero-width joiner
+        "\u{2060}", // word joiner
+        "\u{FEFF}"  // zero-width no-break space / BOM
+    ]
+
+    private static func normalizedForFenceDetection(_ input: String) -> String {
+        guard input.unicodeScalars.contains(where: { invisibleScalars.contains($0) }) else {
+            return input
+        }
+        var scalars = String.UnicodeScalarView()
+        scalars.reserveCapacity(input.unicodeScalars.count)
+        for scalar in input.unicodeScalars {
+            if !invisibleScalars.contains(scalar) {
+                scalars.append(scalar)
+            }
+        }
+        return String(scalars)
+    }
+
     static func split(_ input: String) -> [Segment] {
         var segments: [Segment] = []
-        var remaining = input
+        var remaining = normalizedForFenceDetection(input)
 
         while let fenceRange = remaining.range(of: "```") {
             let before = String(remaining[..<fenceRange.lowerBound])

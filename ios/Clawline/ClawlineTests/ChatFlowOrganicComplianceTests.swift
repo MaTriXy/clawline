@@ -39,6 +39,76 @@ struct ChatFlowOrganicComplianceTests {
         }))
     }
 
+    @Test("Bug #29: Fenced code block after colon renders")
+    func messagePresentationPreservesFencedCodeAfterColon() {
+        let message = sampleMessage(content: """
+        Example:
+        ```swift
+        print("Hello")
+        ```
+        """)
+        let presentation = buildPresentation(message)
+
+        #expect(presentation.parts.contains(where: { part in
+            if case .text(let value) = part { return value == "Example:" }
+            if case .markdown(let value) = part { return value == "Example:" }
+            return false
+        }))
+        #expect(presentation.parts.contains(where: { part in
+            if case .code(let language, let code) = part {
+                return language == "swift" && code.contains("print(\"Hello\")")
+            }
+            return false
+        }))
+    }
+
+    @Test("Bug #29: Fences with invisible scalars still parse")
+    func messagePresentationParsesFencesWithZeroWidthSpaces() {
+        // Some models emit backtick fences with ZWSP between backticks, which looks like a normal fence.
+        let fence = "`\u{200B}`\u{200B}`"
+        let message = sampleMessage(content: """
+        Example:
+        \(fence)swift
+        print("Hello")
+        \(fence)
+        """)
+        let presentation = buildPresentation(message)
+
+        #expect(presentation.parts.contains(where: { part in
+            if case .code(let language, let code) = part {
+                return language == "swift" && code.contains("print(\"Hello\")")
+            }
+            return false
+        }))
+    }
+
+    @Test("Bug #29: Two fenced code blocks separated by a colon line render")
+    func messagePresentationPreservesTwoCodeBlocksSeparatedByColonLine() {
+        let message = sampleMessage(content: """
+        First:
+        ```swift
+        print("one")
+        ```
+
+        Now compare Main stream - no `updateLastRoute`:
+        ```swift
+        print("two")
+        ```
+        """)
+        let presentation = buildPresentation(message)
+
+        let codeCount = presentation.parts.filter { part in
+            if case .code = part { return true }
+            return false
+        }.count
+        #expect(codeCount == 2)
+        #expect(presentation.parts.contains(where: { part in
+            if case .markdown(let value) = part { return value.contains("Now compare") }
+            if case .text(let value) = part { return value.contains("Now compare") }
+            return false
+        }))
+    }
+
     @Test("Doc §5: Markdown tables promote to table part")
     func messagePresentationParsesTables() {
         let message = sampleMessage(content: """
@@ -569,11 +639,26 @@ struct ChatFlowOrganicComplianceTests {
                                    enableLinkPreviews: Bool = true) -> MessagePresentation {
         var state = StreamingTableParseState()
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-        return MessagePresentationBuilder.build(
+        let presentation = MessagePresentationBuilder.build(
             from: message,
             metrics: metrics,
-            streamingState: &state,
-            enableLinkPreviews: enableLinkPreviews
+            streamingState: &state
+        )
+        guard !enableLinkPreviews else { return presentation }
+
+        // Link preview presentation is a UI policy; the builder always detects URLs for sizing.
+        // Tests can suppress rendering by filtering the linkPreview part.
+        let filtered = presentation.parts.filter { part in
+            if case .linkPreview = part { return false }
+            return true
+        }
+        return MessagePresentation(
+            parts: filtered,
+            wordCount: presentation.wordCount,
+            hasTextualContent: presentation.hasTextualContent,
+            isEmojiOnly: presentation.isEmojiOnly,
+            hasMediaOnly: presentation.hasMediaOnly,
+            hasSingleURL: presentation.hasSingleURL
         )
     }
 
