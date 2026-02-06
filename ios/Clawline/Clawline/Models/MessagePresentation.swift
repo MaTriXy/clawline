@@ -107,7 +107,12 @@ struct MessagePresentation: Equatable {
     let hasTextualContent: Bool
     let isEmojiOnly: Bool
     let hasMediaOnly: Bool
-    /// True when the message contains exactly one unique URL (http/https) in its text content.
+    /// Unique http/https URLs detected in the message text, in first-seen order.
+    /// Used for sizing (single-link wide bubbles) and link-card rendering independent of preview availability.
+    let detectedURLs: [URL]
+    /// Number of URL occurrences detected (including duplicates).
+    let detectedURLCount: Int
+    /// True when the message contains exactly one URL occurrence (http/https) in its text content.
     /// This is used for sizing/routing decisions even if we don't render a preview card.
     let hasSingleURL: Bool
 }
@@ -209,7 +214,7 @@ enum MessagePresentationBuilder {
         var emojiOnly = true
         var totalTableCells = 0
         var hasBlockedParts = hasAttachments
-        var detectedURLs: [URL] = []
+        var detectedURLOccurrences: [URL] = []
         let suppressTextForFiles = shouldSuppressTextForFileAttachments(
             content: message.content,
             fileAttachments: fileAttachments
@@ -227,7 +232,7 @@ enum MessagePresentationBuilder {
                 hasBlockedParts = true
                 emojiOnly = false
             case .text:
-                detectedURLs.append(contentsOf: extractURLs(from: segment.content))
+                detectedURLOccurrences.append(contentsOf: extractURLs(from: segment.content))
                 processTextSegment(
                     segment.content,
                     message: message,
@@ -244,12 +249,24 @@ enum MessagePresentationBuilder {
             }
         }
 
-        if !hasBlockedParts,
-           detectedURLs.count == 1 {
-            parts.append(.linkPreview(detectedURLs[0]))
+        // Preserve first-seen order for UI, but provide a stable unique list for sizing/cards.
+        var uniqueURLs: [URL] = []
+        var seen: Set<String> = []
+        uniqueURLs.reserveCapacity(detectedURLOccurrences.count)
+        for url in detectedURLOccurrences {
+            let key = url.absoluteString
+            if seen.insert(key).inserted {
+                uniqueURLs.append(url)
+            }
         }
-        let uniqueURLCount = Set(detectedURLs.map(\.absoluteString)).count
-        let hasSingleURL = uniqueURLCount == 1
+
+        if !hasBlockedParts,
+           detectedURLOccurrences.count == 1 {
+            parts.append(.linkPreview(detectedURLOccurrences[0]))
+        }
+
+        // Flynn #28: "single link" means exactly one detected URL occurrence, not "one unique URL repeated".
+        let hasSingleURL = detectedURLOccurrences.count == 1
 
         var hasMedia = false
         if !imageAttachments.isEmpty {
@@ -278,6 +295,8 @@ enum MessagePresentationBuilder {
             hasTextualContent: hasTextual,
             isEmojiOnly: emojiOnly && hasTextual,
             hasMediaOnly: hasMedia && !hasTextual,
+            detectedURLs: uniqueURLs,
+            detectedURLCount: detectedURLOccurrences.count,
             hasSingleURL: hasSingleURL
         )
     }

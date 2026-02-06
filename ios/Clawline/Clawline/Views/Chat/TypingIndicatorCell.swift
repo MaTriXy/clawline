@@ -103,6 +103,8 @@ final class TypingIndicatorCell: UICollectionViewCell {
             hasTextualContent: false,
             isEmojiOnly: false,
             hasMediaOnly: false,
+            detectedURLs: [],
+            detectedURLCount: 0,
             hasSingleURL: false
         )
     }
