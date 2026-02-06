@@ -496,7 +496,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     self.onExpand?(message)
                 },
                 onRequestLayout: { [weak self] messageId in
-                    self?.invalidateLayout(for: messageId)
+                    self?.handleCellRequestedLayout(messageId: messageId)
                 },
                 onRetry: { [weak self] in
                     self?.viewModel?.retryMessage(messageId: message.id)
@@ -758,9 +758,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             preferredWidth = effectiveMaxWidth
         }
 
-        // Flynn directive / #28: wide-content bubbles (preview/table/image) take the full truncation cap
-        // height, independent of measured content size.
-        if isWide, let truncationHeightOverride {
+        // Flynn correction / #28: link previews should not start at LinkPreviewView minHeight (140).
+        // Default them to the truncation cap until live-cell measurement refines the content height.
+        let hasLinkPreview = presentation.parts.contains { part in
+            if case .linkPreview = part { return true }
+            return false
+        }
+        if hasLinkPreview, let truncationHeightOverride {
             var height = max(1, truncationHeightOverride)
             if let minHeight = minHeightOverride {
                 height = max(height, minHeight)
@@ -789,6 +793,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         if failureReason != nil {
             height += 32
+        }
+        if let truncationHeightOverride, isWide {
+            // For wide content, cap at truncation max (but don't force-max).
+            height = min(height, truncationHeightOverride + (failureReason != nil ? 32 : 0))
         }
         let clamped = CGSize(
             width: min(effectiveMaxWidth, max(minWidth, measured.width)),
@@ -1026,6 +1034,27 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         scheduleLayoutInvalidation()
     }
 
+    private func handleCellRequestedLayout(messageId: String) {
+        guard let indexPath = dataSource.indexPath(for: messageId),
+              let cell = collectionView.cellForItem(at: indexPath) else {
+            invalidateLayout(for: messageId)
+            return
+        }
+
+        // Link previews (WKWebView) only have meaningful sizes when attached to a window.
+        // Measure the live cell (not the offscreen sizer) and feed the result back into the cache.
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+        let width = max(1, cell.contentView.bounds.width)
+        let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
+        let measured = cell.contentView.systemLayoutSizeFitting(
+            target,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        applyMeasuredSize(measured, for: messageId)
+    }
+
     private func scheduleReconfigure(for messageId: String) {
         pendingReconfigureIds.insert(messageId)
         DispatchQueue.main.async { [weak self] in
@@ -1055,11 +1084,21 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             metrics: metrics,
             containerWidth: effectiveContentWidth(metrics: metrics)
         )
+        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
+        let truncationHeightOverride: CGFloat? = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
+            ? effectiveTruncationHeight(metrics: metrics)
+            : nil
+        let failureReason = viewModel.failureMessage(for: message.id)
         let clamped = CGSize(
             width: min(maxWidth, measuredSize.width),
             height: measuredSize.height
         )
-        let snapped = snapToPixel(clamped)
+        var snapped = snapToPixel(clamped)
+        if let truncationHeightOverride {
+            // Cap height to the truncation max. For failures, the badge adds extra vertical space.
+            let badgeExtra: CGFloat = (failureReason != nil) ? 32 : 0
+            snapped.height = min(snapped.height, truncationHeightOverride + badgeExtra)
+        }
         if let previous = lastMeasuredSizes[messageId] {
             let heightDelta = abs(previous.height - snapped.height)
             let widthDelta = abs(previous.width - snapped.width)
