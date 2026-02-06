@@ -142,6 +142,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private let stackView = UIStackView()
     private let webContainer = UIView()
     private let statusLabel = UILabel()
+    private let reloadButton = UIButton(type: .system)
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let overlayButton = UIButton(type: .custom)
     private let webView: WKWebView
@@ -335,6 +336,13 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         statusLabel.numberOfLines = 0
         statusLabel.isHidden = true
         stackView.addArrangedSubview(statusLabel)
+
+        reloadButton.translatesAutoresizingMaskIntoConstraints = false
+        reloadButton.setTitle("Reload preview", for: .normal)
+        reloadButton.addTarget(self, action: #selector(handleReloadTap), for: .touchUpInside)
+        reloadButton.contentHorizontalAlignment = .leading
+        reloadButton.isHidden = true
+        stackView.addArrangedSubview(reloadButton)
     }
 
     private func requestSlotIfNeeded() {
@@ -367,6 +375,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private func setLoadingState() {
         state = .loading
         statusLabel.isHidden = true
+        reloadButton.isHidden = true
         webContainer.isHidden = false
         spinner.startAnimating()
     }
@@ -420,13 +429,19 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         webView.load(request)
     }
 
-    private func resetState() {
+    private func resetState(keepURL: Bool = false) {
         logCancel(.resetState)
         cancelLoad(releaseSlot: true)
         statusLabel.isHidden = true
+        reloadButton.isHidden = true
         webContainer.isHidden = false
         state = .idle
-        currentURL = nil
+        if !keepURL {
+            currentURL = nil
+        }
+        currentHost = nil
+        pinnedIPs = []
+        redirectCount = 0
         slotWaitStarted = false
     }
 
@@ -535,15 +550,26 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         cancelLoad(releaseSlot: true)
         webContainer.isHidden = true
         statusLabel.isHidden = false
-#if DEBUG
-        if let urlString = currentURL?.absoluteString {
-            statusLabel.text = "Preview unavailable (\(reason.rawValue))\n\(urlString)"
-        } else {
-            statusLabel.text = "Preview unavailable (\(reason.rawValue))"
+        reloadButton.isHidden = false
+
+        // Always show the failure reason so users (and Flynn) can understand what happened.
+        var lines: [String] = ["Preview unavailable (\(reason.rawValue))"]
+        if let detail, !detail.isEmpty {
+            lines.append(detail)
         }
-#endif
+        if let urlString = currentURL?.absoluteString {
+            lines.append(urlString)
+        }
+        statusLabel.text = lines.joined(separator: "\n")
         invalidateIntrinsicContentSize()
         onHeightChange?()
+    }
+
+    @objc private func handleReloadTap() {
+        guard currentURL != nil else { return }
+        logger.info("reload tapped url=\(self.currentURL?.absoluteString ?? "nil", privacy: .public)")
+        resetState(keepURL: true)
+        requestSlotIfNeeded()
     }
 
     private func markLoadedIfNeeded() {
