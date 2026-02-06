@@ -810,15 +810,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             decisionHandler(.cancel)
             return
         }
-        if let mimeType = navigationResponse.response.mimeType?.lowercased() {
-            let isHTML = mimeType.hasPrefix("text/html") || mimeType.hasPrefix("application/xhtml+xml")
-            if !isHTML {
-                decisionHandler(.cancel)
-                logger.error("navigationResponse blocked mimeType=\(mimeType, privacy: .public) url=\(url.absoluteString, privacy: .public)")
-                handleFailure(.nonHTMLMimeType, detail: mimeType)
-                return
-            }
-        }
         if isBlockedIPAddressHost(url.host) {
             decisionHandler(.cancel)
             logger.error("navigationResponse blocked host=\(url.host ?? "nil", privacy: .public) url=\(url.absoluteString, privacy: .public)")
