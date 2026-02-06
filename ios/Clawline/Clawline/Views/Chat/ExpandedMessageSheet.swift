@@ -97,7 +97,14 @@ struct ExpandedMessageSheet: View {
         case .text(let value):
             Text(value)
         case .markdown(let value):
-            if let attributed = try? AttributedString(markdown: value, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            let baseFont = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular)
+            let ink = UIColor(ChatFlowTheme.ink(effectiveColorScheme))
+            if let attributed = ChatMarkdownRenderer.renderAttributedString(
+                markdown: value,
+                baseFont: baseFont,
+                inkColor: ink,
+                lineSpacing: 4
+            ) {
                 Text(attributed)
             } else {
                 Text(value)
