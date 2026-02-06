@@ -468,7 +468,29 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     }
 
     private func evaluateHeightFallback() {
-        let js = "(function(){try{return Math.max(document.body?.scrollHeight||0, document.documentElement?.scrollHeight||0);}catch(e){return null;}})();"
+        // document.*.scrollHeight bottoms out at viewport height, so small pages can appear "tall"
+        // if we start the preview at a large height. Use the max bottom of content elements instead.
+        let js = """
+        (function(){
+          try {
+            var body = document.body;
+            if (!body) { return null; }
+            var maxBottom = 0;
+            var walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT, null);
+            var count = 0;
+            while (walker.nextNode()) {
+              var el = walker.currentNode;
+              if (el === body) { continue; }
+              if (!el.getBoundingClientRect) { continue; }
+              var rect = el.getBoundingClientRect();
+              if (rect && rect.bottom && rect.bottom > maxBottom) { maxBottom = rect.bottom; }
+              count++;
+              if (count > 2500) { break; }
+            }
+            return Math.max(0, maxBottom);
+          } catch(e) { return null; }
+        })();
+        """
         webView.evaluateJavaScript(js) { [weak self] result, _ in
             guard let self else { return }
             guard let heightNumber = result as? NSNumber else { return }
@@ -726,8 +748,21 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
           function postHeight(){
             try {
               var body = document.body;
-              var html = document.documentElement;
-              var height = Math.max(body ? body.scrollHeight : 0, html ? html.scrollHeight : 0);
+              if (!body) { return; }
+              // scrollHeight bottoms out at viewport height; use the max bottom of content elements.
+              var maxBottom = 0;
+              var walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT, null);
+              var count = 0;
+              while (walker.nextNode()) {
+                var el = walker.currentNode;
+                if (el === body) { continue; }
+                if (!el.getBoundingClientRect) { continue; }
+                var rect = el.getBoundingClientRect();
+                if (rect && rect.bottom && rect.bottom > maxBottom) { maxBottom = rect.bottom; }
+                count++;
+                if (count > 2500) { break; }
+              }
+              var height = Math.max(0, maxBottom);
               if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers[handler]) {
                 window.webkit.messageHandlers[handler].postMessage({token: token, height: height});
               }
