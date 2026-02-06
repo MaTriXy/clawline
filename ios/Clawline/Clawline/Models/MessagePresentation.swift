@@ -323,18 +323,22 @@ enum MessagePresentationBuilder {
             }
 
             let trimmedLine = lines[index].trimmingCharacters(in: .whitespaces)
+            // Providers/models sometimes insert invisible scalars (e.g. ZWSP) around/adjacent to fences.
+            // Normalizing those away makes our fence fallback resilient (Flynn #50).
+            let fenceCheckLine = Segmenter.normalizedForFenceDetection(trimmedLine)
             // Fallback: handle fenced code blocks that leak into text segments.
             // Observed when a fence follows a colon-terminated paragraph.
-            if trimmedLine.hasPrefix("```") {
-                let languageSpec = trimmedLine.dropFirst(3).trimmingCharacters(in: .whitespaces)
+            if fenceCheckLine.hasPrefix("```") {
+                let languageSpec = fenceCheckLine.dropFirst(3).trimmingCharacters(in: .whitespaces)
                 let language = languageSpec.isEmpty ? nil : String(languageSpec)
                 index += 1
                 var codeLines: [String] = []
                 while index < lines.count {
                     let line = lines[index]
                     let trimmed = line.trimmingCharacters(in: .whitespaces)
-                    if trimmed.hasPrefix("```")
-                        && trimmed.dropFirst(3).trimmingCharacters(in: .whitespaces).isEmpty {
+                    let fenceCheck = Segmenter.normalizedForFenceDetection(trimmed)
+                    if fenceCheck.hasPrefix("```")
+                        && fenceCheck.dropFirst(3).trimmingCharacters(in: .whitespaces).isEmpty {
                         index += 1
                         break
                     }
@@ -735,7 +739,7 @@ enum MessagePresentationBuilder {
 
     private static func lineLooksLikeListOrFence(_ line: String) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if trimmed.hasPrefix("```") {
+        if Segmenter.normalizedForFenceDetection(trimmed).hasPrefix("```") {
             return true
         }
         if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
@@ -989,7 +993,7 @@ private enum Segmenter {
         "\u{FEFF}"  // zero-width no-break space / BOM
     ]
 
-    private static func normalizedForFenceDetection(_ input: String) -> String {
+    fileprivate static func normalizedForFenceDetection(_ input: String) -> String {
         guard input.unicodeScalars.contains(where: { invisibleScalars.contains($0) }) else {
             return input
         }
