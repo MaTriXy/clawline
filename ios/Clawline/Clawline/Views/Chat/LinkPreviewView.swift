@@ -220,9 +220,10 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         } else {
             self.maxHeight = Constants.defaultMaxHeight
         }
-        // Flynn directive / #28: wide-content previews occupy the full available height cap.
-        if abs(webViewHeightConstraint.constant - self.maxHeight) > 1 {
-            webViewHeightConstraint.constant = self.maxHeight
+        // Start at the minimum and grow/shrink to the measured HTML content height,
+        // capped at maxHeight (Flynn #28: short pages should be short; tall pages capped).
+        if abs(webViewHeightConstraint.constant - Constants.minHeight) > 1 {
+            webViewHeightConstraint.constant = Constants.minHeight
             invalidateIntrinsicContentSize()
             onHeightChange?()
         }
@@ -294,7 +295,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         webView.scrollView.layer.maskedCorners = webContainer.layer.maskedCorners
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.showsVerticalScrollIndicator = false
-        webView.scrollView.alwaysBounceVertical = true
+        webView.scrollView.alwaysBounceVertical = false
         // Ensure the page starts at the top of the preview viewport and doesn't
         // apply safe-area based insets inside message bubbles.
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -533,6 +534,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         let needsScroll = rawHeight > Double(maxHeight)
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.showsVerticalScrollIndicator = needsScroll
+        webView.scrollView.alwaysBounceVertical = needsScroll
         if abs(webViewHeightConstraint.constant - clamped) <= 10 {
             return
         }
@@ -775,7 +777,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             try {
               var body = document.body;
               if (!body) { return; }
-              // scrollHeight bottoms out at viewport height; use the max bottom of content elements.
+              // scrollHeight bottoms out at viewport height; use the max bottom of content elements,
+              // then fall back to scrollHeight if we can't find any elements.
               var maxBottom = 0;
               var walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT, null);
               var count = 0;
@@ -788,7 +791,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
                 count++;
                 if (count > 2500) { break; }
               }
-              var height = Math.max(0, maxBottom);
+              var scrollH = Math.max(body.scrollHeight || 0, (document.documentElement && document.documentElement.scrollHeight) || 0);
+              var height = maxBottom > 0 ? maxBottom : scrollH;
               if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers[handler]) {
                 window.webkit.messageHandlers[handler].postMessage({token: token, height: height});
               }

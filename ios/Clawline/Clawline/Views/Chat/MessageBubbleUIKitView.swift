@@ -536,10 +536,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentViews.append(bodyLabel)
         }
 
-        if let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
+        let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
             if case .linkPreview(let url) = part { return url }
             return nil
-        }).first {
+        }).first
+        if let linkPreviewURL {
             let previewView = LinkPreviewView()
             // Flynn directive / #28: wide previews take the full truncation cap height.
             // Reserve space for header + padding so the bubble total height stays within the cap.
@@ -689,7 +690,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.contentInset.bottom = 0
 
         let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
-        if sizeClass == .long, !isSingleImageOnly, hasNonMediaContent {
+        // Flynn #28: for text + link preview, enable the outer scroll view only if the combined
+        // content height exceeds the bubble max height (truncation cap), regardless of sizeClass.
+        let hasTextAndLinkPreview = hasTextContent && (linkPreviewURL != nil)
+        if (!isSingleImageOnly) && ((sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview) {
             let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
             let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
             let measureWidth = min(contentWidth, maxLineWidth)
