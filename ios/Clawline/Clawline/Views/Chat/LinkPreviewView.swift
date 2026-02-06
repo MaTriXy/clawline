@@ -701,6 +701,17 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         onHeightChange?()
     }
 
+    private func showNonFatalError(_ message: String) {
+        guard state != .failed else { return }
+        // Keep the web preview visible; just surface the error and offer reload.
+        webContainer.isHidden = false
+        statusLabel.text = message
+        statusLabel.isHidden = false
+        reloadButton.isHidden = false
+        invalidateIntrinsicContentSize()
+        onHeightChange?()
+    }
+
     @objc private func handleReloadTap() {
         guard currentURL != nil else { return }
         logger.info("reload tapped url=\(self.currentURL?.absoluteString ?? "nil", privacy: .public)")
@@ -741,6 +752,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         logger.info("didStartProvisionalNavigation url=\(self.currentURL?.absoluteString ?? "nil", privacy: .public)")
+        // #36: No silent failures. Clear any non-fatal warnings/errors once WebKit starts a new navigation.
+        if state != .failed {
+            statusLabel.isHidden = true
+            reloadButton.isHidden = true
+        }
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -838,7 +854,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         if isIgnorableNavigationError(error) {
-            logger.info("didFail navigation ignored error=\(error.localizedDescription, privacy: .public)")
+            // #36: No silent failures. Even "ignorable" navigation errors must surface to the user,
+            // but keep the preview visible so WebKit can continue if this was a transient cancel.
+            logger.info("didFail navigation (non-fatal) error=\(error.localizedDescription, privacy: .public)")
+            let nsError = error as NSError
+            showNonFatalError("Preview error: \(nsError.domain)(\(nsError.code)) \(nsError.localizedDescription)")
             return
         }
         logger.error("didFail navigation error=\(error.localizedDescription, privacy: .public)")
@@ -848,7 +868,10 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         if isIgnorableNavigationError(error) {
-            logger.info("didFailProvisionalNavigation ignored error=\(error.localizedDescription, privacy: .public)")
+            // #36: No silent failures. Even "ignorable" provisional errors must surface.
+            logger.info("didFailProvisionalNavigation (non-fatal) error=\(error.localizedDescription, privacy: .public)")
+            let nsError = error as NSError
+            showNonFatalError("Preview error: \(nsError.domain)(\(nsError.code)) \(nsError.localizedDescription)")
             return
         }
         logger.error("didFailProvisionalNavigation error=\(error.localizedDescription, privacy: .public)")
