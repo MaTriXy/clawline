@@ -401,7 +401,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             loadStartedAt = CACurrentMediaTime()
             scheduleSlotWaitTimeout()
         }
-        pendingSlotRequestId = LinkPreviewLoadCoordinator.shared.acquireSlot { [weak self] in
+        let priority = isActuallyVisible() ? 10 : 0
+        pendingSlotRequestId = LinkPreviewLoadCoordinator.shared.acquireSlot(priority: priority) { [weak self] in
             guard let self else { return }
             self.pendingSlotRequestId = nil
             // acquireSlot() increments activeCount before calling us. If we can't use
@@ -1043,6 +1044,13 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             }
         }
         return .allowed(resolved)
+    }
+
+    private func isActuallyVisible() -> Bool {
+        guard let window else { return false }
+        if isHidden || alpha < 0.01 { return false }
+        let frameInWindow = convert(bounds, to: window)
+        return frameInWindow.intersects(window.bounds)
     }
 
     private func isPrivateIPAddress(_ host: String) -> Bool {
