@@ -1050,7 +1050,48 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
         }
 
+        if presentation.detectedURLCount > 0 {
+            // #33: URLs should render as organic link cards, not inline underlined text.
+            return stripDetectedLinks(from: result)
+        }
         return result
+    }
+
+    private static let detectedLinkStripper: NSDataDetector? = {
+        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    }()
+
+    private static func stripDetectedLinks(from attributed: NSAttributedString) -> NSAttributedString {
+        guard let detector = detectedLinkStripper else { return attributed }
+        let mutable = NSMutableAttributedString(attributedString: attributed)
+        let fullRange = NSRange(location: 0, length: mutable.string.utf16.count)
+        let matches = detector.matches(in: mutable.string, options: [], range: fullRange)
+        for match in matches.reversed() {
+            guard match.resultType == .link else { continue }
+            mutable.replaceCharacters(in: match.range, with: "")
+        }
+
+        // Trim leading/trailing whitespace/newlines after removing the URLs.
+        func isTrimmable(_ scalar: Unicode.Scalar) -> Bool {
+            CharacterSet.whitespacesAndNewlines.contains(scalar)
+        }
+        while let first = mutable.string.unicodeScalars.first, isTrimmable(first) {
+            mutable.replaceCharacters(in: NSRange(location: 0, length: 1), with: "")
+        }
+        while let last = mutable.string.unicodeScalars.last, isTrimmable(last) {
+            let len = mutable.string.utf16.count
+            guard len > 0 else { break }
+            mutable.replaceCharacters(in: NSRange(location: len - 1, length: 1), with: "")
+        }
+
+        // Collapse 3+ newlines down to 2 to avoid large gaps where a URL was removed.
+        if mutable.string.contains("\n\n\n") {
+            let regex = try? NSRegularExpression(pattern: "\n{3,}", options: [])
+            let range = NSRange(location: 0, length: mutable.string.utf16.count)
+            regex?.replaceMatches(in: mutable.mutableString, options: [], range: range, withTemplate: "\n\n")
+        }
+
+        return mutable
     }
 
     /// Parse markdown string into NSAttributedString with proper formatting
