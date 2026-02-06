@@ -422,6 +422,8 @@ struct ChatView: View {
                 content: $viewModel.inputContent,
                 selectionRange: $selectionRange,
                 pendingInsertions: $pendingInputInsertions,
+                placeholderText: viewModel.serverSessionKey(for: viewModel.activeStream)
+                    ?? viewModel.messageStorageKey(for: viewModel.activeStream),
                 resetToken: viewModel.inputResetToken,
                 canSend: viewModel.canSend,
                 isSending: viewModel.isSending,

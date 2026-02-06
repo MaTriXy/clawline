@@ -43,6 +43,7 @@ struct MessageInputBar: View {
     @Binding var content: NSAttributedString
     @Binding var selectionRange: NSRange
     @Binding var pendingInsertions: [PendingAttachment]
+    var placeholderText: String = "Message"
     var resetToken: Int
     let canSend: Bool
     let isSending: Bool
@@ -285,7 +286,10 @@ struct MessageInputBar: View {
                 .opacity(isSending ? 0.5 : 1)
 
                 if content.length == 0 {
-                    Text("Message")
+                    Text(placeholderText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .minimumScaleFactor(0.7)
                         .foregroundColor(placeholderColor)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                         .frame(maxHeight: .infinity, alignment: .center)
