@@ -1,6 +1,8 @@
 .DS_Store
 /.build
-/Packages
+/Packages/*
+!/Packages/RealityKitContent/
+!/Packages/RealityKitContent/**
 xcuserdata/
 DerivedData/
 .swiftpm/configuration/registries.json
