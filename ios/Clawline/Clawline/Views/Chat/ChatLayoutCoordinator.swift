@@ -289,6 +289,10 @@ final class ChatLayoutCoordinator {
         dispatchPrecondition(condition: .onQueue(.main))
         guard abs(barHeightCache - height) > 0.5 else { return }
         barHeightCache = height
+        // The initial inset application often runs before the input bar has a measured height,
+        // so we bootstrap with `minInputBarHeight`. Once the real height is known (layoutSubviews),
+        // schedule a re-apply so the bottom inset includes the true bar height + flow gap.
+        markInputsChanged()
     }
 
     private func currentInsetBarHeight(for inputs: ChatLayoutInputs, metrics: ChatLayoutMetrics) -> CGFloat {
