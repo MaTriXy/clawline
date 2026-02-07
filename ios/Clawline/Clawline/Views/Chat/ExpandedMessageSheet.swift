@@ -99,13 +99,20 @@ struct ExpandedMessageSheet: View {
         case .markdown(let value):
             let baseFont = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular)
             let ink = UIColor(ChatFlowTheme.ink(effectiveColorScheme))
-            if let attributed = ChatMarkdownRenderer.renderAttributedString(
+            if let ns = ChatMarkdownRenderer.renderNSAttributedString(
                 markdown: value,
                 baseFont: baseFont,
                 inkColor: ink,
                 lineSpacing: 4
             ) {
-                Text(attributed)
+                SelectableAttributedText(
+                    attributedString: ns,
+                    alignment: .left,
+                    onSelectionChange: { _ in },
+                    onLinkTap: { url in
+                        UIApplication.shared.open(url)
+                    }
+                )
             } else {
                 Text(value)
             }
