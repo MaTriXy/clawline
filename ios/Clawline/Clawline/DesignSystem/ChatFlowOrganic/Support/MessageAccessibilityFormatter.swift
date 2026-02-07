@@ -48,6 +48,7 @@ enum MessageAccessibilityFormatter {
     private static func mediaDescription(from presentation: MessagePresentation) -> String {
         var imageCount = 0
         var fileCount = 0
+        var terminalCount = 0
         for part in presentation.parts {
             switch part {
             case .image:
@@ -56,6 +57,8 @@ enum MessageAccessibilityFormatter {
                 imageCount += attachments.count
             case .file:
                 fileCount += 1
+            case .terminalSession:
+                terminalCount += 1
             default:
                 break
             }
@@ -71,6 +74,11 @@ enum MessageAccessibilityFormatter {
             pieces.append("one file attachment")
         } else if fileCount > 1 {
             pieces.append("\(fileCount) file attachments")
+        }
+        if terminalCount == 1 {
+            pieces.append("one terminal session")
+        } else if terminalCount > 1 {
+            pieces.append("\(terminalCount) terminal sessions")
         }
         return pieces.joined(separator: ", ")
     }
