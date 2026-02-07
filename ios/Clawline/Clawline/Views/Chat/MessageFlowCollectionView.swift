@@ -94,6 +94,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var wasShowingTypingIndicator = false
     private var onExpand: ((Message) -> Void)?
     private var pendingEntranceAnimationIds: Set<String> = []
+    // When morphing the typing indicator into a real bubble, avoid other lifecycle code
+    // (willDisplay resets, auto-scroll) from stomping the transition.
+    private var morphTargetMessageId: String?
+    private var deferScrollToBottomUntilMorphCompletes = false
 #if os(visionOS)
     // iPad mini 6th gen portrait reference size for spatial layout rules.
     private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
@@ -220,6 +224,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         updateVisibleCellOpacity()
 #else
         guard let id = dataSource.itemIdentifier(for: indexPath) else { return }
+        if id == morphTargetMessageId {
+            return
+        }
         guard pendingEntranceAnimationIds.contains(id) else {
             // Reset any reused cells that might have been animated previously.
             cell.alpha = 1
@@ -416,7 +423,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if lastMessageId != messages.last?.id {
             lastMessageId = messages.last?.id
-            scheduleScrollToBottom(animated: true)
+            if shouldMorph {
+                deferScrollToBottomUntilMorphCompletes = true
+            } else {
+                scheduleScrollToBottom(animated: true)
+            }
         } else if typingIndicatorJustAppeared {
             // Scroll to show typing indicator when it appears
             scheduleScrollToBottom(animated: true)
@@ -551,6 +562,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return
         }
 
+        morphTargetMessageId = targetMessageId
+
         collectionView.layoutIfNeeded()
         let startFrame = typingCell.convert(typingCell.bounds, to: collectionView)
         guard let typingSnapshotView = typingCell.snapshotView(afterScreenUpdates: false) else {
@@ -567,27 +580,41 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             self.collectionView.layoutIfNeeded()
             onApplied?()
 
-            guard let targetIndexPath = self.dataSource.indexPath(for: targetMessageId),
-                  let targetCell = self.collectionView.cellForItem(at: targetIndexPath) else {
-                typingSnapshotView.removeFromSuperview()
-                return
-            }
+            // Diffable apply(animatingDifferences:false) often runs under a no-animation context.
+            // Schedule the actual UIView animation on the next runloop so it isn't snap-applied.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let targetIndexPath = self.dataSource.indexPath(for: targetMessageId),
+                      let targetCell = self.collectionView.cellForItem(at: targetIndexPath) else {
+                    typingSnapshotView.removeFromSuperview()
+                    self.morphTargetMessageId = nil
+                    return
+                }
 
-            let endFrame = targetCell.convert(targetCell.bounds, to: self.collectionView)
-            targetCell.alpha = 0
+                self.collectionView.layoutIfNeeded()
+                let endFrame = targetCell.convert(targetCell.bounds, to: self.collectionView)
 
-            UIView.animate(
-                withDuration: 2.0,
-                delay: 0,
-                usingSpringWithDamping: 0.92,
-                initialSpringVelocity: 0.25,
-                options: [.curveEaseInOut, .allowUserInteraction]
-            ) {
-                typingSnapshotView.frame = endFrame
-                typingSnapshotView.alpha = 0
-                targetCell.alpha = 1
-            } completion: { _ in
-                typingSnapshotView.removeFromSuperview()
+                // Ensure we start hidden AFTER willDisplay has had a chance to run.
+                targetCell.alpha = 0
+
+                UIView.animate(
+                    withDuration: 2.0,
+                    delay: 0,
+                    usingSpringWithDamping: 0.92,
+                    initialSpringVelocity: 0.25,
+                    options: [.curveEaseInOut, .allowUserInteraction]
+                ) {
+                    typingSnapshotView.frame = endFrame
+                    typingSnapshotView.alpha = 0
+                    targetCell.alpha = 1
+                } completion: { _ in
+                    typingSnapshotView.removeFromSuperview()
+                    self.morphTargetMessageId = nil
+                    if self.deferScrollToBottomUntilMorphCompletes {
+                        self.deferScrollToBottomUntilMorphCompletes = false
+                        self.scheduleScrollToBottom(animated: false, attempts: 1)
+                    }
+                }
             }
         }
     }
