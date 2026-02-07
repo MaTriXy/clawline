@@ -209,6 +209,10 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         isHeightLocked = false
     }
 
+    func reloadPreview() {
+        handleReloadTap()
+    }
+
     private func setupViews() {
         backgroundColor = .clear
         // Prevent the web content from painting outside the preview bounds, which can

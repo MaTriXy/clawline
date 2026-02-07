@@ -539,6 +539,12 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentViews.append(bodyLabel)
         }
 
+        let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
+            if case .linkPreview(let url) = part { return url }
+            return nil
+        }).first
+        let shouldShowInlineReloadButton = presentation.hasSingleURL && linkPreviewURL != nil
+
         // Flynn: URLs should render as tappable cards per the design-system, independent of embedded preview success.
         // For multi-URL messages, cards render for each unique URL; for single-URL messages, card renders above preview.
         var cardURLs = presentation.detectedURLs
@@ -551,19 +557,72 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
         }
         if !cardURLs.isEmpty {
-            for url in cardURLs {
+            if shouldShowInlineReloadButton, let url = cardURLs.first {
+                let row = UIStackView()
+                row.translatesAutoresizingMaskIntoConstraints = false
+                row.axis = .horizontal
+                row.alignment = .center
+                row.distribution = .fill
+                row.spacing = 10
+
                 let card = LinkCardUIKitView()
                 card.configure(url: url, palette: palette)
-                dynamicContentStack.addArrangedSubview(card)
-                dynamicContentViews.append(card)
+                card.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+                let reload = UIButton(type: .system)
+                reload.translatesAutoresizingMaskIntoConstraints = false
+                reload.tintColor = palette.ink
+                reload.setImage(UIImage(systemName: "arrow.clockwise"), for: .normal)
+                reload.backgroundColor = palette.isDark
+                    ? UIColor.black.withAlphaComponent(0.20)
+                    : UIColor.white.withAlphaComponent(0.75)
+                reload.layer.cornerRadius = 16
+                reload.layer.cornerCurve = .continuous
+                reload.clipsToBounds = true
+                reload.accessibilityLabel = "Reload preview"
+                reload.accessibilityTraits = .button
+                reload.setContentHuggingPriority(.required, for: .horizontal)
+                reload.setContentCompressionResistancePriority(.required, for: .horizontal)
+                NSLayoutConstraint.activate([
+                    reload.widthAnchor.constraint(equalToConstant: 32),
+                    reload.heightAnchor.constraint(equalToConstant: 32)
+                ])
+
+                row.addArrangedSubview(card)
+                row.addArrangedSubview(reload)
+
+                dynamicContentStack.addArrangedSubview(row)
+                dynamicContentViews.append(row)
+
+                if let linkPreviewURL {
+                    let previewView = LinkPreviewView()
+                    // Flynn directive / #28: wide previews take the full truncation cap height.
+                    // Reserve space for header + padding so the bubble total height stays within the cap.
+                    let headerHeight: CGFloat = showsHeader ? 32 : 0
+                    let headerSpacing: CGFloat = showsHeader ? contentStack.spacing : 0
+                    let padding = currentContentPaddingVertical * 2
+                    let previewMaxHeight = max(120, effectiveTruncationHeight - (headerHeight + headerSpacing + padding))
+                    previewView.configure(url: linkPreviewURL, maxHeight: previewMaxHeight)
+                    previewView.onHeightChange = { [weak self] in
+                        self?.onRequestLayout?(message.id)
+                    }
+                    reload.addAction(UIAction { [weak previewView] _ in
+                        previewView?.reloadPreview()
+                    }, for: .touchUpInside)
+                    dynamicContentStack.addArrangedSubview(previewView)
+                    dynamicContentViews.append(previewView)
+                }
+            } else {
+                for url in cardURLs {
+                    let card = LinkCardUIKitView()
+                    card.configure(url: url, palette: palette)
+                    dynamicContentStack.addArrangedSubview(card)
+                    dynamicContentViews.append(card)
+                }
             }
         }
 
-        let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
-            if case .linkPreview(let url) = part { return url }
-            return nil
-        }).first
-        if let linkPreviewURL {
+        if let linkPreviewURL, !shouldShowInlineReloadButton {
             let previewView = LinkPreviewView()
             // Flynn directive / #28: wide previews take the full truncation cap height.
             // Reserve space for header + padding so the bubble total height stays within the cap.
