@@ -103,6 +103,18 @@ final class MessageBubbleUIKitContainerView: UIView {
         }
     }
 
+    func prepareForReuse() {
+        // Truncated bubbles use an inner vertical scroll view. Resetting the bubble prevents
+        // reused cells from inheriting a non-zero contentOffset (GitHub #56).
+        bubbleView.prepareForReuse()
+        badgeView.isHidden = true
+        onRetry = nil
+        onRequestLayout = nil
+        bubbleBottomConstraint.constant = 0
+        badgeBottomConstraint.constant = 0
+        badgeLeadingConstraint.constant = 0
+    }
+
     func setCenteredOverlayView(_ view: UIView?) {
         bubbleView.setCenteredOverlayView(view)
     }
@@ -286,6 +298,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         // Dynamic content wrapper clips content for truncation
         dynamicContentWrapper.clipsToBounds = true
         dynamicContentScrollView.translatesAutoresizingMaskIntoConstraints = false
+        dynamicContentScrollView.contentInsetAdjustmentBehavior = .never
         dynamicContentScrollView.showsVerticalScrollIndicator = false
         dynamicContentScrollView.showsHorizontalScrollIndicator = false
         dynamicContentScrollView.alwaysBounceVertical = false
@@ -770,6 +783,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.alwaysBounceVertical = false
         dynamicContentScrollView.alwaysBounceHorizontal = false
         dynamicContentScrollView.contentInset.bottom = 0
+        dynamicContentScrollView.setContentOffset(.zero, animated: false)
 
         let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
         // Flynn #28: for text + link preview, enable the outer scroll view only if the combined
@@ -830,6 +844,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 #endif
                 let fadeHeight: CGFloat = 100
                 dynamicContentScrollView.contentInset.bottom = fadeHeight
+                dynamicContentScrollView.setContentOffset(.zero, animated: false)
                 fadeConstraints = [
                     fadeView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
                     fadeView.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
@@ -866,6 +881,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Update border colors for light/dark mode
         updateBorderColors(isDark: palette.isDark)
+    }
+
+    func prepareForReuse() {
+        // Ensure the truncated-content scroll area starts at the top on first display.
+        dynamicContentScrollView.setContentOffset(.zero, animated: false)
     }
 
     func setCenteredOverlayView(_ view: UIView?) {
@@ -1810,6 +1830,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        containerView.prepareForReuse()
         messageId = ""
         messageSnippet = ""
         lastMismatch = nil
