@@ -94,8 +94,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var wasShowingTypingIndicator = false
     private var onExpand: ((Message) -> Void)?
     private var pendingEntranceAnimationIds: Set<String> = []
-    // When morphing the typing indicator into a real bubble, avoid other lifecycle code
-    // (willDisplay resets, auto-scroll) from stomping the transition.
+    // Typing indicator morph is a bespoke overlay animation. During the morph we must prevent
+    // normal lifecycle behaviors from fighting it:
+    // - `willDisplay` resets (alpha/transform) can overwrite our fade-in target cell state.
+    // - auto scroll-to-bottom can start a concurrent scroll animation and re-layout mid-morph.
     private var morphTargetMessageId: String?
     private var deferScrollToBottomUntilMorphCompletes = false
 #if os(visionOS)
@@ -224,6 +226,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         updateVisibleCellOpacity()
 #else
         guard let id = dataSource.itemIdentifier(for: indexPath) else { return }
+        // During morph, we intentionally drive the target cell's alpha from 0->1 in our own
+        // `UIView.animate`. Don't let willDisplay stomp it back to 1 early.
         if id == morphTargetMessageId {
             return
         }
@@ -580,9 +584,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             self.collectionView.layoutIfNeeded()
             onApplied?()
 
-            // Diffable apply(animatingDifferences:false) often runs under a no-animation context.
-            // Schedule the actual UIView animation on the next runloop so it isn't snap-applied.
-            DispatchQueue.main.async { [weak self] in
+            // `dataSource.apply(..., animatingDifferences: false)` is frequently executed under a
+            // no-animation context (UIKit disables animations so updates "snap" into place). If we
+            // start our morph `UIView.animate` inside that completion, the 2s duration can collapse
+            // to an instantaneous state change.
+            //
+            // We intentionally schedule the morph on the next main-actor turn to escape the
+            // diffable no-animation scope, while keeping all UIKit work on the main thread.
+            // Using `Task { @MainActor in ... }` matches the project's Swift concurrency standard
+            // and (critically) yields out of the diffable apply completion call stack.
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard let targetIndexPath = self.dataSource.indexPath(for: targetMessageId),
                       let targetCell = self.collectionView.cellForItem(at: targetIndexPath) else {
@@ -610,6 +621,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 } completion: { _ in
                     typingSnapshotView.removeFromSuperview()
                     self.morphTargetMessageId = nil
+                    // Scroll-to-bottom often triggers a layout pass/scroll animation that makes the
+                    // morph feel interrupted. Defer it until the morph completes.
                     if self.deferScrollToBottomUntilMorphCompletes {
                         self.deferScrollToBottomUntilMorphCompletes = false
                         self.scheduleScrollToBottom(animated: false, attempts: 1)
