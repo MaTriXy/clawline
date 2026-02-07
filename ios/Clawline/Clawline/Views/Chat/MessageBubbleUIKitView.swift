@@ -822,11 +822,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             )
         } else {
             let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
+            let hasLinkCards = !presentation.detectedURLs.isEmpty
             // Flynn #28: for text + link preview, enable the outer scroll view only if the combined
             // content height exceeds the bubble max height (truncation cap), regardless of sizeClass.
             let hasLinkPreviewView = dynamicContentViews.contains(where: { $0 is LinkPreviewView })
             let hasTextAndLinkPreview = hasTextContent && hasLinkPreviewView
-            if (!isSingleImageOnly) && ((sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview) {
+            // #59: link cards can stack and exceed truncation height; enable inner scrolling when needed.
+            if (!isSingleImageOnly) && ((sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview || hasLinkCards) {
                 let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
                 let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
                 let textMeasureWidth = min(contentWidth, maxLineWidth)

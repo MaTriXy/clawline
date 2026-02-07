@@ -770,6 +770,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return true
         }
 
+        // Link cards (detected URLs) are wide embedded content per the design system.
+        // Treat them like previews/tables/images for width + truncation-height behavior.
+        if !presentation.detectedURLs.isEmpty {
+            return true
+        }
+
         let tableCount = presentation.parts.reduce(into: 0) { count, part in
             if case .table = part { count += 1 }
         }
