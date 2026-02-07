@@ -589,11 +589,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             // start our morph `UIView.animate` inside that completion, the 2s duration can collapse
             // to an instantaneous state change.
             //
-            // We intentionally schedule the morph on the next main-actor turn to escape the
+            // We intentionally schedule the morph on the next main runloop tick to escape the
             // diffable no-animation scope, while keeping all UIKit work on the main thread.
-            // Using `Task { @MainActor in ... }` matches the project's Swift concurrency standard
-            // and (critically) yields out of the diffable apply completion call stack.
-            Task { @MainActor [weak self] in
+            //
+            // We use GCD here (instead of `Task { @MainActor in ... }`) on purpose: UIKit animation
+            // transactions are runloop/callback driven, and `Task` scheduling can be less deterministic
+            // about *exactly* which turn we run on. We need a predictable “next tick” escape hatch so
+            // the morph animation isn't snap-applied.
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 guard let targetIndexPath = self.dataSource.indexPath(for: targetMessageId),
                       let targetCell = self.collectionView.cellForItem(at: targetIndexPath) else {
