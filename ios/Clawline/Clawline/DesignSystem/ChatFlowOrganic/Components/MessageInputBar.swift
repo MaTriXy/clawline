@@ -151,9 +151,23 @@ struct MessageInputBar: View {
         return textWidth + chromeWidth
     }
 
+    // #61: On visionOS, keep the input bar in dark mode regardless of the global theme toggle.
+    // The rest of the UI still respects `settings.appearanceMode`.
+    private var isLightModeForInputBar: Bool {
+#if os(visionOS)
+        return false
+#else
+        return settings.appearanceMode == .light
+#endif
+    }
+
+    private var inputBarColorScheme: ColorScheme {
+        isLightModeForInputBar ? .light : .dark
+    }
+
     private var addButtonForeground: Color {
 #if os(visionOS)
-        return settings.appearanceMode == .dark ? .white : .black
+        return isLightModeForInputBar ? .black : .white
 #else
         return .primary
 #endif
@@ -170,7 +184,7 @@ struct MessageInputBar: View {
     }
 
     private var visionOSBorderColor: Color {
-        isLightMode
+        isLightModeForInputBar
             ? ChatFlowTheme.ink(.light).opacity(0.95)
             : Color.white.opacity(0.5)
     }
@@ -179,7 +193,7 @@ struct MessageInputBar: View {
 
     private var sendBackgroundColor: Color {
 #if os(visionOS)
-        return ChatFlowTheme.sage(isLightMode ? .light : .dark)
+        return ChatFlowTheme.sage(inputBarColorScheme)
 #else
         return ChatFlowTheme.sage(colorScheme)
 #endif
@@ -187,7 +201,7 @@ struct MessageInputBar: View {
 
     private var placeholderColor: Color {
 #if os(visionOS)
-        return isLightMode
+        return isLightModeForInputBar
             ? ChatFlowTheme.ink(.light).opacity(0.6)
             : ChatFlowTheme.ink(.dark).opacity(0.6)
 #else
@@ -197,7 +211,7 @@ struct MessageInputBar: View {
 
     private var inputTintColor: Color {
 #if os(visionOS)
-        return isLightMode ? ChatFlowTheme.ink(.light) : ChatFlowTheme.ink(.dark)
+        return isLightModeForInputBar ? ChatFlowTheme.ink(.light) : ChatFlowTheme.ink(.dark)
 #else
         return .primary
 #endif
