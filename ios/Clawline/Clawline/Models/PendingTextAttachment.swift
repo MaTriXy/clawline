@@ -9,7 +9,7 @@ import UIKit
 
 final class PendingTextAttachment: NSTextAttachment {
     private enum Metrics {
-        static let targetHeight: CGFloat = 44
+        static let maxHeight: CGFloat = 44
         static let maxWidth: CGFloat = 72
         static let verticalOffset: CGFloat = -6
     }
@@ -48,9 +48,17 @@ final class PendingTextAttachment: NSTextAttachment {
     }
 
     private static func makeBounds(for image: UIImage) -> CGRect {
-        let aspect = image.size.height == 0 ? 1 : image.size.width / image.size.height
-        let height = Metrics.targetHeight
-        let width = min(max(height * aspect, height * 0.6), Metrics.maxWidth)
-        return CGRect(x: 0, y: Metrics.verticalOffset, width: width, height: height)
+        // Preserve aspect ratio: fit inside a max height + max width box.
+        // This avoids squashing wide/tall thumbnails in the compose bar (#55).
+        let imageSize = image.size
+        guard imageSize.width > 0, imageSize.height > 0 else {
+            return CGRect(x: 0, y: Metrics.verticalOffset, width: Metrics.maxHeight, height: Metrics.maxHeight)
+        }
+
+        let heightScale = Metrics.maxHeight / imageSize.height
+        let widthScale = Metrics.maxWidth / imageSize.width
+        let scale = min(heightScale, widthScale, 1)
+        let size = CGSize(width: floor(imageSize.width * scale), height: floor(imageSize.height * scale))
+        return CGRect(x: 0, y: Metrics.verticalOffset, width: max(1, size.width), height: max(1, size.height))
     }
 }
