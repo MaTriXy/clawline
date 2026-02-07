@@ -658,6 +658,8 @@ struct ChatFlowOrganicComplianceTests {
             hasTextualContent: presentation.hasTextualContent,
             isEmojiOnly: presentation.isEmojiOnly,
             hasMediaOnly: presentation.hasMediaOnly,
+            detectedURLs: presentation.detectedURLs,
+            detectedURLCount: presentation.detectedURLCount,
             hasSingleURL: presentation.hasSingleURL
         )
     }

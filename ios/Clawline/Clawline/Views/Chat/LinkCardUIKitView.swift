@@ -214,24 +214,31 @@ final class LinkCardUIKitView: UIControl {
     }
 
     override var intrinsicContentSize: CGSize {
-        // Height depends on width (labels wrap). Use the current width when available.
-        let width = bounds.width > 1 ? bounds.width : UIView.layoutFittingCompressedSize.width
-        let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
-        let measured = systemLayoutSizeFitting(
-            target,
-            withHorizontalFittingPriority: bounds.width > 1 ? .required : .fittingSizeLevel,
-            verticalFittingPriority: .fittingSizeLevel
-        )
-        return CGSize(width: UIView.noIntrinsicMetric, height: ceil(measured.height))
+        // Avoid calling `systemLayoutSizeFitting` on `self` from intrinsic sizing; UIKit may ask for
+        // `intrinsicContentSize` while computing a fitting size, which can recurse and overflow the stack.
+        let width = bounds.width > 1 ? bounds.width : (lastMeasuredWidth > 1 ? lastMeasuredWidth : 320)
+        let height = measuredHeight(for: width, horizontalPriority: bounds.width > 1 ? .required : .fittingSizeLevel)
+        return CGSize(width: UIView.noIntrinsicMetric, height: height)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
-        let target = CGSize(width: size.width, height: UIView.layoutFittingCompressedSize.height)
-        return systemLayoutSizeFitting(
+        lastMeasuredWidth = size.width
+        return CGSize(width: size.width, height: measuredHeight(for: size.width, horizontalPriority: .required))
+    }
+
+    private func measuredHeight(for width: CGFloat, horizontalPriority: UILayoutPriority) -> CGFloat {
+        // `rootRow` is pinned to `cardBackground`, which is pinned to `shadowHost`.
+        // Shadow host is inset by 4pt on each side and 2/6pt vertically.
+        let rootWidth = max(0, width - 8)
+        let target = CGSize(width: rootWidth, height: UIView.layoutFittingCompressedSize.height)
+        let measured = rootRow.systemLayoutSizeFitting(
             target,
-            withHorizontalFittingPriority: .required,
+            withHorizontalFittingPriority: horizontalPriority,
             verticalFittingPriority: .fittingSizeLevel
         )
+
+        // `shadowHost` is inset by 2pt top and 6pt bottom (8pt total) relative to `self`.
+        return ceil(measured.height + 8)
     }
 
     @objc private func handleTap() {

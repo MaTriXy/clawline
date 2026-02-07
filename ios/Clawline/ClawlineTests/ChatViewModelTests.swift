@@ -10,6 +10,7 @@ struct ChatViewModelTests {
     @Test("Records last server message id for reconnects")
     @MainActor
     func recordsLastServerMessageId() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
@@ -21,6 +22,7 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: ToastManager()
         )
+        defer { viewModel.onDisappear() }
 
         await viewModel.onAppear()
 
@@ -46,9 +48,14 @@ struct ChatViewModelTests {
     @Test("Streaming updates replace existing message instead of duplicating")
     @MainActor
     func streamingMessagesUpdateInPlace() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
+        // Ensure the async streams are initialized so emitted values are buffered if observation
+        // tasks haven't started iterating yet.
+        _ = chatService.connectionState
+        _ = chatService.serviceEvents
         let toastManager = ToastManager()
         let viewModel = ChatViewModel(
             auth: auth,
@@ -58,8 +65,9 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: toastManager
         )
+        defer { viewModel.onDisappear() }
 
-        await resetViewModelForTest(viewModel, auth: auth)
+        await viewModel.onAppear()
 
         let sessionKey = "test:\(UUID().uuidString)"
         let messageId = "s_stream"
@@ -76,8 +84,12 @@ struct ChatViewModelTests {
                 )
         )
 
-        try await Task.sleep(forDuration: .milliseconds(50))
-        let firstCount = await MainActor.run { viewModel.messages.count }
+        var firstCount = 0
+        for _ in 0..<50 {
+            firstCount = await MainActor.run { viewModel.messages.count }
+            if firstCount == 1 { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
         #expect(firstCount == 1)
 
         chatService.emit(
@@ -93,8 +105,17 @@ struct ChatViewModelTests {
                 )
         )
 
-        try await Task.sleep(forDuration: .milliseconds(10))
-        let finalState = await MainActor.run { viewModel.messages }
+        // The view model processes incoming messages on an async task; avoid a brittle fixed sleep.
+        var finalState: [Message] = []
+        for _ in 0..<50 {
+            finalState = await MainActor.run { viewModel.messages }
+            if finalState.count == 1,
+               finalState.first?.content == "Final",
+               finalState.first?.streaming == false {
+                break
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
         #expect(finalState.count == 1)
         #expect(finalState.first?.content == "Final")
         #expect(finalState.first?.streaming == false)
@@ -103,6 +124,7 @@ struct ChatViewModelTests {
     @Test("Server echoes with matching device id replace placeholder")
     @MainActor
     func userEchoWithoutDeviceIdDoesNotDuplicate() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
@@ -115,6 +137,7 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: toastManager
         )
+        defer { viewModel.onDisappear() }
 
         await viewModel.onAppear()
         viewModel.inputContent = NSAttributedString(string: "Hello!")
@@ -146,6 +169,7 @@ struct ChatViewModelTests {
     @Test("Message-level errors annotate placeholders and show toast")
     @MainActor
     func messageErrorsMarkFailedMessages() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
@@ -158,6 +182,7 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: toastManager
         )
+        defer { viewModel.onDisappear() }
 
         await viewModel.onAppear()
         viewModel.inputContent = NSAttributedString(string: "Broken message")
@@ -170,17 +195,25 @@ struct ChatViewModelTests {
         }
 
         chatService.emitServiceEvent(.messageError(messageId: messageId, code: "invalid_message", message: "bad content"))
-        try await Task.sleep(forDuration: .milliseconds(10))
+        // Service events are delivered via async stream; allow time for ordering with other connection toasts.
+        for _ in 0..<50 {
+            let messages = await MainActor.run { toastManager.debugMessages }
+            if messages.contains("bad content") {
+                break
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
 
         let failure = viewModel.failureMessage(for: messageId)
         #expect(failure == "bad content")
-        let lastMessage = await MainActor.run { toastManager.debugLastMessage() }
-        #expect(lastMessage == "bad content")
+        let messages = await MainActor.run { toastManager.debugMessages }
+        #expect(messages.contains("bad content"))
     }
 
     @Test("Connection interruptions surface alert state")
     @MainActor
     func connectionInterruptionTriggersAlert() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
@@ -194,23 +227,35 @@ struct ChatViewModelTests {
             toastManager: toastManager,
             connectionAlertGracePeriod: .milliseconds(500)
         )
+        defer { viewModel.onDisappear() }
 
         await viewModel.onAppear()
+        try await Task.sleep(forDuration: .milliseconds(20))
         chatService.emitConnectionState(.connected)
-        try await Task.sleep(forDuration: .milliseconds(10))
+        for _ in 0..<200 {
+            let alert = await MainActor.run { viewModel.debugConnectionAlert() }
+            if alert == nil { break }
+            try await Task.sleep(forDuration: .milliseconds(25))
+        }
 
         chatService.emitServiceEvent(.connectionInterrupted(reason: "Connection lost"))
-        try await Task.sleep(forDuration: .milliseconds(10))
+        var alert: ConnectionAlertSeverity?
+        var lastMessage: String?
+        for _ in 0..<200 {
+            alert = await MainActor.run { viewModel.debugConnectionAlert() }
+            lastMessage = await MainActor.run { toastManager.debugLastMessage() }
+            if alert == .caution, lastMessage == "Connection lost" { break }
+            try await Task.sleep(forDuration: .milliseconds(25))
+        }
 
-        let alert = await MainActor.run { viewModel.debugConnectionAlert() }
-        #expect(alert == nil)
-        let lastMessage = await MainActor.run { toastManager.debugLastMessage() }
+        #expect(alert == .caution)
         #expect(lastMessage == "Connection lost")
     }
 
     @Test("canSend becomes true when attachments exist even without text")
     @MainActor
     func canSendWithAttachmentOnly() {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
@@ -222,6 +267,7 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: ToastManager()
         )
+        defer { viewModel.onDisappear() }
 
         let attachment = makePendingAttachment(dataSize: 512, mimeType: "image/png")
         viewModel.attachmentData[attachment.id] = attachment
@@ -233,6 +279,7 @@ struct ChatViewModelTests {
     @Test("Doc §5: Memory warnings flush presentation cache")
     @MainActor
     func memoryWarningClearsPresentationCache() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let viewModel = ChatViewModel(
@@ -243,6 +290,7 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: ToastManager()
         )
+        defer { viewModel.onDisappear() }
 
         let message = Message(
             id: "table-msg",
@@ -283,6 +331,7 @@ struct ChatViewModelTests {
     @Test("send uploads attachments that require persistence")
     @MainActor
     func sendProcessesAttachments() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
@@ -295,6 +344,7 @@ struct ChatViewModelTests {
             uploadService: uploadService,
             toastManager: ToastManager()
         )
+        defer { viewModel.onDisappear() }
 
         let inlineAttachment = makePendingAttachment(dataSize: 1024, mimeType: "image/png")
         let fileAttachment = makePendingAttachment(dataSize: 512_000, mimeType: "application/pdf")
@@ -332,6 +382,7 @@ struct ChatViewModelTests {
     @Test("removing attachments from the attributed string prunes stored data")
     @MainActor
     func prunesOrphanedAttachments() {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let viewModel = ChatViewModel(
@@ -342,6 +393,7 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: ToastManager()
         )
+        defer { viewModel.onDisappear() }
 
         let pending = makePendingAttachment(dataSize: 1024, mimeType: "image/png")
         viewModel.attachmentData[pending.id] = pending
@@ -355,6 +407,7 @@ struct ChatViewModelTests {
     @Test("Outbound sends respect active session selection")
     @MainActor
     func sendUsesActiveSessionKey() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         auth.updateAdminStatus(true)
@@ -367,6 +420,7 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: ToastManager()
         )
+        defer { viewModel.onDisappear() }
 
         await resetViewModelForTest(viewModel, auth: auth)
         chatService.emitServiceEvent(.sessionInfo([
@@ -399,6 +453,7 @@ struct ChatViewModelTests {
     @Test("Incoming messages route to matching stream")
     @MainActor
     func incomingMessagesRoutePerStream() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         auth.updateAdminStatus(true)
@@ -411,6 +466,7 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: ToastManager()
         )
+        defer { viewModel.onDisappear() }
 
         await resetViewModelForTest(viewModel, auth: auth)
 
@@ -438,6 +494,7 @@ struct ChatViewModelTests {
     @Test("user_info event updates admin state and surfaces toast")
     @MainActor
     func userInfoEventUpdatesAdminState() async throws {
+        resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
@@ -450,6 +507,7 @@ struct ChatViewModelTests {
             uploadService: TestUploadService(),
             toastManager: toastManager
         )
+        defer { viewModel.onDisappear() }
 
         await viewModel.onAppear()
 
@@ -567,9 +625,34 @@ private final class TestChatService: ChatServicing {
 
 @MainActor
 private func resetViewModelForTest(_ viewModel: ChatViewModel, auth: TestAuthManager) async {
+    let wasAdmin = auth.isAdmin
+    viewModel.onDisappear()
     viewModel.logout()
     auth.storeCredentials(token: "jwt", userId: "user")
+    auth.updateAdminStatus(wasAdmin)
     await viewModel.onAppear()
+}
+
+@MainActor
+private func resetChatPersistence() {
+    // ChatViewModel restores per-session message caches and cursors from disk/UserDefaults.
+    // Tests must start from a clean slate to avoid cross-test pollution.
+    let defaults = UserDefaults.standard
+    for key in defaults.dictionaryRepresentation().keys {
+        if key.hasPrefix("clawline.lastServerMessageId.")
+            || key.hasPrefix("clawline.lastStream") {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    let fileManager = FileManager.default
+    guard let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+        return
+    }
+    let directoryURL = baseURL
+        .appendingPathComponent("Clawline", isDirectory: true)
+        .appendingPathComponent("MessageCache", isDirectory: true)
+    try? fileManager.removeItem(at: directoryURL)
 }
 
 @MainActor
