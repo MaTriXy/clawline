@@ -58,7 +58,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     }
 
     private enum Constants {
-        static let minHeight: CGFloat = 140
+        static let defaultMinHeight: CGFloat = 140
         static let defaultMaxHeight: CGFloat = 360
         static let loadTimeout: TimeInterval = 12
         static let emptyBodyDelay: TimeInterval = 0.5
@@ -75,6 +75,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private let webView: WKWebView
     private var webViewHeightConstraint: NSLayoutConstraint!
     private var maxHeight: CGFloat = Constants.defaultMaxHeight
+    private var minHeight: CGFloat = Constants.defaultMinHeight
 
     private var state: State = .idle
     private var currentURL: URL?
@@ -162,31 +163,63 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     }
 
     override var intrinsicContentSize: CGSize {
-        let height = webViewHeightConstraint?.constant ?? Constants.minHeight
+        let height = webViewHeightConstraint?.constant ?? minHeight
         return CGSize(width: UIView.noIntrinsicMetric, height: height)
     }
 
+    var reportedHeight: CGFloat {
+        webViewHeightConstraint?.constant ?? minHeight
+    }
+
+    var configuredCacheKey: String? {
+        configuredURLKey
+    }
+
     func configure(url: URL, maxHeight: CGFloat? = nil) {
-        if currentURL == url, state != .failed { return }
-        resetState()
-        if let maxHeight {
-            self.maxHeight = max(Constants.minHeight, maxHeight)
-        } else {
-            self.maxHeight = Constants.defaultMaxHeight
+        configure(
+            url: url,
+            maxHeight: maxHeight,
+            minHeight: nil,
+            cacheKey: nil,
+            initialHeight: nil
+        )
+    }
+
+    func configure(url: URL,
+                   maxHeight: CGFloat?,
+                   minHeight: CGFloat? = nil,
+                   cacheKey: String? = nil,
+                   initialHeight: CGFloat? = nil) {
+        let desiredMinHeight = max(1, minHeight ?? Constants.defaultMinHeight)
+        let desiredMaxHeight = max(desiredMinHeight, maxHeight ?? Constants.defaultMaxHeight)
+        let desiredKey = cacheKey ?? url.absoluteString
+        if currentURL == url,
+           configuredURLKey == desiredKey,
+           state != .failed,
+           abs(self.minHeight - desiredMinHeight) <= 1,
+           abs(self.maxHeight - desiredMaxHeight) <= 1 {
+            return
         }
-        configuredURLKey = url.absoluteString
+        resetState()
+        self.minHeight = desiredMinHeight
+        self.maxHeight = desiredMaxHeight
+        configuredURLKey = desiredKey
         // Flynn directive: keep link preview height stable once determined. Use cached height
         // on scroll-back; only re-measure after explicit reload.
-        if let cached = Self.heightCache.object(forKey: url.absoluteString as NSString) {
+        if let cachedKey = configuredURLKey,
+           let cached = Self.heightCache.object(forKey: cachedKey as NSString) {
             isHeightLocked = true
             canLockHeight = false
-            webViewHeightConstraint.constant = max(Constants.minHeight, min(self.maxHeight, CGFloat(truncating: cached)))
+            webViewHeightConstraint.constant = max(self.minHeight, min(self.maxHeight, CGFloat(truncating: cached)))
             invalidateIntrinsicContentSize()
             onHeightChange?()
-        } else if abs(webViewHeightConstraint.constant - Constants.minHeight) > 1 {
-            webViewHeightConstraint.constant = Constants.minHeight
-            invalidateIntrinsicContentSize()
-            onHeightChange?()
+        } else {
+            let target = initialHeight ?? self.minHeight
+            if abs(webViewHeightConstraint.constant - target) > 1 {
+                webViewHeightConstraint.constant = target
+                invalidateIntrinsicContentSize()
+                onHeightChange?()
+            }
         }
         currentURL = url
         let hostLabel = url.host ?? url.absoluteString
@@ -283,7 +316,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         spinner.hidesWhenStopped = true
         webContainer.addSubview(spinner)
 
-        webViewHeightConstraint = webView.heightAnchor.constraint(equalToConstant: Constants.minHeight)
+        webViewHeightConstraint = webView.heightAnchor.constraint(equalToConstant: Constants.defaultMinHeight)
 
         NSLayoutConstraint.activate([
             webView.leadingAnchor.constraint(equalTo: webContainer.leadingAnchor),
@@ -499,7 +532,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private func applyMeasuredHeight(_ rawHeight: Double) {
         guard rawHeight.isFinite else { return }
         markLoadedIfNeeded()
-        let clamped = max(Constants.minHeight, min(maxHeight, CGFloat(rawHeight)))
+        let clamped = max(minHeight, min(maxHeight, CGFloat(rawHeight)))
         let needsScroll = rawHeight > Double(maxHeight)
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.showsVerticalScrollIndicator = needsScroll
