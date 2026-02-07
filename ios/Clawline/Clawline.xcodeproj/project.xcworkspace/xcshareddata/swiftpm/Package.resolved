@@ -1,5 +1,5 @@
 {
-  "originHash" : "96b3d53c5ce8485e977210f883cebfb629adae7e388aed7bd2d49867d6521d9b",
+  "originHash" : "3da411f54bd85331a69e383c4e870e7a0b8536d07cd34c3be6f6e3c7078d26e5",
   "pins" : [
     {
       "identity" : "highlightswift",
@@ -8,6 +8,40 @@
       "state" : {
         "revision" : "784ca3ccfc8a2cf724fbb2f06cb6ec3329424da3",
         "version" : "1.1.0"
+      }
+    },
+    {
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser",
+      "state" : {
+        "revision" : "c5d11a805e765f52ba34ec7284bd4fcd6ba68615",
+        "version" : "1.7.0"
+      }
+    },
+    {
+      "identity" : "swift-subprocess",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-subprocess",
+      "state" : {
+        "revision" : "426790f3f24afa60b418450da0afaa20a8b3bdd4"
+      }
+    },
+    {
+      "identity" : "swift-system",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-system",
+      "state" : {
+        "revision" : "7c6ad0fc39d0763e0b699210e4124afd5041c5df",
+        "version" : "1.6.4"
+      }
+    },
+    {
+      "identity" : "swiftterm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/clickety-clacks/SwiftTerm",
+      "state" : {
+        "revision" : "72944e547c256f4a7e4a7e18b5a4e6180227d3bf"
       }
     }
   ],

@@ -94,6 +94,8 @@ final class ProviderChatService: ChatServicing {
         /// Required by the gateway schema (connect params validation).
         /// Treated as an opaque identifier by the server.
         let id: String
+        /// Optional capabilities advertised by the client. The server should ignore unknown values.
+        let features: [String]?
     }
 
     private struct Envelope: Decodable {
@@ -665,7 +667,10 @@ final class ProviderChatService: ChatServicing {
                                 token: token,
                                 deviceId: self.deviceId,
                                 lastMessageId: lastMessageId,
-                                client: ClientDescriptor(id: Self.clientID)
+                                client: ClientDescriptor(
+                                    id: Self.clientID,
+                                    features: ["terminal_bubbles_v1"]
+                                )
                             )
                             let data = try self.encoder.encode(authPayload)
                             guard let text = String(data: data, encoding: .utf8) else {
