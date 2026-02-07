@@ -1573,6 +1573,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             handleBubbleSizingV2LinkPreviewLayout(messageId: messageId)
             return
         }
+        guard let viewModel, let message = messagesById[messageId] else {
+            invalidateLayout(for: messageId)
+            return
+        }
+        let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+        let presentation = viewModel.presentation(for: message, metrics: metrics)
+        let sizeClass = MessageFlowRules.sizeClass(for: presentation)
+        let stableMaxWidth = maxItemWidth(
+            for: sizeClass,
+            message: message,
+            presentation: presentation,
+            metrics: metrics,
+            containerWidth: effectiveContentWidth(metrics: metrics)
+        )
         guard let indexPath = dataSource.indexPath(for: messageId),
               let cell = collectionView.cellForItem(at: indexPath) else {
             invalidateLayout(for: messageId)
@@ -1583,7 +1597,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Measure the live cell (not the offscreen sizer) and feed the result back into the cache.
         cell.setNeedsLayout()
         cell.layoutIfNeeded()
-        let width = max(1, cell.contentView.bounds.width)
+        let liveWidth = cell.contentView.bounds.width
+        // #63: Avoid caching invalid narrow widths when the cell hasn't been laid out yet (bounds.width ~= 0).
+        // Prefer the stable max width derived from message presentation/layout rules.
+        let width = (liveWidth >= 40) ? liveWidth : stableMaxWidth
+        guard width >= 40 else {
+            invalidateLayout(for: messageId)
+            return
+        }
         let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
         let measured = cell.contentView.systemLayoutSizeFitting(
             target,
@@ -1713,8 +1734,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             ? effectiveTruncationHeight(metrics: metrics)
             : nil
         let failureReason = viewModel.failureMessage(for: message.id)
+        let minWidth: CGFloat = 120
         let clamped = CGSize(
-            width: min(maxWidth, measuredSize.width),
+            // #63: Mirror the initial sizing path's width floor so a transient near-zero measurement
+            // (e.g., from a 0pt-wide live cell) cannot permanently lock a bubble to an invalid width.
+            width: min(maxWidth, max(minWidth, measuredSize.width)),
             height: measuredSize.height
         )
         var snapped = snapToPixel(clamped)
