@@ -955,6 +955,12 @@ private final class KeyboardLayoutGuideObserverView: UIView {
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(willEnterForeground(_:)),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
     }
 
     @available(*, unavailable)
@@ -1008,6 +1014,15 @@ private final class KeyboardLayoutGuideObserverView: UIView {
             height = max(0, windowBounds.maxY - frameInWindow.minY)
         }
         return (height, isFloating)
+    }
+
+    @objc private func willEnterForeground(_ notification: Notification) {
+        // #24: Keyboard notifications aren't guaranteed when returning to foreground with the keyboard already up.
+        // Refresh from the layout guide immediately and again on the next tick after layout settles.
+        refreshFromLayoutGuide()
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshFromLayoutGuide()
+        }
     }
 
     @objc private func keyboardFrameChanged(_ notification: Notification) {
