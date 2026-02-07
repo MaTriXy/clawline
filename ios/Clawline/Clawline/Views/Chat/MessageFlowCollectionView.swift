@@ -1111,8 +1111,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         let hasNonMediaContent = hasTextContent || codeBlockCount > 0 || tableCount > 0
         let hasTextAndLinkPreview = hasTextContent && linkPreviewURL != nil
+        let hasLinkCards = !presentation.detectedURLs.isEmpty
 
-        let allowsOuterScroll = (!isSingleImageOnly) && ((sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview)
+        // V1 behavior: allow truncation scrolling for stacked link cards even without link previews.
+        let allowsOuterScroll = (!isSingleImageOnly) && (
+            (sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview || hasLinkCards
+        )
 
         return BubbleSizingV2.Plan(
             messageId: message.id,

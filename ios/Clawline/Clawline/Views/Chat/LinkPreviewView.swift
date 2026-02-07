@@ -167,6 +167,23 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         return CGSize(width: UIView.noIntrinsicMetric, height: height)
     }
 
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        // MessageBubbleUIKitView's truncation logic (V1) relies on `sizeThatFits` to estimate
+        // dynamic content height. `UIView.sizeThatFits` defaults to bounds, which is often 0
+        // during configuration, causing the preview to be ignored and bubbles to fail to
+        // enable their inner scroll area (#62).
+        layoutIfNeeded()
+        let width = (size.width > 1 ? size.width : (bounds.width > 1 ? bounds.width : 320))
+        let target = CGSize(width: max(1, width), height: UIView.layoutFittingCompressedSize.height)
+        let measured = stackView.systemLayoutSizeFitting(
+            target,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        let height = max(minHeight, min(maxHeight, measured.height))
+        return CGSize(width: width, height: height)
+    }
+
     var reportedHeight: CGFloat {
         webViewHeightConstraint?.constant ?? minHeight
     }
