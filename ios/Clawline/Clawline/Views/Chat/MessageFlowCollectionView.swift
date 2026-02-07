@@ -577,7 +577,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             targetCell.alpha = 0
 
             UIView.animate(
-                withDuration: 0.32,
+                withDuration: 2.0,
                 delay: 0,
                 usingSpringWithDamping: 0.92,
                 initialSpringVelocity: 0.25,
