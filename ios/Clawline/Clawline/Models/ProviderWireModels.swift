@@ -24,12 +24,67 @@ struct ServerMessagePayload: Codable, Equatable {
         case id
         case role
         case sender
+        case from
+        case name
         case content
         case timestamp
         case streaming
         case deviceId
         case sessionKey
         case attachments
+    }
+
+    // Support multiple server metadata shapes for "who is speaking" without hardcoding names.
+    // Some servers historically send `sender: "assistant"` which is a role marker, not a display name.
+    private enum FromField: Decodable {
+        struct FromObject: Decodable {
+            let name: String?
+            let displayName: String?
+            let id: String?
+            let role: String?
+        }
+
+        case string(String)
+        case object(FromObject)
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let value = try? container.decode(String.self) {
+                self = .string(value)
+                return
+            }
+            if let value = try? container.decode(FromObject.self) {
+                self = .object(value)
+                return
+            }
+            throw DecodingError.typeMismatch(
+                FromField.self,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Expected `from` to be a String or Object"
+                )
+            )
+        }
+
+        var resolvedName: String? {
+            switch self {
+            case .string(let value):
+                return value
+            case .object(let obj):
+                return obj.displayName ?? obj.name ?? obj.id
+            }
+        }
+
+        var resolvedRole: Message.Role? {
+            switch self {
+            case .string:
+                return nil
+            case .object(let obj):
+                guard let raw = obj.role?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                      !raw.isEmpty else { return nil }
+                return raw == Message.Role.assistant.rawValue ? .assistant : .user
+            }
+        }
     }
 
     init(type: String = "message",
@@ -58,11 +113,16 @@ struct ServerMessagePayload: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         type = try container.decode(String.self, forKey: .type)
         id = try container.decode(String.self, forKey: .id)
-        sender = try container.decodeIfPresent(String.self, forKey: .sender)
+        let legacySender = try container.decodeIfPresent(String.self, forKey: .sender)
+        let fromField = try container.decodeIfPresent(FromField.self, forKey: .from)
+        let topLevelName = try container.decodeIfPresent(String.self, forKey: .name)
+        sender = fromField?.resolvedName ?? topLevelName ?? legacySender
         if let decodedRole = try container.decodeIfPresent(Message.Role.self, forKey: .role) {
             role = decodedRole
-        } else if let sender {
-            role = sender.lowercased() == Message.Role.assistant.rawValue ? .assistant : .user
+        } else if let resolved = fromField?.resolvedRole {
+            role = resolved
+        } else if let legacySender {
+            role = legacySender.lowercased() == Message.Role.assistant.rawValue ? .assistant : .user
         } else {
             throw DecodingError.keyNotFound(
                 CodingKeys.role,

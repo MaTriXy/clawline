@@ -66,8 +66,13 @@ struct Message: Identifiable, Equatable, Codable {
         case .user:
             return "You"
         case .assistant:
-            if let sender, !sender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return sender
+            if let sender {
+                let trimmed = sender.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Servers sometimes send `sender: "assistant"` as a role marker. Treat it as missing
+                // so we fall back to the generic label unless a real display name is provided.
+                if !trimmed.isEmpty, trimmed.lowercased() != Message.Role.assistant.rawValue {
+                    return trimmed
+                }
             }
             return "Assistant"
         }
