@@ -75,6 +75,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var flowLayout: MessageFlowLayout!
     private let uiKitBubbleSizer = MessageBubbleUIKitView()
     private var currentIsDark: Bool = false
+    private let bubbleSizingV2Enabled = BubbleSizingV2.isEnabled
+    private let bubbleSizingV2MeasurementCache = BubbleSizingV2.LRUCache<BubbleSizingV2.CacheKey, BubbleSizingV2.Measurement>(maxEntries: 800)
+    private let bubbleSizingV2LinkPreviewHeightCache = BubbleSizingV2.LinkPreviewHeightCache()
+    private var bubbleSizingV2KeysByMessageId: [String: Set<BubbleSizingV2.CacheKey>] = [:]
+    private var bubbleSizingV2LinkPreviewStateVersionByMessageId: [String: Int] = [:]
+    private var bubbleSizingV2PendingRemeasureIds: Set<String> = []
+    private var bubbleSizingV2RemeasureScheduled = false
 
     private var messagesById: [String: Message] = [:]
     private var fingerprints: [String: Int] = [:]
@@ -354,6 +361,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         removedIds.forEach { truncationStates.removeValue(forKey: $0) }
         removedIds.forEach { lastMeasuredSizes.removeValue(forKey: $0) }
         removedIds.forEach { sizeCache.removeValue(forKey: $0) }
+        removedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
+        removedIds.forEach { bubbleSizingV2LinkPreviewStateVersionByMessageId.removeValue(forKey: $0) }
 
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
@@ -399,6 +408,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             flowLayout.invalidateLayout()
             changedIds.forEach { sizeCache.removeValue(forKey: $0) }
             changedIds.forEach { lastMeasuredSizes.removeValue(forKey: $0) }
+            changedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
+            changedIds.forEach { bubbleSizingV2LinkPreviewStateVersionByMessageId.removeValue(forKey: $0) }
         }
         forceReconfigureAll = false
 
@@ -527,15 +538,45 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             let truncationHeightOverride: CGFloat? = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
                 ? self.effectiveTruncationHeight(metrics: metrics)
                 : nil
-            // Use cached size width for consistent sizing with measurement
-            let configureWidth = self.sizeCache[id]?.width ?? maxWidth
+            let layoutStateV2: BubbleSizingV2.LayoutState?
+            let configureWidth: CGFloat
+            let truncationHeightOverrideV1: CGFloat?
+            if self.bubbleSizingV2Enabled {
+                let failureReason = viewModel.failureMessage(for: message.id)
+                let env = self.bubbleSizingV2Environment(metrics: metrics)
+                let plan = self.bubbleSizingV2Plan(
+                    message: message,
+                    presentation: presentation,
+                    metrics: metrics,
+                    env: env,
+                    showsHeader: !hideHeader
+                )
+                let state = self.bubbleSizingV2LayoutState(
+                    message: message,
+                    presentation: presentation,
+                    metrics: metrics,
+                    env: env,
+                    plan: plan,
+                    failureReason: failureReason,
+                    showsHeader: !hideHeader
+                )
+                layoutStateV2 = state
+                configureWidth = state.measurement.measuredBubbleWidth
+                truncationHeightOverrideV1 = nil
+            } else {
+                layoutStateV2 = nil
+                // Use cached size width for consistent sizing with measurement
+                configureWidth = self.sizeCache[id]?.width ?? maxWidth
+                truncationHeightOverrideV1 = truncationHeightOverride
+            }
             cell?.configure(
                 message: message,
                 presentation: presentation,
                 failureReason: viewModel.failureMessage(for: message.id),
                 isCompact: self.isCompact,
                 maxWidth: configureWidth,
-                truncationHeightOverride: truncationHeightOverride,
+                truncationHeightOverride: truncationHeightOverrideV1,
+                bubbleSizingV2: layoutStateV2,
                 showsHeader: !hideHeader,
                 isDark: self.currentIsDark,
                 onRequestExpand: { [weak self] in
@@ -655,6 +696,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         setBottomInset(currentBottomInset)
         lastMeasuredSizes.removeAll()
         sizeCache.removeAll()
+        bubbleSizingV2MeasurementCache.removeAll()
+        bubbleSizingV2KeysByMessageId.removeAll()
+        bubbleSizingV2LinkPreviewStateVersionByMessageId.removeAll()
         flowLayout.invalidateLayout()
         NSLog("[KBTIMING] updateLayout cacheCleared invalidated dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
     }
@@ -813,6 +857,30 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard let message = messagesById[id] else {
             return .zero
         }
+        if bubbleSizingV2Enabled {
+            let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+            let presentation = viewModel.presentation(for: message, metrics: metrics)
+            let hideHeader = shouldHideHeader(for: message, presentation: presentation)
+            let failureReason = viewModel.failureMessage(for: message.id)
+            let env = bubbleSizingV2Environment(metrics: metrics)
+            let plan = bubbleSizingV2Plan(
+                message: message,
+                presentation: presentation,
+                metrics: metrics,
+                env: env,
+                showsHeader: !hideHeader
+            )
+            let layoutState = bubbleSizingV2LayoutState(
+                message: message,
+                presentation: presentation,
+                metrics: metrics,
+                env: env,
+                plan: plan,
+                failureReason: failureReason,
+                showsHeader: !hideHeader
+            )
+            return layoutState.measurement.measuredCellSize
+        }
         if let cached = sizeCache[id] {
             lastMeasuredSizes[id] = cached
             return cached
@@ -932,6 +1000,333 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             height: height
         )
         return snapToPixel(clamped)
+    }
+
+    // MARK: - Bubble Sizing V2
+
+    private func bubbleSizingV2Environment(metrics: ChatFlowTheme.Metrics) -> BubbleSizingV2.Environment {
+        let containerWidth = effectiveContentWidth(metrics: metrics)
+        let containerHeight = effectiveContainerHeight()
+#if os(visionOS)
+        let isVisionOS = true
+#else
+        let isVisionOS = false
+#endif
+        let metricsFp = BubbleSizingV2.metricsFingerprint(metrics: metrics, traitCollection: view.traitCollection)
+        return BubbleSizingV2.Environment(
+            containerWidth: containerWidth,
+            containerHeight: containerHeight,
+            topInset: topInset,
+            bottomInset: currentBottomInset,
+            truncationBottomInset: truncationBottomInset,
+            isVisionOS: isVisionOS,
+            metricsFingerprint: metricsFp
+        )
+    }
+
+    private func bubbleSizingV2Plan(message: Message,
+                                   presentation: MessagePresentation,
+                                   metrics: ChatFlowTheme.Metrics,
+                                   env: BubbleSizingV2.Environment,
+                                   showsHeader: Bool) -> BubbleSizingV2.Plan {
+        let sizeClass = MessageFlowRules.sizeClass(for: presentation)
+        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
+        let isWide = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
+
+        let maxWidth: CGFloat = {
+            if isWide { return env.containerWidth }
+            let paddedLineWidth = maxLineWidth + metrics.bubblePaddingHorizontal * 2
+            switch sizeClass {
+            case .short:
+                return min(env.containerWidth, paddedLineWidth)
+            case .medium:
+                return mediumMaxWidth(
+                    message: message,
+                    presentation: presentation,
+                    metrics: metrics,
+                    containerWidth: env.containerWidth
+                )
+            case .long:
+                return min(env.containerWidth, paddedLineWidth)
+            }
+        }()
+
+        let minWidth: CGFloat = {
+            switch sizeClass {
+            case .short:
+                return 40
+            case .medium:
+                return max(env.containerWidth * 0.25, 80)
+            case .long:
+                return 80
+            }
+        }()
+
+        let heightCapMode: BubbleSizingV2.HeightCapMode = isWide ? .screenAware : .designSystem
+        let heightCap: CGFloat = {
+            switch heightCapMode {
+            case .screenAware:
+                return effectiveTruncationHeight(metrics: metrics)
+            case .designSystem:
+                return metrics.truncationHeight
+            }
+        }()
+
+        let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
+            if case .linkPreview(let url) = part { return url }
+            return nil
+        }).first
+
+        let isSingleImageOnly: Bool = {
+            guard presentation.hasMediaOnly, presentation.parts.count == 1 else { return false }
+            switch presentation.parts[0] {
+            case .image, .gallery:
+                return true
+            default:
+                return false
+            }
+        }()
+
+        let hasTextContent: Bool = presentation.parts.contains(where: { part in
+            switch part {
+            case .text(let value), .markdown(let value):
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case .inlineEmoji(let value):
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            default:
+                return false
+            }
+        })
+        let codeBlockCount = presentation.parts.reduce(into: 0) { count, part in
+            if case .code = part { count += 1 }
+        }
+        let tableCount = presentation.parts.reduce(into: 0) { count, part in
+            if case .table = part { count += 1 }
+        }
+        let hasNonMediaContent = hasTextContent || codeBlockCount > 0 || tableCount > 0
+        let hasTextAndLinkPreview = hasTextContent && linkPreviewURL != nil
+
+        let allowsOuterScroll = (!isSingleImageOnly) && ((sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview)
+
+        return BubbleSizingV2.Plan(
+            messageId: message.id,
+            presentationFingerprint: fingerprints[message.id] ?? fingerprint(for: message),
+            sizeClass: sizeClass,
+            isWide: isWide,
+            maxWidth: maxWidth,
+            minWidth: minWidth,
+            heightCapMode: heightCapMode,
+            heightCap: heightCap,
+            allowsOuterScroll: allowsOuterScroll,
+            linkPreviewURL: linkPreviewURL
+        )
+    }
+
+    private func bubbleSizingV2LayoutState(message: Message,
+                                          presentation: MessagePresentation,
+                                          metrics: ChatFlowTheme.Metrics,
+                                          env: BubbleSizingV2.Environment,
+                                          plan: BubbleSizingV2.Plan,
+                                          failureReason: String?,
+                                          showsHeader: Bool) -> BubbleSizingV2.LayoutState {
+        let initialLinkVersion: Int = bubbleSizingV2LinkPreviewStateVersionByMessageId[message.id] ?? 0
+        let key = BubbleSizingV2.CacheKey(
+            messageId: message.id,
+            presentationFingerprint: plan.presentationFingerprint,
+            env: env,
+            linkPreviewStateVersion: initialLinkVersion
+        )
+        if let cached = bubbleSizingV2MeasurementCache.value(forKey: key) {
+            return bubbleSizingV2MakeLayoutState(
+                message: message,
+                presentation: presentation,
+                metrics: metrics,
+                env: env,
+                plan: plan,
+                measurement: cached
+            )
+        }
+
+        let measured = bubbleSizingV2Measure(
+            message: message,
+            presentation: presentation,
+            metrics: metrics,
+            env: env,
+            plan: plan,
+            failureReason: failureReason,
+            showsHeader: showsHeader
+        )
+        bubbleSizingV2MeasurementCache.setValue(measured.measurement, forKey: key)
+        bubbleSizingV2KeysByMessageId[message.id, default: []].insert(key)
+        return measured
+    }
+
+    private func bubbleSizingV2MakeLayoutState(message: Message,
+                                              presentation: MessagePresentation,
+                                              metrics: ChatFlowTheme.Metrics,
+                                              env: BubbleSizingV2.Environment,
+                                              plan: BubbleSizingV2.Plan,
+                                              measurement: BubbleSizingV2.Measurement) -> BubbleSizingV2.LayoutState {
+        guard let url = plan.linkPreviewURL else {
+            return BubbleSizingV2.LayoutState(
+                plan: plan,
+                measurement: measurement,
+                linkPreviewCacheKey: nil,
+                linkPreviewEstimatedHeight: nil,
+                linkPreviewMinHeight: 40,
+                linkPreviewMaxHeight: measurement.outerScrollViewportHeight
+            )
+        }
+        let paddingHorizontal = round((presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal) * 1)
+        let contentWidth = max(1, measurement.measuredBubbleWidth - (paddingHorizontal * 2))
+        let cacheKey = "\(url.absoluteString)|w=\(Int(contentWidth.rounded()))|m=\(env.metricsFingerprint)"
+        let estimated = bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: cacheKey) ?? 120
+        return BubbleSizingV2.LayoutState(
+            plan: plan,
+            measurement: measurement,
+            linkPreviewCacheKey: cacheKey,
+            linkPreviewEstimatedHeight: estimated,
+            linkPreviewMinHeight: 40,
+            linkPreviewMaxHeight: measurement.outerScrollViewportHeight
+        )
+    }
+
+    private func bubbleSizingV2Measure(message: Message,
+                                       presentation: MessagePresentation,
+                                       metrics: ChatFlowTheme.Metrics,
+                                       env: BubbleSizingV2.Environment,
+                                       plan: BubbleSizingV2.Plan,
+                                       failureReason: String?,
+                                       showsHeader: Bool) -> BubbleSizingV2.LayoutState {
+        // Pass 0: configure at max width so preferredWidth() can read padding and label sizes.
+        uiKitBubbleSizer.configure(
+            message: message,
+            presentation: presentation,
+            sizeClass: plan.sizeClass,
+            metrics: metrics,
+            maxWidth: plan.maxWidth,
+            truncationHeightOverride: nil,
+            showsHeader: showsHeader,
+            onRequestExpand: nil,
+            onRequestLayout: nil
+        )
+
+        let measuredBubbleWidth: CGFloat = {
+            if plan.isWide { return plan.maxWidth }
+            if plan.sizeClass == .short {
+                let preferred = uiKitBubbleSizer.preferredWidth(maxWidth: plan.maxWidth)
+                return BubbleSizingV2.clamp(preferred, plan.minWidth, plan.maxWidth)
+            }
+            return plan.maxWidth
+        }()
+
+        let paddingHorizontal = round((presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal) * 1)
+        let contentWidth = max(1, measuredBubbleWidth - (paddingHorizontal * 2))
+
+        let linkPreviewCacheKey: String? = plan.linkPreviewURL.map { url in
+            "\(url.absoluteString)|w=\(Int(contentWidth.rounded()))|m=\(env.metricsFingerprint)"
+        }
+        let linkPreviewEstimatedHeight: CGFloat? = linkPreviewCacheKey.flatMap { bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: $0) }
+
+        // Pass 1: compute chrome height with an upper-bound link preview max height.
+        let provisional1 = BubbleSizingV2.LayoutState(
+            plan: plan,
+            measurement: BubbleSizingV2.Measurement(
+                measuredCellSize: .zero,
+                measuredBubbleWidth: measuredBubbleWidth,
+                contentHeight: 0,
+                chromeHeight: 0,
+                outerScrollEnabled: false,
+                outerScrollViewportHeight: plan.heightCap,
+                isFinal: linkPreviewEstimatedHeight != nil
+            ),
+            linkPreviewCacheKey: linkPreviewCacheKey,
+            linkPreviewEstimatedHeight: linkPreviewEstimatedHeight ?? 120,
+            linkPreviewMinHeight: 40,
+            linkPreviewMaxHeight: plan.heightCap
+        )
+        uiKitBubbleSizer.configure(
+            message: message,
+            presentation: presentation,
+            sizeClass: plan.sizeClass,
+            metrics: metrics,
+            maxWidth: measuredBubbleWidth,
+            truncationHeightOverride: nil,
+            bubbleSizingV2: provisional1,
+            showsHeader: showsHeader,
+            onRequestExpand: nil,
+            onRequestLayout: nil
+        )
+        let target = CGSize(width: measuredBubbleWidth, height: UIView.layoutFittingCompressedSize.height)
+        let measured1 = uiKitBubbleSizer.systemLayoutSizeFitting(
+            target,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        let dynamicHeight1 = uiKitBubbleSizer.measuredDynamicContentHeight(fittingWidth: contentWidth)
+        let chromeHeight = max(0, measured1.height - dynamicHeight1)
+        let viewportHeight = max(plan.heightCap - chromeHeight, 44)
+
+        // Pass 2: reconfigure with the actual viewport max height so link preview/media clamp matches rendering.
+        let provisional2 = BubbleSizingV2.LayoutState(
+            plan: plan,
+            measurement: BubbleSizingV2.Measurement(
+                measuredCellSize: .zero,
+                measuredBubbleWidth: measuredBubbleWidth,
+                contentHeight: 0,
+                chromeHeight: chromeHeight,
+                outerScrollEnabled: false,
+                outerScrollViewportHeight: viewportHeight,
+                isFinal: linkPreviewEstimatedHeight != nil
+            ),
+            linkPreviewCacheKey: linkPreviewCacheKey,
+            linkPreviewEstimatedHeight: linkPreviewEstimatedHeight ?? 120,
+            linkPreviewMinHeight: 40,
+            linkPreviewMaxHeight: viewportHeight
+        )
+        uiKitBubbleSizer.configure(
+            message: message,
+            presentation: presentation,
+            sizeClass: plan.sizeClass,
+            metrics: metrics,
+            maxWidth: measuredBubbleWidth,
+            truncationHeightOverride: nil,
+            bubbleSizingV2: provisional2,
+            showsHeader: showsHeader,
+            onRequestExpand: nil,
+            onRequestLayout: nil
+        )
+
+        let measured2 = uiKitBubbleSizer.systemLayoutSizeFitting(
+            target,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        let dynamicHeight2 = uiKitBubbleSizer.measuredDynamicContentHeight(fittingWidth: contentWidth)
+
+        let outerScrollEnabled = plan.allowsOuterScroll && measured2.height > plan.heightCap
+        let badgeExtra: CGFloat = (failureReason != nil) ? 32 : 0
+        let cellHeight = (outerScrollEnabled ? plan.heightCap : measured2.height) + badgeExtra
+
+        let snappedSize = snapToPixel(CGSize(width: measuredBubbleWidth, height: max(1, cellHeight)))
+        let measurement = BubbleSizingV2.Measurement(
+            measuredCellSize: snappedSize,
+            measuredBubbleWidth: snappedSize.width,
+            contentHeight: dynamicHeight2,
+            chromeHeight: chromeHeight,
+            outerScrollEnabled: outerScrollEnabled,
+            outerScrollViewportHeight: viewportHeight,
+            isFinal: linkPreviewEstimatedHeight != nil
+        )
+
+        return BubbleSizingV2.LayoutState(
+            plan: plan,
+            measurement: measurement,
+            linkPreviewCacheKey: linkPreviewCacheKey,
+            linkPreviewEstimatedHeight: linkPreviewEstimatedHeight ?? 120,
+            linkPreviewMinHeight: 40,
+            linkPreviewMaxHeight: viewportHeight
+        )
     }
 
     private func shouldHideHeader(for message: Message, presentation: MessagePresentation) -> Bool {
@@ -1164,6 +1559,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func handleCellRequestedLayout(messageId: String) {
+        if bubbleSizingV2Enabled {
+            handleBubbleSizingV2LinkPreviewLayout(messageId: messageId)
+            return
+        }
         guard let indexPath = dataSource.indexPath(for: messageId),
               let cell = collectionView.cellForItem(at: indexPath) else {
             invalidateLayout(for: messageId)
@@ -1182,6 +1581,92 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             verticalFittingPriority: .fittingSizeLevel
         )
         applyMeasuredSize(measured, for: messageId)
+    }
+
+    private func handleBubbleSizingV2LinkPreviewLayout(messageId: String) {
+        guard let viewModel, let message = messagesById[messageId] else {
+            invalidateLayout(for: messageId)
+            return
+        }
+        let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+        let presentation = viewModel.presentation(for: message, metrics: metrics)
+        guard let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
+            if case .linkPreview(let url) = part { return url }
+            return nil
+        }).first else {
+            invalidateLayout(for: messageId)
+            return
+        }
+
+        guard let indexPath = dataSource.indexPath(for: messageId),
+              let cell = collectionView.cellForItem(at: indexPath) else {
+            invalidateLayout(for: messageId)
+            return
+        }
+
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+
+        // Find the live preview view to get its current measured height.
+        guard let previewView = findLinkPreviewView(in: cell.contentView) else {
+            invalidateLayout(for: messageId)
+            return
+        }
+        guard let cacheKey = previewView.configuredCacheKey else {
+            invalidateLayout(for: messageId)
+            return
+        }
+        // Defensive: ensure the cache key matches the URL we believe is in the message presentation.
+        guard cacheKey.hasPrefix(linkPreviewURL.absoluteString) else {
+            invalidateLayout(for: messageId)
+            return
+        }
+        let newHeight = previewView.reportedHeight
+        let oldHeight = bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: cacheKey)
+        bubbleSizingV2LinkPreviewHeightCache.set(height: newHeight, cacheKey: cacheKey)
+
+        let epsilon: CGFloat = 4
+        if oldHeight == nil || abs((oldHeight ?? 0) - newHeight) > epsilon {
+            bubbleSizingV2LinkPreviewStateVersionByMessageId[messageId, default: 0] += 1
+        }
+
+        bubbleSizingV2PendingRemeasureIds.insert(messageId)
+        scheduleBubbleSizingV2Remeasure()
+    }
+
+    private func scheduleBubbleSizingV2Remeasure() {
+        guard !bubbleSizingV2RemeasureScheduled else { return }
+        bubbleSizingV2RemeasureScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let ids = Array(self.bubbleSizingV2PendingRemeasureIds)
+            self.bubbleSizingV2PendingRemeasureIds.removeAll()
+            for id in ids {
+                self.invalidateBubbleSizingV2Cache(for: id)
+                self.invalidateLayout(for: id)
+                self.scheduleReconfigure(for: id)
+            }
+            // Clear at end so callbacks arriving during processing will schedule a new pass.
+            self.bubbleSizingV2RemeasureScheduled = false
+            if !self.bubbleSizingV2PendingRemeasureIds.isEmpty {
+                self.scheduleBubbleSizingV2Remeasure()
+            }
+        }
+    }
+
+    private func invalidateBubbleSizingV2Cache(for messageId: String) {
+        guard let keys = bubbleSizingV2KeysByMessageId.removeValue(forKey: messageId) else { return }
+        for key in keys {
+            bubbleSizingV2MeasurementCache.removeValue(forKey: key)
+        }
+    }
+
+    private func findLinkPreviewView(in view: UIView) -> LinkPreviewView? {
+        if let v = view as? LinkPreviewView { return v }
+        for subview in view.subviews {
+            if let found = findLinkPreviewView(in: subview) { return found }
+        }
+        return nil
     }
 
     private func scheduleReconfigure(for messageId: String) {
