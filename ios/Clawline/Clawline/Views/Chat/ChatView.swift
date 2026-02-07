@@ -460,19 +460,20 @@ struct ChatView: View {
 
     @ViewBuilder
     private func statusBarFadeMask(topInset: CGFloat) -> some View {
-        // Top of mask is transparent (hide content), then fades to opaque (show content).
-        // #31 follow-up: stronger fade that starts lower so content doesn't compete with the status bar.
+        // #31 follow-up: reduce strength + height. This is a mask (not an overlay), so lower alpha
+        // means content remains partially visible behind the status bar instead of fully hidden.
         if topInset <= 0 {
             Rectangle().fill(Color.white)
         } else {
-            let fullyHiddenHeight = topInset + 14
-            let fadeHeight: CGFloat = 70
+            let topAlpha: CGFloat = 0.25
+            let fullyHiddenHeight = topInset + 9
+            let fadeHeight: CGFloat = 46
             VStack(spacing: 0) {
                 Rectangle()
-                    .fill(Color.white.opacity(0))
+                    .fill(Color.white.opacity(topAlpha))
                     .frame(height: fullyHiddenHeight)
                 LinearGradient(
-                    colors: [Color.white.opacity(0), Color.white],
+                    colors: [Color.white.opacity(topAlpha), Color.white],
                     startPoint: .top,
                     endPoint: .bottom
                 )
