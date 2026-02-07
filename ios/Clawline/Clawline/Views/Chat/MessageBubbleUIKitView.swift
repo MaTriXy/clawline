@@ -1504,14 +1504,23 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 final class AvatarCircleView: UIView {
     private let label = UILabel()
     private let gradientLayer = CAGradientLayer()
+    private var sizeConstraints: [NSLayoutConstraint] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 32),
-            heightAnchor.constraint(equalToConstant: 32)
-        ])
+        // Avatar is sacred: fixed size and aspect ratio. Do not allow truncation/layout caps to
+        // distort it (GitHub #60 regression).
+        let width = widthAnchor.constraint(equalToConstant: 32)
+        let height = heightAnchor.constraint(equalToConstant: 32)
+        let aspect = widthAnchor.constraint(equalTo: heightAnchor)
+        sizeConstraints = [width, height, aspect]
+        sizeConstraints.forEach { $0.priority = .required }
+        NSLayoutConstraint.activate(sizeConstraints)
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .vertical)
 
         // Radial gradient for spherical/marble look
         layer.insertSublayer(gradientLayer, at: 0)
