@@ -21,6 +21,7 @@ struct RichTextEditor: UIViewRepresentable {
     var focusTrigger: Int
     var isEditable: Bool
     var tintColor: UIColor
+    var textColor: UIColor = .label
     var onFocusChange: (Bool) -> Void
     var onSubmit: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
@@ -48,6 +49,7 @@ struct RichTextEditor: UIViewRepresentable {
 #endif
         textView.returnKeyType = .send
         textView.tintColor = tintColor
+        textView.textColor = textColor
         textView.autocorrectionType = .yes
         textView.smartQuotesType = .yes
         textView.smartDashesType = .yes
@@ -89,6 +91,9 @@ struct RichTextEditor: UIViewRepresentable {
         if textView.tintColor != tintColor {
             textView.tintColor = tintColor
         }
+        if textView.textColor != textColor {
+            textView.textColor = textColor
+        }
 
         let currentInset = textView.textContainerInset
         if abs(currentInset.right - trailingPadding) > 0.5 {
@@ -100,6 +105,7 @@ struct RichTextEditor: UIViewRepresentable {
 
         context.coordinator.applyFocusIfNeeded(on: textView, trigger: focusTrigger)
         context.coordinator.updateHeight(for: textView, allowAutoScroll: false)
+        context.coordinator.enforceBaseAttributesIfNeeded(on: textView)
         context.coordinator.ensureTypingAttributes(on: textView)
 
         if !pendingInsertions.isEmpty, !isComposing, !context.coordinator.isInsertingAttachments {
@@ -123,6 +129,7 @@ struct RichTextEditor: UIViewRepresentable {
         var isApplyingLocalEdit = false
         var isInsertingAttachments = false
         var lastResetToken: Int = 0
+        private var lastBaseTextColor: UIColor?
 
         init(parent: RichTextEditor) {
             self.parent = parent
@@ -219,13 +226,21 @@ struct RichTextEditor: UIViewRepresentable {
         func ensureTypingAttributes(on textView: UITextView) {
             var attributes = textView.typingAttributes
             attributes[.font] = UIFont.preferredFont(forTextStyle: .body)
-            attributes[.foregroundColor] = UIColor.label
+            attributes[.foregroundColor] = parent.textColor
             textView.typingAttributes = attributes
+        }
+
+        func enforceBaseAttributesIfNeeded(on textView: UITextView) {
+            if let lastBaseTextColor, lastBaseTextColor.isEqual(parent.textColor) {
+                return
+            }
+            lastBaseTextColor = parent.textColor
+            enforceBaseAttributes(on: textView)
         }
 
         func enforceBaseAttributes(on textView: UITextView) {
             let baseFont = UIFont.preferredFont(forTextStyle: .body)
-            let baseColor = UIColor.label
+            let baseColor = parent.textColor
             let fullRange = NSRange(location: 0, length: textView.textStorage.length)
             guard fullRange.length > 0 else { return }
 

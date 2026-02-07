@@ -289,6 +289,14 @@ struct MessageInputBar: View {
                     focusTrigger: focusTrigger,
                     isEditable: true,
                     tintColor: inputTintUIColor,
+                    textColor: {
+#if os(visionOS)
+                        // #61: Input bar is forced dark on visionOS; ensure typed text is visible.
+                        return .white
+#else
+                        return .label
+#endif
+                    }(),
                     onFocusChange: onFocusChange,
                     onSubmit: {
                         guard !isSending, canSend else { return }
