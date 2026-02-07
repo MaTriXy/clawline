@@ -22,9 +22,15 @@ final class LinkCardUIKitView: UIControl {
     private var url: URL?
     private var metadataTask: Task<Void, Never>?
     private var imageTask: Task<Void, Never>?
+    private var lastMeasuredWidth: CGFloat = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+
+        // This view is used inside UIStackView. Ensure it participates in Auto Layout sizing.
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentCompressionResistancePriority(.required, for: .vertical)
+        setContentHuggingPriority(.required, for: .vertical)
 
         backgroundColor = .clear
         clipsToBounds = false
@@ -207,6 +213,18 @@ final class LinkCardUIKitView: UIControl {
         }
     }
 
+    override var intrinsicContentSize: CGSize {
+        // Height depends on width (labels wrap). Use the current width when available.
+        let width = bounds.width > 1 ? bounds.width : UIView.layoutFittingCompressedSize.width
+        let target = CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
+        let measured = systemLayoutSizeFitting(
+            target,
+            withHorizontalFittingPriority: bounds.width > 1 ? .required : .fittingSizeLevel,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        return CGSize(width: UIView.noIntrinsicMetric, height: ceil(measured.height))
+    }
+
     override func sizeThatFits(_ size: CGSize) -> CGSize {
         let target = CGSize(width: size.width, height: UIView.layoutFittingCompressedSize.height)
         return systemLayoutSizeFitting(
@@ -265,5 +283,9 @@ final class LinkCardUIKitView: UIControl {
         let cornerRadius = cardBackground.layer.cornerRadius
         let path = UIBezierPath(roundedRect: shadowHost.bounds, cornerRadius: cornerRadius).cgPath
         shadowHost.layer.shadowPath = path
+        if abs(bounds.width - lastMeasuredWidth) > 0.5 {
+            lastMeasuredWidth = bounds.width
+            invalidateIntrinsicContentSize()
+        }
     }
 }
