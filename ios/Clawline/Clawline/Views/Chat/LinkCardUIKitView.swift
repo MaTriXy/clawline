@@ -8,14 +8,20 @@
 import UIKit
 
 final class LinkCardUIKitView: UIControl {
+    private static let imageCache = NSCache<NSString, UIImage>()
+
     private let shadowHost = UIView()
     private let cardBackground = UIView()
     private let indicatorView = UIView()
     private let domainLabel = UILabel()
     private let titleLabel = UILabel()
     private let descLabel = UILabel()
-    private let contentStack = UIStackView()
+    private let textStack = UIStackView()
+    private let rootRow = UIStackView()
+    private let thumbnailView = UIImageView()
     private var url: URL?
+    private var metadataTask: Task<Void, Never>?
+    private var imageTask: Task<Void, Never>?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -61,18 +67,34 @@ final class LinkCardUIKitView: UIControl {
         domainRow.alignment = .center
         domainRow.spacing = 8
 
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.axis = .vertical
-        contentStack.alignment = .fill
-        contentStack.spacing = 0
-        contentStack.isLayoutMarginsRelativeArrangement = true
-        contentStack.layoutMargins = UIEdgeInsets(top: 14, left: 18, bottom: 14, right: 18)
-        contentStack.addArrangedSubview(domainRow)
-        contentStack.setCustomSpacing(6, after: domainRow)
-        contentStack.addArrangedSubview(titleLabel)
-        contentStack.setCustomSpacing(4, after: titleLabel)
-        contentStack.addArrangedSubview(descLabel)
-        cardBackground.addSubview(contentStack)
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+        textStack.axis = .vertical
+        textStack.alignment = .fill
+        textStack.spacing = 0
+        textStack.addArrangedSubview(domainRow)
+        textStack.setCustomSpacing(6, after: domainRow)
+        textStack.addArrangedSubview(titleLabel)
+        textStack.setCustomSpacing(4, after: titleLabel)
+        textStack.addArrangedSubview(descLabel)
+
+        thumbnailView.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailView.contentMode = .scaleAspectFill
+        thumbnailView.clipsToBounds = true
+        thumbnailView.layer.cornerRadius = 12
+        thumbnailView.layer.cornerCurve = .continuous
+        thumbnailView.isHidden = true
+        thumbnailView.setContentHuggingPriority(.required, for: .horizontal)
+        thumbnailView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        rootRow.translatesAutoresizingMaskIntoConstraints = false
+        rootRow.axis = .horizontal
+        rootRow.alignment = .top
+        rootRow.spacing = 12
+        rootRow.isLayoutMarginsRelativeArrangement = true
+        rootRow.layoutMargins = UIEdgeInsets(top: 14, left: 18, bottom: 14, right: 18)
+        rootRow.addArrangedSubview(textStack)
+        rootRow.addArrangedSubview(thumbnailView)
+        cardBackground.addSubview(rootRow)
 
         NSLayoutConstraint.activate([
             // Keep shadow visible even though bubble content clips; reserve a small inset for blur.
@@ -89,10 +111,13 @@ final class LinkCardUIKitView: UIControl {
             indicatorView.widthAnchor.constraint(equalToConstant: 6),
             indicatorView.heightAnchor.constraint(equalToConstant: 6),
 
-            contentStack.leadingAnchor.constraint(equalTo: cardBackground.leadingAnchor),
-            contentStack.trailingAnchor.constraint(equalTo: cardBackground.trailingAnchor),
-            contentStack.topAnchor.constraint(equalTo: cardBackground.topAnchor),
-            contentStack.bottomAnchor.constraint(equalTo: cardBackground.bottomAnchor)
+            thumbnailView.widthAnchor.constraint(equalToConstant: 56),
+            thumbnailView.heightAnchor.constraint(equalToConstant: 56),
+
+            rootRow.leadingAnchor.constraint(equalTo: cardBackground.leadingAnchor),
+            rootRow.trailingAnchor.constraint(equalTo: cardBackground.trailingAnchor),
+            rootRow.topAnchor.constraint(equalTo: cardBackground.topAnchor),
+            rootRow.bottomAnchor.constraint(equalTo: cardBackground.bottomAnchor)
         ])
     }
 
@@ -102,6 +127,10 @@ final class LinkCardUIKitView: UIControl {
 
     func configure(url: URL, palette: ChatFlowUIKitTheme.Palette) {
         self.url = url
+        metadataTask?.cancel()
+        imageTask?.cancel()
+        thumbnailView.image = nil
+        thumbnailView.isHidden = true
 
         // Match design-system/chat-flow-organic: .link-preview-card
         cardBackground.backgroundColor = palette.isDark
@@ -130,28 +159,45 @@ final class LinkCardUIKitView: UIControl {
             ]
         )
 
-        // We don't have page metadata here. Use best-effort URL-derived title/description.
-        let title: String = {
-            let last = url.lastPathComponent
-            if !last.isEmpty, last != "/" { return last }
-            return host
-        }()
-        titleLabel.text = title
-
-        var desc = url.path
-        if let query = url.query, !query.isEmpty {
-            desc += "?\(query)"
-        }
-        if desc.isEmpty || desc == "/" {
-            desc = url.absoluteString
-        }
-        descLabel.text = desc
+        // #54: default fallback is a sensible URL display (full URL), then replace with OpenGraph metadata.
+        titleLabel.text = url.absoluteString
+        descLabel.text = nil
 
         domainLabel.textColor = palette.warmBrown
         titleLabel.textColor = palette.ink
         descLabel.textColor = palette.warmBrown
+        descLabel.isHidden = true
 
         accessibilityLabel = "Open link: \(host)"
+
+        metadataTask = Task { [weak self] in
+            guard let self else { return }
+            let currentURL = url
+            if let meta = await LinkCardMetadataFetcher.shared.metadata(for: currentURL) {
+                await MainActor.run {
+                    guard self.url?.absoluteString == currentURL.absoluteString else { return }
+                    self.titleLabel.text = meta.title
+                    if let desc = meta.description, !desc.isEmpty {
+                        self.descLabel.text = desc
+                        self.descLabel.isHidden = false
+                    } else {
+                        self.descLabel.text = nil
+                        self.descLabel.isHidden = true
+                    }
+                }
+
+                if let imageURL = meta.imageURL {
+                    await self.loadThumbnail(imageURL: imageURL, for: currentURL)
+                }
+            } else {
+                await MainActor.run {
+                    guard self.url?.absoluteString == currentURL.absoluteString else { return }
+                    self.titleLabel.text = currentURL.absoluteString
+                    self.descLabel.text = nil
+                    self.descLabel.isHidden = true
+                }
+            }
+        }
     }
 
     override var isHighlighted: Bool {
@@ -173,6 +219,44 @@ final class LinkCardUIKitView: UIControl {
     @objc private func handleTap() {
         guard let url else { return }
         UIApplication.shared.open(url)
+    }
+
+    private func loadThumbnail(imageURL: URL, for url: URL) async {
+        let cacheKey = imageURL.absoluteString as NSString
+        if let cached = Self.imageCache.object(forKey: cacheKey) {
+            await MainActor.run {
+                guard self.url?.absoluteString == url.absoluteString else { return }
+                self.thumbnailView.image = cached
+                self.thumbnailView.isHidden = false
+            }
+            return
+        }
+
+        imageTask?.cancel()
+        imageTask = Task { [weak self] in
+            guard let self else { return }
+            var request = URLRequest(url: imageURL)
+            request.timeoutInterval = 8
+            request.setValue("bytes=0-1048575", forHTTPHeaderField: "Range")
+            let config = URLSessionConfiguration.ephemeral
+            config.timeoutIntervalForRequest = 8
+            config.timeoutIntervalForResource = 8
+            let session = URLSession(configuration: config)
+            do {
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<400).contains(http.statusCode) else { return }
+                guard let image = UIImage(data: data) else { return }
+                Self.imageCache.setObject(image, forKey: cacheKey)
+                await MainActor.run {
+                    guard self.url?.absoluteString == url.absoluteString else { return }
+                    self.thumbnailView.image = image
+                    self.thumbnailView.isHidden = false
+                }
+            } catch {
+                return
+            }
+        }
+        _ = await imageTask?.value
     }
 
     override func layoutSubviews() {
