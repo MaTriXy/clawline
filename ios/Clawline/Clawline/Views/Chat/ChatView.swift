@@ -907,7 +907,7 @@ private struct VisionOSInputBarDepthOffset: ViewModifier {
     func body(content: Content) -> some View {
 #if os(visionOS)
         // #49: subtle z-plane separation for spatial affordance (do not apply on iOS/iPadOS).
-        content.offset(z: 12)
+        content.offset(z: 24)
 #else
         content
 #endif
