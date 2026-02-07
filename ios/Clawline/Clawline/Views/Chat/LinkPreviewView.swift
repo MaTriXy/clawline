@@ -168,20 +168,38 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
-        // MessageBubbleUIKitView's truncation logic (V1) relies on `sizeThatFits` to estimate
-        // dynamic content height. `UIView.sizeThatFits` defaults to bounds, which is often 0
-        // during configuration, causing the preview to be ignored and bubbles to fail to
-        // enable their inner scroll area (#62).
-        layoutIfNeeded()
+        // MessageBubbleUIKitView's truncation logic relies on `sizeThatFits` to estimate
+        // dynamic content height. Auto Layout fitting can return ~0 here because this view
+        // is often measured before it has a stable bounds/constraint context.
+        //
+        // Compute a conservative height directly from our known subview heights so truncation
+        // detection can enable scrolling instead of clipping (#62).
         let width = (size.width > 1 ? size.width : (bounds.width > 1 ? bounds.width : 320))
-        let target = CGSize(width: max(1, width), height: UIView.layoutFittingCompressedSize.height)
-        let measured = stackView.systemLayoutSizeFitting(
-            target,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        )
-        let height = max(minHeight, min(maxHeight, measured.height))
-        return CGSize(width: width, height: height)
+
+        // While loading we don't yet know the page height; report at least `maxHeight` so the
+        // bubble can decide to enable its inner scroll when constrained by a height cap.
+        let baseWebHeight: CGFloat
+        if state == .idle || state == .loading {
+            baseWebHeight = maxHeight
+        } else {
+            baseWebHeight = webViewHeightConstraint?.constant ?? minHeight
+        }
+        var totalHeight = max(minHeight, baseWebHeight)
+
+        if !statusLabel.isHidden {
+            let labelHeight = statusLabel.sizeThatFits(
+                CGSize(width: width, height: .greatestFiniteMagnitude)
+            ).height
+            totalHeight += stackView.spacing + labelHeight
+        }
+        if !reloadButton.isHidden {
+            let buttonHeight = reloadButton.sizeThatFits(
+                CGSize(width: width, height: .greatestFiniteMagnitude)
+            ).height
+            totalHeight += stackView.spacing + buttonHeight
+        }
+
+        return CGSize(width: width, height: totalHeight)
     }
 
     var reportedHeight: CGFloat {
