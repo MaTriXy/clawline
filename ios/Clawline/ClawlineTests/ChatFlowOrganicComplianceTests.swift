@@ -367,6 +367,43 @@ struct ChatFlowOrganicComplianceTests {
         #expect(presentation.hasMediaOnly)
     }
 
+    @Test("Terminal bubbles: terminal-session document attachment maps to terminalSession part (not file)")
+    func messagePresentationTerminalSessionAttachmentParses() throws {
+        let descriptor = TerminalSessionDescriptor(
+            version: 1,
+            terminalSessionId: "ts_test",
+            title: "gateway logs",
+            provider: .init(baseUrl: "https://example.com", wsPath: "/ws/terminal"),
+            capabilities: .init(interactive: true, supportsBinaryFrames: true, supportsResize: true, supportsDetach: true),
+            auth: .init(mode: .chatToken, terminalAccessToken: nil),
+            expiresAtMs: 1_700_000_000_000
+        )
+        let data = try JSONEncoder().encode(descriptor)
+        let terminalAttachment = Clawline.Attachment(
+            id: "term1",
+            type: .document,
+            mimeType: TerminalSessionDescriptor.mimeType,
+            data: data,
+            assetId: nil
+        )
+        let message = sampleMessage(content: "Live logs:", attachments: [terminalAttachment], sessionKey: SessionKey.clawlineMain(userId: "mike"))
+        let presentation = buildPresentation(message)
+
+        #expect(presentation.parts.contains(where: { part in
+            if case .terminalSession(let decoded) = part {
+                return decoded.terminalSessionId == "ts_test"
+            }
+            return false
+        }))
+
+        #expect(!presentation.parts.contains(where: { part in
+            if case .file(let attachment) = part {
+                return attachment.id == "term1"
+            }
+            return false
+        }))
+    }
+
     @Test("Doc §6: Word count strips markdown syntax")
     func wordCountStripsMarkdown() {
         let presentation = buildPresentation(sampleMessage(content: "**bold** _italic_ `code` text"))
@@ -589,6 +626,17 @@ struct ChatFlowOrganicComplianceTests {
         #expect(!MessagePart.image(sampleAttachment(id: "img")).isTextual)
         #expect(!MessagePart.gallery([sampleAttachment(id: "img")]).isTextual)
         #expect(!MessagePart.file(sampleAttachment(id: "file")).isTextual)
+        #expect(!MessagePart.terminalSession(
+            TerminalSessionDescriptor(
+                version: 1,
+                terminalSessionId: "ts_textual",
+                title: nil,
+                provider: nil,
+                capabilities: nil,
+                auth: nil,
+                expiresAtMs: nil
+            )
+        ).isTextual)
     }
 
     // MARK: Input bar & accessibility (§9/§10)
@@ -631,6 +679,32 @@ struct ChatFlowOrganicComplianceTests {
             attachments: [],
             deviceId: nil,
             sessionKey: personalSessionKey
+        )
+    }
+
+    private func sampleMessage(content: String, attachments: [Attachment]) -> Message {
+        Message(
+            id: UUID().uuidString,
+            role: .assistant,
+            content: content,
+            timestamp: Date(),
+            streaming: false,
+            attachments: attachments,
+            deviceId: nil,
+            sessionKey: personalSessionKey
+        )
+    }
+
+    private func sampleMessage(content: String, attachments: [Attachment], sessionKey: String) -> Message {
+        Message(
+            id: UUID().uuidString,
+            role: .assistant,
+            content: content,
+            timestamp: Date(),
+            streaming: false,
+            attachments: attachments,
+            deviceId: nil,
+            sessionKey: sessionKey
         )
     }
 

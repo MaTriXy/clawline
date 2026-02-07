@@ -159,6 +159,9 @@ struct ExpandedMessageSheet: View {
                 sizeText: attachment.size.map(Self.formatFileSize),
                 colorScheme: effectiveColorScheme
             )
+        case .terminalSession(let descriptor):
+            TerminalBubbleExpandedRepresentable(descriptor: descriptor)
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -173,6 +176,20 @@ struct ExpandedMessageSheet: View {
         effectiveColorScheme == .dark
             ? Color(red: 0.1, green: 0.1, blue: 0.1)
             : ChatFlowTheme.cream(effectiveColorScheme)
+    }
+}
+
+private struct TerminalBubbleExpandedRepresentable: UIViewRepresentable {
+    let descriptor: TerminalSessionDescriptor
+
+    func makeUIView(context: Context) -> TerminalBubbleUIKitView {
+        let view = TerminalBubbleUIKitView()
+        view.configure(descriptor: descriptor, style: .expanded(height: 520))
+        return view
+    }
+
+    func updateUIView(_ uiView: TerminalBubbleUIKitView, context: Context) {
+        uiView.configure(descriptor: descriptor, style: .expanded(height: 520))
     }
 }
 

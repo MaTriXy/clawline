@@ -126,6 +126,7 @@ enum MessagePart: Equatable {
     case image(Attachment)
     case gallery([Attachment])
     case file(Attachment)
+    case terminalSession(TerminalSessionDescriptor)
     case inlineEmoji(String)
 }
 
@@ -145,7 +146,7 @@ extension MessagePart {
             return true
         case .linkPreview:
             return true
-        case .image, .gallery, .file:
+        case .image, .gallery, .file, .terminalSession:
             return false
         }
     }
@@ -205,9 +206,11 @@ enum MessagePresentationBuilder {
         streamingState: inout StreamingTableParseState
     ) -> MessagePresentation {
         let segments = Segmenter.split(message.content)
+        let terminalAllowed = SessionKey.isClawlinePersonalDM(message.sessionKey)
+        let terminalAttachments = terminalAllowed ? terminalSessionAttachments(from: message.attachments) : []
         let imageAttachments = imageAttachments(from: message.attachments)
         let fileAttachments = fileAttachments(from: message.attachments)
-        let hasAttachments = !imageAttachments.isEmpty || !fileAttachments.isEmpty
+        let hasAttachments = !terminalAttachments.isEmpty || !imageAttachments.isEmpty || !fileAttachments.isEmpty
         var parts: [MessagePart] = []
         var collectedPlainText: [String] = []
         var hasTextual = false
@@ -219,6 +222,19 @@ enum MessagePresentationBuilder {
             content: message.content,
             fileAttachments: fileAttachments
         )
+
+        // Terminal sessions are encoded as a special document attachment; intercept them early so
+        // they never fall through to the generic file attachment UI.
+        //
+        // Policy: DM-only. If a provider violates this, we ignore and let it render as a generic file.
+        var decodedTerminalAttachmentIDs: Set<String> = []
+        for attachment in terminalAttachments {
+            if let descriptor = decodeTerminalSessionDescriptor(from: attachment) {
+                parts.append(.terminalSession(descriptor))
+                hasBlockedParts = true
+                decodedTerminalAttachmentIDs.insert(attachment.id)
+            }
+        }
 
         if message.streaming {
             streamingState.markStreamingUpdate()
@@ -279,9 +295,13 @@ enum MessagePresentationBuilder {
         }
         if !fileAttachments.isEmpty {
             for attachment in fileAttachments {
+                if decodedTerminalAttachmentIDs.contains(attachment.id) {
+                    continue
+                }
                 parts.append(.file(attachment))
             }
         }
+        let hasTerminal = parts.contains(where: { if case .terminalSession = $0 { return true }; return false })
 
         let plainWordCount = stripMarkdownMarkers(from: collectedPlainText
             .joined(separator: " "))
@@ -294,7 +314,7 @@ enum MessagePresentationBuilder {
             wordCount: plainWordCount,
             hasTextualContent: hasTextual,
             isEmojiOnly: emojiOnly && hasTextual,
-            hasMediaOnly: hasMedia && !hasTextual,
+            hasMediaOnly: !hasTerminal && hasMedia && !hasTextual,
             detectedURLs: uniqueURLs,
             detectedURLCount: detectedURLOccurrences.count,
             hasSingleURL: hasSingleURL
@@ -900,6 +920,31 @@ enum MessagePresentationBuilder {
             case .image:
                 return false
             }
+        }
+    }
+
+    private static func terminalSessionAttachments(from attachments: [Attachment]) -> [Attachment] {
+        attachments.filter(isTerminalSessionAttachment)
+    }
+
+    private static func isTerminalSessionAttachment(_ attachment: Attachment) -> Bool {
+        guard attachment.type == .document else { return false }
+        return attachment.mimeType?.lowercased() == TerminalSessionDescriptor.mimeType
+    }
+
+    private static func decodeTerminalSessionDescriptor(from attachment: Attachment) -> TerminalSessionDescriptor? {
+        guard isTerminalSessionAttachment(attachment),
+              let data = attachment.data,
+              !data.isEmpty else {
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode(TerminalSessionDescriptor.self, from: data)
+        } catch {
+            logger.error(
+                "terminal_session_descriptor_decode_failed id=\(attachment.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            )
+            return nil
         }
     }
 

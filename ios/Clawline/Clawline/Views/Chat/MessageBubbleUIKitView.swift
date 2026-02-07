@@ -502,6 +502,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             if let previewView = view as? LinkPreviewView {
                 previewView.prepareForReuse()
             }
+            if let terminalView = view as? TerminalBubbleUIKitView {
+                terminalView.prepareForReuse()
+            }
             dynamicContentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
@@ -715,8 +718,26 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentViews.append(tableView)
         }
 
-        let basePaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
-        let basePaddingVertical = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingVertical
+        let hasTerminalSessions = presentation.parts.contains(where: { if case .terminalSession = $0 { return true }; return false })
+
+        // Add embedded terminal session bubbles.
+        let terminalSessions = presentation.parts.compactMap { part -> TerminalSessionDescriptor? in
+            if case .terminalSession(let descriptor) = part { return descriptor }
+            return nil
+        }
+        for descriptor in terminalSessions {
+            let terminalBubble = TerminalBubbleUIKitView()
+            terminalBubble.onRequestExpand = { [weak self] in self?.onRequestExpand?() }
+            // Flynn: sizing matches HTML previews (wide content uses truncation cap, internal scroll).
+            let heightCap = effectiveTruncationHeight
+            terminalBubble.configure(descriptor: descriptor, style: .bubble(height: heightCap))
+            dynamicContentStack.addArrangedSubview(terminalBubble)
+            dynamicContentViews.append(terminalBubble)
+        }
+
+        // Flynn: terminal bubbles render without bubble chrome and without standard padding.
+        let basePaddingHorizontal = (hasTerminalSessions || presentation.hasMediaOnly) ? 0 : metrics.bubblePaddingHorizontal
+        let basePaddingVertical = (hasTerminalSessions || presentation.hasMediaOnly) ? 0 : metrics.bubblePaddingVertical
         currentContentPaddingHorizontal = round(basePaddingHorizontal * contentPaddingScale)
         currentContentPaddingVertical = round(basePaddingVertical * contentPaddingScale)
         contentLeadingConstraint.constant = currentContentPaddingHorizontal
@@ -788,6 +809,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             stripAttachmentSummaryIfNeeded()
         }
 
+        // Flynn: terminal sessions render without sender header.
+        if hasTerminalSessions {
+            headerStack.isHidden = true
+        }
+
         switch sizeClass {
         case .short:
             bodyMaxWidthConstraint?.isActive = false
@@ -823,28 +849,30 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.contentInset.bottom = 0
         dynamicContentScrollView.setContentOffset(.zero, animated: false)
 
-        if let bubbleSizingV2 {
-            applyBubbleSizingV2(
-                bubbleSizingV2,
-                message: message,
-                palette: palette
-            )
-        } else {
-            let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
-            let hasLinkCards = !presentation.detectedURLs.isEmpty
-            // Flynn #28: for text + link preview, enable the outer scroll view only if the combined
-            // content height exceeds the bubble max height (truncation cap), regardless of sizeClass.
-            let hasLinkPreviewView = dynamicContentViews.contains(where: { $0 is LinkPreviewView })
-            let hasTextAndLinkPreview = hasTextContent && hasLinkPreviewView
-            // #59: link cards can stack and exceed truncation height; enable inner scrolling when needed.
-            if (!isSingleImageOnly) && ((sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview || hasLinkCards) {
-                let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
-                let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-                let textMeasureWidth = min(contentWidth, maxLineWidth)
+	        if let bubbleSizingV2 {
+	            applyBubbleSizingV2(
+	                bubbleSizingV2,
+	                message: message,
+	                palette: palette
+	            )
+	        } else {
+	            let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
+	            let hasLinkCards = !presentation.detectedURLs.isEmpty
+	            // Flynn #28: for text + link preview, enable the outer scroll view only if the combined
+	            // content height exceeds the bubble max height (truncation cap), regardless of sizeClass.
+	            let hasLinkPreviewView = dynamicContentViews.contains(where: { $0 is LinkPreviewView })
+	            let hasTextAndLinkPreview = hasTextContent && hasLinkPreviewView
+	            // #59: link cards can stack and exceed truncation height; enable inner scrolling when needed.
+	            // Flynn: terminal bubble scrolling is captured by the terminal itself, so we never enable the
+	            // outer bubble scroll view for terminal sessions.
+	            if (!hasTerminalSessions) && (!isSingleImageOnly) && ((sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview || hasLinkCards) {
+	                let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
+	                let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
+	                let textMeasureWidth = min(contentWidth, maxLineWidth)
 
-                // Calculate total height of all dynamic content (text + code blocks)
-                var totalHeight: CGFloat = 0
-                let spacing = dynamicContentStack.spacing
+	                // Calculate total height of all dynamic content (text + code blocks)
+	                var totalHeight: CGFloat = 0
+	                let spacing = dynamicContentStack.spacing
                 for (index, view) in dynamicContentViews.enumerated() {
                     // Text stays constrained to OTW; wide content (previews/tables/images) uses full content width.
                     let measureWidth: CGFloat
@@ -923,7 +951,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Chromeless mode: hide bubble chrome but keep padding
         // Truncated content must keep chrome (provides container for "Show more")
-        isChromeless = isSingleImageOnly || (presentation.isChromeless && !shouldTruncate)
+        // Flynn: terminal bubbles are always chromeless.
+        isChromeless = hasTerminalSessions || isSingleImageOnly || (presentation.isChromeless && !shouldTruncate)
         gradientLayer.isHidden = isChromeless
         borderGradientLayer.isHidden = isChromeless
         topHighlightLayer.isHidden = isChromeless
@@ -1259,7 +1288,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 return "Table (\(model.rows.count) rows)"
             case .linkPreview:
                 return ""
-            case .image, .gallery, .file:
+            case .image, .gallery, .file, .terminalSession:
                 return ""
             }
         }
@@ -1302,7 +1331,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             switch $0 {
             case .text, .markdown, .inlineEmoji:
                 return true
-            case .linkPreview, .code, .table, .image, .gallery, .file:
+            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession:
                 return false
             }
         }
@@ -1332,7 +1361,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             case .inlineEmoji(let value):
                 result.append(NSAttributedString(string: value, attributes: baseAttributes))
 
-            case .linkPreview, .code, .table, .image, .gallery, .file:
+            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession:
                 break
             }
         }
