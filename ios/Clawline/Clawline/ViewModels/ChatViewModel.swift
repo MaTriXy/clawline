@@ -34,9 +34,6 @@ final class ChatViewModel: ChatViewModelHosting {
         return sessionMessages[storageKey] ?? []
     }
     func serverSessionKey(for stream: ChatStream) -> String? {
-        if stream == .admin, auth.isAdmin == false {
-            return nil
-        }
         return sessionKeyByStream[stream]
     }
     func messageStorageKey(for stream: ChatStream) -> String {
@@ -115,6 +112,13 @@ final class ChatViewModel: ChatViewModelHosting {
     private let messageCacheLimit = 500
     private var restoredSessionKeys: Set<String> = []
     private var sessionKeyByStream: [ChatStream: String] = [:]
+    private var dmScope: String?
+
+    var showsAdminStream: Bool {
+        guard let adminKey = sessionKeyByStream[.admin] else { return false }
+        guard let personalKey = sessionKeyByStream[.personal] else { return true }
+        return adminKey != personalKey
+    }
 
     private struct PendingLocalMessage: Equatable {
         let id: String
@@ -225,9 +229,8 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func setActiveStream(_ stream: ChatStream) {
-        if stream == .admin, auth.isAdmin == false {
-            return
-        }
+        // Admin/DM surface is only selectable if the server provisioned a distinct session key for it.
+        if stream == .admin, sessionKeyByStream[.admin] == nil { return }
         guard activeStream != stream else { return }
         activeStream = stream
         let activeStorageKey = storageKey(for: stream)
@@ -1247,8 +1250,8 @@ final class ChatViewModel: ChatViewModelHosting {
             }
         case .sessionProvisioningAvailable(let supported):
             supportsSessionProvisioning = supported
-        case .sessionInfo(let sessions):
-            applySessionInfo(sessions)
+        case .sessionInfo(let info):
+            applySessionInfo(info)
         }
     }
 
@@ -1438,19 +1441,64 @@ final class ChatViewModel: ChatViewModelHosting {
         guard !didRestoreActiveStream else { return }
         didRestoreActiveStream = true
         guard let stored = persistedStream() else { return }
-        if stored == .admin, auth.isAdmin == false {
-            return
-        }
         setActiveStream(stored)
     }
 
-    private func applySessionInfo(_ sessions: [ChatStream: String]) {
-        hasProvisionedSessions = !sessions.isEmpty
+    private func applySessionInfo(_ info: SessionInfo) {
+        hasProvisionedSessions = !info.sessionKeys.isEmpty
+        dmScope = info.dmScope
+
+        let keys = info.sessionKeys
+        let globalKey = SessionKey.admin
+
+        // Session keys are opaque; do not parse. The only key we can reliably identify without
+        // relying on server ordering is the Clawline-owned Main key.
+        let userId = (info.userId ?? auth.currentUserId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedMainKey = userId.isEmpty ? nil : SessionKey.clawlineMain(userId: userId)
+        let personalKey = expectedMainKey.flatMap { keys.contains($0) ? $0 : nil }
+            ?? keys.first(where: { $0 != globalKey })
+            ?? keys.first
+
+        // This client has two chat surfaces:
+        // - Personal: Main stream (always)
+        // - Admin/DM: Global operator session (admins) OR per-user DM session (non-global dmScope)
+        var adminKey: String?
+        if (info.isAdmin ?? false), keys.contains(globalKey) {
+            adminKey = globalKey
+        } else if (info.dmScope ?? "") != "main" {
+            adminKey = keys.first(where: { $0 != personalKey && $0 != globalKey })
+        }
+
+        if adminKey == personalKey { adminKey = nil }
+
+        var sessions: [ChatStream: String] = [:]
+        if let personalKey { sessions[.personal] = personalKey }
+        if let adminKey { sessions[.admin] = adminKey }
         sessionKeyByStream = sessions
-        if let sessionKey = sessions[activeStream] {
+        SessionRegistry.shared.update(personal: personalKey, admin: adminKey)
+
+        // Ensure storage exists for the provisioned sessions.
+        if let personalKey { ensureSessionStorage(for: personalKey) }
+        if let adminKey { ensureSessionStorage(for: adminKey) }
+
+        // Restore persisted cursor + cached messages once we know the real server session keys.
+        if let personalKey {
+            restoreLastServerMessageIdIfNeeded(for: personalKey)
+            restoreCachedMessagesIfNeeded(for: personalKey)
+        }
+        if let adminKey {
+            restoreLastServerMessageIdIfNeeded(for: adminKey)
+            restoreCachedMessagesIfNeeded(for: adminKey)
+        }
+
+        // If the current stream is no longer available, fall back to personal.
+        if activeStream == .admin, sessions[.admin] == nil {
+            setActiveStream(.personal)
+        } else if let sessionKey = sessions[activeStream] {
             messages = sessionMessages[sessionKey] ?? []
             lastServerMessageId = lastServerMessageIdBySession[sessionKey]
         }
+
         if pendingSendAfterProvisioning, let pending = pendingProvisionedSend {
             pendingSendAfterProvisioning = false
             pendingProvisionedSend = nil

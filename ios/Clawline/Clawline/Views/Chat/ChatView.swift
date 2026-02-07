@@ -287,7 +287,7 @@ struct ChatView: View {
             containerPadding: metrics.containerPadding
         )
 
-        let messageLayer: AnyView = authManager.isAdmin
+        let messageLayer: AnyView = viewModel.showsAdminStream
             ? AnyView(
                 pagedStreamView(topInset: topInset, truncationBottomInset: truncationBottomInset)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -304,7 +304,7 @@ struct ChatView: View {
             )
 
         ZStack(alignment: .top) {
-            // Paged stream view for admins, single stream for regular users
+            // Paged stream view when a second server-provisioned session exists; otherwise single stream.
             messageLayer
                 // #31: fade out message content behind the system status bar (mask, not overlay tint).
                 .compositingGroup()

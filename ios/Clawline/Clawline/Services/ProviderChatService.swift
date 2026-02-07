@@ -87,6 +87,13 @@ final class ProviderChatService: ChatServicing {
         let token: String
         let deviceId: String
         let lastMessageId: String?
+        let client: ClientDescriptor
+    }
+
+    private struct ClientDescriptor: Encodable {
+        /// Required by the gateway schema (connect params validation).
+        /// Treated as an opaque identifier by the server.
+        let id: String
     }
 
     private struct Envelope: Decodable {
@@ -98,7 +105,9 @@ final class ProviderChatService: ChatServicing {
         let success: Bool
         let userId: String?
         let isAdmin: Bool?
+        let dmScope: String?
         let features: [String]?
+        let sessionKeys: [String]?
         let sessions: [SessionDescriptor]?
         let reason: String?
     }
@@ -128,7 +137,11 @@ final class ProviderChatService: ChatServicing {
 
     private struct SessionInfoPayload: Decodable, Equatable {
         let type: String
-        let sessions: [SessionDescriptor]
+        let userId: String?
+        let isAdmin: Bool?
+        let dmScope: String?
+        let sessionKeys: [String]?
+        let sessions: [SessionDescriptor]?
     }
 
     private struct EventEnvelope: Decodable {
@@ -353,8 +366,8 @@ final class ProviderChatService: ChatServicing {
             if let features = result.features {
                 emitServiceEvent(.sessionProvisioningAvailable(features.contains("session_info")))
             }
-            if let sessions = result.sessions, !sessions.isEmpty {
-                emitServiceEvent(.sessionInfo(sessionMap(from: sessions)))
+            if let info = sessionInfo(from: result) {
+                emitServiceEvent(.sessionInfo(info))
             }
             if let isAdmin = result.isAdmin {
                 logger.info("Auth result received (userId: \(result.userId ?? "unknown", privacy: .public), isAdmin: \(isAdmin, privacy: .public))")
@@ -471,7 +484,9 @@ final class ProviderChatService: ChatServicing {
             logger.warning("Failed to decode session_info payload")
             return
         }
-        emitServiceEvent(.sessionInfo(sessionMap(from: payload.sessions)))
+        if let info = sessionInfo(from: payload) {
+            emitServiceEvent(.sessionInfo(info))
+        }
     }
 
     private func handleEvent(data: Data) {
@@ -516,6 +531,64 @@ final class ProviderChatService: ChatServicing {
 
     private func emitServiceEvent(_ event: ChatServiceEvent) {
         serviceEventBroadcaster.send(event)
+    }
+
+    private static let clientID = "openclaw"
+
+    private func normalizeSessionKeys(_ raw: [String]) -> [String] {
+        // Preserve order but dedupe identical keys.
+        var seen: Set<String> = []
+        var out: [String] = []
+        out.reserveCapacity(raw.count)
+        for key in raw {
+            let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if seen.insert(trimmed).inserted {
+                out.append(trimmed)
+            }
+        }
+        return out
+    }
+
+    private func sessionInfo(from payload: AuthResultPayload) -> SessionInfo? {
+        if let sessionKeys = payload.sessionKeys {
+            return SessionInfo(
+                userId: payload.userId,
+                isAdmin: payload.isAdmin,
+                dmScope: payload.dmScope,
+                sessionKeys: normalizeSessionKeys(sessionKeys)
+            )
+        }
+        if let sessions = payload.sessions, !sessions.isEmpty {
+            // Back-compat: older gateways returned labeled streams.
+            return SessionInfo(
+                userId: payload.userId,
+                isAdmin: payload.isAdmin,
+                dmScope: payload.dmScope,
+                sessionKeys: normalizeSessionKeys(sessions.map(\.sessionKey))
+            )
+        }
+        return nil
+    }
+
+    private func sessionInfo(from payload: SessionInfoPayload) -> SessionInfo? {
+        if let sessionKeys = payload.sessionKeys {
+            return SessionInfo(
+                userId: payload.userId,
+                isAdmin: payload.isAdmin,
+                dmScope: payload.dmScope,
+                sessionKeys: normalizeSessionKeys(sessionKeys)
+            )
+        }
+        if let sessions = payload.sessions, !sessions.isEmpty {
+            return SessionInfo(
+                userId: payload.userId,
+                isAdmin: payload.isAdmin,
+                dmScope: payload.dmScope,
+                sessionKeys: normalizeSessionKeys(sessions.map(\.sessionKey))
+            )
+        }
+        return nil
     }
 
     private func sessionMap(from sessions: [SessionDescriptor]) -> [ChatStream: String] {
@@ -591,7 +664,8 @@ final class ProviderChatService: ChatServicing {
                             let authPayload = AuthPayload(
                                 token: token,
                                 deviceId: self.deviceId,
-                                lastMessageId: lastMessageId
+                                lastMessageId: lastMessageId,
+                                client: ClientDescriptor(id: Self.clientID)
                             )
                             let data = try self.encoder.encode(authPayload)
                             guard let text = String(data: data, encoding: .utf8) else {

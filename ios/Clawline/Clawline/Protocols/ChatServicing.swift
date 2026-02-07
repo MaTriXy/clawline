@@ -36,7 +36,16 @@ enum ChatServiceEvent: Equatable {
     case userInfo(ChatUserInfo)
     case typingStateChanged(isTyping: Bool, sessionKey: String)
     case sessionProvisioningAvailable(Bool)
-    case sessionInfo([ChatStream: String])
+    /// Server-authoritative session provisioning manifest.
+    /// Session keys are the only routing identifiers on the wire (Clawline invariants N3/N7).
+    case sessionInfo(SessionInfo)
+}
+
+struct SessionInfo: Equatable {
+    let userId: String?
+    let isAdmin: Bool?
+    let dmScope: String?
+    let sessionKeys: [String]
 }
 
 protocol ChatServicing {
