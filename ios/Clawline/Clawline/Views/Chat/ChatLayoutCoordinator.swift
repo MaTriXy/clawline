@@ -266,7 +266,14 @@ final class ChatLayoutCoordinator {
                 scrollAction = .none
             }
         } else {
-            scrollAction = .none
+            // #15: When the input bar shrinks (multi-line -> single-line) the bottom inset decreases.
+            // If we were pinned near the bottom, keep the bottom anchored by adjusting contentOffset
+            // by the inset delta; otherwise the scroll view can appear to have extra "bottom padding".
+            if wasNearBottom && abs(insetDelta) > 0.5 {
+                scrollAction = .adjustOffset(delta: insetDelta)
+            } else {
+                scrollAction = .none
+            }
         }
         return ChatLayoutTransition(
             animationDuration: duration,
