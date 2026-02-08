@@ -33,13 +33,9 @@ final class TerminalSessionService {
     private let stateContinuation: AsyncStream<State>.Continuation
     let state: AsyncStream<State>
 
-    convenience init(descriptor: TerminalSessionDescriptor) {
-        self.init(descriptor: descriptor, auth: AuthManager(), deviceId: DeviceIdentifier())
-    }
-
     init(descriptor: TerminalSessionDescriptor,
-         auth: AuthManager,
-         deviceId: DeviceIdentifier) {
+         auth: AuthManager = AuthManager(),
+         deviceId: DeviceIdentifier = DeviceIdentifier()) {
         self.descriptor = descriptor
         self.auth = auth
         self.deviceId = deviceId
@@ -82,7 +78,11 @@ final class TerminalSessionService {
         }
 
         Task { [weak self] in
-            await self?.sendAuth(initialCols: initialCols, initialRows: initialRows, backfillLines: backfillLines)
+            await self?.sendAuth(
+                initialCols: initialCols,
+                initialRows: initialRows,
+                backfillLines: backfillLines
+            )
         }
     }
 
@@ -268,9 +268,6 @@ final class TerminalSessionService {
     }
 
     private static func isValidTerminalSessionId(_ id: String) -> Bool {
-        // v1 constraints (must also be enforced server-side):
-        // - avoid pathological sizes
-        // - avoid characters that could be interpreted by tmux target parsing
         let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || trimmed.count > 128 { return false }
         for scalar in trimmed.unicodeScalars {
@@ -284,3 +281,4 @@ final class TerminalSessionService {
         return true
     }
 }
+
