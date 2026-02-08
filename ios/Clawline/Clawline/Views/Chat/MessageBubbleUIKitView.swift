@@ -184,6 +184,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var useContinuousCorners = true
     private weak var centeredOverlayView: UIView?
 
+    // #62: Link previews can change height after initial measurement. Keep enough context to
+    // re-evaluate whether the bubble needs to enable its inner scroll view.
+    private var lastTruncationCapHeight: CGFloat = 0
+    private var lastBubbleSizingV2: BubbleSizingV2.LayoutState?
+
     private var traitObservation: (any NSObjectProtocol)?
 
     override init(frame: CGRect) {
@@ -463,6 +468,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         let effectiveMaxWidth = maxWidthOverride ?? maxWidth
         let effectiveTruncationHeight = truncationHeightOverride ?? metrics.truncationHeight
+        lastTruncationCapHeight = effectiveTruncationHeight
+        lastBubbleSizingV2 = bubbleSizingV2
         // Reset width constraints per size class.
         currentMetrics = metrics
         minWidthConstraint.constant = minWidthOverride ?? 120
@@ -632,6 +639,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     }
                     previewView.onHeightChange = { [weak self] in
                         self?.onRequestLayout?(message.id)
+                        self?.reevaluateTruncationForLinkPreviewHeightChange()
                     }
                     reload.addAction(UIAction { [weak previewView] _ in
                         previewView?.reloadPreview()
@@ -671,6 +679,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
             previewView.onHeightChange = { [weak self] in
                 self?.onRequestLayout?(message.id)
+                self?.reevaluateTruncationForLinkPreviewHeightChange()
             }
             dynamicContentStack.addArrangedSubview(previewView)
             dynamicContentViews.append(previewView)
@@ -928,6 +937,85 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     func prepareForReuse() {
         // Ensure the truncated-content scroll area starts at the top on first display.
         dynamicContentScrollView.setContentOffset(.zero, animated: false)
+    }
+
+    private func reevaluateTruncationForLinkPreviewHeightChange() {
+        // Only ever transition from "not truncated" -> "truncated" here.
+        guard !shouldTruncate else { return }
+
+        // Determine the cap height the bubble was sized against.
+        let capHeight: CGFloat
+        if let state = lastBubbleSizingV2 {
+            capHeight = max(1, state.measurement.outerScrollViewportHeight)
+        } else {
+            capHeight = max(1, lastTruncationCapHeight)
+        }
+        guard capHeight > 1 else { return }
+
+        // Measure total dynamic content height.
+        let measuredMaxWidth = maxWidthConstraint.constant > 1 ? maxWidthConstraint.constant : bounds.width
+        let contentWidth = max(1, measuredMaxWidth - (currentContentPaddingHorizontal * 2))
+        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: currentMetrics.bodyFontSize)
+        let textMeasureWidth = min(contentWidth, maxLineWidth)
+
+        var totalHeight: CGFloat = 0
+        let spacing = dynamicContentStack.spacing
+        for (index, view) in dynamicContentViews.enumerated() {
+            let measureWidth: CGFloat = (view === bodyLabel) ? textMeasureWidth : contentWidth
+            totalHeight += view.sizeThatFits(
+                CGSize(width: measureWidth, height: .greatestFiniteMagnitude)
+            ).height
+            if index > 0 { totalHeight += spacing }
+        }
+
+        guard totalHeight > capHeight + 1 else { return }
+
+        // Enable bubble inner scrolling so the content isn't clipped by the cell height cap.
+        shouldTruncate = true
+        let viewportHeight = capHeight
+        let heightConstraint = dynamicContentWrapper.heightAnchor.constraint(equalToConstant: viewportHeight)
+        heightConstraint.isActive = true
+        dynamicContentHeightConstraint = heightConstraint
+
+        scrollViewContentHeightConstraint?.isActive = false
+        dynamicContentScrollView.isScrollEnabled = true
+        dynamicContentScrollView.showsVerticalScrollIndicator = true
+        dynamicContentScrollView.showsHorizontalScrollIndicator = false
+        dynamicContentScrollView.alwaysBounceVertical = true
+        dynamicContentScrollView.alwaysBounceHorizontal = false
+
+        let palette = ChatFlowUIKitTheme.palette(isDark: traitCollection.userInterfaceStyle == .dark)
+        truncationContainer.isHidden = false
+        truncationLabel.textColor = (currentMessageRole == .user) ? palette.terracotta : palette.warmBrown
+        truncationContainer.isUserInteractionEnabled = true
+
+        fadeView.isHidden = false
+        let bottomColor = currentMessageRole == .user ? palette.bubbleSelfGradient.last! : palette.bubbleOtherGradient.last!
+        fadeView.updateColors(
+            top: bottomColor.withAlphaComponent(0),
+            bottom: bottomColor
+        )
+#if os(visionOS)
+        fadeView.setFadeStartLocation(0.95)
+#else
+        fadeView.setFadeStartLocation(nil)
+#endif
+        // Keep consistent with BubbleSizingV2's truncation affordance sizing.
+        let fadeHeight: CGFloat = 50
+        dynamicContentScrollView.contentInset.bottom = fadeHeight
+        dynamicContentScrollView.setContentOffset(.zero, animated: false)
+        NSLayoutConstraint.deactivate(fadeConstraints)
+        fadeConstraints = [
+            fadeView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
+            fadeView.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
+            fadeView.bottomAnchor.constraint(equalTo: dynamicContentWrapper.bottomAnchor),
+            fadeView.heightAnchor.constraint(equalToConstant: fadeHeight)
+        ]
+        NSLayoutConstraint.activate(fadeConstraints)
+
+        // Trigger layout so the newly-enabled scroll viewport takes effect immediately.
+        setNeedsLayout()
+        layoutIfNeeded()
     }
 
     private func applyBubbleSizingV2(_ state: BubbleSizingV2.LayoutState,
