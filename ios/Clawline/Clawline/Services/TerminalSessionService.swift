@@ -266,8 +266,12 @@ final class TerminalSessionService {
                     logger.debug("terminal_data_rx bytes=\(data.count, privacy: .public)")
                     outputContinuation.yield(data)
                 case .string(let text):
-                    logger.debug("terminal_control_rx text_len=\(text.count, privacy: .public)")
-                    handleControl(text)
+                    // Providers may send PTY output either as binary frames or as text frames.
+                    // Prefer JSON control parsing; if it isn't a control envelope, treat it as output.
+                    logger.debug("terminal_text_rx text_len=\(text.count, privacy: .public)")
+                    if !handleControl(text) {
+                        outputContinuation.yield(Data(text.utf8))
+                    }
                 @unknown default:
                     break
                 }
@@ -280,11 +284,12 @@ final class TerminalSessionService {
         }
     }
 
-    private func handleControl(_ text: String) {
+    @discardableResult
+    private func handleControl(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = obj["type"] as? String else {
-            return
+            return false
         }
 
         if type == "terminal_error" {
@@ -307,6 +312,15 @@ final class TerminalSessionService {
         case "terminal_exit":
             let code = obj["code"] as? Int
             stateContinuation.yield(.exited(code: code))
+        case "terminal_data":
+            // Some providers envelope output as JSON. Support both raw UTF-8 and base64 payloads.
+            if let payload = obj["data"] as? String {
+                if let decoded = Data(base64Encoded: payload) {
+                    outputContinuation.yield(decoded)
+                } else {
+                    outputContinuation.yield(Data(payload.utf8))
+                }
+            }
         case "terminal_error":
             let message = (obj["message"] as? String) ?? "Terminal error"
             isReady = false
@@ -321,6 +335,8 @@ final class TerminalSessionService {
         default:
             break
         }
+
+        return true
     }
 
     private func scheduleEnableMessagesIfNeeded() {
