@@ -1743,10 +1743,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             : nil
         let failureReason = viewModel.failureMessage(for: message.id)
         let minWidth: CGFloat = 120
+        // #63: Non-short bubbles should never shrink below their size-class max width.
+        // Live-cell remeasurement is only needed to correct heights (e.g. link preview WKWebView).
+        // Allow .short to remain content-fit; enforce stable widths for .medium/.long.
+        let effectiveMaxWidth = max(maxWidth, minWidth)
+        let enforcedWidth: CGFloat = (sizeClass == .short)
+            ? min(effectiveMaxWidth, max(minWidth, measuredSize.width))
+            : effectiveMaxWidth
         let clamped = CGSize(
             // #63: Mirror the initial sizing path's width floor so a transient near-zero measurement
             // (e.g., from a 0pt-wide live cell) cannot permanently lock a bubble to an invalid width.
-            width: min(maxWidth, max(minWidth, measuredSize.width)),
+            width: enforcedWidth,
             height: measuredSize.height
         )
         var snapped = snapToPixel(clamped)
