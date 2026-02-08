@@ -9,6 +9,14 @@ import UIKit
 import OSLog
 import SwiftTerm
 
+/// A TerminalView that reliably focuses itself when touched so keyboard input routes correctly.
+final class FocusableTerminalView: TerminalView {
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        _ = becomeFirstResponder()
+        super.touchesBegan(touches, with: event)
+    }
+}
+
 /// Embedded terminal session view intended for use inside chat bubbles and expanded message sheets.
 /// Policy decisions (Flynn / #46):
 /// - Auto-connect on render (no tap-to-connect).
@@ -37,7 +45,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     private let expandButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
 
-    private let terminalView = TerminalView(frame: .zero)
+    private let terminalView = FocusableTerminalView(frame: .zero)
     private var terminalHeightConstraint: NSLayoutConstraint?
 
     private let deadOverlay = UIView()
@@ -57,7 +65,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     private var lastRows: Int = 24
 
     private var disconnectTimer: Timer?
-    private var hasEverConnected = false
+    private var hasAttemptedConnection = false
+    private var hasEverBeenLive = false
     private var requiresUserReconnect = false
     private var scrollCaptureWired = false
 
@@ -78,6 +87,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         self.descriptor = descriptor
         self.style = style
         self.requiresUserReconnect = false
+        self.hasAttemptedConnection = false
+        self.hasEverBeenLive = false
 
         titleLabel.text = descriptor.title?.isEmpty == false ? descriptor.title : "Terminal"
         statusLabel.text = "CONNECTING"
@@ -86,11 +97,20 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
         // Auto-connect when we hit the window (didMoveToWindow), so cols/rows are not zero.
         showTerminal()
+
+        // Cells are often configured after they're already on-screen; don't rely solely on didMoveToWindow.
+        if window != nil {
+            wireScrollCaptureIfNeeded()
+            connectIfNeeded()
+        }
     }
 
     func prepareForReuse() {
         teardown()
         descriptor = nil
+        requiresUserReconnect = false
+        hasAttemptedConnection = false
+        hasEverBeenLive = false
         scrollCaptureWired = false
     }
 
@@ -111,6 +131,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         }
         connectIfNeeded()
     }
+
+    // Terminal focus is handled by FocusableTerminalView.touchesBegan.
 
     // MARK: - UI
 
@@ -160,6 +182,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         terminalView.isAccessibilityElement = true
         terminalView.accessibilityLabel = "Terminal session"
         terminalView.accessibilityHint = "Terminal output; double tap to focus; swipe to scroll."
+
+        // Focus is handled by FocusableTerminalView.touchesBegan.
 
         // No rounded corners (Flynn decision).
         terminalView.layer.cornerRadius = 0
@@ -232,6 +256,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         connectOrReconnect()
     }
 
+    // Focus is handled by FocusableTerminalView.touchesBegan.
+
     // MARK: - TerminalViewDelegate
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
@@ -245,6 +271,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
         guard let sanitized = sanitizer.sanitize(data) else { return }
+        logger.debug("terminal_input bytes=\(sanitized.count, privacy: .public)")
         service?.sendInput(Data(sanitized))
     }
 
@@ -271,7 +298,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     private func connectOrReconnect() {
         guard let descriptor else { return }
 
-        hasEverConnected = true
+        hasAttemptedConnection = true
         statusLabel.text = "CONNECTING"
 
         let service = TerminalSessionService(descriptor: descriptor)
@@ -300,8 +327,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
                 await MainActor.run {
                     switch state {
                     case .disconnected:
-                        self.statusLabel.text = self.hasEverConnected ? "DISCONNECTED" : "CONNECTING"
-                        if self.hasEverConnected {
+                        self.statusLabel.text = self.hasAttemptedConnection ? "DISCONNECTED" : "CONNECTING"
+                        if self.hasAttemptedConnection {
                             self.requiresUserReconnect = true
                             self.showDeadState(reason: self.titleLabel.text ?? "Terminal")
                         }
@@ -309,6 +336,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
                         self.statusLabel.text = "CONNECTING"
                         self.showTerminal()
                     case .ready:
+                        self.hasEverBeenLive = true
                         self.statusLabel.text = "LIVE"
                         self.showTerminal()
                     case .exited(let code):

@@ -23,9 +23,16 @@ final class TerminalSessionService {
     private let auth: AuthManager
     private let deviceId: DeviceIdentifier
 
+    // Use our own URLSession so we can set timeouts and headers consistently with the main chat socket.
+    private let session: URLSession
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
+    private var isReady: Bool = false
+    private var pendingResize: (cols: Int, rows: Int)?
+    private var enableMessagesTask: Task<Void, Never>?
+    private var sawBackfillEnd: Bool = false
+    private var backfillLinesRequested: Int = 0
 
     private let outputContinuation: AsyncStream<Data>.Continuation
     let output: AsyncStream<Data>
@@ -43,6 +50,10 @@ final class TerminalSessionService {
         self.descriptor = descriptor
         self.auth = auth
         self.deviceId = deviceId
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 360
+        self.session = URLSession(configuration: configuration)
 
         var outCont: AsyncStream<Data>.Continuation!
         self.output = AsyncStream { cont in outCont = cont }
@@ -62,6 +73,12 @@ final class TerminalSessionService {
 
     func connect(initialCols: Int, initialRows: Int, backfillLines: Int = 2000) {
         guard socket == nil else { return }
+        isReady = false
+        pendingResize = nil
+        enableMessagesTask?.cancel()
+        enableMessagesTask = nil
+        sawBackfillEnd = false
+        backfillLinesRequested = backfillLines
         stateContinuation.yield(.connecting)
 
         guard let url = makeTerminalWebSocketURL() else {
@@ -69,7 +86,15 @@ final class TerminalSessionService {
             return
         }
 
-        let task = URLSession.shared.webSocketTask(with: url)
+        let tokenPresent = resolveAuthToken() != nil
+        logger.info("terminal_connect url=\(url.absoluteString, privacy: .public) terminalSessionId=\(self.descriptor.terminalSessionId, privacy: .public) deviceId=\(self.deviceId.deviceId, privacy: .public) tokenPresent=\(tokenPresent, privacy: .public)")
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        if request.value(forHTTPHeaderField: "Origin") == nil {
+            request.setValue("https://clawline.app", forHTTPHeaderField: "Origin")
+        }
+        let task = session.webSocketTask(with: request)
         socket = task
         task.resume()
 
@@ -91,17 +116,24 @@ final class TerminalSessionService {
     }
 
     func disconnect() {
+        logger.info("terminal_disconnect terminalSessionId=\(self.descriptor.terminalSessionId, privacy: .public)")
         receiveTask?.cancel()
         receiveTask = nil
         pingTask?.cancel()
         pingTask = nil
+        enableMessagesTask?.cancel()
+        enableMessagesTask = nil
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
+        isReady = false
+        pendingResize = nil
+        sawBackfillEnd = false
+        backfillLinesRequested = 0
         stateContinuation.yield(.disconnected)
     }
 
     func sendInput(_ data: Data) {
-        guard let socket else { return }
+        guard isReady, let socket else { return }
         Task {
             do {
                 try await socket.send(.data(data))
@@ -112,6 +144,12 @@ final class TerminalSessionService {
     }
 
     func resize(cols: Int, rows: Int) {
+        // Ignore or defer until the provider has accepted terminal_auth.
+        pendingResize = (cols: cols, rows: rows)
+        if !isReady {
+            logger.debug("terminal_resize_deferred cols=\(cols, privacy: .public) rows=\(rows, privacy: .public)")
+            return
+        }
         sendControl(["type": "terminal_resize", "cols": cols, "rows": rows])
     }
 
@@ -125,6 +163,9 @@ final class TerminalSessionService {
 
     private func sendControl(_ dict: [String: Any]) {
         guard let socket else { return }
+        if let type = dict["type"] as? String {
+            logger.debug("terminal_send_control type=\(type, privacy: .public) ready=\(self.isReady, privacy: .public)")
+        }
         Task {
             do {
                 let data = try JSONSerialization.data(withJSONObject: dict, options: [])
@@ -137,7 +178,17 @@ final class TerminalSessionService {
     }
 
     private func makeTerminalWebSocketURL() -> URL? {
-        guard let base = ProviderBaseURLStore.baseURL else { return nil }
+        // Prefer the provider's advertised base URL (e.g. domain name with ATS exception),
+        // but fall back to the paired provider base URL if missing.
+        let base: URL? = {
+            if let raw = descriptor.provider?.baseUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !raw.isEmpty,
+               let parsed = URL(string: raw) {
+                return parsed
+            }
+            return ProviderBaseURLStore.baseURL
+        }()
+        guard let base else { return nil }
         guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
         let scheme = components.scheme?.lowercased()
         components.scheme = (scheme == "https") ? "wss" : "ws"
@@ -159,12 +210,14 @@ final class TerminalSessionService {
             return
         }
         guard let token = resolveAuthToken() else {
+            logger.error("terminal_auth_missing_token terminalSessionId=\(self.descriptor.terminalSessionId, privacy: .public)")
             stateContinuation.yield(.failed("Missing auth token"))
             disconnect()
             return
         }
 
         let authMode = resolveAuthMode()
+        logger.debug("terminal_auth_send terminalSessionId=\(self.descriptor.terminalSessionId, privacy: .public) deviceId=\(self.deviceId.deviceId, privacy: .public) authMode=\(authMode, privacy: .public) cols=\(initialCols, privacy: .public) rows=\(initialRows, privacy: .public) backfillLines=\(backfillLines, privacy: .public)")
         let payload: [String: Any] = [
             "type": "terminal_auth",
             "protocolVersion": 1,
@@ -181,7 +234,9 @@ final class TerminalSessionService {
             let data = try JSONSerialization.data(withJSONObject: payload, options: [])
             let text = String(decoding: data, as: UTF8.self)
             try await socket.send(.string(text))
+            logger.debug("terminal_auth_sent terminalSessionId=\(self.descriptor.terminalSessionId, privacy: .public)")
         } catch {
+            logger.error("terminal_auth_send_failed error=\(String(describing: error), privacy: .public)")
             stateContinuation.yield(.failed("Auth send failed"))
             disconnect()
         }
@@ -208,15 +263,17 @@ final class TerminalSessionService {
                 let message = try await socket.receive()
                 switch message {
                 case .data(let data):
+                    logger.debug("terminal_data_rx bytes=\(data.count, privacy: .public)")
                     outputContinuation.yield(data)
                 case .string(let text):
+                    logger.debug("terminal_control_rx text_len=\(text.count, privacy: .public)")
                     handleControl(text)
                 @unknown default:
                     break
                 }
             } catch {
                 if Task.isCancelled { break }
-                logger.error("terminal_receive_failed error=\(error.localizedDescription, privacy: .public)")
+                logger.error("terminal_receive_failed error=\(String(describing: error), privacy: .public)")
                 stateContinuation.yield(.disconnected)
                 break
             }
@@ -230,19 +287,66 @@ final class TerminalSessionService {
             return
         }
 
+        if type == "terminal_error" {
+            let message = (obj["message"] as? String) ?? "Terminal error"
+            logger.warning("terminal_control terminal_error message=\(message, privacy: .public)")
+        } else {
+            logger.debug("terminal_control type=\(type, privacy: .public)")
+        }
+
         switch type {
         case "terminal_ready":
             stateContinuation.yield(.ready)
+            if backfillLinesRequested == 0 {
+                // No backfill, so we won't see terminal_backfill_end.
+                scheduleEnableMessagesIfNeeded()
+            }
+        case "terminal_backfill_end":
+            sawBackfillEnd = true
+            scheduleEnableMessagesIfNeeded()
         case "terminal_exit":
             let code = obj["code"] as? Int
             stateContinuation.yield(.exited(code: code))
         case "terminal_error":
             let message = (obj["message"] as? String) ?? "Terminal error"
+            isReady = false
+            enableMessagesTask?.cancel()
+            enableMessagesTask = nil
             stateContinuation.yield(.failed(message))
         case "terminal_closed":
+            isReady = false
+            enableMessagesTask?.cancel()
+            enableMessagesTask = nil
             stateContinuation.yield(.disconnected)
         default:
             break
+        }
+    }
+
+    private func scheduleEnableMessagesIfNeeded() {
+        // Provider sends `terminal_ready` + (optional) backfill, but doesn't mark the socket
+        // authenticated until after it spawns the tmux PTY. If we send resize/input too early,
+        // the provider will reject with "Expected terminal_auth". Wait until backfill completes,
+        // then add a small delay before sending any non-auth frames.
+        guard enableMessagesTask == nil else { return }
+        if !sawBackfillEnd {
+            // If backfill was disabled, we never get `terminal_backfill_end`.
+            // Delay a bit after ready (best-effort) by scheduling anyway.
+        }
+        enableMessagesTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            await MainActor.run {
+                guard let self else { return }
+                self.isReady = true
+                self.logger.debug("terminal_messages_enabled terminalSessionId=\(self.descriptor.terminalSessionId, privacy: .public)")
+                if let pendingResize = self.pendingResize {
+                    self.sendControl([
+                        "type": "terminal_resize",
+                        "cols": pendingResize.cols,
+                        "rows": pendingResize.rows
+                    ])
+                }
+            }
         }
     }
 

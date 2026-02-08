@@ -15,7 +15,10 @@ This spec targets Clawline’s existing message/bubble pipeline and adapts the p
 - **Provider**: The Clawline backend the client already connects to over WebSocket (`/ws`) with a token.
 - **Client**: iOS app (and later Android) rendering chat bubbles.
 - **Terminal Session**: A server-side resource that proxies a PTY to the client over WebSocket.
-- **tmux session/pane**: The backing terminal state. v1 assumes the provider host can create/manage tmux sessions locally.
+- **tmux session/pane**: The backing terminal state.
+  - v1 supports two deployment shapes:
+    - **Local tmux**: provider host can create/manage tmux sessions locally.
+    - **Remote tmux**: provider SSHes to a dedicated terminal host (e.g. provider runs on TARS, tmux lives on eezo).
 
 ## Architecture (Client)
 
@@ -310,13 +313,28 @@ Enforcement rule (provider):
 
 ### Provider Responsibilities
 The provider owns:
-- Creating tmux sessions/panes for terminal bubbles.
+- Creating tmux sessions/panes for terminal bubbles (locally or on a remote terminal host via SSH).
 - Attaching a PTY to tmux on behalf of the client.
 - Proxying PTY output to the terminal session WebSocket.
 - Applying client input and resize to the PTY.
 - Cleanup/expiry.
 
 The client does **not** SSH and does **not** speak to tmux directly.
+
+### Remote Terminal Host (SSH)
+
+In split deployments (provider host != terminal host), the provider connects to a configurable remote terminal host over SSH and runs all tmux operations there:
+- `list-panes`, `capture-pane`, `resize-pane`, `kill-session`
+- `attach-session` (PTY bridging via `ssh -tt ... tmux attach-session`)
+
+Config (provider):
+- `terminal.tmux.mode`: `"local"` (default) or `"ssh"`
+- `terminal.tmux.ssh.target`: ssh target, e.g. `"mike@eezo.tail4105e8.ts.net"`
+- Optional: `terminal.tmux.ssh.identityFile`, `port`, `knownHostsFile`, `strictHostKeyChecking`, `extraArgs`
+
+Security notes:
+- Use a dedicated SSH key with minimum privileges on the terminal host.
+- Prefer non-interactive SSH options (`BatchMode=yes`) so the provider never blocks on prompts.
 
 ### Backing Model
 Each `terminalSessionId` maps to:
