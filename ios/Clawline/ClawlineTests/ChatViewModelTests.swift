@@ -14,6 +14,11 @@ struct ChatViewModelTests {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
+        // Ensure the async streams are initialized so emitted values are buffered if observation
+        // tasks haven't started iterating yet.
+        _ = chatService.incomingMessages
+        _ = chatService.connectionState
+        _ = chatService.serviceEvents
         let viewModel = ChatViewModel(
             auth: auth,
             chatService: chatService,
@@ -39,9 +44,12 @@ struct ChatViewModelTests {
                 )
         )
 
-        try await Task.sleep(forDuration: .milliseconds(50))
-
-        let snapshot = await MainActor.run { viewModel.debugConnectionSnapshot() }
+        var snapshot: (token: String?, lastMessageId: String?) = (nil, nil)
+        for _ in 0..<50 {
+            snapshot = await MainActor.run { viewModel.debugConnectionSnapshot() }
+            if snapshot.lastMessageId == "s_snapshot" { break }
+            try await Task.sleep(forDuration: .milliseconds(10))
+        }
         #expect(snapshot.lastMessageId == "s_snapshot")
     }
 
@@ -412,6 +420,10 @@ struct ChatViewModelTests {
         auth.storeCredentials(token: "jwt", userId: "user")
         auth.updateAdminStatus(true)
         let chatService = TestChatService()
+        // Ensure async streams are initialized so early emits buffer reliably.
+        _ = chatService.incomingMessages
+        _ = chatService.connectionState
+        _ = chatService.serviceEvents
         let viewModel = ChatViewModel(
             auth: auth,
             chatService: chatService,
@@ -423,11 +435,13 @@ struct ChatViewModelTests {
         defer { viewModel.onDisappear() }
 
         await resetViewModelForTest(viewModel, auth: auth)
-        chatService.emitServiceEvent(.sessionInfo([
-            .personal: personalSessionKey,
-            .admin: adminSessionKey
-        ]))
-        try await Task.sleep(for: .milliseconds(10))
+        chatService.emitServiceEvent(.sessionInfo(SessionInfo(
+            userId: "user",
+            isAdmin: true,
+            dmScope: nil,
+            sessionKeys: [personalSessionKey, adminSessionKey]
+        )))
+        try await Task.sleep(for: .milliseconds(30))
         chatService.emit(
             Message(
                 id: "s_admin_seed",
@@ -440,12 +454,12 @@ struct ChatViewModelTests {
                 sessionKey: adminSessionKey
             )
         )
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(for: .milliseconds(30))
 
         viewModel.setActiveStream(.admin)
         viewModel.inputContent = NSAttributedString(string: "Admin ping")
         viewModel.send()
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(for: .milliseconds(30))
 
         #expect(chatService.lastSessionKey == adminSessionKey)
     }
@@ -511,16 +525,16 @@ struct ChatViewModelTests {
 
         await viewModel.onAppear()
 
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(for: .milliseconds(30))
         chatService.emitServiceEvent(.userInfo(ChatUserInfo(userId: "user", isAdmin: true)))
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(for: .milliseconds(30))
 
         #expect(auth.isAdmin)
         let unlockMessages = await MainActor.run { toastManager.debugMessages }
         #expect(unlockMessages.contains("DM channel unlocked"))
 
         chatService.emitServiceEvent(.userInfo(ChatUserInfo(userId: "user", isAdmin: false)))
-        try await Task.sleep(for: .milliseconds(10))
+        try await Task.sleep(for: .milliseconds(30))
         #expect(auth.isAdmin == false)
         let revokeMessages = await MainActor.run { toastManager.debugMessages }
         #expect(revokeMessages.contains("DM access revoked"))

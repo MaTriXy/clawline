@@ -682,7 +682,7 @@ struct ChatFlowOrganicComplianceTests {
         )
     }
 
-    private func sampleMessage(content: String, attachments: [Attachment]) -> Message {
+    private func sampleMessage(content: String, attachments: [Clawline.Attachment]) -> Message {
         Message(
             id: UUID().uuidString,
             role: .assistant,
@@ -695,7 +695,7 @@ struct ChatFlowOrganicComplianceTests {
         )
     }
 
-    private func sampleMessage(content: String, attachments: [Attachment], sessionKey: String) -> Message {
+    private func sampleMessage(content: String, attachments: [Clawline.Attachment], sessionKey: String) -> Message {
         Message(
             id: UUID().uuidString,
             role: .assistant,

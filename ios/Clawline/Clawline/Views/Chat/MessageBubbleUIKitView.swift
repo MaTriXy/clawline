@@ -179,6 +179,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var fadeConstraints: [NSLayoutConstraint] = []
     private var dynamicContentViews: [UIView] = []
     private var isChromeless = false
+    private var hasTerminalSessionsForLayout = false
     private var showsHeader = true
     private var contentPaddingScale: CGFloat = 1
     private var useContinuousCorners = true
@@ -398,7 +399,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         gradientLayer.frame = bubbleBackgroundView.bounds
         maskLayer.frame = bubbleBackgroundView.bounds
         let path: UIBezierPath
-        if useContinuousCorners {
+        if hasTerminalSessionsForLayout {
+            // Terminal bubbles render without message bubble chrome; don't clip their content to the
+            // standard bubble shape (tail/rounded corners).
+            path = UIBezierPath(rect: bubbleBackgroundView.bounds)
+            bubbleBackgroundView.layer.cornerRadius = 0
+            bubbleBackgroundView.layer.cornerCurve = .circular
+        } else if useContinuousCorners {
             let radii = bubbleCornerRadii(messageId: messageIdForCorners())
             path = superellipseRoundedRectPath(
                 rect: bubbleBackgroundView.bounds,
@@ -441,7 +448,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             height: bubbleBackgroundView.bounds.height
         ))
         topHighlightMask.frame = CGRect(x: 0, y: 0, width: bubbleBackgroundView.bounds.width, height: highlightHeight)
-        topHighlightMask.path = useContinuousCorners ? path.cgPath : highlightMaskPath.cgPath
+        topHighlightMask.path = (hasTerminalSessionsForLayout || useContinuousCorners) ? path.cgPath : highlightMaskPath.cgPath
     }
 
     func configure(message: Message,
@@ -719,6 +726,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         }
 
         let hasTerminalSessions = presentation.parts.contains(where: { if case .terminalSession = $0 { return true }; return false })
+        hasTerminalSessionsForLayout = hasTerminalSessions
+        setNeedsLayout()
 
         // Add embedded terminal session bubbles.
         let terminalSessions = presentation.parts.compactMap { part -> TerminalSessionDescriptor? in

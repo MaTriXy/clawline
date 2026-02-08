@@ -33,9 +33,13 @@ final class TerminalSessionService {
     private let stateContinuation: AsyncStream<State>.Continuation
     let state: AsyncStream<State>
 
+    convenience init(descriptor: TerminalSessionDescriptor) {
+        self.init(descriptor: descriptor, auth: AuthManager(), deviceId: DeviceIdentifier())
+    }
+
     init(descriptor: TerminalSessionDescriptor,
-         auth: AuthManager = AuthManager(),
-         deviceId: DeviceIdentifier = DeviceIdentifier()) {
+         auth: AuthManager,
+         deviceId: DeviceIdentifier) {
         self.descriptor = descriptor
         self.auth = auth
         self.deviceId = deviceId
@@ -49,9 +53,7 @@ final class TerminalSessionService {
         self.stateContinuation = stCont
     }
 
-    deinit {
-        disconnect()
-    }
+    deinit {}
 
     func connect(initialCols: Int, initialRows: Int, backfillLines: Int = 2000) {
         guard socket == nil else { return }
@@ -127,12 +129,13 @@ final class TerminalSessionService {
 
     private func makeTerminalWebSocketURL() -> URL? {
         guard let base = ProviderBaseURLStore.baseURL else { return nil }
-        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
-        components?.scheme = (components?.scheme == "https") ? "wss" : "ws"
+        guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
+        let scheme = components.scheme?.lowercased()
+        components.scheme = (scheme == "https") ? "wss" : "ws"
 
         let path = descriptor.provider?.wsPath ?? "/ws/terminal"
-        components?.path = path.hasPrefix("/") ? path : ("/" + path)
-        return components?.url
+        components.path = path.hasPrefix("/") ? path : ("/" + path)
+        return components.url
     }
 
     private func sendAuth(initialCols: Int, initialRows: Int, backfillLines: Int) async {

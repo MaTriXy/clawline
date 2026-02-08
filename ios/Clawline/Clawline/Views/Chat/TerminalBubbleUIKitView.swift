@@ -58,6 +58,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     private var disconnectTimer: Timer?
     private var hasEverConnected = false
+    private var requiresUserReconnect = false
+    private var scrollCaptureWired = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -75,6 +77,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     func configure(descriptor: TerminalSessionDescriptor, style: Style) {
         self.descriptor = descriptor
         self.style = style
+        self.requiresUserReconnect = false
 
         titleLabel.text = descriptor.title?.isEmpty == false ? descriptor.title : "Terminal"
         statusLabel.text = "CONNECTING"
@@ -100,6 +103,11 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         }
 
         cancelScheduledDisconnect()
+        wireScrollCaptureIfNeeded()
+        if requiresUserReconnect {
+            showDeadState(reason: titleLabel.text ?? "Terminal")
+            return
+        }
         connectIfNeeded()
     }
 
@@ -148,7 +156,9 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         terminalView.nativeBackgroundColor = UIColor.clear
         terminalView.backgroundColor = .clear
         terminalView.selectedTextBackgroundColor = UIColor.systemGray.withAlphaComponent(0.35)
-        terminalView.setRenderingStrategy(.cached, resetCache: true)
+        terminalView.isAccessibilityElement = true
+        terminalView.accessibilityLabel = "Terminal session"
+        terminalView.accessibilityHint = "Terminal output; double tap to focus; swipe to scroll."
 
         // No rounded corners (Flynn decision).
         terminalView.layer.cornerRadius = 0
@@ -212,10 +222,12 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     @objc private func handleCloseTap() {
         service?.close()
         teardownConnectionOnly()
+        requiresUserReconnect = true
         showDeadState(reason: "Closed: \(titleLabel.text ?? "Terminal")")
     }
 
     @objc private func handleReconnectTap() {
+        requiresUserReconnect = false
         connectOrReconnect()
     }
 
@@ -251,6 +263,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     private func connectIfNeeded() {
         guard descriptor != nil else { return }
         guard service == nil else { return }
+        if requiresUserReconnect { return }
         connectOrReconnect()
     }
 
@@ -274,35 +287,42 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
             guard let self else { return }
             for await data in service.output {
                 let bytes = [UInt8](data)
-                terminalView.feed(byteArray: bytes[...])
+                await MainActor.run {
+                    self.terminalView.feed(byteArray: bytes[...])
+                }
             }
         }
 
         stateTask = Task { [weak self] in
             guard let self else { return }
             for await state in service.state {
-                switch state {
-                case .disconnected:
-                    statusLabel.text = hasEverConnected ? "DISCONNECTED" : "CONNECTING"
-                    if hasEverConnected {
-                        showDeadState(reason: titleLabel.text ?? "Terminal")
+                await MainActor.run {
+                    switch state {
+                    case .disconnected:
+                        self.statusLabel.text = self.hasEverConnected ? "DISCONNECTED" : "CONNECTING"
+                        if self.hasEverConnected {
+                            self.requiresUserReconnect = true
+                            self.showDeadState(reason: self.titleLabel.text ?? "Terminal")
+                        }
+                    case .connecting:
+                        self.statusLabel.text = "CONNECTING"
+                        self.showTerminal()
+                    case .ready:
+                        self.statusLabel.text = "LIVE"
+                        self.showTerminal()
+                    case .exited(let code):
+                        if let code {
+                            self.statusLabel.text = "EXIT \(code)"
+                        } else {
+                            self.statusLabel.text = "EXIT"
+                        }
+                        self.requiresUserReconnect = true
+                        self.showDeadState(reason: self.titleLabel.text ?? "Terminal")
+                    case .failed(let message):
+                        self.statusLabel.text = "ERROR"
+                        self.requiresUserReconnect = true
+                        self.showDeadState(reason: message)
                     }
-                case .connecting:
-                    statusLabel.text = "CONNECTING"
-                    showTerminal()
-                case .ready:
-                    statusLabel.text = "LIVE"
-                    showTerminal()
-                case .exited(let code):
-                    if let code {
-                        statusLabel.text = "EXIT \(code)"
-                    } else {
-                        statusLabel.text = "EXIT"
-                    }
-                    showDeadState(reason: titleLabel.text ?? "Terminal")
-                case .failed:
-                    statusLabel.text = "ERROR"
-                    showDeadState(reason: titleLabel.text ?? "Terminal")
                 }
             }
         }
@@ -324,6 +344,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         disconnectTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.teardownConnectionOnly()
+            self.requiresUserReconnect = true
             if let title = self.titleLabel.text {
                 self.showDeadState(reason: title)
             }
@@ -347,6 +368,24 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     private func teardown() {
         teardownConnectionOnly()
+    }
+
+    private func wireScrollCaptureIfNeeded() {
+        guard !scrollCaptureWired else { return }
+        guard let terminalPan = terminalView.gestureRecognizers?.compactMap({ $0 as? UIPanGestureRecognizer }).first else {
+            return
+        }
+
+        // Ensure the terminal's scrollback pan wins against any ancestor scroll views (collection view, sheet scroll view).
+        var ancestor: UIView? = superview
+        while let view = ancestor {
+            if let scrollView = view as? UIScrollView {
+                scrollView.panGestureRecognizer.require(toFail: terminalPan)
+            }
+            ancestor = view.superview
+        }
+
+        scrollCaptureWired = true
     }
 }
 
@@ -396,4 +435,3 @@ private struct TerminalInputSanitizer {
         }
     }
 }
-
