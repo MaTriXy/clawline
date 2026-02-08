@@ -91,6 +91,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     func prepareForReuse() {
         teardown()
         descriptor = nil
+        scrollCaptureWired = false
     }
 
     override func didMoveToWindow() {

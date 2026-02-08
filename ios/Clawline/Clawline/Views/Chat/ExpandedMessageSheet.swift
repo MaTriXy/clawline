@@ -182,14 +182,27 @@ struct ExpandedMessageSheet: View {
 private struct TerminalBubbleExpandedRepresentable: UIViewRepresentable {
     let descriptor: TerminalSessionDescriptor
 
+    final class Coordinator {
+        var lastTerminalSessionId: String?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeUIView(context: Context) -> TerminalBubbleUIKitView {
         let view = TerminalBubbleUIKitView()
         view.configure(descriptor: descriptor, style: .expanded(height: 520))
+        context.coordinator.lastTerminalSessionId = descriptor.terminalSessionId
         return view
     }
 
     func updateUIView(_ uiView: TerminalBubbleUIKitView, context: Context) {
-        uiView.configure(descriptor: descriptor, style: .expanded(height: 520))
+        // Avoid reconfiguring during unrelated SwiftUI updates (can cause flicker/reconnect churn).
+        if context.coordinator.lastTerminalSessionId != descriptor.terminalSessionId {
+            uiView.configure(descriptor: descriptor, style: .expanded(height: 520))
+            context.coordinator.lastTerminalSessionId = descriptor.terminalSessionId
+        }
     }
 }
 

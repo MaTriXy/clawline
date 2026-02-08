@@ -53,7 +53,12 @@ final class TerminalSessionService {
         self.stateContinuation = stCont
     }
 
-    deinit {}
+    @MainActor
+    deinit {
+        disconnect()
+        outputContinuation.finish()
+        stateContinuation.finish()
+    }
 
     func connect(initialCols: Int, initialRows: Int, backfillLines: Int = 2000) {
         guard socket == nil else { return }
@@ -133,13 +138,22 @@ final class TerminalSessionService {
         let scheme = components.scheme?.lowercased()
         components.scheme = (scheme == "https") ? "wss" : "ws"
 
-        let path = descriptor.provider?.wsPath ?? "/ws/terminal"
-        components.path = path.hasPrefix("/") ? path : ("/" + path)
+        // v1: only allow the known terminal endpoint path. Ignore any untrusted descriptor override.
+        let candidatePath = descriptor.provider?.wsPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let candidatePath, !candidatePath.isEmpty, candidatePath != "/ws/terminal" {
+            logger.warning("terminal_ws_path_ignored path=\(candidatePath, privacy: .public)")
+        }
+        components.path = "/ws/terminal"
         return components.url
     }
 
     private func sendAuth(initialCols: Int, initialRows: Int, backfillLines: Int) async {
         guard let socket else { return }
+        if !Self.isValidTerminalSessionId(descriptor.terminalSessionId) {
+            stateContinuation.yield(.failed("Invalid terminalSessionId"))
+            disconnect()
+            return
+        }
         guard let token = resolveAuthToken() else {
             stateContinuation.yield(.failed("Missing auth token"))
             disconnect()
@@ -251,5 +265,22 @@ final class TerminalSessionService {
                 break
             }
         }
+    }
+
+    private static func isValidTerminalSessionId(_ id: String) -> Bool {
+        // v1 constraints (must also be enforced server-side):
+        // - avoid pathological sizes
+        // - avoid characters that could be interpreted by tmux target parsing
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed.count > 128 { return false }
+        for scalar in trimmed.unicodeScalars {
+            switch scalar {
+            case "a"..."z", "A"..."Z", "0"..."9", "-", "_":
+                continue
+            default:
+                return false
+            }
+        }
+        return true
     }
 }
