@@ -23,6 +23,11 @@ final class LinkCardUIKitView: UIControl {
     private var metadataTask: Task<Void, Never>?
     private var imageTask: Task<Void, Never>?
     private var lastMeasuredWidth: CGFloat = 0
+    private var lastReportedHeight: CGFloat = 0
+
+    // BubbleSizingV2 caches measurements; link cards update async (OpenGraph metadata, thumbnails).
+    // When content changes, we need to request a re-measure so the bubble grows and avoids clipping.
+    var onHeightChange: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -149,6 +154,7 @@ final class LinkCardUIKitView: UIControl {
         self.url = url
         metadataTask?.cancel()
         imageTask?.cancel()
+        lastReportedHeight = 0
         thumbnailView.image = nil
         thumbnailView.isHidden = true
 
@@ -204,6 +210,7 @@ final class LinkCardUIKitView: UIControl {
                         self.descLabel.text = nil
                         self.descLabel.isHidden = true
                     }
+                    self.notifyHeightChangeIfNeeded()
                 }
 
                 if let imageURL = meta.imageURL {
@@ -215,6 +222,7 @@ final class LinkCardUIKitView: UIControl {
                     self.titleLabel.text = currentURL.absoluteString
                     self.descLabel.text = nil
                     self.descLabel.isHidden = true
+                    self.notifyHeightChangeIfNeeded()
                 }
             }
         }
@@ -267,6 +275,7 @@ final class LinkCardUIKitView: UIControl {
                 guard self.url?.absoluteString == url.absoluteString else { return }
                 self.thumbnailView.image = cached
                 self.thumbnailView.isHidden = false
+                self.notifyHeightChangeIfNeeded()
             }
             return
         }
@@ -290,12 +299,30 @@ final class LinkCardUIKitView: UIControl {
                     guard self.url?.absoluteString == url.absoluteString else { return }
                     self.thumbnailView.image = image
                     self.thumbnailView.isHidden = false
+                    self.notifyHeightChangeIfNeeded()
                 }
             } catch {
                 return
             }
         }
         _ = await imageTask?.value
+    }
+
+    private func notifyHeightChangeIfNeeded() {
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let width = (self.bounds.width > 1)
+                ? self.bounds.width
+                : (self.lastMeasuredWidth > 1 ? self.lastMeasuredWidth : 320)
+            let priority: UILayoutPriority = (self.bounds.width > 1) ? .required : .fittingSizeLevel
+            let newHeight = self.measuredHeight(for: width, horizontalPriority: priority)
+            let epsilon: CGFloat = 1
+            guard abs(newHeight - self.lastReportedHeight) > epsilon else { return }
+            self.lastReportedHeight = newHeight
+            self.onHeightChange?()
+        }
     }
 
     override func layoutSubviews() {

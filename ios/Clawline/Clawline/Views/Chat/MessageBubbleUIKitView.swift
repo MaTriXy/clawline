@@ -589,6 +589,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 row.spacing = 10
 
                 let card = LinkCardUIKitView()
+                card.onHeightChange = { [weak self] in
+                    self?.onRequestLayout?(message.id)
+                }
                 card.configure(url: url, palette: palette)
                 card.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -650,6 +653,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             } else {
                 for url in cardURLs {
                     let card = LinkCardUIKitView()
+                    card.onHeightChange = { [weak self] in
+                        self?.onRequestLayout?(message.id)
+                    }
                     card.configure(url: url, palette: palette)
                     dynamicContentStack.addArrangedSubview(card)
                     dynamicContentViews.append(card)
