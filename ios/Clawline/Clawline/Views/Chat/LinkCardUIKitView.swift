@@ -56,16 +56,22 @@ final class LinkCardUIKitView: UIControl {
         domainLabel.font = UIFont.systemFont(ofSize: 11, weight: .regular)
         domainLabel.numberOfLines = 1
         domainLabel.lineBreakMode = .byTruncatingTail
+        domainLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        domainLabel.setContentHuggingPriority(.required, for: .vertical)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
         titleLabel.numberOfLines = 2
         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        titleLabel.setContentHuggingPriority(.required, for: .vertical)
 
         descLabel.translatesAutoresizingMaskIntoConstraints = false
         descLabel.font = UIFont.systemFont(ofSize: 13, weight: .regular)
         descLabel.numberOfLines = 2
         descLabel.lineBreakMode = .byTruncatingTail
+        descLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        descLabel.setContentHuggingPriority(.required, for: .vertical)
 
         let domainRow = UIStackView(arrangedSubviews: [indicatorView, domainLabel])
         domainRow.translatesAutoresizingMaskIntoConstraints = false
@@ -77,6 +83,8 @@ final class LinkCardUIKitView: UIControl {
         textStack.axis = .vertical
         textStack.alignment = .fill
         textStack.spacing = 0
+        textStack.setContentCompressionResistancePriority(.required, for: .vertical)
+        textStack.setContentHuggingPriority(.required, for: .vertical)
         textStack.addArrangedSubview(domainRow)
         textStack.setCustomSpacing(6, after: domainRow)
         textStack.addArrangedSubview(titleLabel)
