@@ -880,7 +880,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 #else
                     fadeView.setFadeStartLocation(nil)
 #endif
-                    let fadeHeight: CGFloat = 100
+                    // #62: Give a little bottom breathing room so the fade mask doesn't occlude text,
+                    // but keep it subtle (avoid excessive dead space).
+                    let fadeHeight: CGFloat = 50
                     dynamicContentScrollView.contentInset.bottom = fadeHeight
                     // Ensure truncated bubbles start at the top on first display.
                     dynamicContentScrollView.setContentOffset(.zero, animated: false)
@@ -977,7 +979,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 #else
         fadeView.setFadeStartLocation(nil)
 #endif
-        let fadeHeight: CGFloat = 100
+        // #62: Give a little bottom breathing room so the fade mask doesn't occlude content.
+        let fadeHeight: CGFloat = 50
         dynamicContentScrollView.contentInset.bottom = fadeHeight
         fadeConstraints = [
             fadeView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
