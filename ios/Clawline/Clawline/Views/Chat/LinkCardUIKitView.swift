@@ -35,6 +35,12 @@ final class LinkCardUIKitView: UIControl {
         backgroundColor = .clear
         clipsToBounds = false
 
+        // UIControl only fires `.touchUpInside` if it receives touch events. Since the card is
+        // built from container subviews, disable hit-testing on them so touches resolve to `self`.
+        // (Otherwise taps hit the internal stack/labels and the card appears "dead".)
+        shadowHost.isUserInteractionEnabled = false
+        cardBackground.isUserInteractionEnabled = false
+
         addTarget(self, action: #selector(handleTap), for: .touchUpInside)
 
         shadowHost.translatesAutoresizingMaskIntoConstraints = false
