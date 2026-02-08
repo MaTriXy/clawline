@@ -33,9 +33,13 @@ final class TerminalSessionService {
     private let stateContinuation: AsyncStream<State>.Continuation
     let state: AsyncStream<State>
 
+    convenience init(descriptor: TerminalSessionDescriptor) {
+        self.init(descriptor: descriptor, auth: AuthManager(), deviceId: DeviceIdentifier())
+    }
+
     init(descriptor: TerminalSessionDescriptor,
-         auth: AuthManager = AuthManager(),
-         deviceId: DeviceIdentifier = DeviceIdentifier()) {
+         auth: AuthManager,
+         deviceId: DeviceIdentifier) {
         self.descriptor = descriptor
         self.auth = auth
         self.deviceId = deviceId
@@ -281,4 +285,3 @@ final class TerminalSessionService {
         return true
     }
 }
-

@@ -157,7 +157,6 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         terminalView.nativeBackgroundColor = UIColor.clear
         terminalView.backgroundColor = .clear
         terminalView.selectedTextBackgroundColor = UIColor.systemGray.withAlphaComponent(0.35)
-        terminalView.setRenderingStrategy(.cached, resetCache: true)
         terminalView.isAccessibilityElement = true
         terminalView.accessibilityLabel = "Terminal session"
         terminalView.accessibilityHint = "Terminal output; double tap to focus; swipe to scroll."
