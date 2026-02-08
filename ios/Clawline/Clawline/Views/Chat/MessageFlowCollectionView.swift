@@ -1278,6 +1278,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let viewportHeight = max(plan.heightCap - chromeHeight, 44)
 
         // Pass 2: reconfigure with the actual viewport max height so link preview/media clamp matches rendering.
+        //
+        // #62: For link previews, clamping to the viewport during measurement can hide truncation.
+        // Measure with a looser preview max height so we can detect when content would exceed the cap,
+        // then render using the real viewport clamp (with outer scroll if needed).
+        let previewMaxHeightForMeasurement: CGFloat = {
+            guard plan.linkPreviewURL != nil else { return viewportHeight }
+            return max(viewportHeight, plan.heightCap * 2)
+        }()
         let provisional2 = BubbleSizingV2.LayoutState(
             plan: plan,
             measurement: BubbleSizingV2.Measurement(
@@ -1292,7 +1300,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             linkPreviewCacheKey: linkPreviewCacheKey,
             linkPreviewEstimatedHeight: linkPreviewEstimatedHeight ?? 120,
             linkPreviewMinHeight: 40,
-            linkPreviewMaxHeight: viewportHeight
+            linkPreviewMaxHeight: previewMaxHeightForMeasurement
         )
         uiKitBubbleSizer.configure(
             message: message,
