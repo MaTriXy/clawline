@@ -1581,7 +1581,26 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func handleCellRequestedLayout(messageId: String) {
         if bubbleSizingV2Enabled {
-            handleBubbleSizingV2LinkPreviewLayout(messageId: messageId)
+            // BubbleSizingV2 normally remeasures when link preview (WKWebView) height changes.
+            // Link cards update async (metadata/thumbnails) and can change height too, so we need
+            // a generic V2 remeasure path when there is no link preview.
+            if let viewModel, let message = messagesById[messageId] {
+                let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+                let presentation = viewModel.presentation(for: message, metrics: metrics)
+                let hasLinkPreview = presentation.parts.contains { part in
+                    if case .linkPreview = part { return true }
+                    return false
+                }
+                if hasLinkPreview {
+                    handleBubbleSizingV2LinkPreviewLayout(messageId: messageId)
+                } else {
+                    bubbleSizingV2PendingRemeasureIds.insert(messageId)
+                    scheduleBubbleSizingV2Remeasure()
+                }
+            } else {
+                bubbleSizingV2PendingRemeasureIds.insert(messageId)
+                scheduleBubbleSizingV2Remeasure()
+            }
             return
         }
         guard let viewModel, let message = messagesById[messageId] else {
