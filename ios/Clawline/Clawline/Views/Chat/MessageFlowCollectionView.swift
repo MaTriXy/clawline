@@ -87,7 +87,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var fingerprints: [String: Int] = [:]
     private var lastMeasuredSizes: [String: CGSize] = [:]
     private var sizeCache: [String: CGSize] = [:]
-    private var truncationStates: [String: TruncationState] = [:]
     private var pendingReconfigureIds: Set<String> = []
     private var dirtySizeIds: Set<String> = []
     private var invalidationScheduled = false
@@ -358,7 +357,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         messagesById = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
         let newFingerprints = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, fingerprint(for: $0)) })
         let removedIds = Set(fingerprints.keys).subtracting(newFingerprints.keys)
-        removedIds.forEach { truncationStates.removeValue(forKey: $0) }
         removedIds.forEach { lastMeasuredSizes.removeValue(forKey: $0) }
         removedIds.forEach { sizeCache.removeValue(forKey: $0) }
         removedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
@@ -1083,40 +1081,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return nil
         }).first
 
-        let isSingleImageOnly: Bool = {
-            guard presentation.hasMediaOnly, presentation.parts.count == 1 else { return false }
-            switch presentation.parts[0] {
-            case .image, .gallery:
-                return true
-            default:
-                return false
-            }
-        }()
-
-        let hasTextContent: Bool = presentation.parts.contains(where: { part in
-            switch part {
-            case .text(let value), .markdown(let value):
-                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            case .inlineEmoji(let value):
-                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            default:
-                return false
-            }
-        })
-        let codeBlockCount = presentation.parts.reduce(into: 0) { count, part in
-            if case .code = part { count += 1 }
-        }
-        let tableCount = presentation.parts.reduce(into: 0) { count, part in
-            if case .table = part { count += 1 }
-        }
-        let hasNonMediaContent = hasTextContent || codeBlockCount > 0 || tableCount > 0
-        let hasTextAndLinkPreview = hasTextContent && linkPreviewURL != nil
-        let hasLinkCards = !presentation.detectedURLs.isEmpty
-
-        // V1 behavior: allow truncation scrolling for stacked link cards even without link previews.
-        let allowsOuterScroll = (!isSingleImageOnly) && (
-            (sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview || hasLinkCards
-        )
+        // Outer scroll container exists for every bubble; overflow is handled by a max height cap.
+        let allowsOuterScroll = true
 
         return BubbleSizingV2.Plan(
             messageId: message.id,
@@ -1322,9 +1288,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         )
         let dynamicHeight2 = uiKitBubbleSizer.measuredDynamicContentHeight(fittingWidth: contentWidth)
 
-        let outerScrollEnabled = plan.allowsOuterScroll && measured2.height > plan.heightCap
         let badgeExtra: CGFloat = (failureReason != nil) ? 32 : 0
-        let cellHeight = (outerScrollEnabled ? plan.heightCap : measured2.height) + badgeExtra
+        let outerScrollEnabled = measured2.height > plan.heightCap
+        let cellHeight = min(measured2.height, plan.heightCap) + badgeExtra
 
         let snappedSize = snapToPixel(CGSize(width: measuredBubbleWidth, height: max(1, cellHeight)))
         let measurement = BubbleSizingV2.Measurement(
@@ -1480,37 +1446,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sizeClass: sizeClass,
             metrics: metrics,
             maxWidth: maxWidth
-        )
-    }
-
-    private func makeTruncationState(presentation: MessagePresentation,
-                                     sizeClass: MessageSizeClass,
-                                     textHeight: CGFloat?,
-                                     metrics: ChatFlowTheme.Metrics) -> TruncationState {
-        guard let textHeight,
-              presentation.hasTextualContent else {
-            return .none
-        }
-        let shouldTruncate = MessageFlowRules.shouldTruncate(
-            hasTextualParts: true,
-            sizeClass: sizeClass,
-            isExpanded: false,
-            measuredHeight: textHeight,
-            metrics: metrics
-        )
-        let showsControl = MessageFlowRules.shouldShowTruncationControl(
-            hasTextualParts: true,
-            sizeClass: sizeClass,
-            measuredHeight: textHeight,
-            metrics: metrics
-        )
-        guard shouldTruncate || showsControl else {
-            return .none
-        }
-        return TruncationState(
-            contentHeight: textHeight,
-            shouldTruncate: shouldTruncate,
-            showsControl: showsControl
         )
     }
 

@@ -142,10 +142,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private let avatarView = AvatarCircleView()
     private let senderLabel = UILabel()
     private let bodyLabel = UITextView()
-    private let truncationContainer = UIView()
-    private let truncationLabel = UILabel()
-    private let truncationBorder = UIView()
     private let fadeView = TruncationFadeView()
+    private static let bubbleScrollFadeHeight: CGFloat = 25
     private static let mediaMaxHeight: CGFloat = 300
     private static let mediaCornerRadius: CGFloat = 12
 
@@ -161,7 +159,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var fixedWidthConstraint: NSLayoutConstraint?
     private var bodyMaxWidthConstraint: NSLayoutConstraint?
     private var dynamicContentHeightConstraint: NSLayoutConstraint?
-    private var shouldTruncate = false
     private var fileTapHandlers: [ObjectIdentifier: () -> Void] = [:]
     private var onRequestExpand: (() -> Void)?
     private var onRequestLayout: ((String) -> Void)?
@@ -174,20 +171,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var contentTrailingConstraint: NSLayoutConstraint!
     private var contentTopConstraint: NSLayoutConstraint!
     private var contentBottomConstraint: NSLayoutConstraint!
-    private var truncationHeightConstraint: NSLayoutConstraint?
     private var scrollViewContentHeightConstraint: NSLayoutConstraint?
-    private var fadeConstraints: [NSLayoutConstraint] = []
     private var dynamicContentViews: [UIView] = []
     private var isChromeless = false
     private var showsHeader = true
     private var contentPaddingScale: CGFloat = 1
     private var useContinuousCorners = true
     private weak var centeredOverlayView: UIView?
-
-    // #62: Link previews can change height after initial measurement. Keep enough context to
-    // re-evaluate whether the bubble needs to enable its inner scroll view.
-    private var lastTruncationCapHeight: CGFloat = 0
-    private var lastBubbleSizingV2: BubbleSizingV2.LayoutState?
 
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -304,6 +294,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Dynamic content wrapper clips content for truncation
         dynamicContentWrapper.clipsToBounds = true
+        // Every bubble uses an outer scroll container; cap bubble content height.
+        let maxHeight = dynamicContentWrapper.heightAnchor.constraint(lessThanOrEqualToConstant: 2000)
+        maxHeight.priority = .required
+        maxHeight.isActive = true
+        dynamicContentHeightConstraint = maxHeight
         dynamicContentScrollView.translatesAutoresizingMaskIntoConstraints = false
         dynamicContentScrollView.contentInsetAdjustmentBehavior = .never
         dynamicContentScrollView.showsVerticalScrollIndicator = false
@@ -341,41 +336,16 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         scrollViewContentHeightConstraint = contentHeightConstraint
         contentStack.addArrangedSubview(dynamicContentWrapper)
 
-        contentStack.addArrangedSubview(truncationContainer)
-
-        truncationContainer.translatesAutoresizingMaskIntoConstraints = false
-        truncationContainer.isUserInteractionEnabled = true
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTruncationTap))
-        truncationContainer.addGestureRecognizer(tap)
-        truncationContainer.addSubview(truncationBorder)
-        truncationContainer.addSubview(truncationLabel)
-        truncationBorder.translatesAutoresizingMaskIntoConstraints = false
-        truncationLabel.translatesAutoresizingMaskIntoConstraints = false
-        truncationBorder.backgroundColor = ChatFlowUIKitTheme.borderSubtle(isDark: traitCollection.userInterfaceStyle == .dark)
-        truncationLabel.font = UIFont.systemFont(ofSize: 12, weight: .semibold)
-        truncationLabel.text = "Show more"
-        truncationLabel.numberOfLines = 1
-
-        NSLayoutConstraint.activate([
-            truncationBorder.leadingAnchor.constraint(equalTo: truncationContainer.leadingAnchor),
-            truncationBorder.trailingAnchor.constraint(equalTo: truncationContainer.trailingAnchor),
-            truncationBorder.topAnchor.constraint(equalTo: truncationContainer.topAnchor),
-            truncationBorder.heightAnchor.constraint(equalToConstant: 1),
-
-            // Center label horizontally; top padding from hrule, no bottom padding (bubble has its own)
-            truncationLabel.centerXAnchor.constraint(equalTo: truncationContainer.centerXAnchor),
-            truncationLabel.topAnchor.constraint(equalTo: truncationBorder.bottomAnchor, constant: 12),
-            truncationLabel.bottomAnchor.constraint(equalTo: truncationContainer.bottomAnchor)
-        ])
-        truncationHeightConstraint = truncationContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 32)
-        truncationHeightConstraint?.isActive = true
-
-        truncationContainer.isHidden = true
-
         fadeView.translatesAutoresizingMaskIntoConstraints = false
         fadeView.isUserInteractionEnabled = false
         bubbleBackgroundView.addSubview(fadeView)
         fadeView.isHidden = true
+        NSLayoutConstraint.activate([
+            fadeView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
+            fadeView.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
+            fadeView.bottomAnchor.constraint(equalTo: dynamicContentWrapper.bottomAnchor),
+            fadeView.heightAnchor.constraint(equalToConstant: Self.bubbleScrollFadeHeight)
+        ])
 
         contentLeadingConstraint = contentStack.leadingAnchor.constraint(equalTo: bubbleBackgroundView.leadingAnchor, constant: 16)
         contentTrailingConstraint = contentStack.trailingAnchor.constraint(equalTo: bubbleBackgroundView.trailingAnchor, constant: -16)
@@ -442,6 +412,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         ))
         topHighlightMask.frame = CGRect(x: 0, y: 0, width: bubbleBackgroundView.bounds.width, height: highlightHeight)
         topHighlightMask.path = useContinuousCorners ? path.cgPath : highlightMaskPath.cgPath
+
+        updateOuterScrollState()
     }
 
     func configure(message: Message,
@@ -468,8 +440,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         let effectiveMaxWidth = maxWidthOverride ?? maxWidth
         let effectiveTruncationHeight = truncationHeightOverride ?? metrics.truncationHeight
-        lastTruncationCapHeight = effectiveTruncationHeight
-        lastBubbleSizingV2 = bubbleSizingV2
         // Reset width constraints per size class.
         currentMetrics = metrics
         minWidthConstraint.constant = minWidthOverride ?? 120
@@ -492,8 +462,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             .foregroundColor: palette.ink,
             .underlineStyle: NSUnderlineStyle.single.rawValue
         ]
-
-        truncationBorder.backgroundColor = palette.borderSubtle
 
         avatarView.configure(role: message.role, isDark: palette.isDark)
 
@@ -642,7 +610,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     }
                     previewView.onHeightChange = { [weak self] in
                         self?.onRequestLayout?(message.id)
-                        self?.reevaluateTruncationForLinkPreviewHeightChange()
                     }
                     reload.addAction(UIAction { [weak previewView] _ in
                         previewView?.reloadPreview()
@@ -685,7 +652,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
             previewView.onHeightChange = { [weak self] in
                 self?.onRequestLayout?(message.id)
-                self?.reevaluateTruncationForLinkPreviewHeightChange()
             }
             dynamicContentStack.addArrangedSubview(previewView)
             dynamicContentViews.append(previewView)
@@ -814,111 +780,37 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             fixedWidthConstraint?.isActive = true
         }
 
-        dynamicContentHeightConstraint?.isActive = false
-        shouldTruncate = false
-        truncationContainer.isHidden = true
-        fadeView.isHidden = true
-        NSLayoutConstraint.deactivate(fadeConstraints)
-        fadeConstraints.removeAll()
-        scrollViewContentHeightConstraint?.isActive = true
+        // Every bubble uses an outer scroll container. Bubble height is capped; if content overflows,
+        // scrolling is enabled (inert when content fits).
         dynamicContentScrollView.isScrollEnabled = false
         dynamicContentScrollView.showsVerticalScrollIndicator = false
         dynamicContentScrollView.showsHorizontalScrollIndicator = false
         dynamicContentScrollView.alwaysBounceVertical = false
         dynamicContentScrollView.alwaysBounceHorizontal = false
-        dynamicContentScrollView.contentInset.bottom = 0
         dynamicContentScrollView.setContentOffset(.zero, animated: false)
 
         if let bubbleSizingV2 {
-            applyBubbleSizingV2(
-                bubbleSizingV2,
-                message: message,
-                palette: palette
-            )
+            applyBubbleSizingV2(bubbleSizingV2)
         } else {
-            let hasNonMediaContent = hasTextContent || !codeBlocks.isEmpty || !tables.isEmpty
-            let hasLinkCards = !presentation.detectedURLs.isEmpty
-            // Flynn #28: for text + link preview, enable the outer scroll view only if the combined
-            // content height exceeds the bubble max height (truncation cap), regardless of sizeClass.
-            let hasLinkPreviewView = dynamicContentViews.contains(where: { $0 is LinkPreviewView })
-            let hasTextAndLinkPreview = hasTextContent && hasLinkPreviewView
-            // #59: link cards can stack and exceed truncation height; enable inner scrolling when needed.
-            if (!isSingleImageOnly) && ((sizeClass == .long && hasNonMediaContent) || hasTextAndLinkPreview || hasLinkCards) {
-                let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
-                let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-                let textMeasureWidth = min(contentWidth, maxLineWidth)
-
-                // Calculate total height of all dynamic content (text + code blocks)
-                var totalHeight: CGFloat = 0
-                let spacing = dynamicContentStack.spacing
-                for (index, view) in dynamicContentViews.enumerated() {
-                    // Text stays constrained to OTW; wide content (previews/tables/images) uses full content width.
-                    let measureWidth: CGFloat
-                    if view === bodyLabel {
-                        measureWidth = textMeasureWidth
-                    } else {
-                        measureWidth = contentWidth
-                    }
-                    let viewHeight = view.sizeThatFits(
-                        CGSize(width: measureWidth, height: .greatestFiniteMagnitude)
-                    ).height
-                    totalHeight += viewHeight
-                    if index > 0 {
-                        totalHeight += spacing
-                    }
-                }
-
-                if totalHeight > effectiveTruncationHeight {
-                    shouldTruncate = true
-                    // Simply constrain the wrapper height - it will clip the overflow
-                    let heightConstraint = dynamicContentWrapper.heightAnchor.constraint(equalToConstant: effectiveTruncationHeight)
-                    heightConstraint.isActive = true
-                    dynamicContentHeightConstraint = heightConstraint
-                    scrollViewContentHeightConstraint?.isActive = false
-                    dynamicContentScrollView.isScrollEnabled = true
-                    dynamicContentScrollView.showsVerticalScrollIndicator = true
-                    dynamicContentScrollView.showsHorizontalScrollIndicator = false
-                    dynamicContentScrollView.alwaysBounceVertical = true
-                    dynamicContentScrollView.alwaysBounceHorizontal = false
-
-                    truncationContainer.isHidden = false
-                    truncationLabel.textColor = (message.role == .user) ? palette.terracotta : palette.warmBrown
-                    fadeView.isHidden = false
-                    // Use bubble gradient end colors for seamless fade
-                    let bottomColor = message.role == .user ? palette.bubbleSelfGradient.last! : palette.bubbleOtherGradient.last!
-                    fadeView.updateColors(
-                        top: bottomColor.withAlphaComponent(0),
-                        bottom: bottomColor
-                    )
-#if os(visionOS)
-                    fadeView.setFadeStartLocation(0.95)
-#else
-                    fadeView.setFadeStartLocation(nil)
-#endif
-                    // #62: Give a little bottom breathing room so the fade mask doesn't occlude text,
-                    // but keep it subtle (avoid excessive dead space).
-                    let fadeHeight: CGFloat = 50
-                    dynamicContentScrollView.contentInset.bottom = fadeHeight
-                    // Ensure truncated bubbles start at the top on first display.
-                    dynamicContentScrollView.setContentOffset(.zero, animated: false)
-                    fadeConstraints = [
-                        fadeView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
-                        fadeView.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
-                        fadeView.bottomAnchor.constraint(equalTo: dynamicContentWrapper.bottomAnchor),
-                        fadeView.heightAnchor.constraint(equalToConstant: fadeHeight)
-                    ]
-                    NSLayoutConstraint.activate(fadeConstraints)
-                    truncationContainer.isUserInteractionEnabled = true
-                } else {
-                    truncationContainer.isUserInteractionEnabled = false
-                }
-            }
+            dynamicContentHeightConstraint?.constant = max(44, effectiveTruncationHeight)
         }
 
         let gradientColors = message.role == .user ? palette.bubbleSelfGradient : palette.bubbleOtherGradient
         gradientLayer.colors = gradientColors.map { $0.cgColor }
         gradientLayer.startPoint = message.role == .user ? CGPoint(x: 0.0, y: 0.0) : CGPoint(x: 0.5, y: 0.0)
         gradientLayer.endPoint = message.role == .user ? CGPoint(x: 1.0, y: 1.0) : CGPoint(x: 0.5, y: 1.0)
+
+        // Fade mask matches the bubble bottom color when the outer scroll view overflows.
+        let bottomColor = gradientColors.last ?? palette.bubbleOtherGradient.last!
+        fadeView.updateColors(
+            top: bottomColor.withAlphaComponent(0),
+            bottom: bottomColor
+        )
+#if os(visionOS)
+        fadeView.setFadeStartLocation(0.95)
+#else
+        fadeView.setFadeStartLocation(nil)
+#endif
 
         // Soft shadow
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
@@ -928,8 +820,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         shadowContainerView.layer.shadowOpacity = shadowOpacity
 
         // Chromeless mode: hide bubble chrome but keep padding
-        // Truncated content must keep chrome (provides container for "Show more")
-        isChromeless = isSingleImageOnly || (presentation.isChromeless && !shouldTruncate)
+        isChromeless = isSingleImageOnly || presentation.isChromeless
         gradientLayer.isHidden = isChromeless
         borderGradientLayer.isHidden = isChromeless
         topHighlightLayer.isHidden = isChromeless
@@ -941,148 +832,20 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     func prepareForReuse() {
-        // Ensure the truncated-content scroll area starts at the top on first display.
         dynamicContentScrollView.setContentOffset(.zero, animated: false)
     }
 
-    private func reevaluateTruncationForLinkPreviewHeightChange() {
-        // Only ever transition from "not truncated" -> "truncated" here.
-        guard !shouldTruncate else { return }
-
-        // Determine the cap height the bubble was sized against.
-        let capHeight: CGFloat
-        if let state = lastBubbleSizingV2 {
-            capHeight = max(1, state.measurement.outerScrollViewportHeight)
-        } else {
-            capHeight = max(1, lastTruncationCapHeight)
-        }
-        guard capHeight > 1 else { return }
-
-        // Measure total dynamic content height.
-        let measuredMaxWidth = maxWidthConstraint.constant > 1 ? maxWidthConstraint.constant : bounds.width
-        let contentWidth = max(1, measuredMaxWidth - (currentContentPaddingHorizontal * 2))
-        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: currentMetrics.bodyFontSize)
-        let textMeasureWidth = min(contentWidth, maxLineWidth)
-
-        var totalHeight: CGFloat = 0
-        let spacing = dynamicContentStack.spacing
-        for (index, view) in dynamicContentViews.enumerated() {
-            let measureWidth: CGFloat = (view === bodyLabel) ? textMeasureWidth : contentWidth
-            totalHeight += view.sizeThatFits(
-                CGSize(width: measureWidth, height: .greatestFiniteMagnitude)
-            ).height
-            if index > 0 { totalHeight += spacing }
-        }
-
-        guard totalHeight > capHeight + 1 else { return }
-
-        // Enable bubble inner scrolling so the content isn't clipped by the cell height cap.
-        shouldTruncate = true
-        let viewportHeight = capHeight
-        let heightConstraint = dynamicContentWrapper.heightAnchor.constraint(equalToConstant: viewportHeight)
-        heightConstraint.isActive = true
-        dynamicContentHeightConstraint = heightConstraint
-
-        scrollViewContentHeightConstraint?.isActive = false
-        dynamicContentScrollView.isScrollEnabled = true
-        dynamicContentScrollView.showsVerticalScrollIndicator = true
-        dynamicContentScrollView.showsHorizontalScrollIndicator = false
-        dynamicContentScrollView.alwaysBounceVertical = true
-        dynamicContentScrollView.alwaysBounceHorizontal = false
-
-        let palette = ChatFlowUIKitTheme.palette(isDark: traitCollection.userInterfaceStyle == .dark)
-        truncationContainer.isHidden = false
-        truncationLabel.textColor = (currentMessageRole == .user) ? palette.terracotta : palette.warmBrown
-        truncationContainer.isUserInteractionEnabled = true
-
-        fadeView.isHidden = false
-        let bottomColor = currentMessageRole == .user ? palette.bubbleSelfGradient.last! : palette.bubbleOtherGradient.last!
-        fadeView.updateColors(
-            top: bottomColor.withAlphaComponent(0),
-            bottom: bottomColor
-        )
-#if os(visionOS)
-        fadeView.setFadeStartLocation(0.95)
-#else
-        fadeView.setFadeStartLocation(nil)
-#endif
-        // Keep consistent with BubbleSizingV2's truncation affordance sizing.
-        let fadeHeight: CGFloat = 50
-        dynamicContentScrollView.contentInset.bottom = fadeHeight
-        dynamicContentScrollView.setContentOffset(.zero, animated: false)
-        NSLayoutConstraint.deactivate(fadeConstraints)
-        fadeConstraints = [
-            fadeView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
-            fadeView.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
-            fadeView.bottomAnchor.constraint(equalTo: dynamicContentWrapper.bottomAnchor),
-            fadeView.heightAnchor.constraint(equalToConstant: fadeHeight)
-        ]
-        NSLayoutConstraint.activate(fadeConstraints)
-
-        // Trigger layout so the newly-enabled scroll viewport takes effect immediately.
-        setNeedsLayout()
-        layoutIfNeeded()
+    private func applyBubbleSizingV2(_ state: BubbleSizingV2.LayoutState) {
+        dynamicContentHeightConstraint?.constant = max(44, state.measurement.outerScrollViewportHeight)
     }
 
-    private func applyBubbleSizingV2(_ state: BubbleSizingV2.LayoutState,
-                                     message: Message,
-                                     palette: ChatFlowUIKitTheme.Palette) {
-        dynamicContentHeightConstraint?.isActive = false
-        truncationContainer.isHidden = true
-        fadeView.isHidden = true
-        NSLayoutConstraint.deactivate(fadeConstraints)
-        fadeConstraints.removeAll()
-        scrollViewContentHeightConstraint?.isActive = true
-        dynamicContentScrollView.isScrollEnabled = false
-        dynamicContentScrollView.showsVerticalScrollIndicator = false
-        dynamicContentScrollView.showsHorizontalScrollIndicator = false
-        dynamicContentScrollView.alwaysBounceVertical = false
-        dynamicContentScrollView.alwaysBounceHorizontal = false
-        dynamicContentScrollView.contentInset.bottom = 0
-
-        guard state.measurement.outerScrollEnabled else {
-            truncationContainer.isUserInteractionEnabled = false
-            return
-        }
-
-        shouldTruncate = true
-        let viewportHeight = state.measurement.outerScrollViewportHeight
-        let heightConstraint = dynamicContentWrapper.heightAnchor.constraint(equalToConstant: viewportHeight)
-        heightConstraint.isActive = true
-        dynamicContentHeightConstraint = heightConstraint
-
-        scrollViewContentHeightConstraint?.isActive = false
-        dynamicContentScrollView.isScrollEnabled = true
-        dynamicContentScrollView.showsVerticalScrollIndicator = true
-        dynamicContentScrollView.showsHorizontalScrollIndicator = false
-        dynamicContentScrollView.alwaysBounceVertical = true
-        dynamicContentScrollView.alwaysBounceHorizontal = false
-
-        truncationContainer.isHidden = false
-        truncationLabel.textColor = (message.role == .user) ? palette.terracotta : palette.warmBrown
-        truncationContainer.isUserInteractionEnabled = true
-
-        fadeView.isHidden = false
-        let bottomColor = message.role == .user ? palette.bubbleSelfGradient.last! : palette.bubbleOtherGradient.last!
-        fadeView.updateColors(
-            top: bottomColor.withAlphaComponent(0),
-            bottom: bottomColor
-        )
-#if os(visionOS)
-        fadeView.setFadeStartLocation(0.95)
-#else
-        fadeView.setFadeStartLocation(nil)
-#endif
-        // #62: Give a little bottom breathing room so the fade mask doesn't occlude content.
-        let fadeHeight: CGFloat = 50
-        dynamicContentScrollView.contentInset.bottom = fadeHeight
-        fadeConstraints = [
-            fadeView.leadingAnchor.constraint(equalTo: dynamicContentWrapper.leadingAnchor),
-            fadeView.trailingAnchor.constraint(equalTo: dynamicContentWrapper.trailingAnchor),
-            fadeView.bottomAnchor.constraint(equalTo: dynamicContentWrapper.bottomAnchor),
-            fadeView.heightAnchor.constraint(equalToConstant: fadeHeight)
-        ]
-        NSLayoutConstraint.activate(fadeConstraints)
+    private func updateOuterScrollState() {
+        let overflow = dynamicContentScrollView.contentSize.height > dynamicContentScrollView.bounds.height + 1
+        dynamicContentScrollView.isScrollEnabled = overflow
+        dynamicContentScrollView.showsVerticalScrollIndicator = overflow
+        dynamicContentScrollView.alwaysBounceVertical = overflow
+        dynamicContentScrollView.contentInset.bottom = overflow ? Self.bubbleScrollFadeHeight : 0
+        fadeView.isHidden = !overflow
     }
 
     func setCenteredOverlayView(_ view: UIView?) {
@@ -1114,12 +877,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             mutable.addAttribute(.foregroundColor, value: palette.ink, range: NSRange(location: 0, length: mutable.length))
             bodyLabel.attributedText = mutable
         }
-
-        // Update truncation label color
-        truncationLabel.textColor = (currentMessageRole == .user) ? palette.terracotta : palette.warmBrown
-
-        // Update truncation border
-        truncationBorder.backgroundColor = palette.borderSubtle
 
         // Update avatar
         avatarView.configure(role: currentMessageRole, isDark: palette.isDark)
@@ -1206,13 +963,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         return max(0, measured.height)
     }
 
-    @objc private func handleTruncationTap() {
-        onRequestExpand?()
-    }
-
     @objc private func handleBubbleTap() {
-        guard shouldTruncate else { return }
-        onRequestExpand?()
+        // No-op: truncation controls were removed. Bubble itself isn't a navigation affordance.
     }
 
     private func stripAttachmentSummaryIfNeeded() {

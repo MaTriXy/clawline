@@ -25,26 +25,6 @@ enum MessageFlowRules {
         return .long
     }
 
-    static func shouldTruncate(hasTextualParts: Bool,
-                               sizeClass: MessageSizeClass,
-                               isExpanded: Bool,
-                               measuredHeight: CGFloat,
-                               metrics: ChatFlowTheme.Metrics) -> Bool {
-        guard hasTextualParts else { return false }
-        guard sizeClass == .long else { return false }
-        guard measuredHeight > metrics.truncationHeight else { return false }
-        return !isExpanded
-    }
-
-    static func shouldShowTruncationControl(hasTextualParts: Bool,
-                                            sizeClass: MessageSizeClass,
-                                            measuredHeight: CGFloat,
-                                            metrics: ChatFlowTheme.Metrics) -> Bool {
-        guard hasTextualParts else { return false }
-        guard sizeClass == .long else { return false }
-        return measuredHeight > metrics.truncationHeight
-    }
-
     static let streamingPromotionDelay: Duration = .milliseconds(280)
 
     static func promotedSizeClass(current: MessageSizeClass, next: MessageSizeClass) -> MessageSizeClass {
