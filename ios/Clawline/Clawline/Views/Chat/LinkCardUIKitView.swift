@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import SafariServices
 
 final class LinkCardUIKitView: UIControl {
     private static let imageCache = NSCache<NSString, UIImage>()
@@ -265,7 +266,17 @@ final class LinkCardUIKitView: UIControl {
 
     @objc private func handleTap() {
         guard let url else { return }
+#if os(visionOS)
         UIApplication.shared.open(url)
+#else
+        // Prefer an in-app browser so the user doesn't context-switch out of Clawline.
+        if let viewController = parentViewController {
+            let safari = SFSafariViewController(url: url)
+            viewController.present(safari, animated: true)
+        } else {
+            UIApplication.shared.open(url)
+        }
+#endif
     }
 
     private func loadThumbnail(imageURL: URL, for url: URL) async {
@@ -335,5 +346,18 @@ final class LinkCardUIKitView: UIControl {
             lastMeasuredWidth = bounds.width
             invalidateIntrinsicContentSize()
         }
+    }
+}
+
+private extension UIView {
+    var parentViewController: UIViewController? {
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                return viewController
+            }
+            responder = current.next
+        }
+        return nil
     }
 }
