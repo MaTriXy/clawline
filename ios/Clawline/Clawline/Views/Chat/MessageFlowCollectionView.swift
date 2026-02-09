@@ -81,7 +81,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var bubbleSizingV2KeysByMessageId: [String: Set<BubbleSizingV2.CacheKey>] = [:]
     private var bubbleSizingV2LinkPreviewStateVersionByMessageId: [String: Int] = [:]
     private var bubbleSizingV2PendingRemeasureIds: Set<String> = []
-    private var bubbleSizingV2RemeasureScheduled = false
+    private var bubbleSizingV2RemeasureDebounceTimer: Timer?
+    private var bubbleSizingV2RemeasureBatchStartTime: CFAbsoluteTime?
+    private var bubbleSizingV2RemeasureDeferredUntilNearBottom: Bool = false
+    private static let bubbleSizingV2RemeasureDebounceSeconds: TimeInterval = 0.45
+    private static let bubbleSizingV2RemeasureMaxWaitSeconds: TimeInterval = 2.5
 
     private var messagesById: [String: Message] = [:]
     private var fingerprints: [String: Int] = [:]
@@ -211,6 +215,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
+        flushDeferredBubbleSizingV2RemeasureIfNeeded()
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -219,12 +224,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             updateVisibleCellOpacity()
         }
 #endif
+        if !decelerate {
+            flushDeferredBubbleSizingV2RemeasureIfNeeded()
+        }
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
+        flushDeferredBubbleSizingV2RemeasureIfNeeded()
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
@@ -1631,22 +1640,67 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func scheduleBubbleSizingV2Remeasure() {
-        guard !bubbleSizingV2RemeasureScheduled else { return }
-        bubbleSizingV2RemeasureScheduled = true
-        DispatchQueue.main.async { [weak self] in
+        // #66: Link previews (WKWebView) report final heights asynchronously. Each report used to
+        // trigger a reflow, causing bubbles to jump repeatedly on launch. Debounce + batch into
+        // a single remeasure pass, and defer applying it if the user isn't at the bottom.
+        if !canApplyBubbleSizingV2RemeasureNow() {
+            bubbleSizingV2RemeasureDeferredUntilNearBottom = true
+            bubbleSizingV2RemeasureDebounceTimer?.invalidate()
+            bubbleSizingV2RemeasureDebounceTimer = nil
+            return
+        }
+        if bubbleSizingV2RemeasureBatchStartTime == nil {
+            bubbleSizingV2RemeasureBatchStartTime = CFAbsoluteTimeGetCurrent()
+        }
+        bubbleSizingV2RemeasureDebounceTimer?.invalidate()
+        bubbleSizingV2RemeasureDebounceTimer = nil
+
+        let now = CFAbsoluteTimeGetCurrent()
+        let elapsed = now - (bubbleSizingV2RemeasureBatchStartTime ?? now)
+        let remaining = max(0, Self.bubbleSizingV2RemeasureMaxWaitSeconds - elapsed)
+        let delay = min(Self.bubbleSizingV2RemeasureDebounceSeconds, remaining)
+
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             guard let self else { return }
-            let ids = Array(self.bubbleSizingV2PendingRemeasureIds)
-            self.bubbleSizingV2PendingRemeasureIds.removeAll()
-            for id in ids {
-                self.invalidateBubbleSizingV2Cache(for: id)
-                self.invalidateLayout(for: id)
-                self.scheduleReconfigure(for: id)
-            }
-            // Clear at end so callbacks arriving during processing will schedule a new pass.
-            self.bubbleSizingV2RemeasureScheduled = false
-            if !self.bubbleSizingV2PendingRemeasureIds.isEmpty {
-                self.scheduleBubbleSizingV2Remeasure()
-            }
+            self.bubbleSizingV2RemeasureDebounceTimer = nil
+            self.flushBubbleSizingV2RemeasureIfPossible()
+        }
+        bubbleSizingV2RemeasureDebounceTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func canApplyBubbleSizingV2RemeasureNow() -> Bool {
+        // If the user scrolled up to read, don't reflow under their finger/eyes.
+        isNearBottom(extraMargin: 240) && !isUserInteracting
+    }
+
+    private func flushDeferredBubbleSizingV2RemeasureIfNeeded() {
+        guard bubbleSizingV2Enabled else { return }
+        guard bubbleSizingV2RemeasureDeferredUntilNearBottom else { return }
+        guard canApplyBubbleSizingV2RemeasureNow() else { return }
+        bubbleSizingV2RemeasureDeferredUntilNearBottom = false
+        flushBubbleSizingV2RemeasureIfPossible()
+    }
+
+    private func flushBubbleSizingV2RemeasureIfPossible() {
+        guard canApplyBubbleSizingV2RemeasureNow() else {
+            bubbleSizingV2RemeasureDeferredUntilNearBottom = true
+            return
+        }
+
+        let ids = Array(bubbleSizingV2PendingRemeasureIds)
+        bubbleSizingV2PendingRemeasureIds.removeAll()
+        bubbleSizingV2RemeasureBatchStartTime = nil
+
+        for id in ids {
+            invalidateBubbleSizingV2Cache(for: id)
+            invalidateLayout(for: id)
+            scheduleReconfigure(for: id)
+        }
+
+        // If more height updates arrived while we were flushing, schedule another debounced pass.
+        if !bubbleSizingV2PendingRemeasureIds.isEmpty {
+            scheduleBubbleSizingV2Remeasure()
         }
     }
 
