@@ -334,10 +334,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         ])
         // Prefer growing the wrapper to the content height (so the scroll view stays inert when
         // content fits), but allow the required max-height cap to win when content overflows.
+        //
+        // Important: this must be low priority. If it competes with intrinsic content heights at
+        // `.defaultHigh`, Auto Layout may satisfy it by vertically compressing arranged subviews,
+        // which produces clipped content with no outer scroll overflow detected.
         let wrapperHeightConstraint = dynamicContentWrapper.heightAnchor.constraint(
             equalTo: dynamicContentScrollView.contentLayoutGuide.heightAnchor
         )
-        wrapperHeightConstraint.priority = .defaultHigh
+        wrapperHeightConstraint.priority = .defaultLow
         wrapperHeightConstraint.isActive = true
         wrapperPrefersContentHeightConstraint = wrapperHeightConstraint
         contentStack.addArrangedSubview(dynamicContentWrapper)
