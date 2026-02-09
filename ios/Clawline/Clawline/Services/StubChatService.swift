@@ -73,6 +73,10 @@ final class StubChatService: ChatServicing {
         messageContinuation?.yield(response)
     }
 
+    func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {
+        // No-op for stub.
+    }
+
     func emitServiceEvent(_ event: ChatServiceEvent) {
         serviceEventContinuation?.yield(event)
     }

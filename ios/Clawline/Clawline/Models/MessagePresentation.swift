@@ -127,6 +127,7 @@ enum MessagePart: Equatable {
     case gallery([Attachment])
     case file(Attachment)
     case terminalSession(TerminalSessionDescriptor)
+    case interactiveHTML(InteractiveHTMLDescriptor)
     case inlineEmoji(String)
 }
 
@@ -146,7 +147,7 @@ extension MessagePart {
             return true
         case .linkPreview:
             return true
-        case .image, .gallery, .file, .terminalSession:
+        case .image, .gallery, .file, .terminalSession, .interactiveHTML:
             return false
         }
     }
@@ -208,9 +209,10 @@ enum MessagePresentationBuilder {
         let segments = Segmenter.split(message.content)
         let terminalAllowed = SessionKey.isClawlinePersonalDM(message.sessionKey)
         let terminalAttachments = terminalAllowed ? terminalSessionAttachments(from: message.attachments) : []
+        let interactiveAttachments = interactiveHTMLAttachments(from: message.attachments)
         let imageAttachments = imageAttachments(from: message.attachments)
         let fileAttachments = fileAttachments(from: message.attachments)
-        let hasAttachments = !terminalAttachments.isEmpty || !imageAttachments.isEmpty || !fileAttachments.isEmpty
+        let hasAttachments = !terminalAttachments.isEmpty || !interactiveAttachments.isEmpty || !imageAttachments.isEmpty || !fileAttachments.isEmpty
         var parts: [MessagePart] = []
         var collectedPlainText: [String] = []
         var hasTextual = false
@@ -233,6 +235,17 @@ enum MessagePresentationBuilder {
                 parts.append(.terminalSession(descriptor))
                 hasBlockedParts = true
                 decodedTerminalAttachmentIDs.insert(attachment.id)
+            }
+        }
+
+        // Interactive HTML bubbles are encoded as a special document attachment; intercept them
+        // so they never fall through to the generic file attachment UI.
+        var decodedInteractiveAttachmentIDs: Set<String> = []
+        for attachment in interactiveAttachments {
+            if let descriptor = decodeInteractiveHTMLDescriptor(from: attachment) {
+                parts.append(.interactiveHTML(descriptor))
+                hasBlockedParts = true
+                decodedInteractiveAttachmentIDs.insert(attachment.id)
             }
         }
 
@@ -295,7 +308,7 @@ enum MessagePresentationBuilder {
         }
         if !fileAttachments.isEmpty {
             for attachment in fileAttachments {
-                if decodedTerminalAttachmentIDs.contains(attachment.id) {
+                if decodedTerminalAttachmentIDs.contains(attachment.id) || decodedInteractiveAttachmentIDs.contains(attachment.id) {
                     continue
                 }
                 parts.append(.file(attachment))
@@ -932,6 +945,13 @@ enum MessagePresentationBuilder {
         return attachment.mimeType?.lowercased() == TerminalSessionDescriptor.mimeType
     }
 
+    private static func interactiveHTMLAttachments(from attachments: [Attachment]) -> [Attachment] {
+        attachments.filter { attachment in
+            guard attachment.type == .document else { return false }
+            return attachment.mimeType?.lowercased() == InteractiveHTMLDescriptor.mimeType
+        }
+    }
+
     private static func decodeTerminalSessionDescriptor(from attachment: Attachment) -> TerminalSessionDescriptor? {
         guard isTerminalSessionAttachment(attachment),
               let data = attachment.data,
@@ -943,6 +963,23 @@ enum MessagePresentationBuilder {
         } catch {
             logger.error(
                 "terminal_session_descriptor_decode_failed id=\(attachment.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    private static func decodeInteractiveHTMLDescriptor(from attachment: Attachment) -> InteractiveHTMLDescriptor? {
+        guard attachment.type == .document,
+              attachment.mimeType?.lowercased() == InteractiveHTMLDescriptor.mimeType,
+              let data = attachment.data,
+              !data.isEmpty else {
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode(InteractiveHTMLDescriptor.self, from: data)
+        } catch {
+            logger.error(
+                "interactive_html_descriptor_decode_failed id=\(attachment.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
             )
             return nil
         }

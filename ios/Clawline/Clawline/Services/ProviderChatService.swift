@@ -98,6 +98,17 @@ final class ProviderChatService: ChatServicing {
         let features: [String]?
     }
 
+    private struct InteractiveCallbackOutboundPayload: Encodable {
+        let type = "interactive-callback"
+        let messageId: String
+        let payload: Payload
+
+        struct Payload: Encodable {
+            let action: String
+            let data: JSONValue?
+        }
+    }
+
     private struct Envelope: Decodable {
         let type: String
     }
@@ -303,6 +314,23 @@ final class ProviderChatService: ChatServicing {
         let retryTask = scheduleRetry(for: payload)
         pendingMessages[id] = PendingMessage(payload: payload, retryTask: retryTask)
 
+        try await socket.send(text: text)
+    }
+
+    func sendInteractiveCallback(
+        sourceMessageId: String,
+        action: String,
+        data: JSONValue?
+    ) async throws {
+        guard let socket else {
+            throw Error.notConnected
+        }
+        let payload = InteractiveCallbackOutboundPayload(
+            messageId: sourceMessageId,
+            payload: .init(action: action, data: data)
+        )
+        let encoded = try encoder.encode(payload)
+        guard let text = String(data: encoded, encoding: .utf8) else { return }
         try await socket.send(text: text)
     }
 

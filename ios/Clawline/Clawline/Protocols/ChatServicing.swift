@@ -61,4 +61,10 @@ protocol ChatServicing {
         attachments: [WireAttachment],
         sessionKey: String?
     ) async throws
+
+    func sendInteractiveCallback(
+        sourceMessageId: String,
+        action: String,
+        data: JSONValue?
+    ) async throws
 }

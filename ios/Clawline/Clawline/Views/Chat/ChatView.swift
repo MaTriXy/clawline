@@ -1463,6 +1463,7 @@ private final class PreviewChatService: ChatServicing {
     func connect(token: String, lastMessageId: String?) async throws {}
     func disconnect() {}
     func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String?) async throws {}
+    func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {}
 }
 
 private struct AttachmentSourceSheet: View {

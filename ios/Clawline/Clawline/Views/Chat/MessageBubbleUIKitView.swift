@@ -69,6 +69,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRequestLayout: ((String) -> Void)?,
+                   onInteractiveCallback: ((String, String, JSONValue?) -> Void)?,
                    onRetry: (() -> Void)?) {
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
@@ -87,7 +88,8 @@ final class MessageBubbleUIKitContainerView: UIView {
             useContinuousCorners: useContinuousCorners,
             isDark: isDark,
             onRequestExpand: onRequestExpand,
-            onRequestLayout: onRequestLayout
+            onRequestLayout: onRequestLayout,
+            onInteractiveCallback: onInteractiveCallback
         )
         self.onRetry = onRetry
         self.onRequestLayout = onRequestLayout
@@ -162,6 +164,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var fileTapHandlers: [ObjectIdentifier: () -> Void] = [:]
     private var onRequestExpand: (() -> Void)?
     private var onRequestLayout: ((String) -> Void)?
+    private var onInteractiveCallback: ((String, String, JSONValue?) -> Void)?
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
     private var currentStream: ChatStream = .personal
@@ -439,7 +442,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
-                   onRequestLayout: ((String) -> Void)?) {
+                   onRequestLayout: ((String) -> Void)?,
+                   onInteractiveCallback: ((String, String, JSONValue?) -> Void)?) {
         // Store for trait collection updates
         currentMessageRole = message.role
         currentStream = message.stream
@@ -457,6 +461,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fixedWidthConstraint = nil
         self.onRequestExpand = onRequestExpand
         self.onRequestLayout = onRequestLayout
+        self.onInteractiveCallback = onInteractiveCallback
 
         // Use explicit isDark if provided, otherwise fall back to trait collection
         let effectiveIsDark = isDark ?? (traitCollection.userInterfaceStyle == .dark)
@@ -481,6 +486,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
             if let terminalView = view as? TerminalBubbleUIKitView {
                 terminalView.prepareForReuse()
+            }
+            if let htmlView = view as? InteractiveHTMLBubbleUIKitView {
+                htmlView.prepareForReuse()
             }
             dynamicContentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -724,6 +732,24 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             terminalBubble.configure(descriptor: descriptor, style: .bubble(height: heightCap))
             dynamicContentStack.addArrangedSubview(terminalBubble)
             dynamicContentViews.append(terminalBubble)
+        }
+
+        // Add embedded interactive HTML bubbles (T031).
+        let interactiveDescriptors = presentation.parts.compactMap { part -> InteractiveHTMLDescriptor? in
+            if case .interactiveHTML(let descriptor) = part { return descriptor }
+            return nil
+        }
+        for descriptor in interactiveDescriptors {
+            let htmlView = InteractiveHTMLBubbleUIKitView()
+            htmlView.onHeightChange = { [weak self] in
+                self?.onRequestLayout?(message.id)
+            }
+            htmlView.onCallback = { [weak self] action, data in
+                self?.onInteractiveCallback?(message.id, action, data)
+            }
+            htmlView.configure(descriptor: descriptor, messageId: message.id, isDark: palette.isDark)
+            dynamicContentStack.addArrangedSubview(htmlView)
+            dynamicContentViews.append(htmlView)
         }
 
         // Flynn: terminal bubbles render without bubble chrome and without standard padding.
@@ -1067,7 +1093,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 return "Table (\(model.rows.count) rows)"
             case .linkPreview:
                 return ""
-            case .image, .gallery, .file, .terminalSession:
+            case .image, .gallery, .file, .terminalSession, .interactiveHTML:
                 return ""
             }
         }
@@ -1110,7 +1136,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             switch $0 {
             case .text, .markdown, .inlineEmoji:
                 return true
-            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession:
+            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession, .interactiveHTML:
                 return false
             }
         }
@@ -1140,7 +1166,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             case .inlineEmoji(let value):
                 result.append(NSAttributedString(string: value, attributes: baseAttributes))
 
-            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession:
+            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession, .interactiveHTML:
                 break
             }
         }
@@ -1818,6 +1844,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRequestLayout: ((String) -> Void)?,
+                   onInteractiveCallback: ((String, String, JSONValue?) -> Void)?,
                    onRetry: (() -> Void)?) {
         messageId = message.id
         messageSnippet = String(message.content.prefix(80))
@@ -1837,6 +1864,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             isDark: isDark,
             onRequestExpand: onRequestExpand,
             onRequestLayout: guardedRequestLayout,
+            onInteractiveCallback: onInteractiveCallback,
             onRetry: onRetry
         )
     }

@@ -162,6 +162,12 @@ struct ExpandedMessageSheet: View {
         case .terminalSession(let descriptor):
             TerminalBubbleExpandedRepresentable(descriptor: descriptor)
                 .frame(maxWidth: .infinity)
+        case .interactiveHTML(let descriptor):
+            FileAttachmentRow(
+                filename: descriptor.metadata?.title.map { "Interactive: \($0)" } ?? "Interactive HTML",
+                sizeText: nil,
+                colorScheme: effectiveColorScheme
+            )
         }
     }
 

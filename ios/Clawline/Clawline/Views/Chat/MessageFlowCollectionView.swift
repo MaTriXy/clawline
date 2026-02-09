@@ -658,6 +658,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 onRequestLayout: { [weak self] messageId in
                     self?.handleCellRequestedLayout(messageId: messageId)
                 },
+                onInteractiveCallback: { [weak self] sourceMessageId, action, data in
+                    self?.viewModel?.sendInteractiveCallback(
+                        sourceMessageId: sourceMessageId,
+                        action: action,
+                        data: data
+                    )
+                },
                 onRetry: { [weak self] in
                     self?.viewModel?.retryMessage(messageId: message.id)
                 }
@@ -1053,7 +1060,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             minWidthOverride: minWidthOverride,
             maxWidthOverride: maxWidthOverride,
             onRequestExpand: nil,
-            onRequestLayout: nil
+            onRequestLayout: nil,
+            onInteractiveCallback: nil
         )
         let effectiveMaxWidth = maxWidthOverride ?? maxWidth
         let preferredWidth: CGFloat
@@ -1296,7 +1304,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             truncationHeightOverride: nil,
             showsHeader: showsHeader,
             onRequestExpand: nil,
-            onRequestLayout: nil
+            onRequestLayout: nil,
+            onInteractiveCallback: nil
         )
 
         let measuredBubbleWidth: CGFloat = {
@@ -1343,7 +1352,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             bubbleSizingV2: provisional1,
             showsHeader: showsHeader,
             onRequestExpand: nil,
-            onRequestLayout: nil
+            onRequestLayout: nil,
+            onInteractiveCallback: nil
         )
         let target = CGSize(width: measuredBubbleWidth, height: UIView.layoutFittingCompressedSize.height)
         let measured1 = uiKitBubbleSizer.systemLayoutSizeFitting(
@@ -1390,7 +1400,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             bubbleSizingV2: provisional2,
             showsHeader: showsHeader,
             onRequestExpand: nil,
-            onRequestLayout: nil
+            onRequestLayout: nil,
+            onInteractiveCallback: nil
         )
 
         let measured2 = uiKitBubbleSizer.systemLayoutSizeFitting(

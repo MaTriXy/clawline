@@ -363,6 +363,24 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) {
+        Task { [chatService, logger] in
+            do {
+                try await chatService.sendInteractiveCallback(
+                    sourceMessageId: sourceMessageId,
+                    action: action,
+                    data: data
+                )
+            } catch {
+                // Callbacks are best-effort fire-and-forget (T031). Failures should be silent
+                // to avoid spamming toasts for interaction-heavy bubbles.
+                logger.error(
+                    "interactive_callback_send_failed messageId=\(sourceMessageId, privacy: .public) action=\(action, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+    }
+
     func retryMessage(messageId: String) {
         guard !isSending else { return }
         guard let (message, sessionKey, index) = findMessage(id: messageId) else { return }
