@@ -17,12 +17,12 @@ struct RootView: View {
     @Environment(\.chatService) private var chatService
     @Environment(\.settingsManager) private var settings
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("provider.baseURL") private var providerBaseURLString: String = ""
 
     private var isProviderConfigured: Bool {
-        let trimmed = providerBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        return URL(string: trimmed) != nil
+        // Avoid `@AppStorage` here: it can create SwiftUI AttributeGraph cycles on cold start when
+        // credentials persist in Keychain but UserDefaults are empty (fresh reinstall). We only
+        // need a snapshot read to decide whether to route into PairingView.
+        ProviderBaseURLStore.baseURL != nil
     }
 
     private var backgroundColor: Color {
@@ -48,7 +48,7 @@ struct RootView: View {
 #if os(visionOS)
         .preferredColorScheme(settings.preferredColorScheme)
 #endif
-        .task(id: "\(auth.isAuthenticated)-\(providerBaseURLString)") {
+        .task(id: auth.isAuthenticated) {
             if auth.isAuthenticated && isProviderConfigured {
                 ensureChatViewModel()
             } else {
