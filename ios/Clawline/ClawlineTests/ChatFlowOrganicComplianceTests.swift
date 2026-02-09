@@ -404,34 +404,6 @@ struct ChatFlowOrganicComplianceTests {
         }))
     }
 
-    @Test("Terminal bubbles: descriptor w/ name + no version still parses (and mimeType parameters are ignored)")
-    func messagePresentationTerminalSessionAttachmentParsesLegacyDescriptor() throws {
-        let json = """
-        {"terminalSessionId":"ts_legacy","name":"gateway logs","cols":80,"rows":24}
-        """
-        let data = try #require(json.data(using: .utf8))
-        let terminalAttachment = Clawline.Attachment(
-            id: "term_legacy",
-            type: .document,
-            mimeType: "\(TerminalSessionDescriptor.mimeType); charset=utf-8",
-            data: data,
-            assetId: nil
-        )
-        let message = sampleMessage(
-            content: "Live logs:",
-            attachments: [terminalAttachment],
-            sessionKey: "agent:main:clawline:mike:dm"
-        )
-        let presentation = buildPresentation(message)
-
-        #expect(presentation.parts.contains(where: { part in
-            if case .terminalSession(let decoded) = part {
-                return decoded.terminalSessionId == "ts_legacy" && decoded.title == "gateway logs"
-            }
-            return false
-        }))
-    }
-
     @Test("Doc §6: Word count strips markdown syntax")
     func wordCountStripsMarkdown() {
         let presentation = buildPresentation(sampleMessage(content: "**bold** _italic_ `code` text"))

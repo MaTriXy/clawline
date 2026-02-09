@@ -927,15 +927,9 @@ enum MessagePresentationBuilder {
         attachments.filter(isTerminalSessionAttachment)
     }
 
-    private static func normalizeMimeType(_ mime: String?) -> String? {
-        guard let mime else { return nil }
-        let head = mime.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true).first
-        return head?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
     private static func isTerminalSessionAttachment(_ attachment: Attachment) -> Bool {
         guard attachment.type == .document else { return false }
-        return normalizeMimeType(attachment.mimeType) == TerminalSessionDescriptor.mimeType
+        return attachment.mimeType?.lowercased() == TerminalSessionDescriptor.mimeType
     }
 
     private static func decodeTerminalSessionDescriptor(from attachment: Attachment) -> TerminalSessionDescriptor? {
