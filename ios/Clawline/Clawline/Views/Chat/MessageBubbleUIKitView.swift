@@ -168,6 +168,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
     private var currentStream: ChatStream = .personal
+    private var currentSizeClass: MessageSizeClass = .short
     private var currentContentPaddingHorizontal: CGFloat = 16
     private var currentContentPaddingVertical: CGFloat = 14
     private var contentLeadingConstraint: NSLayoutConstraint!
@@ -451,6 +452,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         // Store for trait collection updates
         currentMessageRole = message.role
         currentStream = message.stream
+        currentSizeClass = sizeClass
         self.showsHeader = showsHeader
         contentPaddingScale = paddingScale
         self.useContinuousCorners = useContinuousCorners
@@ -915,9 +917,21 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     private func updateOuterScrollState() {
+        // Design-system: only large (.long) bubbles can scroll/truncate. Short/medium bubbles never
+        // show outer scroll chrome (fade mask / "squircle bar"), even under Dynamic Type.
+        //
         // Terminal bubbles have their own scroll/interaction model; never enable outer bubble scrolling.
+        guard currentSizeClass == .long, !hasTerminalSessionsForLayout else {
+            dynamicContentScrollView.isScrollEnabled = false
+            dynamicContentScrollView.showsVerticalScrollIndicator = false
+            dynamicContentScrollView.alwaysBounceVertical = false
+            dynamicContentScrollView.contentInset.bottom = 0
+            fadeView.isHidden = true
+            return
+        }
+
         dynamicContentScrollView.layoutIfNeeded()
-        let overflow = (!hasTerminalSessionsForLayout) && dynamicContentScrollView.contentSize.height > dynamicContentScrollView.bounds.height + 1
+        let overflow = dynamicContentScrollView.contentSize.height > dynamicContentScrollView.bounds.height + 1
         dynamicContentScrollView.isScrollEnabled = overflow
         dynamicContentScrollView.showsVerticalScrollIndicator = overflow
         dynamicContentScrollView.alwaysBounceVertical = overflow

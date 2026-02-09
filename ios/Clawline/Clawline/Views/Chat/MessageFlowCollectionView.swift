@@ -1329,8 +1329,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             }
         }()
 
+        // Design-system: only "large" (.long) bubbles get truncation/outer-scroll behavior.
+        // Short/medium bubbles should grow to content (no truncation chrome), even with Dynamic Type.
+        let allowsOuterScroll = (sizeClass == .long)
+
         let heightCapMode: BubbleSizingV2.HeightCapMode = prefersScreenAwareHeightCap ? .screenAware : .designSystem
         let heightCap: CGFloat = {
+            // If outer-scroll is disabled, use a very generous cap so we never force overflow.
+            guard allowsOuterScroll else { return 2000 }
             switch heightCapMode {
             case .screenAware:
                 return effectiveTruncationHeight(metrics: metrics)
@@ -1343,9 +1349,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             if case .linkPreview(let url) = part { return url }
             return nil
         }).first
-
-        // Outer scroll container exists for every bubble; overflow is handled by a max height cap.
-        let allowsOuterScroll = true
 
         return BubbleSizingV2.Plan(
             messageId: message.id,
@@ -1555,8 +1558,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let dynamicHeight2 = uiKitBubbleSizer.measuredDynamicContentHeight(fittingWidth: contentWidth)
 
         let badgeExtra: CGFloat = (failureReason != nil) ? 32 : 0
-        let outerScrollEnabled = measured2.height > plan.heightCap
-        let cellHeight = min(measured2.height, plan.heightCap) + badgeExtra
+        let outerScrollEnabled = plan.allowsOuterScroll && measured2.height > plan.heightCap
+        let cellHeight: CGFloat = {
+            if plan.allowsOuterScroll {
+                return min(measured2.height, plan.heightCap) + badgeExtra
+            }
+            return measured2.height + badgeExtra
+        }()
 
         let snappedSize = snapToPixel(CGSize(width: measuredBubbleWidth, height: max(1, cellHeight)))
         let measurement = BubbleSizingV2.Measurement(
