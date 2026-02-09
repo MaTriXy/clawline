@@ -171,7 +171,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var contentTrailingConstraint: NSLayoutConstraint!
     private var contentTopConstraint: NSLayoutConstraint!
     private var contentBottomConstraint: NSLayoutConstraint!
-    private var scrollViewContentHeightConstraint: NSLayoutConstraint?
+    private var wrapperPrefersContentHeightConstraint: NSLayoutConstraint?
     private var dynamicContentViews: [UIView] = []
     private var isChromeless = false
     private var hasTerminalSessionsForLayout = false
@@ -329,12 +329,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentStack.bottomAnchor.constraint(equalTo: dynamicContentScrollView.contentLayoutGuide.bottomAnchor),
             dynamicContentStack.widthAnchor.constraint(equalTo: dynamicContentScrollView.frameLayoutGuide.widthAnchor)
         ])
-        let contentHeightConstraint = dynamicContentScrollView.heightAnchor.constraint(
+        // Prefer growing the wrapper to the content height (so the scroll view stays inert when
+        // content fits), but allow the required max-height cap to win when content overflows.
+        let wrapperHeightConstraint = dynamicContentWrapper.heightAnchor.constraint(
             equalTo: dynamicContentScrollView.contentLayoutGuide.heightAnchor
         )
-        contentHeightConstraint.priority = .defaultHigh
-        contentHeightConstraint.isActive = true
-        scrollViewContentHeightConstraint = contentHeightConstraint
+        wrapperHeightConstraint.priority = .defaultHigh
+        wrapperHeightConstraint.isActive = true
+        wrapperPrefersContentHeightConstraint = wrapperHeightConstraint
         contentStack.addArrangedSubview(dynamicContentWrapper)
 
         fadeView.translatesAutoresizingMaskIntoConstraints = false
@@ -884,6 +886,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
     private func updateOuterScrollState() {
         // Terminal bubbles have their own scroll/interaction model; never enable outer bubble scrolling.
+        dynamicContentScrollView.layoutIfNeeded()
         let overflow = (!hasTerminalSessionsForLayout) && dynamicContentScrollView.contentSize.height > dynamicContentScrollView.bounds.height + 1
         dynamicContentScrollView.isScrollEnabled = overflow
         dynamicContentScrollView.showsVerticalScrollIndicator = overflow
@@ -1008,7 +1011,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     @objc private func handleBubbleTap() {
-        // No-op: truncation controls were removed. Bubble itself isn't a navigation affordance.
+        // If the bubble overflows the max height cap, allow tap-to-expand (signals "truncated").
+        if dynamicContentScrollView.contentSize.height > dynamicContentScrollView.bounds.height + 1 {
+            onRequestExpand?()
+        }
     }
 
     private func stripAttachmentSummaryIfNeeded() {
