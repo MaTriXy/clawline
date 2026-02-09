@@ -393,39 +393,6 @@ struct ChatView: View {
                 layoutKey: layoutKey
             )
         }
-        .overlay(alignment: .bottom) {
-            // T029: Place the scroll-to-bottom button centered just above the message bar on all platforms.
-            let stream = viewModel.activeStream
-            let state = scrollButtonState(for: stream)
-            // The input bar is pinned to `keyboardLayoutGuide` with `usesBottomSafeArea = false`,
-            // so its bottom gap is measured from the physical screen edge (not the safe area).
-            // Match that here: only add keyboard height when the keyboard is actually visible.
-            let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
-            let inputBarTopFromScreenBottom = keyboardInset + belowBarGap + resolvedInputHeight
-            ScrollToBottomButton(
-                isVisible: state.isVisible,
-                unreadCount: state.unreadCount,
-                bounceToken: state.bounceToken,
-                onTap: {
-                    let current = scrollButtonState(for: stream)
-                    if current.unreadCount > 0 {
-                        if let firstUnread = current.firstUnreadMessageId {
-                            layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
-                        } else {
-                            layoutCoordinator.scrollToBottom(channel: stream, animated: true)
-                        }
-                        mutateScrollButtonState(for: stream) { s in
-                            s.unreadCount = 0
-                            s.firstUnreadMessageId = nil
-                        }
-                        return
-                    }
-                    layoutCoordinator.scrollToBottom(channel: stream, animated: true)
-                }
-            )
-            .padding(.bottom, inputBarTopFromScreenBottom + 12)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
     }
 
     private var appVersionLabel: AttributedString? {
@@ -492,11 +459,39 @@ struct ChatView: View {
                                  belowBarGap: CGFloat,
                                  isKeyboardVisible: Bool,
                                  layoutKey: ChatLayoutKey) -> some View {
-        KeyboardPinnedContainer(
+        // T029: Attach the scroll-to-bottom indicator to the pinned input bar so it tracks keyboard
+        // show/hide animations driven by `keyboardLayoutGuide` (vs relying on SwiftUI keyboard state).
+        let stream = viewModel.activeStream
+        let state = scrollButtonState(for: stream)
+        let scrollOverlay = AnyView(
+            ScrollToBottomButton(
+                isVisible: state.isVisible,
+                unreadCount: state.unreadCount,
+                bounceToken: state.bounceToken,
+                onTap: {
+                    let current = scrollButtonState(for: stream)
+                    if current.unreadCount > 0 {
+                        if let firstUnread = current.firstUnreadMessageId {
+                            layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
+                        } else {
+                            layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                        }
+                        mutateScrollButtonState(for: stream) { s in
+                            s.unreadCount = 0
+                            s.firstUnreadMessageId = nil
+                        }
+                        return
+                    }
+                    layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                }
+            )
+        )
+        return KeyboardPinnedContainer(
             desiredBottomGap: belowBarGap,
             isKeyboardVisible: isKeyboardVisible,
             measuredHeight: $inputBarHeight,
             versionText: appVersionLabel,
+            scrollOverlay: scrollOverlay,
             layoutCoordinator: layoutCoordinator,
             layoutKey: layoutKey
         ) {
@@ -1171,6 +1166,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     let isKeyboardVisible: Bool
     @Binding var measuredHeight: CGFloat
     let versionText: AttributedString?
+    let scrollOverlay: AnyView?
     let layoutCoordinator: ChatLayoutCoordinator
     let layoutKey: ChatLayoutKey
     let content: Content
@@ -1180,6 +1176,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         isKeyboardVisible: Bool,
         measuredHeight: Binding<CGFloat>,
         versionText: AttributedString? = nil,
+        scrollOverlay: AnyView? = nil,
         layoutCoordinator: ChatLayoutCoordinator,
         layoutKey: ChatLayoutKey,
         @ViewBuilder content: () -> Content
@@ -1188,13 +1185,18 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         self.isKeyboardVisible = isKeyboardVisible
         self._measuredHeight = measuredHeight
         self.versionText = versionText
+        self.scrollOverlay = scrollOverlay
         self.layoutCoordinator = layoutCoordinator
         self.layoutKey = layoutKey
         self.content = content()
     }
 
     func makeUIView(context: Context) -> KeyboardPinnedContainerView<Content> {
-        let container = KeyboardPinnedContainerView(rootView: content, versionText: versionText)
+        let container = KeyboardPinnedContainerView(
+            rootView: content,
+            versionText: versionText,
+            scrollOverlay: scrollOverlay
+        )
         return container
     }
 
@@ -1202,6 +1204,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         let t0 = CFAbsoluteTimeGetCurrent()
         uiView.hostingController.rootView = content
         uiView.updateVersionText(versionText)
+        uiView.updateScrollOverlay(scrollOverlay)
         uiView.setOnBarHeightChange { [weak layoutCoordinator] height in
             if abs(measuredHeight - height) > 0.5 {
                 DispatchQueue.main.async {
@@ -1219,6 +1222,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
 
 private final class KeyboardPinnedContainerView<Content: View>: UIView, KeyboardPinnedContainerViewProtocol {
     let hostingController: UIHostingController<Content>
+    private let scrollOverlayController: UIHostingController<AnyView>
     let versionLabel: UILabel
     private var minHeightConstraint: NSLayoutConstraint?
     private var hostingBottomToKeyboard: NSLayoutConstraint?
@@ -1228,8 +1232,9 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private var onBarHeightChange: ((CGFloat) -> Void)?
     private var lastMeasuredHeight: CGFloat = 0
 
-    init(rootView: Content, versionText: AttributedString?) {
+    init(rootView: Content, versionText: AttributedString?, scrollOverlay: AnyView?) {
         hostingController = UIHostingController(rootView: rootView)
+        scrollOverlayController = UIHostingController(rootView: scrollOverlay ?? AnyView(EmptyView()))
         versionLabel = UILabel()
         super.init(frame: .zero)
         backgroundColor = .clear
@@ -1240,6 +1245,13 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         }
         hostingController.view.backgroundColor = .clear
         hostingController.view.isOpaque = false
+
+        if #available(iOS 16.0, visionOS 1.0, *) {
+            scrollOverlayController.sizingOptions = [.intrinsicContentSize]
+            scrollOverlayController.safeAreaRegions = []
+        }
+        scrollOverlayController.view.backgroundColor = .clear
+        scrollOverlayController.view.isOpaque = false
 
         versionLabel.font = .preferredFont(forTextStyle: .caption2)
         versionLabel.textColor = .secondaryLabel
@@ -1281,6 +1293,10 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         }
     }
 
+    func updateScrollOverlay(_ overlay: AnyView?) {
+        scrollOverlayController.rootView = overlay ?? AnyView(EmptyView())
+    }
+
     func setDesiredBottomGap(_ gap: CGFloat, isKeyboardVisible: Bool) {
         ensureConstraints(desiredBottomGap: gap)
 #if os(visionOS)
@@ -1299,6 +1315,13 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         if let hitView = hostingController.view, hitView.frame.contains(point) {
+            return true
+        }
+        // Only capture touches for the scroll overlay when it's actually visible/interactable.
+        if let scrollView = scrollOverlayController.view,
+           !scrollView.isHidden,
+           scrollView.alpha > 0.01,
+           scrollView.frame.contains(point) {
             return true
         }
         if !versionLabel.isHidden && versionLabel.frame.contains(point) {
@@ -1324,6 +1347,10 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
             addSubview(hostingView)
 
+            let scrollView = scrollOverlayController.view!
+            scrollView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(scrollView)
+
             versionLabel.translatesAutoresizingMaskIntoConstraints = false
             addSubview(versionLabel)
 
@@ -1341,6 +1368,8 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
                 bottomToContainerConstraint,
                 topConstraint,
+                scrollView.centerXAnchor.constraint(equalTo: centerXAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -12),
                 versionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
                 versionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
                 versionLabel.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -4),
@@ -1353,6 +1382,10 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             hostingView.setContentHuggingPriority(.defaultHigh, for: .vertical)
             hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
             addSubview(hostingView)
+
+            let scrollView = scrollOverlayController.view!
+            scrollView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(scrollView)
 
             versionLabel.translatesAutoresizingMaskIntoConstraints = false
             addSubview(versionLabel)
@@ -1382,6 +1415,8 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 minHeight,
                 topConstraint,
                 hostingToKeyboard,
+                scrollView.centerXAnchor.constraint(equalTo: centerXAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -12),
                 versionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
                 versionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
                 versionToKeyboard,
