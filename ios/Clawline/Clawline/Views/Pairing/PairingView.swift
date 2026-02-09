@@ -25,24 +25,17 @@ struct PairingView: View {
         ))
     }
 
-    // Device corner radius for concentric alignment.
-    // Face ID devices have ~50pt corner radius, home button devices have 0.
-    private var deviceCornerRadius: CGFloat {
-        let window = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }
-        let hasRoundedCorners = (window?.safeAreaInsets.bottom ?? 0) > 0
-        return hasRoundedCorners ? 50 : 0
-    }
-
-    private var concentricPadding: CGFloat {
-        max(deviceCornerRadius - 24, 8)  // 48pt button height / 2 = 24
-    }
-
     var body: some View {
         // GeometryReader needed for inputScrollView width calculation
         GeometryReader { geometry in
+            // Avoid reaching into UIKit's key window/safeAreaInsets from SwiftUI layout. On cold start
+            // (esp. after reinstall when we route straight into pairing), that can create an
+            // AttributeGraph layout cycle and render as a black screen. GeometryReader's safe area
+            // is a stable SwiftUI-owned dependency.
+            let hasRoundedCorners = geometry.safeAreaInsets.bottom > 0
+            let deviceCornerRadius: CGFloat = hasRoundedCorners ? 50 : 0
+            let concentricPadding: CGFloat = max(deviceCornerRadius - 24, 8)  // 48pt button height / 2 = 24
+
             VStack {
                 Spacer(minLength: 50)
 
