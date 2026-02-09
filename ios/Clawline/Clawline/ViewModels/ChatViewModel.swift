@@ -84,6 +84,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private let uploadService: any UploadServicing
     private let settings: SettingsManager
     private let deviceId: String
+    let salientHighlightService: any SalientHighlightServicing
     private var observationTask: Task<Void, Never>?
     private var sessionMessages: [String: [Message]] = [:]
     private var lastServerMessageIdBySession: [String: String] = [:]
@@ -138,6 +139,7 @@ final class ChatViewModel: ChatViewModelHosting {
          device: any DeviceIdentifying,
          uploadService: any UploadServicing,
          toastManager: ToastManager,
+         salientHighlightService: any SalientHighlightServicing,
          connectionAlertGracePeriod: Duration = .seconds(2)) {
         logger.info("ChatViewModel init id=\(self.instanceId, privacy: .public)")
         self.auth = auth
@@ -146,6 +148,7 @@ final class ChatViewModel: ChatViewModelHosting {
         self.deviceId = device.deviceId
         self.uploadService = uploadService
         self.toastManager = toastManager
+        self.salientHighlightService = salientHighlightService
         self.connectionAlertGracePeriod = connectionAlertGracePeriod
         NotificationCenter.default.addObserver(
             self,

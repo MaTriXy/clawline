@@ -10,6 +10,7 @@ import SwiftUI
 struct RootView: View {
     let uploadService: any UploadServicing
     @State private var toastManager = ToastManager()
+    @State private var salientHighlightService = SalientHighlightService()
     @State private var chatViewModel: ChatViewModel?
     @Environment(AuthManager.self) private var auth
     @Environment(\.connectionService) private var connection
@@ -75,7 +76,8 @@ struct RootView: View {
             settings: settings,
             device: device,
             uploadService: uploadService,
-            toastManager: toastManager
+            toastManager: toastManager,
+            salientHighlightService: salientHighlightService
         )
     }
 }

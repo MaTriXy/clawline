@@ -67,6 +67,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    maxWidthOverride: CGFloat? = nil,
                    useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
+                   salientHighlightService: (any SalientHighlightServicing)? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRequestLayout: ((String) -> Void)?,
                    onRetry: (() -> Void)?) {
@@ -87,7 +88,8 @@ final class MessageBubbleUIKitContainerView: UIView {
             useContinuousCorners: useContinuousCorners,
             isDark: isDark,
             onRequestExpand: onRequestExpand,
-            onRequestLayout: onRequestLayout
+            onRequestLayout: onRequestLayout,
+            salientHighlightService: salientHighlightService
         )
         self.onRetry = onRetry
         self.onRequestLayout = onRequestLayout
@@ -162,6 +164,12 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var fileTapHandlers: [ObjectIdentifier: () -> Void] = [:]
     private var onRequestExpand: (() -> Void)?
     private var onRequestLayout: ((String) -> Void)?
+
+    // Salient highlights are applied asynchronously and must be cancelable on cell reuse.
+    private var salientTask: Task<Void, Never>?
+    private var salientToken: Int = 0
+    private var salientMessageId: String?
+    private var salientBaseAttributedText: NSAttributedString?
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
     private var currentStream: ChatStream = .personal
@@ -439,13 +447,21 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
                    onRequestExpand: (() -> Void)?,
-                   onRequestLayout: ((String) -> Void)?) {
+                   onRequestLayout: ((String) -> Void)?,
+                   salientHighlightService: (any SalientHighlightServicing)? = nil) {
+        assert(Thread.isMainThread)
         // Store for trait collection updates
         currentMessageRole = message.role
         currentStream = message.stream
         self.showsHeader = showsHeader
         contentPaddingScale = paddingScale
         self.useContinuousCorners = useContinuousCorners
+
+        salientTask?.cancel()
+        salientTask = nil
+        salientToken &+= 1
+        salientMessageId = message.id
+        salientBaseAttributedText = nil
 
         let effectiveMaxWidth = maxWidthOverride ?? maxWidth
         let effectiveTruncationHeight = truncationHeightOverride ?? metrics.truncationHeight
@@ -512,6 +528,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 inkColor: palette.ink
             )
         }
+
+        // Cache the base attributed text (pre-highlights) so async application is idempotent.
+        salientBaseAttributedText = bodyLabel.attributedText
+        applySalientHighlightsIfNeeded(
+            message: message,
+            isChromelessEmoji: isChromelessEmoji,
+            salientHighlightService: salientHighlightService
+        )
 
         let hasTextContent = !(bodyLabel.attributedText?.string.isEmpty ?? true)
 
@@ -878,6 +902,48 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
     func prepareForReuse() {
         dynamicContentScrollView.setContentOffset(.zero, animated: false)
+        salientTask?.cancel()
+        salientTask = nil
+        salientBaseAttributedText = nil
+        salientMessageId = nil
+    }
+
+    private func applySalientHighlightsIfNeeded(
+        message: Message,
+        isChromelessEmoji: Bool,
+        salientHighlightService: (any SalientHighlightServicing)?
+    ) {
+        guard message.role == .user else { return }
+        guard !isChromelessEmoji else { return }
+        guard let salientHighlightService else { return }
+        guard let base = salientBaseAttributedText else { return }
+        let renderedText = base.string
+        guard !renderedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // Apply memory-cached highlights immediately (no async churn on fast scroll).
+        if let cached = salientHighlightService.cachedHighlights(messageId: message.id, renderedText: renderedText),
+           !cached.spans.isEmpty {
+            bodyLabel.attributedText = SalientHighlightApplier.apply(cached, to: base)
+            return
+        }
+
+        let token = salientToken
+        let messageId = message.id
+        salientTask = Task { [weak self] in
+            guard let self else { return }
+            let highlights = await salientHighlightService.highlights(messageId: messageId, renderedText: renderedText)
+            guard !Task.isCancelled else { return }
+            guard let highlights, !highlights.spans.isEmpty else { return }
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                guard self.salientToken == token else { return }
+                guard self.salientMessageId == messageId else { return }
+                guard let base = self.salientBaseAttributedText else { return }
+                self.bodyLabel.attributedText = SalientHighlightApplier.apply(highlights, to: base)
+                self.onRequestLayout?(messageId)
+            }
+        }
     }
 
     private func applyBubbleSizingV2(_ state: BubbleSizingV2.LayoutState) {
@@ -1816,6 +1882,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
                    bubbleSizingV2: BubbleSizingV2.LayoutState? = nil,
                    showsHeader: Bool = true,
                    isDark: Bool? = nil,
+                   salientHighlightService: (any SalientHighlightServicing)? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRequestLayout: ((String) -> Void)?,
                    onRetry: (() -> Void)?) {
@@ -1835,6 +1902,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             bubbleSizingV2: bubbleSizingV2,
             showsHeader: showsHeader,
             isDark: isDark,
+            salientHighlightService: salientHighlightService,
             onRequestExpand: onRequestExpand,
             onRequestLayout: guardedRequestLayout,
             onRetry: onRetry
