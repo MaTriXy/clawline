@@ -397,8 +397,11 @@ struct ChatView: View {
             // T029: Place the scroll-to-bottom button centered just above the message bar on all platforms.
             let stream = viewModel.activeStream
             let state = scrollButtonState(for: stream)
-            let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
-                + belowBarGap + resolvedInputHeight
+            // The input bar is pinned to `keyboardLayoutGuide` with `usesBottomSafeArea = false`,
+            // so its bottom gap is measured from the physical screen edge (not the safe area).
+            // Match that here: only add keyboard height when the keyboard is actually visible.
+            let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
+            let inputBarTopFromScreenBottom = keyboardInset + belowBarGap + resolvedInputHeight
             ScrollToBottomButton(
                 isVisible: state.isVisible,
                 unreadCount: state.unreadCount,
