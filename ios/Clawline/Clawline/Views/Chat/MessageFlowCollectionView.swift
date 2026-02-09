@@ -135,9 +135,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         super.viewDidLayoutSubviews()
         let t0 = CFAbsoluteTimeGetCurrent()
 
-        // Extend the collection view to fill the entire screen, ignoring safe areas.
+        // iOS: Extend the collection view to fill the entire screen, ignoring safe areas.
         // SwiftUI's UIViewControllerRepresentable doesn't respect .ignoresSafeArea() for UIKit views,
         // so we manually extend the collection view to window bounds.
+        //
+        // visionOS: In a spatial window this "counter-positioning" can create a layout feedback loop
+        // (window position/size <-> view origin <-> collectionView frame), visible as the chat list
+        // flapping vertically when content reaches the bottom. Use the normal view bounds instead.
+#if os(visionOS)
+        collectionView.frame = view.bounds
+#else
         if let window = view.window {
             let windowBounds = window.bounds
             let viewOriginInWindow = view.convert(CGPoint.zero, to: window)
@@ -156,6 +163,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 collectionView.frame = extendedFrame
             }
         }
+#endif
 
         // Handle bounds size changes
         let size = collectionView.bounds.size
