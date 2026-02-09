@@ -90,8 +90,6 @@ final class ChatLayoutCoordinator {
     @ObservationIgnored private var previousInputs: ChatLayoutInputs?
     @ObservationIgnored private var lastAppliedInset: CGFloat = 0
     @ObservationIgnored private var lastAppliedBarHeight: CGFloat = 0
-    @ObservationIgnored private var lastAppliedBelowBarGap: CGFloat = 0
-    @ObservationIgnored private var lastAppliedKeyboardVisible: Bool = false
     @ObservationIgnored private var barHeightCache: CGFloat = 0
     @ObservationIgnored private var barHeightCandidate: CGFloat = 0
     @ObservationIgnored private var barHeightCandidateApplyIndex: Int = 0
@@ -188,16 +186,10 @@ final class ChatLayoutCoordinator {
 
         let applyChanges = { [weak self] in
             guard let self else { return }
-            if abs(self.lastAppliedBelowBarGap - metrics.belowBarGap) > 0.5 || self.lastAppliedKeyboardVisible != inputs.keyboardVisible {
-                self.lastAppliedBelowBarGap = metrics.belowBarGap
-                self.lastAppliedKeyboardVisible = inputs.keyboardVisible
-                barView.setDesiredBottomGap(metrics.belowBarGap, isKeyboardVisible: inputs.keyboardVisible)
-                barView.containerView.layoutIfNeeded()
-            }
+            barView.setDesiredBottomGap(metrics.belowBarGap, isKeyboardVisible: inputs.keyboardVisible)
+            barView.containerView.layoutIfNeeded()
             for list in self.listViews.values.compactMap({ $0.value }) {
-                if abs(list.currentBottomInset - targetInset) > 0.5 {
-                    list.setBottomInset(targetInset)
-                }
+                list.setBottomInset(targetInset)
             }
         }
 
@@ -261,12 +253,7 @@ final class ChatLayoutCoordinator {
         let isInsetDecreasing = targetInset < previousInset
         let insetDelta = targetInset - previousInset
         let scrollAction: ScrollAction
-        // If the inset isn't meaningfully changing, never issue scroll actions. On visionOS in
-        // spatial windows we can see frequent relayout ticks; an unconditional "keep pinned"
-        // scroll-to-bottom can create visible oscillation ("flapping") when already at bottom.
-        if abs(insetDelta) <= 0.5 {
-            scrollAction = .none
-        } else if isUserInteracting {
+        if isUserInteracting {
             scrollAction = .none
         } else if keyboardJustAppeared && wasNearBottom {
             scrollAction = .scrollToBottom(animated: false)
