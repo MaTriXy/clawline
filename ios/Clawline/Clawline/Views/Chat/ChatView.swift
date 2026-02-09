@@ -104,6 +104,7 @@ struct ChatView: View {
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var focusRequestID = 0
     @State private var shouldRestoreFocusAfterPicker = false
+    @State private var scrollButtonStateByStream: [ChatStream: ScrollButtonState] = [:]
 
     init(viewModel: ChatViewModel, toastManager: ToastManager) {
         self._viewModel = Bindable(wrappedValue: viewModel)
@@ -134,6 +135,46 @@ struct ChatView: View {
                 return "expandedMessage-\(message.id)"
             case .camera:
                 return "camera"
+            }
+        }
+    }
+
+    private struct ScrollButtonState: Equatable {
+        var isVisible: Bool = false
+        var unreadCount: Int = 0
+        var firstUnreadMessageId: String?
+        var bounceToken: Int = 0
+    }
+
+    private func scrollButtonState(for stream: ChatStream) -> ScrollButtonState {
+        scrollButtonStateByStream[stream] ?? ScrollButtonState()
+    }
+
+    private func mutateScrollButtonState(for stream: ChatStream, _ mutate: (inout ScrollButtonState) -> Void) {
+        var state = scrollButtonState(for: stream)
+        mutate(&state)
+        scrollButtonStateByStream[stream] = state
+    }
+
+    private func handleMessageFlowScrollEvent(_ event: MessageFlowScrollEvent) {
+        switch event {
+        case .isAtBottomChanged(let stream, let isAtBottom):
+            mutateScrollButtonState(for: stream) { state in
+                state.isVisible = !isAtBottom
+                if isAtBottom {
+                    state.unreadCount = 0
+                    state.firstUnreadMessageId = nil
+                }
+            }
+        case .didReceiveNewMessagesWhileScrolledUp(let stream, let newMessageIDs):
+            guard let first = newMessageIDs.first else { return }
+            mutateScrollButtonState(for: stream) { state in
+                state.isVisible = true
+                if state.firstUnreadMessageId == nil {
+                    state.firstUnreadMessageId = first
+                }
+                state.unreadCount += newMessageIDs.count
+                state.bounceToken &+= 1
             }
         }
     }
@@ -352,6 +393,35 @@ struct ChatView: View {
                 layoutKey: layoutKey
             )
         }
+        .overlay(alignment: .bottomTrailing) {
+            let stream = viewModel.activeStream
+            let state = scrollButtonState(for: stream)
+            let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
+                + belowBarGap + resolvedInputHeight
+            ScrollToBottomButton(
+                isVisible: state.isVisible,
+                unreadCount: state.unreadCount,
+                bounceToken: state.bounceToken,
+                onTap: {
+                    let current = scrollButtonState(for: stream)
+                    if current.unreadCount > 0 {
+                        if let firstUnread = current.firstUnreadMessageId {
+                            layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
+                        } else {
+                            layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                        }
+                        mutateScrollButtonState(for: stream) { s in
+                            s.unreadCount = 0
+                            s.firstUnreadMessageId = nil
+                        }
+                        return
+                    }
+                    layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                }
+            )
+            .padding(.trailing, max(16, metrics.containerPadding))
+            .padding(.bottom, inputBarTopFromScreenBottom + 12)
+        }
     }
 
     private var appVersionLabel: AttributedString? {
@@ -513,7 +583,8 @@ struct ChatView: View {
                 activeSheet = .expandedMessage(message)
             },
             layoutCoordinator: layoutCoordinator,
-            channel: channel
+            channel: channel,
+            onScrollEvent: handleMessageFlowScrollEvent
         )
         // We manage keyboard avoidance manually inside the collection view.
         // Prevent SwiftUI from shrinking the view and double-applying the keyboard height.

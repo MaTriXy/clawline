@@ -118,6 +118,21 @@ final class ChatLayoutCoordinator {
         activeStream = channel
     }
 
+    func scrollToBottom(animated: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        scrollToBottom(channel: activeStream, animated: animated)
+    }
+
+    func scrollToBottom(channel: ChatStream, animated: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        listViews[channel]?.value?.scheduleScrollToBottom(animated: animated)
+    }
+
+    func scrollToMessageCentered(messageId: String, channel: ChatStream, animated: Bool) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        listViews[channel]?.value?.scrollToMessageCentered(messageId: messageId, animated: animated)
+    }
+
     func updateInputs(_ inputs: ChatLayoutInputs, metrics: ChatLayoutMetrics) {
         dispatchPrecondition(condition: .onQueue(.main))
         latestInputs = inputs
