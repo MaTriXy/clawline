@@ -11,6 +11,7 @@ struct RootView: View {
     let uploadService: any UploadServicing
     @State private var toastManager = ToastManager()
     @State private var chatViewModel: ChatViewModel?
+    @State private var didForceRecoveryLogout = false
     @Environment(AuthManager.self) private var auth
     @Environment(\.connectionService) private var connection
     @Environment(\.deviceIdentifier) private var device
@@ -49,6 +50,17 @@ struct RootView: View {
         .preferredColorScheme(settings.preferredColorScheme)
 #endif
         .task(id: auth.isAuthenticated) {
+            // Recovery: after reinstall, Keychain credentials can persist while UserDefaults are wiped.
+            // Being "authenticated" without a provider config is an invalid state and has proven to
+            // trigger SwiftUI AttributeGraph cycles on some devices. Force the app back into the
+            // known-good unauthenticated pairing flow.
+            if auth.isAuthenticated && !isProviderConfigured && !didForceRecoveryLogout {
+                didForceRecoveryLogout = true
+                auth.clearCredentials()
+                chatViewModel = nil
+                return
+            }
+
             if auth.isAuthenticated && isProviderConfigured {
                 ensureChatViewModel()
             } else {
