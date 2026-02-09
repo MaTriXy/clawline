@@ -21,6 +21,7 @@ final class AuthManager: AuthManaging {
     private(set) var isAdmin: Bool = false
 
     private let storage: UserDefaults
+    private let secureStore: SecureStoring
 
     private enum StorageKeys {
         static let token = "auth.token"
@@ -28,15 +29,26 @@ final class AuthManager: AuthManaging {
         static let isAdmin = "auth.isAdmin"
     }
 
-    init(storage: UserDefaults = .standard) {
+    init(storage: UserDefaults = .standard, secureStore: SecureStoring = KeychainSecureStore()) {
         self.storage = storage
+        self.secureStore = secureStore
         loadStoredCredentials()
     }
 
     private func loadStoredCredentials() {
-        token = storage.string(forKey: StorageKeys.token)
-        currentUserId = storage.string(forKey: StorageKeys.userId)
-        isAdmin = storage.object(forKey: StorageKeys.isAdmin) as? Bool ?? false
+        // Prefer Keychain (shared across processes), but migrate from UserDefaults.
+        token = secureStore.getString(StorageKeys.token) ?? storage.string(forKey: StorageKeys.token)
+        currentUserId = secureStore.getString(StorageKeys.userId) ?? storage.string(forKey: StorageKeys.userId)
+        if let adminString = secureStore.getString(StorageKeys.isAdmin) {
+            isAdmin = (adminString == "1")
+        } else {
+            isAdmin = storage.object(forKey: StorageKeys.isAdmin) as? Bool ?? false
+        }
+
+        if let token { secureStore.setString(token, forKey: StorageKeys.token) }
+        if let currentUserId { secureStore.setString(currentUserId, forKey: StorageKeys.userId) }
+        secureStore.setString(isAdmin ? "1" : "0", forKey: StorageKeys.isAdmin)
+
         isAuthenticated = token != nil
     }
 
@@ -50,6 +62,9 @@ final class AuthManager: AuthManaging {
         storage.set(token, forKey: StorageKeys.token)
         storage.set(userId, forKey: StorageKeys.userId)
         storage.set(decodedAdmin, forKey: StorageKeys.isAdmin)
+        secureStore.setString(token, forKey: StorageKeys.token)
+        secureStore.setString(userId, forKey: StorageKeys.userId)
+        secureStore.setString(decodedAdmin ? "1" : "0", forKey: StorageKeys.isAdmin)
         NotificationCenter.default.post(name: .authStateDidChange, object: self)
     }
 
@@ -57,6 +72,7 @@ final class AuthManager: AuthManaging {
         guard self.isAdmin != isAdmin else { return }
         self.isAdmin = isAdmin
         storage.set(isAdmin, forKey: StorageKeys.isAdmin)
+        secureStore.setString(isAdmin ? "1" : "0", forKey: StorageKeys.isAdmin)
     }
 
     func refreshAdminStatusFromToken() {
@@ -73,6 +89,9 @@ final class AuthManager: AuthManaging {
         storage.removeObject(forKey: StorageKeys.token)
         storage.removeObject(forKey: StorageKeys.userId)
         storage.removeObject(forKey: StorageKeys.isAdmin)
+        secureStore.removeValue(forKey: StorageKeys.token)
+        secureStore.removeValue(forKey: StorageKeys.userId)
+        secureStore.removeValue(forKey: StorageKeys.isAdmin)
         NotificationCenter.default.post(name: .authStateDidChange, object: self)
     }
 
