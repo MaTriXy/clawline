@@ -174,6 +174,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var scrollViewContentHeightConstraint: NSLayoutConstraint?
     private var dynamicContentViews: [UIView] = []
     private var isChromeless = false
+    private var hasTerminalSessionsForLayout = false
     private var showsHeader = true
     private var contentPaddingScale: CGFloat = 1
     private var useContinuousCorners = true
@@ -368,7 +369,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         gradientLayer.frame = bubbleBackgroundView.bounds
         maskLayer.frame = bubbleBackgroundView.bounds
         let path: UIBezierPath
-        if useContinuousCorners {
+        if hasTerminalSessionsForLayout {
+            // Terminal bubbles render without message bubble chrome; don't clip their content to the
+            // standard bubble shape (tail/rounded corners).
+            path = UIBezierPath(rect: bubbleBackgroundView.bounds)
+            bubbleBackgroundView.layer.cornerRadius = 0
+            bubbleBackgroundView.layer.cornerCurve = .circular
+        } else if useContinuousCorners {
             let radii = bubbleCornerRadii(messageId: messageIdForCorners())
             path = superellipseRoundedRectPath(
                 rect: bubbleBackgroundView.bounds,
@@ -411,7 +418,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             height: bubbleBackgroundView.bounds.height
         ))
         topHighlightMask.frame = CGRect(x: 0, y: 0, width: bubbleBackgroundView.bounds.width, height: highlightHeight)
-        topHighlightMask.path = useContinuousCorners ? path.cgPath : highlightMaskPath.cgPath
+        topHighlightMask.path = (hasTerminalSessionsForLayout || useContinuousCorners) ? path.cgPath : highlightMaskPath.cgPath
 
         updateOuterScrollState()
     }
@@ -469,6 +476,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         for view in dynamicContentViews {
             if let previewView = view as? LinkPreviewView {
                 previewView.prepareForReuse()
+            }
+            if let terminalView = view as? TerminalBubbleUIKitView {
+                terminalView.prepareForReuse()
             }
             dynamicContentStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -687,8 +697,28 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentViews.append(tableView)
         }
 
-        let basePaddingHorizontal = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal
-        let basePaddingVertical = presentation.hasMediaOnly ? 8 : metrics.bubblePaddingVertical
+        let hasTerminalSessions = presentation.parts.contains(where: { if case .terminalSession = $0 { return true }; return false })
+        hasTerminalSessionsForLayout = hasTerminalSessions
+        setNeedsLayout()
+
+        // Add embedded terminal session bubbles.
+        let terminalSessions = presentation.parts.compactMap { part -> TerminalSessionDescriptor? in
+            if case .terminalSession(let descriptor) = part { return descriptor }
+            return nil
+        }
+        for descriptor in terminalSessions {
+            let terminalBubble = TerminalBubbleUIKitView()
+            terminalBubble.onRequestExpand = { [weak self] in self?.onRequestExpand?() }
+            // Flynn: sizing matches HTML previews (wide content uses truncation cap, internal scroll).
+            let heightCap = effectiveTruncationHeight
+            terminalBubble.configure(descriptor: descriptor, style: .bubble(height: heightCap))
+            dynamicContentStack.addArrangedSubview(terminalBubble)
+            dynamicContentViews.append(terminalBubble)
+        }
+
+        // Flynn: terminal bubbles render without bubble chrome and without standard padding.
+        let basePaddingHorizontal = (hasTerminalSessions || presentation.hasMediaOnly) ? 0 : metrics.bubblePaddingHorizontal
+        let basePaddingVertical = (hasTerminalSessions || presentation.hasMediaOnly) ? 0 : metrics.bubblePaddingVertical
         currentContentPaddingHorizontal = round(basePaddingHorizontal * contentPaddingScale)
         currentContentPaddingVertical = round(basePaddingVertical * contentPaddingScale)
         contentLeadingConstraint.constant = currentContentPaddingHorizontal
@@ -760,6 +790,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             stripAttachmentSummaryIfNeeded()
         }
 
+        // Flynn: terminal sessions render without sender header.
+        if hasTerminalSessions {
+            headerStack.isHidden = true
+        }
+
         switch sizeClass {
         case .short:
             bodyMaxWidthConstraint?.isActive = false
@@ -820,7 +855,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         shadowContainerView.layer.shadowOpacity = shadowOpacity
 
         // Chromeless mode: hide bubble chrome but keep padding
-        isChromeless = isSingleImageOnly || presentation.isChromeless
+        isChromeless = hasTerminalSessions || isSingleImageOnly || presentation.isChromeless
         gradientLayer.isHidden = isChromeless
         borderGradientLayer.isHidden = isChromeless
         topHighlightLayer.isHidden = isChromeless
@@ -840,7 +875,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     private func updateOuterScrollState() {
-        let overflow = dynamicContentScrollView.contentSize.height > dynamicContentScrollView.bounds.height + 1
+        // Terminal bubbles have their own scroll/interaction model; never enable outer bubble scrolling.
+        let overflow = (!hasTerminalSessionsForLayout) && dynamicContentScrollView.contentSize.height > dynamicContentScrollView.bounds.height + 1
         dynamicContentScrollView.isScrollEnabled = overflow
         dynamicContentScrollView.showsVerticalScrollIndicator = overflow
         dynamicContentScrollView.alwaysBounceVertical = overflow
@@ -1017,7 +1053,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 return "Table (\(model.rows.count) rows)"
             case .linkPreview:
                 return ""
-            case .image, .gallery, .file:
+            case .image, .gallery, .file, .terminalSession:
                 return ""
             }
         }
@@ -1060,7 +1096,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             switch $0 {
             case .text, .markdown, .inlineEmoji:
                 return true
-            case .linkPreview, .code, .table, .image, .gallery, .file:
+            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession:
                 return false
             }
         }
@@ -1090,7 +1126,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             case .inlineEmoji(let value):
                 result.append(NSAttributedString(string: value, attributes: baseAttributes))
 
-            case .linkPreview, .code, .table, .image, .gallery, .file:
+            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession:
                 break
             }
         }

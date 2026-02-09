@@ -1371,8 +1371,8 @@
                 <tbody>
                     <tr><td>Max content height</td><td><code>400px</code> (iPad) / <code>320px</code> (iPhone)</td></tr>
                     <tr><td>Fade gradient height</td><td><code>100px</code></td></tr>
-                    <tr><td>Indicator font size</td><td><code>12px</code></td></tr>
-                    <tr><td>Indicator border top</td><td><code>1px solid var(--border-subtle)</code></td></tr>
+                    <tr><td>Indicator</td><td>Bottom fade overlay (no button)</td></tr>
+                    <tr><td>Fade behavior</td><td>Overlay pinned to bubble bottom; <code>pointer-events: none</code></td></tr>
                 </tbody>
             </table>
         </section>
@@ -1397,7 +1397,7 @@
             <p>The padding remains constant to maintain alignment with other messages in the flow. The content "floats" in the same position it would occupy if the chrome were visible. This prevents layout shifts and keeps the visual rhythm consistent.</p>
 
             <h3>Truncation Disqualifies</h3>
-            <p>If the content would be truncated (e.g., a table with >5 rows showing "Show more"), the bubble chrome remains visible. The chrome provides the container for the truncation indicator and maintains the visual boundary of the clipped content.</p>
+            <p>If the content would be truncated (e.g., a table with &gt;5 rows), the bubble chrome remains visible. The chrome provides the visual boundary for the clipped content and supports the bottom fade affordance that indicates more content below.</p>
 
             <table class="spec-table">
                 <thead>
@@ -1445,11 +1445,11 @@
                 <li>Transition: <code>0.2s ease</code></li>
             </ul>
 
-            <h3>Truncated Message Hover</h3>
-            <p>The "Show more" indicator changes color on hover:</p>
+            <h3>Truncated Message Affordance</h3>
+            <p>Truncated bubbles use a bottom fade gradient as the affordance that content continues below (no button).</p>
             <ul>
-                <li>Self messages: Text turns <code>var(--terracotta)</code></li>
-                <li>Other messages: Text turns <code>var(--warm-brown)</code></li>
+                <li>Fade is subtle at rest</li>
+                <li>Fade can strengthen slightly on hover (desktop) to emphasize scrollability</li>
             </ul>
 
             <h3>Theme Toggle</h3>
@@ -1494,7 +1494,7 @@
             <ul>
                 <li>Minimum bubble size: 120px wide, ~60px tall (well above 44px minimum)</li>
                 <li>Avatar: 32px (acceptable as it's not the primary tap target)</li>
-                <li>Truncated "Show more": Full-width tap area</li>
+                <li>Scrollable truncated bubbles: ensure scroll gestures are captured by the bubble content</li>
             </ul>
 
             <h3>Motion</h3>

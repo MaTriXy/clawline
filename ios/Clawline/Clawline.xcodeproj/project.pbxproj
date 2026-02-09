@@ -10,7 +10,9 @@
 		2747398E2F2AE61500FEE90E /* RealityKitContent in Frameworks */ = {isa = PBXBuildFile; productRef = 2747398D2F2AE61500FEE90E /* RealityKitContent */; };
 		274F7BA92F0F24F20073BF45 /* Clawline Watch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 274F7BA82F0F24F20073BF45 /* Clawline Watch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		278B578A2F248E2C00E501B1 /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 27HL00022F1000000073BF45 /* HighlightSwift */; };
+		27ST00102F7B000000A1B2C3 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 27ST00022F7B000000A1B2C3 /* SwiftTerm */; };
 		F679AC8CEBF54DF08B2AB80D /* HighlightSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 27HL00022F1000000073BF45 /* HighlightSwift */; };
+		F67ST0102F7B000000A1B2C3 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 27ST00022F7B000000A1B2C3 /* SwiftTerm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -148,6 +150,7 @@
 			files = (
 				2747398E2F2AE61500FEE90E /* RealityKitContent in Frameworks */,
 				F679AC8CEBF54DF08B2AB80D /* HighlightSwift in Frameworks */,
+				F67ST0102F7B000000A1B2C3 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -163,6 +166,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				278B578A2F248E2C00E501B1 /* HighlightSwift in Frameworks */,
+				27ST00102F7B000000A1B2C3 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -267,6 +271,7 @@
 			packageProductDependencies = (
 				2747398D2F2AE61500FEE90E /* RealityKitContent */,
 				27HL00022F1000000073BF45 /* HighlightSwift */,
+				27ST00022F7B000000A1B2C3 /* SwiftTerm */,
 			);
 			productName = "Clawline Spatial";
 			productReference = 274739892F2AE61500FEE90E /* Clawline Spatial.app */;
@@ -313,6 +318,7 @@
 			name = Clawline;
 			packageProductDependencies = (
 				27HL00022F1000000073BF45 /* HighlightSwift */,
+				27ST00022F7B000000A1B2C3 /* SwiftTerm */,
 			);
 			productName = Clawline;
 			productReference = 274F7B6B2F0F22B50073BF45 /* Clawline.app */;
@@ -506,6 +512,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				27HL00012F1000000073BF45 /* XCRemoteSwiftPackageReference "HighlightSwift" */,
+				27ST00012F7B000000A1B2C3 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 274F7B6C2F0F22B50073BF45 /* Products */;
@@ -1359,6 +1366,14 @@
 				minimumVersion = 1.0.0;
 			};
 		};
+		27ST00012F7B000000A1B2C3 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clickety-clacks/SwiftTerm";
+			requirement = {
+				kind = revision;
+				revision = 72944e547c256f4a7e4a7e18b5a4e6180227d3bf;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1370,6 +1385,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 27HL00012F1000000073BF45 /* XCRemoteSwiftPackageReference "HighlightSwift" */;
 			productName = HighlightSwift;
+		};
+		27ST00022F7B000000A1B2C3 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 27ST00012F7B000000A1B2C3 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

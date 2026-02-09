@@ -783,7 +783,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if presentation.parts.contains(where: { part in
             switch part {
-            case .image, .gallery, .linkPreview:
+            case .image, .gallery, .linkPreview, .terminalSession:
                 return true
             default:
                 return false
@@ -1315,6 +1315,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func shouldHideHeader(for message: Message, presentation: MessagePresentation) -> Bool {
         guard message.role == .assistant else { return false }
+        if presentation.parts.contains(where: { if case .terminalSession = $0 { return true }; return false }) {
+            return true
+        }
         guard message.attachments.isEmpty else { return false }
         guard presentation.chromelessStyle == .emoji else { return false }
         return message.content.trimmingCharacters(in: .whitespacesAndNewlines) == "👀"

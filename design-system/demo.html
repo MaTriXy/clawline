@@ -279,18 +279,21 @@
         /* Truncated long message */
         .message-bubble.truncated {
             flex: 1 1 100%;
-            cursor: pointer;
+            position: relative;
+        }
+
+        .message-bubble.truncated .message-content-scroll {
             position: relative;
         }
 
         .message-bubble.truncated .message-content {
             max-height: 200px;
-            overflow: hidden;
+            overflow: auto;
             position: relative;
+            padding-bottom: 24px; /* so the last line isn't fully swallowed by the fade */
         }
 
-        .message-bubble.truncated .message-content::after {
-            content: "";
+        .message-bubble.truncated .fade-bottom {
             position: absolute;
             bottom: 0;
             left: 0;
@@ -300,39 +303,8 @@
             pointer-events: none;
         }
 
-        .message-bubble.truncated.other .message-content::after {
+        .message-bubble.truncated.other .fade-bottom {
             background: linear-gradient(to bottom, transparent 0%, var(--bg-bubble-other-solid) 100%);
-        }
-
-        .truncated-indicator {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            padding-top: 12px;
-            margin-top: 8px;
-            border-top: 1px solid var(--border-subtle);
-        }
-
-        .truncated-indicator span {
-            font-size: 12px;
-            font-weight: 500;
-            color: var(--stone);
-        }
-
-        .truncated-indicator .expand-icon {
-            font-size: 12px;
-            color: var(--stone);
-        }
-
-        .message-bubble.truncated:hover .truncated-indicator span,
-        .message-bubble.truncated:hover .truncated-indicator .expand-icon {
-            color: var(--terracotta);
-        }
-
-        .message-bubble.truncated.other:hover .truncated-indicator span,
-        .message-bubble.truncated.other:hover .truncated-indicator .expand-icon {
-            color: var(--warm-brown);
         }
 
         .message-header {
@@ -942,21 +914,20 @@
                         <div class="avatar kai">K</div>
                         <span class="sender-name">Kai</span>
                     </div>
-                    <div class="message-content body-text markdown">
-                        <h3>The Science of Biophilic Design</h3>
-                        <p>Found this article about why we love plants so much! Here are the key points:</p>
-                        <h3>Key Findings</h3>
-                        <ul>
-                            <li><strong>Attention Restoration Theory</strong> — Natural environments capture attention without mental effort</li>
-                            <li><strong>Stress Reduction</strong> — Even brief plant exposure reduces cortisol levels</li>
-                            <li><strong>Productivity Boost</strong> — Office plants can increase productivity by <em>15%</em></li>
-                        </ul>
-                        <blockquote>The biophilia hypothesis suggests humans possess an innate tendency to seek connections with nature.</blockquote>
-                        <p>The research spans <strong>three decades</strong> and shows consistent results across cultures. The <code>soft fascination</code> effect allows cognitive resources to replenish naturally...</p>
-                    </div>
-                    <div class="truncated-indicator">
-                        <span>Show more</span>
-                        <span class="expand-icon">↓</span>
+                    <div class="message-content-scroll">
+                        <div class="message-content body-text markdown">
+                            <h3>The Science of Biophilic Design</h3>
+                            <p>Found this article about why we love plants so much! Here are the key points:</p>
+                            <h3>Key Findings</h3>
+                            <ul>
+                                <li><strong>Attention Restoration Theory</strong> — Natural environments capture attention without mental effort</li>
+                                <li><strong>Stress Reduction</strong> — Even brief plant exposure reduces cortisol levels</li>
+                                <li><strong>Productivity Boost</strong> — Office plants can increase productivity by <em>15%</em></li>
+                            </ul>
+                            <blockquote>The biophilia hypothesis suggests humans possess an innate tendency to seek connections with nature.</blockquote>
+                            <p>The research spans <strong>three decades</strong> and shows consistent results across cultures. The <code>soft fascination</code> effect allows cognitive resources to replenish naturally...</p>
+                        </div>
+                        <div class="fade-bottom"></div>
                     </div>
                 </div>
 
@@ -1245,21 +1216,20 @@
                         <div class="avatar kai">K</div>
                         <span class="sender-name">Kai</span>
                     </div>
-                    <div class="message-content body-text markdown">
-                        <h3>The Science of Biophilic Design</h3>
-                        <p>Found this article about why we love plants so much! Here are the key points:</p>
-                        <h3>Key Findings</h3>
-                        <ul>
-                            <li><strong>Attention Restoration Theory</strong> — Natural environments capture attention without mental effort</li>
-                            <li><strong>Stress Reduction</strong> — Even brief plant exposure reduces cortisol levels</li>
-                            <li><strong>Productivity Boost</strong> — Office plants can increase productivity by <em>15%</em></li>
-                        </ul>
-                        <blockquote>The biophilia hypothesis suggests humans possess an innate tendency to seek connections with nature.</blockquote>
-                        <p>The research spans <strong>three decades</strong> and shows consistent results across cultures. The <code>soft fascination</code> effect allows cognitive resources to replenish naturally...</p>
-                    </div>
-                    <div class="truncated-indicator">
-                        <span>Show more</span>
-                        <span class="expand-icon">↓</span>
+                    <div class="message-content-scroll">
+                        <div class="message-content body-text markdown">
+                            <h3>The Science of Biophilic Design</h3>
+                            <p>Found this article about why we love plants so much! Here are the key points:</p>
+                            <h3>Key Findings</h3>
+                            <ul>
+                                <li><strong>Attention Restoration Theory</strong> — Natural environments capture attention without mental effort</li>
+                                <li><strong>Stress Reduction</strong> — Even brief plant exposure reduces cortisol levels</li>
+                                <li><strong>Productivity Boost</strong> — Office plants can increase productivity by <em>15%</em></li>
+                            </ul>
+                            <blockquote>The biophilia hypothesis suggests humans possess an innate tendency to seek connections with nature.</blockquote>
+                            <p>The research spans <strong>three decades</strong> and shows consistent results across cultures. The <code>soft fascination</code> effect allows cognitive resources to replenish naturally...</p>
+                        </div>
+                        <div class="fade-bottom"></div>
                     </div>
                 </div>
 
