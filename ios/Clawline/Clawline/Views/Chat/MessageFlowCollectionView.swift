@@ -604,10 +604,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 containerWidth: contentWidth
             )
-            // Only wide content (previews/tables/images) gets the full screen-aware truncation height.
-            // Plain text/markdown bubbles keep the design-system cap (metrics.truncationHeight).
+            // Only certain embedded content (tables/images/etc) gets the full screen-aware truncation height.
+            // Plain text/markdown bubbles (even if they contain URLs) keep the design-system cap (metrics.truncationHeight).
             let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-            let truncationHeightOverride: CGFloat? = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
+            let truncationHeightOverride: CGFloat? = prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth)
                 ? self.effectiveTruncationHeight(metrics: metrics)
                 : nil
             let layoutStateV2: BubbleSizingV2.LayoutState?
@@ -812,7 +812,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                               containerWidth: CGFloat) -> CGFloat {
         let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
         let paddedLineWidth = maxLineWidth + metrics.bubblePaddingHorizontal * 2
-        if hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth) {
+        if prefersWideBubbleWidth(presentation: presentation, maxLineWidth: maxLineWidth) {
             return containerWidth
         }
         let result: CGFloat
@@ -827,7 +827,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 containerWidth: containerWidth
             )
         case .long:
-            if hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth) {
+            if prefersWideBubbleWidth(presentation: presentation, maxLineWidth: maxLineWidth) {
                 result = containerWidth
             } else {
                 result = min(containerWidth, paddedLineWidth)
@@ -836,14 +836,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         return result
     }
 
-    private func hasWideContent(presentation: MessagePresentation,
-                                maxLineWidth: CGFloat) -> Bool {
+    private func prefersWideBubbleWidth(presentation: MessagePresentation,
+                                        maxLineWidth: CGFloat) -> Bool {
         if presentation.hasSingleURL {
             return true
         }
 
-        // Link cards (detected URLs) are wide embedded content per the design system.
-        // Treat them like previews/tables/images for width + truncation-height behavior.
+        // Link cards (detected URLs) should get wide *width* so they don't feel cramped.
         if !presentation.detectedURLs.isEmpty {
             return true
         }
@@ -858,6 +857,41 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if presentation.parts.contains(where: { part in
             switch part {
             case .image, .gallery, .linkPreview, .terminalSession:
+                return true
+            default:
+                return false
+            }
+        }) {
+            return true
+        }
+
+        let tables = presentation.parts.compactMap { part -> TableModel? in
+            if case .table(let model) = part { return model }
+            return nil
+        }
+        if tables.contains(where: { tableContentWidth($0) > maxLineWidth }) {
+            return true
+        }
+
+        return false
+    }
+
+    private func prefersScreenAwareTruncationHeight(presentation: MessagePresentation,
+                                                    maxLineWidth: CGFloat) -> Bool {
+        // IMPORTANT: Do not opt into screen-aware height caps just because a message contains a URL.
+        // That can inflate the cap enough that "too-tall" markdown bubbles never overflow, so we
+        // never show fade/scroll/tap-to-expand affordances.
+
+        let tableCount = presentation.parts.reduce(into: 0) { count, part in
+            if case .table = part { count += 1 }
+        }
+        if tableCount == 1 {
+            return true
+        }
+
+        if presentation.parts.contains(where: { part in
+            switch part {
+            case .image, .gallery, .terminalSession:
                 return true
             default:
                 return false
@@ -976,10 +1010,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             containerWidth: availableWidth
         )
         let failureReason = viewModel.failureMessage(for: message.id)
-        // Only wide content (previews/tables/images) gets the full screen-aware truncation height.
-        // Plain text/markdown bubbles keep the design-system cap (metrics.truncationHeight).
+        // Only certain embedded content (tables/images/etc) gets the full screen-aware truncation height.
+        // Plain text/markdown bubbles (even if they contain URLs) keep the design-system cap (metrics.truncationHeight).
         let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-        let truncationHeightOverride: CGFloat? = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
+        let truncationHeightOverride: CGFloat? = prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth)
             ? effectiveTruncationHeight(metrics: metrics)
             : nil
         let measuredSize = measureUIKitBubbleSize(
@@ -1024,8 +1058,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let effectiveMaxWidth = maxWidthOverride ?? maxWidth
         let preferredWidth: CGFloat
         let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-        let isWide = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
-        if isWide {
+        let prefersWideWidth = prefersWideBubbleWidth(presentation: presentation, maxLineWidth: maxLineWidth)
+        let prefersScreenAwareHeightCap = prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth)
+        if prefersWideWidth {
             preferredWidth = effectiveMaxWidth
         } else if sizeClass == .short {
             preferredWidth = uiKitBubbleSizer.preferredWidth(maxWidth: effectiveMaxWidth)
@@ -1039,8 +1074,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             if case .linkPreview = part { return true }
             return false
         }
-        if hasLinkPreview, let truncationHeightOverride {
-            var height = max(1, truncationHeightOverride)
+        if hasLinkPreview {
+            // Use the active height cap (design-system by default; screen-aware only for specific embedded content).
+            let cap = truncationHeightOverride ?? metrics.truncationHeight
+            var height = max(1, cap)
             if let minHeight = minHeightOverride {
                 height = max(height, minHeight)
             }
@@ -1069,7 +1106,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if failureReason != nil {
             height += 32
         }
-        if let truncationHeightOverride, isWide {
+        if let truncationHeightOverride, prefersScreenAwareHeightCap {
             // For wide content, cap at truncation max (but don't force-max).
             height = min(height, truncationHeightOverride + (failureReason != nil ? 32 : 0))
         }
@@ -1109,7 +1146,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                    showsHeader: Bool) -> BubbleSizingV2.Plan {
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
         let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-        let isWide = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
+        let isWide = prefersWideBubbleWidth(presentation: presentation, maxLineWidth: maxLineWidth)
+        let prefersScreenAwareHeightCap = prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth)
 
         let maxWidth: CGFloat = {
             if isWide { return env.containerWidth }
@@ -1140,7 +1178,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             }
         }()
 
-        let heightCapMode: BubbleSizingV2.HeightCapMode = isWide ? .screenAware : .designSystem
+        let heightCapMode: BubbleSizingV2.HeightCapMode = prefersScreenAwareHeightCap ? .screenAware : .designSystem
         let heightCap: CGFloat = {
             switch heightCapMode {
             case .screenAware:
@@ -1836,7 +1874,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             containerWidth: effectiveContentWidth(metrics: metrics)
         )
         let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-        let truncationHeightOverride: CGFloat? = hasWideContent(presentation: presentation, maxLineWidth: maxLineWidth)
+        let truncationHeightOverride: CGFloat? = prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth)
             ? effectiveTruncationHeight(metrics: metrics)
             : nil
         let failureReason = viewModel.failureMessage(for: message.id)
