@@ -1203,12 +1203,18 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         uiView.hostingController.rootView = content
         uiView.updateVersionText(versionText)
         uiView.setOnBarHeightChange { [weak layoutCoordinator] height in
-            if abs(measuredHeight - height) > 0.5 {
+            // Break potential SwiftUI layout cycles by only propagating meaningful bar height changes.
+            // (On some iOS 26.2 devices we observed AttributeGraph "cycle detected" during launch.)
+            let snapped = (height * 2).rounded() / 2  // half-point granularity
+            if abs(measuredHeight - snapped) > 1.0 {
                 DispatchQueue.main.async {
-                    _measuredHeight.wrappedValue = height
+                    _measuredHeight.wrappedValue = snapped
                 }
+                layoutCoordinator?.updateBarHeight(snapped)
+            } else if measuredHeight <= 0.5, snapped > 0.5 {
+                // First non-zero measurement after mount: always inform coordinator.
+                layoutCoordinator?.updateBarHeight(snapped)
             }
-            layoutCoordinator?.updateBarHeight(height)
         }
         layoutCoordinator.registerBarView(uiView)
         layoutCoordinator.applyTransitionIfPossible(reason: "KeyboardPinnedContainer.updateUIView")
