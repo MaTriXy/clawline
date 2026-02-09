@@ -17,6 +17,13 @@ struct RootView: View {
     @Environment(\.chatService) private var chatService
     @Environment(\.settingsManager) private var settings
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("provider.baseURL") private var providerBaseURLString: String = ""
+
+    private var isProviderConfigured: Bool {
+        let trimmed = providerBaseURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return URL(string: trimmed) != nil
+    }
 
     private var backgroundColor: Color {
         colorScheme == .dark
@@ -26,23 +33,23 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if auth.isAuthenticated {
-                if let chatViewModel {
-                    ChatView(viewModel: chatViewModel, toastManager: toastManager)
-                } else {
-                    ProgressView()
-                        .task { ensureChatViewModel() }
-                }
-            } else {
+            // If the provider base URL is missing (fresh install / wiped defaults), route to
+            // onboarding so the user can recover without having to send a message.
+            if !auth.isAuthenticated || !isProviderConfigured {
                 PairingView(auth: auth, connection: connection, device: device)
+            } else if let chatViewModel {
+                ChatView(viewModel: chatViewModel, toastManager: toastManager)
+            } else {
+                ProgressView()
+                    .task { ensureChatViewModel() }
             }
         }
-        .modifier(KeyboardSafeAreaMode(isActive: auth.isAuthenticated))
+        .modifier(KeyboardSafeAreaMode(isActive: auth.isAuthenticated && isProviderConfigured))
 #if os(visionOS)
         .preferredColorScheme(settings.preferredColorScheme)
 #endif
-        .task(id: auth.isAuthenticated) {
-            if auth.isAuthenticated {
+        .task(id: "\(auth.isAuthenticated)-\(providerBaseURLString)") {
+            if auth.isAuthenticated && isProviderConfigured {
                 ensureChatViewModel()
             } else {
                 chatViewModel = nil
@@ -69,6 +76,7 @@ struct RootView: View {
     @MainActor
     private func ensureChatViewModel() {
         guard chatViewModel == nil else { return }
+        guard isProviderConfigured else { return }
         chatViewModel = ChatViewModel(
             auth: auth,
             chatService: chatService,
