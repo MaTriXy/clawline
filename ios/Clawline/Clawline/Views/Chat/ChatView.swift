@@ -961,6 +961,12 @@ private final class KeyboardLayoutGuideObserverView: UIView {
             name: UIApplication.willEnterForegroundNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(didBecomeActive(_:)),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
 
     @available(*, unavailable)
@@ -979,7 +985,14 @@ private final class KeyboardLayoutGuideObserverView: UIView {
     }
 
     private func refreshFromLayoutGuide() {
-        guard let window else { return }
+        guard let window else {
+            // When returning from another app, notifications can arrive before the view is attached.
+            // Retry on the next tick once a window exists.
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshFromLayoutGuide()
+            }
+            return
+        }
         window.layoutIfNeeded()
         layoutIfNeeded()
         let guideFrame = keyboardLayoutGuide.layoutFrame
@@ -1019,6 +1032,15 @@ private final class KeyboardLayoutGuideObserverView: UIView {
     @objc private func willEnterForeground(_ notification: Notification) {
         // #24: Keyboard notifications aren't guaranteed when returning to foreground with the keyboard already up.
         // Refresh from the layout guide immediately and again on the next tick after layout settles.
+        refreshFromLayoutGuide()
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshFromLayoutGuide()
+        }
+    }
+
+    @objc private func didBecomeActive(_ notification: Notification) {
+        // #12200: Keyboard can be dismissed while we're backgrounded (e.g. web form in Safari/WebView).
+        // Ensure we re-sample from `keyboardLayoutGuide` after activation, not just on keyboard notifications.
         refreshFromLayoutGuide()
         DispatchQueue.main.async { [weak self] in
             self?.refreshFromLayoutGuide()
