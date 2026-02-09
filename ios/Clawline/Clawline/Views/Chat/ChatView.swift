@@ -393,8 +393,8 @@ struct ChatView: View {
                 layoutKey: layoutKey
             )
         }
-#if os(visionOS)
         .overlay(alignment: .bottom) {
+            // T029: Place the scroll-to-bottom button centered just above the message bar on all platforms.
             let stream = viewModel.activeStream
             let state = scrollButtonState(for: stream)
             let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
@@ -423,37 +423,6 @@ struct ChatView: View {
             .padding(.bottom, inputBarTopFromScreenBottom + 12)
             .frame(maxWidth: .infinity, alignment: .center)
         }
-#else
-        .overlay(alignment: .bottomTrailing) {
-            let stream = viewModel.activeStream
-            let state = scrollButtonState(for: stream)
-            let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
-                + belowBarGap + resolvedInputHeight
-            ScrollToBottomButton(
-                isVisible: state.isVisible,
-                unreadCount: state.unreadCount,
-                bounceToken: state.bounceToken,
-                onTap: {
-                    let current = scrollButtonState(for: stream)
-                    if current.unreadCount > 0 {
-                        if let firstUnread = current.firstUnreadMessageId {
-                            layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
-                        } else {
-                            layoutCoordinator.scrollToBottom(channel: stream, animated: true)
-                        }
-                        mutateScrollButtonState(for: stream) { s in
-                            s.unreadCount = 0
-                            s.firstUnreadMessageId = nil
-                        }
-                        return
-                    }
-                    layoutCoordinator.scrollToBottom(channel: stream, animated: true)
-                }
-            )
-            .padding(.trailing, max(16, metrics.containerPadding))
-            .padding(.bottom, inputBarTopFromScreenBottom + 12)
-        }
-#endif
     }
 
     private var appVersionLabel: AttributedString? {

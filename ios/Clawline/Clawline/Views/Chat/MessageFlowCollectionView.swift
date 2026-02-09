@@ -139,6 +139,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
 #endif
     private static let scrollToBottomAtBottomThreshold: CGFloat = 12
+    // T029: Don't show the scroll-to-bottom affordance immediately after a tiny upward scroll.
+    // Keep the "am I at bottom?" threshold tight for auto-scroll decisions, but use a larger
+    // threshold for the UI button so it only appears after a meaningful scroll up.
+    private static let scrollToBottomButtonRevealThreshold: CGFloat = 220
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         false
@@ -562,7 +566,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func reportIsAtBottomIfChanged() {
-        let isAtBottom = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
+        let isAtBottom = isNearBottom(extraMargin: Self.scrollToBottomButtonRevealThreshold)
         if lastReportedIsAtBottom != isAtBottom {
             lastReportedIsAtBottom = isAtBottom
             emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: isAtBottom))
