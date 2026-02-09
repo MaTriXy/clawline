@@ -19,15 +19,16 @@ enum SessionKey {
         "agent:main:clawline:\(userId):main"
     }
 
-    /// Terminal bubbles MVP policy: DM-only session keys.
+    /// Terminal bubbles MVP policy: per-user Clawline session keys only (never global).
     static func isClawlinePersonalDM(_ sessionKey: String) -> Bool {
         // Required pattern:
-        // `agent:main:clawline:<userId>:main`
+        // `agent:<agentId>:clawline:<userId>:main|dm`
         let parts = sessionKey.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 5 else { return false }
-        guard parts[0] == "agent", parts[1] == "main", parts[2] == "clawline" else { return false }
+        guard parts[0] == "agent", parts[2] == "clawline" else { return false }
+        guard !parts[1].isEmpty else { return false }
         guard !parts[3].isEmpty else { return false }
-        guard parts[4] == "main" else { return false }
+        guard parts[4] == "main" || parts[4] == "dm" else { return false }
         return true
     }
 

@@ -115,6 +115,48 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
 #endif
 
+    private struct PendingLayoutInvalidationNote {
+        var reasons: [String: Int] = [:]
+        var dirtyMessageIdSamples: [String] = []
+
+        mutating func add(reason: String) {
+            reasons[reason, default: 0] += 1
+        }
+
+        mutating func addDirtyMessageId(_ id: String) {
+            add(reason: "dirtySizeIds")
+            if dirtyMessageIdSamples.count < 5, !dirtyMessageIdSamples.contains(id) {
+                dirtyMessageIdSamples.append(id)
+            }
+        }
+
+        mutating func reset() {
+            reasons.removeAll(keepingCapacity: true)
+            dirtyMessageIdSamples.removeAll(keepingCapacity: true)
+        }
+
+        var summary: String {
+            let sorted = reasons.sorted { $0.value > $1.value }.map { "\($0.key)=\($0.value)" }
+            let reasonsPart = sorted.isEmpty ? "none" : sorted.joined(separator: ",")
+            let samplesPart = dirtyMessageIdSamples.isEmpty
+                ? ""
+                : " dirtySamples=\(dirtyMessageIdSamples.joined(separator: ","))"
+            return "\(reasonsPart)\(samplesPart)"
+        }
+    }
+
+    private var pendingLayoutInvalidationNote = PendingLayoutInvalidationNote()
+
+    private func invalidateFlowLayout(
+        reason: String,
+        file: StaticString = #fileID,
+        function: StaticString = #function,
+        line: UInt = #line
+    ) {
+        flowLayout.noteInvalidation(reason: reason, file: file, function: function, line: line)
+        flowLayout.invalidateLayout()
+    }
+
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         false
     }
@@ -420,7 +462,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             }
         if !changedIds.isEmpty {
             snapshot.reconfigureItems(changedIds)
-            flowLayout.invalidateLayout()
+            invalidateFlowLayout(
+                reason: "update_snapshot_changedIds count=\(changedIds.count) needsFullLayout=\(needsFullLayout)"
+            )
             changedIds.forEach { sizeCache.removeValue(forKey: $0) }
             changedIds.forEach { lastMeasuredSizes.removeValue(forKey: $0) }
             changedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
@@ -714,7 +758,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         bubbleSizingV2MeasurementCache.removeAll()
         bubbleSizingV2KeysByMessageId.removeAll()
         bubbleSizingV2LinkPreviewStateVersionByMessageId.removeAll()
-        flowLayout.invalidateLayout()
+        invalidateFlowLayout(
+            reason: "updateLayout metricsChanged insetTop=\(topInset) bottomInset=\(currentBottomInset)"
+        )
         NSLog("[KBTIMING] updateLayout cacheCleared invalidated dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
     }
 
@@ -1528,6 +1574,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func invalidateLayout(for messageId: String) {
         dirtySizeIds.insert(messageId)
+        pendingLayoutInvalidationNote.addDirtyMessageId(messageId)
         scheduleLayoutInvalidation()
     }
 
@@ -1820,7 +1867,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     self.lastMeasuredSizes.removeValue(forKey: id)
                 }
             }
-            self.flowLayout.invalidateLayout()
+            let note = self.pendingLayoutInvalidationNote
+            self.pendingLayoutInvalidationNote.reset()
+            self.invalidateFlowLayout(reason: "scheduleLayoutInvalidation \(note.summary)")
         }
     }
 
@@ -1832,8 +1881,61 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 }
 
 private final class MessageFlowLayout: UICollectionViewFlowLayout {
+    private static let diagLogger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "FlowLayoutDiag")
+    private static let diagEnvEnabled =
+        ProcessInfo.processInfo.environment["CLAWLINE_FLOW_LAYOUT_DIAG"] == "1"
+    private static let diagEnabledKey = "clawline.flowLayoutDiag"
+    private static let diagIncludeCallStack =
+        ProcessInfo.processInfo.environment["CLAWLINE_FLOW_LAYOUT_DIAG_CALLSTACK"] == "1"
+
+    private static func isDiagnosticsEnabled() -> Bool {
+        diagEnvEnabled || UserDefaults.standard.bool(forKey: diagEnabledKey)
+    }
+
+    private struct InvalidationNote {
+        var reasons: [String: Int] = [:]
+        var callsite: String?
+        var callStackSummary: String?
+
+        mutating func addReason(_ reason: String) {
+            reasons[reason, default: 0] += 1
+        }
+
+        mutating func reset() {
+            reasons.removeAll(keepingCapacity: true)
+            callsite = nil
+            callStackSummary = nil
+        }
+
+        var summary: String {
+            let sorted = reasons.sorted { $0.value > $1.value }.map { "\($0.key)=\($0.value)" }
+            return sorted.isEmpty ? "none" : sorted.joined(separator: ",")
+        }
+    }
+
+    private var prepareCount: Int = 0
+    private var invalidateCount: Int = 0
+    private var lastPrepareAt: CFTimeInterval = 0
+    private var lastInvalidateAt: CFTimeInterval = 0
+    private var lastRateLogAt: CFTimeInterval = 0
+    private var ratePrepareCount: Int = 0
+    private var rateInvalidateCount: Int = 0
+    private var pendingInvalidation = InvalidationNote()
+    private var suppressInvalidateWithCountingDepth: Int = 0
+
     private var cachedAttributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]
     private var cachedContentSize: CGSize = .zero
+
+    func noteInvalidation(reason: String, file: StaticString, function: StaticString, line: UInt) {
+        guard Self.isDiagnosticsEnabled() else { return }
+        pendingInvalidation.addReason(reason)
+        pendingInvalidation.callsite = "\(file):\(line) \(function)"
+        if Self.diagIncludeCallStack {
+            // Keep it short; full stacks get noisy fast when layout flaps.
+            let frames = Thread.callStackSymbols.prefix(12)
+            pendingInvalidation.callStackSummary = frames.joined(separator: " | ")
+        }
+    }
 
     override func prepare() {
         let t0 = CFAbsoluteTimeGetCurrent()
@@ -1875,6 +1977,41 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
 
         cachedContentSize = CGSize(width: contentWidth, height: y + rowHeight + sectionInset.bottom)
         NSLog("[KBTIMING] FlowLayout.prepare items=%d dt=%.4f", itemCount, CFAbsoluteTimeGetCurrent() - t0)
+
+        guard Self.isDiagnosticsEnabled() else { return }
+        prepareCount += 1
+        ratePrepareCount += 1
+        let now = CFAbsoluteTimeGetCurrent()
+        let dtSinceLastPrepare = lastPrepareAt > 0 ? (now - lastPrepareAt) : 0
+        let dtSinceLastInvalidate = lastInvalidateAt > 0 ? (now - lastInvalidateAt) : 0
+        lastPrepareAt = now
+
+        let bounds = collectionView.bounds
+        let frame = collectionView.frame
+        let contentOffset = collectionView.contentOffset
+        let contentSize = collectionView.contentSize
+        let inset = collectionView.adjustedContentInset
+
+        Self.diagLogger.info(
+            "prepare #\(self.prepareCount, privacy: .public) items=\(itemCount, privacy: .public) cachedContent=\(String(describing: self.cachedContentSize), privacy: .public) contentSize=\(String(describing: contentSize), privacy: .public) offset=\(String(describing: contentOffset), privacy: .public) bounds=\(String(describing: bounds), privacy: .public) frame=\(String(describing: frame), privacy: .public) inset=\(String(describing: inset), privacy: .public) dtPrepare=\(dtSinceLastPrepare, privacy: .public) dtInvalidate=\(dtSinceLastInvalidate, privacy: .public) lastInvalidateReasons=\(self.pendingInvalidation.summary, privacy: .public) lastInvalidateSite=\(self.pendingInvalidation.callsite ?? "", privacy: .public)"
+        )
+        if let stack = pendingInvalidation.callStackSummary {
+            Self.diagLogger.debug("lastInvalidateStack \(stack, privacy: .public)")
+        }
+        pendingInvalidation.reset()
+
+        // Aggregate rate log (helps spot "flapping" without parsing per-event timestamps).
+        if lastRateLogAt == 0 {
+            lastRateLogAt = now
+        } else if now - lastRateLogAt >= 1.0 {
+            let dt = now - lastRateLogAt
+            Self.diagLogger.info(
+                "rate dt=\(dt, privacy: .public)s prepares=\(self.ratePrepareCount, privacy: .public) invalidates=\(self.rateInvalidateCount, privacy: .public)"
+            )
+            lastRateLogAt = now
+            ratePrepareCount = 0
+            rateInvalidateCount = 0
+        }
     }
 
     override var collectionViewContentSize: CGSize {
@@ -1890,6 +2027,60 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
     }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
-        newBounds.size != collectionView?.bounds.size
+        let should = newBounds.size != collectionView?.bounds.size
+        guard Self.isDiagnosticsEnabled() else { return should }
+        // Throttle: shouldInvalidateLayout gets hit frequently during scroll.
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastInvalidateAt >= 0.25, should {
+            let old = collectionView?.bounds ?? .zero
+            Self.diagLogger.debug(
+                "shouldInvalidateBoundsChange old=\(String(describing: old), privacy: .public) new=\(String(describing: newBounds), privacy: .public)"
+            )
+        }
+        return should
+    }
+
+    override func invalidateLayout() {
+        guard Self.isDiagnosticsEnabled() else {
+            super.invalidateLayout()
+            return
+        }
+
+        invalidateCount += 1
+        rateInvalidateCount += 1
+        lastInvalidateAt = CFAbsoluteTimeGetCurrent()
+        if pendingInvalidation.reasons.isEmpty {
+            pendingInvalidation.addReason("invalidateLayout(unknown)")
+        }
+
+        suppressInvalidateWithCountingDepth += 1
+        super.invalidateLayout()
+        suppressInvalidateWithCountingDepth = max(0, suppressInvalidateWithCountingDepth - 1)
+    }
+
+    override func invalidateLayout(with context: UICollectionViewLayoutInvalidationContext) {
+        if Self.isDiagnosticsEnabled() {
+            if suppressInvalidateWithCountingDepth == 0 {
+                invalidateCount += 1
+                rateInvalidateCount += 1
+                lastInvalidateAt = CFAbsoluteTimeGetCurrent()
+            }
+            var ctxSummary = ""
+            if context.invalidateEverything {
+                ctxSummary += " everything"
+            }
+            if context.invalidateDataSourceCounts {
+                ctxSummary += " dataSourceCounts"
+            }
+            if context.invalidatedItemIndexPaths?.isEmpty == false {
+                ctxSummary += " items=\(context.invalidatedItemIndexPaths?.count ?? 0)"
+            }
+            if !ctxSummary.isEmpty {
+                pendingInvalidation.addReason("invalidateLayout(with:)\(ctxSummary)")
+            } else if pendingInvalidation.reasons.isEmpty {
+                pendingInvalidation.addReason("invalidateLayout(with:)")
+            }
+        }
+        super.invalidateLayout(with: context)
     }
 }
