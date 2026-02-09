@@ -64,6 +64,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         static let emptyBodyDelay: TimeInterval = 0.5
         static let maxRedirects = 5
         static let mediaCornerRadius: CGFloat = 12
+        static let mediaCornerExponent: CGFloat = 5.0
     }
 
     private let stackView = UIStackView()
@@ -76,6 +77,10 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private var webViewHeightConstraint: NSLayoutConstraint!
     private var maxHeight: CGFloat = Constants.defaultMaxHeight
     private var minHeight: CGFloat = Constants.defaultMinHeight
+
+    private let webContainerMaskLayer = CAShapeLayer()
+    private var chromeBaseColor: UIColor?
+    private var chromeIsDark: Bool = false
 
     private var state: State = .idle
     private var currentURL: URL?
@@ -281,6 +286,17 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         handleReloadTap()
     }
 
+    func setBubbleChrome(baseColor: UIColor, isDark: Bool) {
+        chromeBaseColor = baseColor
+        chromeIsDark = isDark
+        applyChrome()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateWebCornerMask()
+    }
+
     private func setupViews() {
         backgroundColor = .clear
         // Prevent the web content from painting outside the preview bounds, which can
@@ -302,15 +318,10 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         webContainer.translatesAutoresizingMaskIntoConstraints = false
         webContainer.backgroundColor = .clear
         webContainer.clipsToBounds = true
-        // Match other embedded media (images/tables) with continuous rounded corners.
-        webContainer.layer.cornerRadius = Constants.mediaCornerRadius
-        webContainer.layer.cornerCurve = .continuous
-        webContainer.layer.maskedCorners = [
-            .layerMinXMinYCorner,
-            .layerMaxXMinYCorner,
-            .layerMinXMaxYCorner,
-            .layerMaxXMaxYCorner
-        ]
+        // Match other embedded media (images/tables) with continuous squircle rounded corners.
+        // WKWebView has complex internal tiled layers; masking the container ensures the bottom
+        // corners clip reliably while scrolling.
+        webContainer.layer.mask = webContainerMaskLayer
         stackView.addArrangedSubview(webContainer)
 
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -319,15 +330,19 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.clipsToBounds = true
-        // Apply the same continuous corner mask to WKWebView internals to ensure the
-        // bottom corners clip correctly (WKWebView uses internal tiled layers).
+        // Apply consistent rounding to WKWebView internals too (belt + suspenders).
         webView.layer.cornerRadius = Constants.mediaCornerRadius
         webView.layer.cornerCurve = .continuous
-        webView.layer.maskedCorners = webContainer.layer.maskedCorners
+        webView.layer.maskedCorners = [
+            .layerMinXMinYCorner,
+            .layerMaxXMinYCorner,
+            .layerMinXMaxYCorner,
+            .layerMaxXMaxYCorner
+        ]
         webView.scrollView.clipsToBounds = true
         webView.scrollView.layer.cornerRadius = Constants.mediaCornerRadius
         webView.scrollView.layer.cornerCurve = .continuous
-        webView.scrollView.layer.maskedCorners = webContainer.layer.maskedCorners
+        webView.scrollView.layer.maskedCorners = webView.layer.maskedCorners
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.showsVerticalScrollIndicator = false
         webView.scrollView.alwaysBounceVertical = false
@@ -379,6 +394,29 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         reloadButton.contentHorizontalAlignment = .leading
         reloadButton.isHidden = true
         stackView.addArrangedSubview(reloadButton)
+
+        applyChrome()
+    }
+
+    private func updateWebCornerMask() {
+        guard webContainer.bounds.width > 1, webContainer.bounds.height > 1 else { return }
+        webContainerMaskLayer.frame = webContainer.bounds
+        webContainerMaskLayer.path = superellipseRoundedRectPath(
+            rect: webContainer.bounds,
+            radius: Constants.mediaCornerRadius,
+            exponent: Constants.mediaCornerExponent
+        ).cgPath
+    }
+
+    private func applyChrome() {
+        guard let chromeBaseColor else { return }
+        // Darken the bubble base color to create a distinct surface behind the embedded browser.
+        let amount: CGFloat = chromeIsDark ? 0.14 : 0.08
+        let surface = chromeBaseColor.darkened(by: amount)
+        webContainer.backgroundColor = surface
+        if #available(iOS 15.0, visionOS 1.0, *) {
+            webView.underPageBackgroundColor = surface
+        }
     }
 
     private func startLoadIfNeeded() {
@@ -819,6 +857,15 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
         let scriptSource = """
         (function(){
+          try {
+            // Make the page background transparent so the bubble chrome surface shows through.
+            var style = document.createElement('style');
+            style.type = 'text/css';
+            style.appendChild(document.createTextNode('html,body{background:transparent !important;}'));
+            (document.documentElement || document).appendChild(style);
+            if (document.documentElement) { document.documentElement.style.background = 'transparent'; }
+            if (document.body) { document.body.style.background = 'transparent'; }
+          } catch(e) {}
           var handler = '\(handler)';
           var token = '\(token)';
           var store = window.__clawlineLinkPreviewObservers || (window.__clawlineLinkPreviewObservers = {});
@@ -1069,6 +1116,89 @@ private extension LinkPreviewView {
         guard let loadStartedAt = self.loadStartedAt else { return "nil" }
         let elapsedMs = Int(((CACurrentMediaTime() - loadStartedAt) * 1000.0).rounded())
         return String(elapsedMs)
+    }
+}
+
+private extension UIColor {
+    func darkened(by amount: CGFloat) -> UIColor {
+        let clamped = max(0, min(1, amount))
+        var h: CGFloat = 0
+        var s: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        if getHue(&h, saturation: &s, brightness: &b, alpha: &a) {
+            return UIColor(hue: h, saturation: s, brightness: max(0, b - clamped), alpha: a)
+        }
+        var w: CGFloat = 0
+        if getWhite(&w, alpha: &a) {
+            return UIColor(white: max(0, w - clamped), alpha: a)
+        }
+        // Fallback: apply a subtle black overlay.
+        return withAlphaComponent(1).withAlphaComponent(a)
+    }
+}
+
+private extension LinkPreviewView {
+    func superellipseRoundedRectPath(rect: CGRect, radius: CGFloat, exponent: CGFloat) -> UIBezierPath {
+        let r = min(radius, min(rect.width, rect.height) / 2)
+        let steps = 12
+        let quarterPoints = superellipseQuarterPoints(radius: 1, exponent: exponent, steps: steps)
+
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        appendCorner(path: path,
+                     center: CGPoint(x: rect.maxX - r, y: rect.minY + r),
+                     radius: r,
+                     points: quarterPoints,
+                     transform: { CGPoint(x: $0.y, y: -$0.x) })
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        appendCorner(path: path,
+                     center: CGPoint(x: rect.maxX - r, y: rect.maxY - r),
+                     radius: r,
+                     points: quarterPoints,
+                     transform: { CGPoint(x: $0.x, y: $0.y) })
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        appendCorner(path: path,
+                     center: CGPoint(x: rect.minX + r, y: rect.maxY - r),
+                     radius: r,
+                     points: quarterPoints,
+                     transform: { CGPoint(x: -$0.y, y: $0.x) })
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        appendCorner(path: path,
+                     center: CGPoint(x: rect.minX + r, y: rect.minY + r),
+                     radius: r,
+                     points: quarterPoints,
+                     transform: { CGPoint(x: -$0.x, y: -$0.y) })
+        path.close()
+        return path
+    }
+
+    func superellipseQuarterPoints(radius: CGFloat, exponent: CGFloat, steps: Int) -> [CGPoint] {
+        guard steps > 1 else { return [CGPoint(x: radius, y: 0), CGPoint(x: 0, y: radius)] }
+        let n = max(2, exponent)
+        let power = 2.0 / n
+        let step = (.pi / 2) / CGFloat(steps - 1)
+        return (0..<steps).map { idx in
+            let theta = CGFloat(idx) * step
+            let cosv = max(0, cos(theta))
+            let sinv = max(0, sin(theta))
+            let x = radius * pow(cosv, power)
+            let y = radius * pow(sinv, power)
+            return CGPoint(x: x, y: y)
+        }
+    }
+
+    func appendCorner(path: UIBezierPath,
+                      center: CGPoint,
+                      radius: CGFloat,
+                      points: [CGPoint],
+                      transform: (CGPoint) -> CGPoint) {
+        guard radius > 0 else { return }
+        for point in points {
+            let p = transform(CGPoint(x: point.x * radius, y: point.y * radius))
+            path.addLine(to: CGPoint(x: center.x + p.x, y: center.y + p.y))
+        }
     }
 }
 

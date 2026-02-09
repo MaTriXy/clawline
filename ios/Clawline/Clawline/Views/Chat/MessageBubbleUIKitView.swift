@@ -600,6 +600,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
                 if let linkPreviewURL {
                     let previewView = LinkPreviewView()
+                    let previewChromeBase = message.role == .user
+                        ? palette.bubbleSelfGradient.last!
+                        : palette.bubbleOtherGradient.last!
                     let previewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight ?? {
                         // V1 behavior
                         let headerHeight: CGFloat = showsHeader ? 32 : 0
@@ -618,6 +621,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     } else {
                         previewView.configure(url: linkPreviewURL, maxHeight: previewMaxHeight)
                     }
+                    previewView.setBubbleChrome(baseColor: previewChromeBase, isDark: palette.isDark)
                     previewView.onHeightChange = { [weak self] in
                         self?.onRequestLayout?(message.id)
                     }
@@ -642,6 +646,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         if let linkPreviewURL, !shouldShowInlineReloadButton {
             let previewView = LinkPreviewView()
+            let previewChromeBase = message.role == .user
+                ? palette.bubbleSelfGradient.last!
+                : palette.bubbleOtherGradient.last!
             let previewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight ?? {
                 // V1 behavior
                 let headerHeight: CGFloat = showsHeader ? 32 : 0
@@ -660,6 +667,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             } else {
                 previewView.configure(url: linkPreviewURL, maxHeight: previewMaxHeight)
             }
+            previewView.setBubbleChrome(baseColor: previewChromeBase, isDark: palette.isDark)
             previewView.onHeightChange = { [weak self] in
                 self?.onRequestLayout?(message.id)
             }
