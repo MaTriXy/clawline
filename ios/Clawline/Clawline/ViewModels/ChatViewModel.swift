@@ -90,6 +90,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private var pendingLocalMessages: [PendingLocalMessage] = []
     private var reconnectTask: Task<Void, Never>?
     private var reconnectBackoff: Duration = .seconds(1)
+    private let authRejectionInitialBackoff: Duration = .seconds(30)
+    private let authRejectionMaxBackoff: Duration = .seconds(900)
     private var lastReconnectAttemptAt: Date?
     private let minimumReconnectInterval: TimeInterval = 1.0
     private var lastReconnectRequestAt: Date?
@@ -862,18 +864,32 @@ final class ChatViewModel: ChatViewModelHosting {
                             return
                         case .missingBaseURL:
                             self.enterCriticalConnectionAlert(message: providerError.errorDescription ?? "No provider configured.")
+                        case .policyViolation:
+                            self.beginConnectionAlert(message: providerError.errorDescription ?? "Connection rejected.")
                         default:
                             self.beginConnectionAlert(message: providerError.errorDescription ?? "Connection interrupted.")
                         }
                     } else {
                         self.beginConnectionAlert(message: "Failed to connect: \(error.localizedDescription)")
                     }
-                    self.reconnectBackoff = min(self.reconnectBackoff * 2, .seconds(10))
+                    if let providerError = error as? ProviderChatService.Error,
+                       shouldUseAuthRejectionBackoff(providerError) {
+                        let current = max(self.reconnectBackoff, self.authRejectionInitialBackoff)
+                        self.reconnectBackoff = min(current * 2, self.authRejectionMaxBackoff)
+                    } else {
+                        self.reconnectBackoff = min(self.reconnectBackoff * 2, .seconds(10))
+                    }
                     self.reconnectTask = nil
                     self.scheduleReconnect(reason: .connectionStateFailed)
                 }
             }
         }
+    }
+
+    private func shouldUseAuthRejectionBackoff(_ error: ProviderChatService.Error) -> Bool {
+        guard case .policyViolation(_, let reason) = error else { return false }
+        let normalized = (reason ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "pairing required" || normalized.hasPrefix("invalid connect params")
     }
 
     private func handleConnectionFailure(_ error: Swift.Error) {

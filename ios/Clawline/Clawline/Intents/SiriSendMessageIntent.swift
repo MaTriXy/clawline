@@ -301,6 +301,8 @@ private func mapChatServiceError(_ error: ProviderChatService.Error) -> SiriSend
         return .authExpired
     case .authTimeout:
         return .connectionTimeout
+    case .policyViolation:
+        return .notPaired
     case .notConnected, .sessionReplaced, .invalidMessageId, .serverError:
         return .connectionTimeout
     }

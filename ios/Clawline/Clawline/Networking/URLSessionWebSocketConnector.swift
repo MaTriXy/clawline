@@ -42,6 +42,7 @@ private final class URLSessionWebSocketClient: WebSocketClient {
     private let stream: AsyncStream<String>
     private let continuation: AsyncStream<String>.Continuation
     private var receiveTask: Task<Void, Never>?
+    private(set) var lastCloseInfo: WebSocketCloseInfo?
 
     init(task: URLSessionWebSocketTask) {
         self.task = task
@@ -58,6 +59,7 @@ private final class URLSessionWebSocketClient: WebSocketClient {
     }
 
     func close(with code: URLSessionWebSocketTask.CloseCode?) {
+        lastCloseInfo = WebSocketCloseInfo(code: Int((code ?? .normalClosure).rawValue), reason: nil)
         task.cancel(with: code ?? .normalClosure, reason: nil)
         receiveTask?.cancel()
         continuation.finish()
@@ -80,7 +82,14 @@ private final class URLSessionWebSocketClient: WebSocketClient {
                         break
                     }
                 } catch {
-                    webSocketLogger.error("WebSocket receive loop error: \(error.localizedDescription, privacy: .public)")
+                    let rawCode = self.task.closeCode
+                    let code = rawCode == .invalid ? nil : Int(rawCode.rawValue)
+                    let reason: String? = {
+                        guard let data = self.task.closeReason, !data.isEmpty else { return nil }
+                        return String(data: data, encoding: .utf8) ?? data.base64EncodedString()
+                    }()
+                    self.lastCloseInfo = WebSocketCloseInfo(code: code, reason: reason)
+                    webSocketLogger.error("WS receive loop error: \(error.localizedDescription, privacy: .public)")
                     continuation.finish()
                     break
                 }

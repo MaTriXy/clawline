@@ -55,6 +55,7 @@ final class ProviderChatService: ChatServicing {
         case sessionReplaced
         case invalidMessageId
         case serverError(code: String, message: String?)
+        case policyViolation(code: Int, reason: String?)
 
         var errorDescription: String? {
             switch self {
@@ -77,6 +78,11 @@ final class ProviderChatService: ChatServicing {
                     return message
                 }
                 return "Server error (\(code))."
+            case .policyViolation(_, let reason):
+                if let reason, !reason.isEmpty {
+                    return reason
+                }
+                return "Connection rejected by server."
             }
         }
     }
@@ -356,7 +362,7 @@ final class ProviderChatService: ChatServicing {
             while let text = await iterator.next() {
                 handle(text: text)
             }
-            handleSocketClose()
+            handleSocketClose(closeInfo: client.lastCloseInfo)
         }
     }
 
@@ -629,8 +635,22 @@ final class ProviderChatService: ChatServicing {
         return map
     }
 
-    private func handleSocketClose() {
-        resolveAuthContinuation(with: .failure(Error.notConnected))
+    private func handleSocketClose(closeInfo: WebSocketCloseInfo?) {
+        let rejectionError: Error? = {
+            guard let closeInfo else { return nil }
+            guard closeInfo.code == 1008 else { return nil }
+            guard let reason = closeInfo.reason?.lowercased() else { return nil }
+            if reason == "pairing required" || reason.hasPrefix("invalid connect params") {
+                return Error.policyViolation(code: closeInfo.code ?? 1008, reason: closeInfo.reason)
+            }
+            return nil
+        }()
+
+        if let rejectionError {
+            resolveAuthContinuation(with: .failure(rejectionError))
+        } else {
+            resolveAuthContinuation(with: .failure(Error.notConnected))
+        }
 
         // Notify the UI about each pending message that failed to send
         // This removes the optimistic placeholders so users know messages weren't delivered
@@ -644,10 +664,22 @@ final class ProviderChatService: ChatServicing {
         }
         pendingMessages.removeAll()
 
-        logger.info("state -> disconnected (socket close) notify=\(self.shouldNotifyDisconnect, privacy: .public)")
-        updateState(.disconnected)
-        if shouldNotifyDisconnect {
-            emitServiceEvent(.connectionInterrupted(reason: pendingDisconnectReason))
+        if let rejectionError {
+            let closeCode = String(describing: closeInfo?.code)
+            let closeReason = closeInfo?.reason ?? "nil"
+            logger.info(
+                "state -> failed (socket close policy violation) notify=\(self.shouldNotifyDisconnect, privacy: .public) code=\(closeCode, privacy: .public) reason=\(closeReason, privacy: .public)"
+            )
+            updateState(.failed(rejectionError))
+            if shouldNotifyDisconnect {
+                emitServiceEvent(.connectionInterrupted(reason: rejectionError.errorDescription ?? pendingDisconnectReason))
+            }
+        } else {
+            logger.info("state -> disconnected (socket close) notify=\(self.shouldNotifyDisconnect, privacy: .public)")
+            updateState(.disconnected)
+            if shouldNotifyDisconnect {
+                emitServiceEvent(.connectionInterrupted(reason: pendingDisconnectReason))
+            }
         }
         shouldNotifyDisconnect = true
         pendingDisconnectReason = nil
