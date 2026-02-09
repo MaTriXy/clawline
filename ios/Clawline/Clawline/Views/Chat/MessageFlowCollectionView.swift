@@ -120,6 +120,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     // - auto scroll-to-bottom can start a concurrent scroll animation and re-layout mid-morph.
     private var morphTargetMessageId: String?
     private var deferScrollToBottomUntilMorphCompletes = false
+
+    // T036: Persist and restore scroll position per session key so app relaunch resumes where the user left off.
+    // We store distance-from-bottom so async remeasures or new message insertions don't invalidate the anchor.
+    private struct PersistedScrollState: Codable, Equatable {
+        var atBottom: Bool
+        var distanceFromBottom: Double
+        var savedAtEpochSeconds: Double
+    }
+
+    private var scrollPersistenceKey: String?
+    private var pendingScrollRestoreState: PersistedScrollState?
+    private var restoredScrollKeys: Set<String> = []
+    private var scrollStateWriteDebounceTimer: Timer?
+    private static let scrollStateWriteDebounceSeconds: TimeInterval = 0.35
 #if os(visionOS)
     // iPad mini 6th gen portrait reference size for spatial layout rules.
     private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
@@ -140,6 +154,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // currentIsDark will be set by the first update() call from SwiftUI
         // which passes the colorScheme environment value
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWillResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: UIApplication.willResignActiveNotification, object: nil)
     }
 
     override func viewDidLayoutSubviews() {
@@ -235,6 +260,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         updateVisibleCellOpacity()
 #endif
         reportIsAtBottomIfChanged()
+        schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
     }
 
@@ -246,6 +272,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #endif
         if !decelerate {
             reportIsAtBottomIfChanged()
+            schedulePersistScrollState()
             flushDeferredBubbleSizingV2RemeasureIfNeeded()
         }
     }
@@ -255,7 +282,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         updateVisibleCellOpacity()
 #endif
         reportIsAtBottomIfChanged()
+        schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
+    }
+
+    @objc private func handleWillResignActive() {
+        persistScrollStateNow()
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
@@ -354,6 +386,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
         self.onScrollEvent = onScrollEvent
+        updateScrollPersistenceKeyAndPendingRestoreState()
 
         // Handle appearance change from SwiftUI colorScheme
         if let isDark = isDark, currentIsDark != isDark {
@@ -451,18 +484,24 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if shouldMorph {
 #if os(visionOS)
             applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
+                self?.attemptRestoreScrollIfNeeded()
                 self?.updateVisibleCellOpacity()
             }
 #else
-            applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId, onApplied: nil)
+            applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
+                self?.attemptRestoreScrollIfNeeded()
+            }
 #endif
         } else {
 #if os(visionOS)
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+                self?.attemptRestoreScrollIfNeeded()
                 self?.updateVisibleCellOpacity()
             }
 #else
-            dataSource.apply(snapshot, animatingDifferences: false)
+            dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+                self?.attemptRestoreScrollIfNeeded()
+            }
 #endif
         }
         NSLog("[KBTIMING] MFCV.update snapshotApply changed=%d morph=%d dt=%.4f", changedIds.count, shouldMorph ? 1 : 0, CFAbsoluteTimeGetCurrent() - t0)
@@ -484,9 +523,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     emit(.didReceiveNewMessagesWhileScrolledUp(stream: resolvedStream(), newMessageIDs: appendedMessageIDs))
                 }
             } else if !wasUserInteracting {
-                // Preserve prior behavior on resets/stream swaps: default to bottom when the last id changes
-                // but we can't reliably classify it as an incremental append.
-                scheduleScrollToBottom(animated: true)
+                // T036: On cold start, restore the last scroll position instead of forcing a reset-to-bottom.
+                // For actual stream swaps/resets without a persisted anchor, default to bottom.
+                if let pendingScrollRestoreState {
+                    if pendingScrollRestoreState.atBottom {
+                        scheduleScrollToBottom(animated: true)
+                    }
+                } else if previousLastMessageId != nil {
+                    // Preserve prior behavior on resets/stream swaps: default to bottom when the last id changes
+                    // but we can't reliably classify it as an incremental append.
+                    scheduleScrollToBottom(animated: true)
+                }
             }
         } else if typingIndicatorJustAppeared {
             // Only keep the typing indicator visible if the user is already pinned near the bottom.
@@ -520,6 +567,98 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             lastReportedIsAtBottom = isAtBottom
             emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: isAtBottom))
         }
+    }
+
+    private func updateScrollPersistenceKeyAndPendingRestoreState() {
+        guard let viewModel else { return }
+        let stream = resolvedStream()
+        let newKey = viewModel.messageStorageKey(for: stream)
+        guard newKey != scrollPersistenceKey else { return }
+        scrollPersistenceKey = newKey
+        if restoredScrollKeys.contains(newKey) {
+            pendingScrollRestoreState = nil
+        } else {
+            pendingScrollRestoreState = loadPersistedScrollState(for: newKey)
+        }
+    }
+
+    private func scrollStateDefaultsKey(for persistenceKey: String) -> String {
+        "clawline.scrollState.v1.\(persistenceKey)"
+    }
+
+    private func loadPersistedScrollState(for persistenceKey: String) -> PersistedScrollState? {
+        let key = scrollStateDefaultsKey(for: persistenceKey)
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        do {
+            return try JSONDecoder().decode(PersistedScrollState.self, from: data)
+        } catch {
+            logger.error("failed decoding scrollState key=\(key, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    private func schedulePersistScrollState() {
+        scrollStateWriteDebounceTimer?.invalidate()
+        scrollStateWriteDebounceTimer = Timer.scheduledTimer(withTimeInterval: Self.scrollStateWriteDebounceSeconds, repeats: false) { [weak self] _ in
+            self?.persistScrollStateNow()
+        }
+    }
+
+    private func persistScrollStateNow() {
+        guard let persistenceKey = scrollPersistenceKey else { return }
+        guard view.window != nil else { return }
+        guard collectionView != nil else { return }
+
+        let contentInset = collectionView.contentInset
+        let minY = -contentInset.top
+        let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom)
+        guard maxY.isFinite, minY.isFinite else { return }
+
+        let offsetY = collectionView.contentOffset.y
+        let clampedOffsetY = min(max(offsetY, minY), maxY)
+        let distanceFromBottom = max(0, maxY - clampedOffsetY)
+        let isAtBottom = distanceFromBottom <= Self.scrollToBottomAtBottomThreshold
+        let state = PersistedScrollState(
+            atBottom: isAtBottom,
+            distanceFromBottom: Double(distanceFromBottom),
+            savedAtEpochSeconds: Date().timeIntervalSince1970
+        )
+
+        do {
+            let data = try JSONEncoder().encode(state)
+            let key = scrollStateDefaultsKey(for: persistenceKey)
+            UserDefaults.standard.set(data, forKey: key)
+        } catch {
+            logger.error("failed encoding scrollState key=\(persistenceKey, privacy: .public) error=\(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func attemptRestoreScrollIfNeeded() {
+        guard let persistenceKey = scrollPersistenceKey else { return }
+        guard !restoredScrollKeys.contains(persistenceKey) else { return }
+        guard let state = pendingScrollRestoreState else { return }
+        guard collectionView != nil else { return }
+
+        // Wait until we have meaningful geometry; otherwise try again on the next update apply.
+        guard collectionView.bounds.height > 1, collectionView.contentSize.height > 1 else { return }
+
+        collectionView.layoutIfNeeded()
+        let contentInset = collectionView.contentInset
+        let minY = -contentInset.top
+        let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom)
+        guard maxY.isFinite, minY.isFinite else { return }
+
+        let targetY: CGFloat
+        if state.atBottom {
+            targetY = maxY
+        } else {
+            targetY = maxY - CGFloat(state.distanceFromBottom)
+        }
+        let clampedTargetY = min(max(targetY, minY), maxY)
+        collectionView.setContentOffset(CGPoint(x: 0, y: clampedTargetY), animated: false)
+
+        restoredScrollKeys.insert(persistenceKey)
+        pendingScrollRestoreState = nil
     }
 
     private func configureCollectionView() {
