@@ -33,6 +33,7 @@ final class TerminalSessionService {
     private var enableMessagesTask: Task<Void, Never>?
     private var sawBackfillEnd: Bool = false
     private var backfillLinesRequested: Int = 0
+    private var lastFailureMessage: String?
 
     private let outputContinuation: AsyncStream<Data>.Continuation
     let output: AsyncStream<Data>
@@ -79,6 +80,7 @@ final class TerminalSessionService {
         enableMessagesTask = nil
         sawBackfillEnd = false
         backfillLinesRequested = backfillLines
+        lastFailureMessage = nil
         stateContinuation.yield(.connecting)
 
         guard let url = makeTerminalWebSocketURL() else {
@@ -117,6 +119,10 @@ final class TerminalSessionService {
 
     func disconnect() {
         logger.info("terminal_disconnect terminalSessionId=\(self.descriptor.terminalSessionId, privacy: .public)")
+        teardownSocket(yieldDisconnected: true)
+    }
+
+    private func teardownSocket(yieldDisconnected: Bool) {
         receiveTask?.cancel()
         receiveTask = nil
         pingTask?.cancel()
@@ -129,7 +135,9 @@ final class TerminalSessionService {
         pendingResize = nil
         sawBackfillEnd = false
         backfillLinesRequested = 0
-        stateContinuation.yield(.disconnected)
+        if yieldDisconnected {
+            stateContinuation.yield(.disconnected)
+        }
     }
 
     func sendInput(_ data: Data) {
@@ -139,6 +147,9 @@ final class TerminalSessionService {
                 try await socket.send(.data(data))
             } catch {
                 logger.error("terminal_send_input_failed error=\(error.localizedDescription, privacy: .public)")
+                await MainActor.run {
+                    self.handleTransportFailure(error, context: "sendInput")
+                }
             }
         }
     }
@@ -173,6 +184,9 @@ final class TerminalSessionService {
                 try await socket.send(.string(text))
             } catch {
                 logger.error("terminal_send_control_failed error=\(error.localizedDescription, privacy: .public)")
+                await MainActor.run {
+                    self.handleTransportFailure(error, context: "sendControl")
+                }
             }
         }
     }
@@ -206,13 +220,13 @@ final class TerminalSessionService {
         guard let socket else { return }
         if !Self.isValidTerminalSessionId(descriptor.terminalSessionId) {
             stateContinuation.yield(.failed("Invalid terminalSessionId"))
-            disconnect()
+            teardownSocket(yieldDisconnected: false)
             return
         }
         guard let token = resolveAuthToken() else {
             logger.error("terminal_auth_missing_token terminalSessionId=\(self.descriptor.terminalSessionId, privacy: .public)")
             stateContinuation.yield(.failed("Missing auth token"))
-            disconnect()
+            teardownSocket(yieldDisconnected: false)
             return
         }
 
@@ -238,7 +252,7 @@ final class TerminalSessionService {
         } catch {
             logger.error("terminal_auth_send_failed error=\(String(describing: error), privacy: .public)")
             stateContinuation.yield(.failed("Auth send failed"))
-            disconnect()
+            teardownSocket(yieldDisconnected: false)
         }
     }
 
@@ -278,10 +292,23 @@ final class TerminalSessionService {
             } catch {
                 if Task.isCancelled { break }
                 logger.error("terminal_receive_failed error=\(String(describing: error), privacy: .public)")
-                stateContinuation.yield(.disconnected)
+                handleTransportFailure(error, context: "receiveLoop")
                 break
             }
         }
+    }
+
+    private func handleTransportFailure(_ error: Error, context: String) {
+        let message = error.localizedDescription
+        lastFailureMessage = message
+        isReady = false
+        enableMessagesTask?.cancel()
+        enableMessagesTask = nil
+        logger.warning(
+            "terminal_transport_failure context=\(context, privacy: .public) message=\(message, privacy: .public)"
+        )
+        stateContinuation.yield(.failed(message))
+        teardownSocket(yieldDisconnected: false)
     }
 
     @discardableResult
@@ -331,7 +358,21 @@ final class TerminalSessionService {
             isReady = false
             enableMessagesTask?.cancel()
             enableMessagesTask = nil
-            stateContinuation.yield(.disconnected)
+            let rawReason =
+                (obj["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ??
+                (obj["reason"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let code = obj["code"] as? Int
+            let reason: String = {
+                if let rawReason, !rawReason.isEmpty {
+                    return rawReason
+                }
+                if let code {
+                    return "Terminal closed (code \(code))"
+                }
+                return "Terminal closed"
+            }()
+            stateContinuation.yield(.failed(reason))
+            teardownSocket(yieldDisconnected: false)
         default:
             break
         }
@@ -384,8 +425,7 @@ final class TerminalSessionService {
             } catch {
                 if Task.isCancelled { break }
                 logger.warning("terminal_ping_failed error=\(error.localizedDescription, privacy: .public)")
-                stateContinuation.yield(.disconnected)
-                disconnect()
+                handleTransportFailure(error, context: "pingLoop")
                 break
             }
         }
