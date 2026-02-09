@@ -10,6 +10,11 @@ import QuartzCore
 import SwiftUI
 import UIKit
 
+enum MessageFlowScrollEvent: Equatable {
+    case isAtBottomChanged(stream: ChatStream, isAtBottom: Bool)
+    case didReceiveNewMessagesWhileScrolledUp(stream: ChatStream, newMessageIDs: [String])
+}
+
 @MainActor
 struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var viewModel: ChatViewModel
@@ -20,6 +25,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var layoutCoordinator: ChatLayoutCoordinator
     /// Optional channel override - if provided, shows messages for this channel instead of activeStream
     var channel: ChatStream?
+    var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.settingsManager) private var settings
 
@@ -38,6 +44,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             truncationBottomInset: truncationBottomInset,
             onExpand: onExpand,
             channel: channel,
+            onScrollEvent: onScrollEvent,
             isDark: isDark
         )
         if let channel = channel {
@@ -59,6 +66,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             truncationBottomInset: truncationBottomInset,
             onExpand: onExpand,
             channel: channel,
+            onScrollEvent: onScrollEvent,
             isDark: isDark
         )
         if let channel = channel {
@@ -103,6 +111,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var forceReconfigureAll = false
     private var wasShowingTypingIndicator = false
     private var onExpand: ((Message) -> Void)?
+    private var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
+    private var lastReportedIsAtBottom: Bool?
     private var pendingEntranceAnimationIds: Set<String> = []
     // Typing indicator morph is a bespoke overlay animation. During the morph we must prevent
     // normal lifecycle behaviors from fighting it:
@@ -114,6 +124,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     // iPad mini 6th gen portrait reference size for spatial layout rules.
     private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
 #endif
+    private static let scrollToBottomAtBottomThreshold: CGFloat = 12
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         false
@@ -223,6 +234,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
+        reportIsAtBottomIfChanged()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
     }
 
@@ -233,6 +245,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
 #endif
         if !decelerate {
+            reportIsAtBottomIfChanged()
             flushDeferredBubbleSizingV2RemeasureIfNeeded()
         }
     }
@@ -241,6 +254,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
+        reportIsAtBottomIfChanged()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
     }
 
@@ -333,14 +347,19 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         truncationBottomInset: CGFloat,
         onExpand: ((Message) -> Void)? = nil,
         channel: ChatStream? = nil,
+        onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)? = nil,
         isDark: Bool? = nil
     ) {
         loadViewIfNeeded()
         let t0 = CFAbsoluteTimeGetCurrent()
+        let previousLastMessageId = lastMessageId
+        let wasAtBottomBeforeUpdate = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
+        let wasUserInteracting = isUserInteracting
         self.viewModel = viewModel
         self.channelOverride = channel
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
+        self.onScrollEvent = onScrollEvent
 
         // Handle appearance change from SwiftUI colorScheme
         if let isDark = isDark, currentIsDark != isDark {
@@ -373,6 +392,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Use channel override if provided, otherwise use activeStream messages
         let messages = channel.map { viewModel.messages(for: $0) } ?? viewModel.messages
+        let appendedMessageIDs = Self.appendedMessageIDs(previousLastMessageId: previousLastMessageId, messageIDs: messages.map(\.id))
         let messageCount = messages.count
         if Set(messages.map(\.id)).count != messageCount {
             logger.info("diffing duplicate ids in viewModel.messages count=\(messageCount, privacy: .public)")
@@ -459,16 +479,53 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if lastMessageId != messages.last?.id {
             lastMessageId = messages.last?.id
+            let isIncrementalAppend = (previousLastMessageId != nil) && !appendedMessageIDs.isEmpty
             if shouldMorph {
-                deferScrollToBottomUntilMorphCompletes = true
-            } else {
+                // Only defer the post-morph scroll if we would have auto-scrolled (user was pinned to bottom).
+                deferScrollToBottomUntilMorphCompletes = isIncrementalAppend && wasAtBottomBeforeUpdate && !wasUserInteracting
+            } else if isIncrementalAppend {
+                if wasAtBottomBeforeUpdate && !wasUserInteracting {
+                    scheduleScrollToBottom(animated: true)
+                } else {
+                    emit(.didReceiveNewMessagesWhileScrolledUp(stream: resolvedStream(), newMessageIDs: appendedMessageIDs))
+                }
+            } else if !wasUserInteracting {
+                // Preserve prior behavior on resets/stream swaps: default to bottom when the last id changes
+                // but we can't reliably classify it as an incremental append.
                 scheduleScrollToBottom(animated: true)
             }
         } else if typingIndicatorJustAppeared {
-            // Scroll to show typing indicator when it appears
-            scheduleScrollToBottom(animated: true)
+            // Only keep the typing indicator visible if the user is already pinned near the bottom.
+            if wasAtBottomBeforeUpdate && !wasUserInteracting {
+                scheduleScrollToBottom(animated: true)
+            }
         }
+        reportIsAtBottomIfChanged()
         NSLog("[KBTIMING] MFCV.update DONE dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
+    }
+
+    static func appendedMessageIDs(previousLastMessageId: String?, messageIDs: [String]) -> [String] {
+        guard let previousLastMessageId else { return [] }
+        guard let idx = messageIDs.firstIndex(of: previousLastMessageId) else { return [] }
+        let next = messageIDs.index(after: idx)
+        guard next < messageIDs.endIndex else { return [] }
+        return Array(messageIDs[next...])
+    }
+
+    private func resolvedStream() -> ChatStream {
+        channelOverride ?? viewModel?.activeStream ?? .personal
+    }
+
+    private func emit(_ event: MessageFlowScrollEvent) {
+        onScrollEvent?(event)
+    }
+
+    private func reportIsAtBottomIfChanged() {
+        let isAtBottom = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
+        if lastReportedIsAtBottom != isAtBottom {
+            lastReportedIsAtBottom = isAtBottom
+            emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: isAtBottom))
+        }
     }
 
     private func configureCollectionView() {
@@ -1496,6 +1553,28 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: animated)
         NSLog("[KBTIMING] scrollToBottom animated=%d targetY=%.1f dt=%.4f", animated ? 1 : 0, clampedY, CFAbsoluteTimeGetCurrent() - t0)
+    }
+
+    func scrollToMessageCentered(messageId: String, animated: Bool) {
+        guard let indexPath = dataSource.indexPath(for: messageId) else { return }
+        collectionView.layoutIfNeeded()
+
+        let contentInset = collectionView.contentInset
+        let visibleHeight = collectionView.bounds.height - contentInset.top - contentInset.bottom
+        guard visibleHeight > 0 else { return }
+
+        guard let attrs = collectionView.layoutAttributesForItem(at: indexPath) else {
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
+            return
+        }
+
+        // Align the cell center to the visible rect center (not just ".centeredVertically",
+        // which can edge-snap near the top/bottom).
+        let targetOffsetY = attrs.center.y - (visibleHeight / 2) - contentInset.top
+        let minY = -contentInset.top
+        let maxY = collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom
+        let clampedY = max(minY, min(targetOffsetY, maxY))
+        collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: animated)
     }
 
     func isNearBottom(extraMargin: CGFloat) -> Bool {
