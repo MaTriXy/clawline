@@ -38,3 +38,6 @@ provider/bun.lock
 scratch/
 scratch/
 .derived/
+
+.xcode-derived-data/
+.xcode-spm/
