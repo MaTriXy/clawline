@@ -133,6 +133,11 @@ final class ChatLayoutCoordinator {
         listViews[channel]?.value?.scrollToMessageCentered(messageId: messageId, animated: animated)
     }
 
+    func flashMessage(messageId: String, channel: ChatStream) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        listViews[channel]?.value?.requestFlashMessage(messageId: messageId)
+    }
+
     func updateInputs(_ inputs: ChatLayoutInputs, metrics: ChatLayoutMetrics) {
         dispatchPrecondition(condition: .onQueue(.main))
         latestInputs = inputs

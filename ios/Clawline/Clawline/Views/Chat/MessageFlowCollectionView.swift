@@ -13,6 +13,7 @@ import UIKit
 enum MessageFlowScrollEvent: Equatable {
     case isAtBottomChanged(stream: ChatStream, isAtBottom: Bool)
     case didReceiveNewMessagesWhileScrolledUp(stream: ChatStream, newMessageIDs: [String])
+    case didCrossFirstUnreadCenter(stream: ChatStream, messageId: String)
 }
 
 @MainActor
@@ -21,6 +22,8 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var topInset: CGFloat
     var isCompact: Bool
     var truncationBottomInset: CGFloat
+    var firstUnreadMessageId: String?
+    var unreadCount: Int
     var onExpand: ((Message) -> Void)?
     var layoutCoordinator: ChatLayoutCoordinator
     /// Optional channel override - if provided, shows messages for this channel instead of activeStream
@@ -42,6 +45,8 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             isCompact: isCompact,
             topInset: topInset,
             truncationBottomInset: truncationBottomInset,
+            firstUnreadMessageId: firstUnreadMessageId,
+            unreadCount: unreadCount,
             onExpand: onExpand,
             channel: channel,
             onScrollEvent: onScrollEvent,
@@ -64,6 +69,8 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             isCompact: isCompact,
             topInset: topInset,
             truncationBottomInset: truncationBottomInset,
+            firstUnreadMessageId: firstUnreadMessageId,
+            unreadCount: unreadCount,
             onExpand: onExpand,
             channel: channel,
             onScrollEvent: onScrollEvent,
@@ -113,6 +120,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var onExpand: ((Message) -> Void)?
     private var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     private var lastReportedIsAtBottom: Bool?
+    private var firstUnreadMessageId: String?
+    private var unreadCount: Int = 0
+    private var firstUnreadWasBelowViewportCenter: Bool?
+    private var didCrossAndClearFirstUnreadId: String?
+    private var pendingFlashMessageId: String?
     private var pendingEntranceAnimationIds: Set<String> = []
     // Typing indicator morph is a bespoke overlay animation. During the morph we must prevent
     // normal lifecycle behaviors from fighting it:
@@ -264,6 +276,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         updateVisibleCellOpacity()
 #endif
         reportIsAtBottomIfChanged()
+        checkFirstUnreadCrossingIfNeeded()
         schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
     }
@@ -276,6 +289,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #endif
         if !decelerate {
             reportIsAtBottomIfChanged()
+            checkFirstUnreadCrossingIfNeeded()
+            performPendingFlashIfPossible()
             schedulePersistScrollState()
             flushDeferredBubbleSizingV2RemeasureIfNeeded()
         }
@@ -286,6 +301,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         updateVisibleCellOpacity()
 #endif
         reportIsAtBottomIfChanged()
+        checkFirstUnreadCrossingIfNeeded()
+        performPendingFlashIfPossible()
+        schedulePersistScrollState()
+        flushDeferredBubbleSizingV2RemeasureIfNeeded()
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        reportIsAtBottomIfChanged()
+        checkFirstUnreadCrossingIfNeeded()
+        performPendingFlashIfPossible()
         schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
     }
@@ -375,6 +400,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         isCompact: Bool,
         topInset: CGFloat,
         truncationBottomInset: CGFloat,
+        firstUnreadMessageId: String?,
+        unreadCount: Int,
         onExpand: ((Message) -> Void)? = nil,
         channel: ChatStream? = nil,
         onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)? = nil,
@@ -390,6 +417,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
         self.onScrollEvent = onScrollEvent
+        if self.firstUnreadMessageId != firstUnreadMessageId {
+            self.firstUnreadWasBelowViewportCenter = nil
+            self.didCrossAndClearFirstUnreadId = nil
+        }
+        self.firstUnreadMessageId = firstUnreadMessageId
+        self.unreadCount = unreadCount
         updateScrollPersistenceKeyAndPendingRestoreState()
 
         // Handle appearance change from SwiftUI colorScheme
@@ -485,26 +518,45 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         forceReconfigureAll = false
 
+        let newestMessageId = messages.last?.id
+        let didLastMessageChange = (previousLastMessageId != newestMessageId)
+        let isIncrementalAppend = (previousLastMessageId != nil) && !appendedMessageIDs.isEmpty
+        let shouldAutoScrollToBottomAfterApply = didLastMessageChange
+            && isIncrementalAppend
+            && wasAtBottomBeforeUpdate
+            && !wasUserInteracting
+            && !shouldMorph
+
+        let afterSnapshotApplied: (() -> Void) = { [weak self] in
+            guard let self else { return }
+            self.attemptRestoreScrollIfNeeded()
+            if shouldAutoScrollToBottomAfterApply {
+                // Race-sensitive: the contentSize can change again after diffable applies.
+                // A few post-apply attempts preserves the historical “always end up at the bottom” behavior.
+                self.scheduleScrollToBottom(animated: true, attempts: 3)
+            }
+        }
+
         if shouldMorph {
 #if os(visionOS)
             applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
-                self?.attemptRestoreScrollIfNeeded()
+                afterSnapshotApplied()
                 self?.updateVisibleCellOpacity()
             }
 #else
             applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
-                self?.attemptRestoreScrollIfNeeded()
+                afterSnapshotApplied()
             }
 #endif
         } else {
 #if os(visionOS)
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
-                self?.attemptRestoreScrollIfNeeded()
+                afterSnapshotApplied()
                 self?.updateVisibleCellOpacity()
             }
 #else
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
-                self?.attemptRestoreScrollIfNeeded()
+                afterSnapshotApplied()
             }
 #endif
         }
@@ -514,16 +566,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         )
         fingerprints = newFingerprints
 
-        if lastMessageId != messages.last?.id {
-            lastMessageId = messages.last?.id
-            let isIncrementalAppend = (previousLastMessageId != nil) && !appendedMessageIDs.isEmpty
+        if lastMessageId != newestMessageId {
+            lastMessageId = newestMessageId
             if shouldMorph {
                 // Only defer the post-morph scroll if we would have auto-scrolled (user was pinned to bottom).
                 deferScrollToBottomUntilMorphCompletes = isIncrementalAppend && wasAtBottomBeforeUpdate && !wasUserInteracting
             } else if isIncrementalAppend {
-                if wasAtBottomBeforeUpdate && !wasUserInteracting {
-                    scheduleScrollToBottom(animated: true)
-                } else {
+                if !(wasAtBottomBeforeUpdate && !wasUserInteracting) {
                     emit(.didReceiveNewMessagesWhileScrolledUp(stream: resolvedStream(), newMessageIDs: appendedMessageIDs))
                 }
             } else if !wasUserInteracting {
@@ -566,11 +615,60 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func reportIsAtBottomIfChanged() {
-        let isAtBottom = isNearBottom(extraMargin: Self.scrollToBottomButtonRevealThreshold)
+        // Invariant: the indicator MUST be hidden when within the at-bottom threshold.
+        let isAtBottom = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
         if lastReportedIsAtBottom != isAtBottom {
             lastReportedIsAtBottom = isAtBottom
             emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: isAtBottom))
         }
+    }
+
+    func requestFlashMessage(messageId: String) {
+        pendingFlashMessageId = messageId
+        performPendingFlashIfPossible()
+    }
+
+    private func performPendingFlashIfPossible() {
+        guard let messageId = pendingFlashMessageId else { return }
+        guard let indexPath = dataSource.indexPath(for: messageId) else { return }
+        guard let cell = collectionView.cellForItem(at: indexPath) else { return }
+        guard let bubbleCell = cell as? MessageBubbleUIKitCell else { return }
+        pendingFlashMessageId = nil
+        bubbleCell.flashUnreadAnchorHighlight()
+    }
+
+    private func checkFirstUnreadCrossingIfNeeded() {
+        guard unreadCount > 0 else {
+            firstUnreadWasBelowViewportCenter = nil
+            didCrossAndClearFirstUnreadId = nil
+            return
+        }
+        guard let messageId = firstUnreadMessageId else { return }
+        if didCrossAndClearFirstUnreadId == messageId { return }
+        guard let indexPath = dataSource.indexPath(for: messageId) else { return }
+        collectionView.layoutIfNeeded()
+        guard let attrs = collectionView.layoutAttributesForItem(at: indexPath) else { return }
+
+        let contentInset = collectionView.contentInset
+        let visibleHeight = collectionView.bounds.height - contentInset.top - contentInset.bottom
+        guard visibleHeight > 1 else { return }
+        let visibleTopY = collectionView.contentOffset.y + contentInset.top
+        let viewportCenterY = visibleTopY + (visibleHeight * 0.5)
+        let bubbleTopY = attrs.frame.minY
+        let isBelowCenter = bubbleTopY > viewportCenterY
+
+        if let wasBelow = firstUnreadWasBelowViewportCenter,
+           wasBelow,
+           !isBelowCenter {
+            // Invariant: clearing-by-scroll triggers when the TOP edge crosses the viewport center, with a flash.
+            didCrossAndClearFirstUnreadId = messageId
+            pendingFlashMessageId = messageId
+            performPendingFlashIfPossible()
+            unreadCount = 0
+            emit(.didCrossFirstUnreadCenter(stream: resolvedStream(), messageId: messageId))
+        }
+
+        firstUnreadWasBelowViewportCenter = isBelowCenter
     }
 
     private func updateScrollPersistenceKeyAndPendingRestoreState() {
@@ -891,7 +989,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     // morph feel interrupted. Defer it until the morph completes.
                     if self.deferScrollToBottomUntilMorphCompletes {
                         self.deferScrollToBottomUntilMorphCompletes = false
-                        self.scheduleScrollToBottom(animated: false, attempts: 1)
+                        // Multiple attempts preserves the historical “always end up at the bottom” invariant.
+                        self.scheduleScrollToBottom(animated: false, attempts: 3)
                     }
                 }
             }

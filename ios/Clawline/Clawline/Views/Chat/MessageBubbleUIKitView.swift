@@ -1831,6 +1831,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
     private var messageId: String = ""
     private var messageSnippet: String = ""
     private var lastMismatch: (bounds: CGRect, bubble: CGRect)?
+    private var flashOverlayView: UIView?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1890,9 +1891,55 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         containerView.prepareForReuse()
+        flashOverlayView?.removeFromSuperview()
+        flashOverlayView = nil
         messageId = ""
         messageSnippet = ""
         lastMismatch = nil
+    }
+
+    func flashUnreadAnchorHighlight() {
+        flashOverlayView?.removeFromSuperview()
+        flashOverlayView = nil
+
+        let bubbleFrame = containerView.bubbleFrameInContainer()
+        let bubbleInCell = containerView.convert(bubbleFrame, to: contentView)
+        guard bubbleInCell.width > 8, bubbleInCell.height > 8 else { return }
+
+        let isDark = traitCollection.userInterfaceStyle == .dark
+        let palette = ChatFlowUIKitTheme.palette(isDark: isDark)
+        let overlay = UIView(frame: bubbleInCell.insetBy(dx: -5, dy: -5))
+        overlay.isUserInteractionEnabled = false
+        overlay.backgroundColor = palette.terracotta.withAlphaComponent(isDark ? 0.14 : 0.18)
+        overlay.layer.borderColor = palette.terracotta.withAlphaComponent(isDark ? 0.95 : 0.85).cgColor
+        overlay.layer.borderWidth = 2
+        overlay.layer.cornerRadius = 18
+        overlay.layer.cornerCurve = .continuous
+        overlay.alpha = 0
+
+        contentView.addSubview(overlay)
+        flashOverlayView = overlay
+
+        UIView.animate(
+            withDuration: 0.16,
+            delay: 0,
+            options: [.curveEaseOut, .allowUserInteraction]
+        ) {
+            overlay.alpha = 1
+        } completion: { _ in
+            UIView.animate(
+                withDuration: 0.38,
+                delay: 0.10,
+                options: [.curveEaseIn, .allowUserInteraction]
+            ) {
+                overlay.alpha = 0
+            } completion: { [weak self] _ in
+                overlay.removeFromSuperview()
+                if self?.flashOverlayView === overlay {
+                    self?.flashOverlayView = nil
+                }
+            }
+        }
     }
 
     override func layoutSubviews() {

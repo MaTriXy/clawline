@@ -176,6 +176,11 @@ struct ChatView: View {
                 state.unreadCount += newMessageIDs.count
                 state.bounceToken &+= 1
             }
+        case .didCrossFirstUnreadCenter(let stream, _):
+            mutateScrollButtonState(for: stream) { state in
+                state.unreadCount = 0
+                state.firstUnreadMessageId = nil
+            }
         }
     }
 
@@ -410,7 +415,14 @@ struct ChatView: View {
                     let current = scrollButtonState(for: stream)
                     if current.unreadCount > 0 {
                         if let firstUnread = current.firstUnreadMessageId {
-                            layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
+                            let hasTarget = viewModel.messages(for: stream).contains(where: { $0.id == firstUnread })
+                            if hasTarget {
+                                layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
+                                layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream)
+                            } else {
+                                // Invariant: if the anchor is stale/missing, fall back to bottom and clear unread.
+                                layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                            }
                         } else {
                             layoutCoordinator.scrollToBottom(channel: stream, animated: true)
                         }
@@ -578,11 +590,14 @@ struct ChatView: View {
     private func messageList(topInset: CGFloat,
                              truncationBottomInset: CGFloat,
                              channel: ChatStream) -> some View {
+        let state = scrollButtonState(for: channel)
         let list = MessageFlowCollectionView(
             viewModel: viewModel,
             topInset: topInset,
             isCompact: horizontalSizeClass == .compact,
             truncationBottomInset: truncationBottomInset,
+            firstUnreadMessageId: state.firstUnreadMessageId,
+            unreadCount: state.unreadCount,
             onExpand: { message in
                 activeSheet = .expandedMessage(message)
             },
