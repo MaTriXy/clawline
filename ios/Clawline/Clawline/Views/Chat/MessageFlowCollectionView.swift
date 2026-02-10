@@ -1868,11 +1868,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     func isNearBottom(extraMargin: CGFloat) -> Bool {
-        let contentInset = collectionView.contentInset
-        let visibleHeight = collectionView.bounds.height - contentInset.top - contentInset.bottom
-        guard visibleHeight > 0 else { return true }
-        let currentBottom = collectionView.contentOffset.y + visibleHeight
-        return collectionView.contentSize.height - currentBottom < extraMargin
+        // `contentOffset.y` is measured in the scroll view’s content coordinates, where "top" is
+        // typically `-contentInset.top`. The previous implementation subtracted `contentInset.top`
+        // via `visibleHeight`, which made "distance from bottom" effectively equal to `contentInset.top`
+        // even when fully scrolled to the bottom. That prevents "at bottom" from ever becoming true.
+        let inset = collectionView.contentInset
+        let viewportBottomY = collectionView.contentOffset.y + collectionView.bounds.height - inset.bottom
+        let distanceFromBottom = collectionView.contentSize.height - viewportBottomY
+        return distanceFromBottom <= extraMargin
     }
 
     func adjustContentOffsetForBottomInsetChange(delta: CGFloat) {
