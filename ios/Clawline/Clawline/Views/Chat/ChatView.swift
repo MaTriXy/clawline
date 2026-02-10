@@ -181,6 +181,11 @@ struct ChatView: View {
                 state.unreadCount = 0
                 state.firstUnreadMessageId = nil
             }
+        case .didInvalidateFirstUnreadAnchor(let stream):
+            mutateScrollButtonState(for: stream) { state in
+                state.unreadCount = 0
+                state.firstUnreadMessageId = nil
+            }
         }
     }
 

@@ -14,6 +14,7 @@ enum MessageFlowScrollEvent: Equatable {
     case isAtBottomChanged(stream: ChatStream, isAtBottom: Bool)
     case didReceiveNewMessagesWhileScrolledUp(stream: ChatStream, newMessageIDs: [String])
     case didCrossFirstUnreadCenter(stream: ChatStream, messageId: String)
+    case didInvalidateFirstUnreadAnchor(stream: ChatStream)
 }
 
 @MainActor
@@ -119,7 +120,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var wasShowingTypingIndicator = false
     private var onExpand: ((Message) -> Void)?
     private var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
-    private var lastReportedIsAtBottom: Bool?
     private var firstUnreadMessageId: String?
     private var unreadCount: Int = 0
     private var firstUnreadWasBelowViewportCenter: Bool?
@@ -127,7 +127,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var pendingFlashMessageId: String?
     private var pendingFlashIsUnreadTap: Bool = false
     private var pendingEntranceAnimationIds: Set<String> = []
-    private var suppressAtBottomFalseUntilScrollDeadline: CFTimeInterval?
     private var pendingScrollToBottomAfterInteractionEnd: Bool = false
     // Typing indicator morph is a bespoke overlay animation. During the morph we must prevent
     // normal lifecycle behaviors from fighting it:
@@ -154,10 +153,37 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
 #endif
     private static let scrollToBottomAtBottomThreshold: CGFloat = 12
-    // T029: Don't show the scroll-to-bottom affordance immediately after a tiny upward scroll.
-    // Keep the "am I at bottom?" threshold tight for auto-scroll decisions, but use a larger
-    // threshold for the UI button so it only appears after a meaningful scroll up.
-    private static let scrollToBottomButtonRevealThreshold: CGFloat = 220
+
+    // State-machine-driven SBB visibility.
+    // Note: we preserve the existing `isAtBottomChanged(isAtBottom:)` event as the visibility signal
+    // (true => indicator hidden), but the underlying truth is `sbbState` with pinned intent.
+    private enum SBBState: Equatable {
+        case atBottom
+        case atBottomDragging
+        case scrolledUp
+        case scrolledUpUnread
+
+        var isPinnedToBottomIntent: Bool {
+            switch self {
+            case .atBottom, .atBottomDragging:
+                return true
+            case .scrolledUp, .scrolledUpUnread:
+                return false
+            }
+        }
+
+        var shouldHideIndicator: Bool {
+            switch self {
+            case .atBottom, .atBottomDragging:
+                return true
+            case .scrolledUp, .scrolledUpUnread:
+                return false
+            }
+        }
+    }
+
+    private var sbbState: SBBState = .atBottom
+    private var lastReportedHideIndicator: Bool?
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         false
@@ -280,7 +306,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
-        reportIsAtBottomIfChanged()
+        handleUserScrolled()
         checkFirstUnreadCrossingIfNeeded()
         schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
@@ -293,7 +319,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
 #endif
         if !decelerate {
-            reportIsAtBottomIfChanged()
+            handleUserScrollSettled()
             checkFirstUnreadCrossingIfNeeded()
             performPendingFlashIfPossible()
             performPendingDeferredScrollToBottomIfNeeded()
@@ -306,7 +332,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
-        reportIsAtBottomIfChanged()
+        handleUserScrollSettled()
         checkFirstUnreadCrossingIfNeeded()
         performPendingFlashIfPossible()
         performPendingDeferredScrollToBottomIfNeeded()
@@ -315,7 +341,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        reportIsAtBottomIfChanged()
+        handleProgrammaticScrollEnded()
         checkFirstUnreadCrossingIfNeeded()
         performPendingFlashIfPossible()
         performPendingDeferredScrollToBottomIfNeeded()
@@ -324,8 +350,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        // If the user starts interacting, stop suppressing state transitions.
-        suppressAtBottomFalseUntilScrollDeadline = nil
+        // Spec: interaction = scroll view dragging/tracking. Enter a pinned-but-defer state.
+        if sbbState == .atBottom {
+            setSBBState(.atBottomDragging)
+        }
     }
 
     @objc private func handleWillResignActive() {
@@ -374,8 +402,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                         animationOptions: UIView.AnimationOptions = []) {
         let previousBottomInset = collectionView.contentInset.bottom
         let delta = totalBottomInset - previousBottomInset
-        let wasAtBottom = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
-        let shouldPinToBottom = wasAtBottom && !isUserInteracting
+        let shouldPinToBottom = sbbState.isPinnedToBottomIntent && !isUserInteracting
         currentBottomInset = totalBottomInset
         if let animatedDuration, animatedDuration > 0, view.window != nil {
             UIView.animate(withDuration: animatedDuration, delay: 0, options: animationOptions) {
@@ -394,7 +421,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 adjustContentOffsetForBottomInsetChange(delta: delta)
             }
         }
-        reportIsAtBottomIfChanged()
+        // InsetsChanged: pinned intent means we keep the indicator hidden in AT_BOTTOM* states.
+        emitHideIndicatorIfChanged()
         NSLog("[KBTIMING] setBottomInset total=%.1f anim=%.2f", totalBottomInset, animatedDuration ?? 0)
     }
 
@@ -436,8 +464,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         loadViewIfNeeded()
         let t0 = CFAbsoluteTimeGetCurrent()
         let previousLastMessageId = lastMessageId
-        let wasAtBottomBeforeUpdate = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
         let wasUserInteracting = isUserInteracting
+        let wasPinnedToBottomIntent = sbbState.isPinnedToBottomIntent
         self.viewModel = viewModel
         self.channelOverride = channel
         self.onExpand = onExpand
@@ -515,11 +543,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             snapshot.appendItems([TypingIndicatorCell.itemId])
         }
 
-        if typingIndicatorJustAppeared && wasAtBottomBeforeUpdate && !isUserInteracting {
-            // Prevent a transient "not at bottom" signal during typing indicator insertion.
-            suppressAtBottomFalseUntilScrollDeadline = CACurrentMediaTime() + 1.0
-        }
-
         let newItemIds = Set(snapshot.itemIdentifiers)
         let insertedIds = newItemIds.subtracting(oldItemIds)
         let newestMessageId = messages.last?.id
@@ -551,20 +574,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         let didLastMessageChange = (previousLastMessageId != newestMessageId)
         let isIncrementalAppend = (previousLastMessageId != nil) && !appendedMessageIDs.isEmpty
-        let shouldSuppressIndicatorDuringPendingScroll = didLastMessageChange
-            && isIncrementalAppend
-            && wasAtBottomBeforeUpdate
         let shouldAutoScrollToBottomAfterApply = didLastMessageChange
             && isIncrementalAppend
-            && wasAtBottomBeforeUpdate
+            && wasPinnedToBottomIntent
             && !wasUserInteracting
             && !shouldMorph
-
-        if shouldSuppressIndicatorDuringPendingScroll {
-            // Invariant: if we were within the at-bottom threshold when a new message arrives, the indicator
-            // MUST remain hidden (even during the brief interval before we land back at the very bottom).
-            suppressAtBottomFalseUntilScrollDeadline = CACurrentMediaTime() + 1.25
-        }
 
         let afterSnapshotApplied: (() -> Void) = { [weak self] in
             guard let self else { return }
@@ -609,13 +623,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             lastMessageId = newestMessageId
             if shouldMorph {
                 // Only defer the post-morph scroll if we would have auto-scrolled (user was pinned to bottom).
-                deferScrollToBottomUntilMorphCompletes = isIncrementalAppend && wasAtBottomBeforeUpdate && !wasUserInteracting
+                deferScrollToBottomUntilMorphCompletes = isIncrementalAppend && wasPinnedToBottomIntent && !wasUserInteracting
             } else if isIncrementalAppend {
-                if wasAtBottomBeforeUpdate {
-                    // Invariant: indicator must remain hidden at bottom; if the user is interacting, defer the
-                    // auto-scroll until interaction ends (do not show unread / SBB).
+                if wasPinnedToBottomIntent {
+                    // ContentAppended while pinned: never enter unread mode.
+                    // Auto-scroll now, or defer until drag ends.
                     if wasUserInteracting {
                         pendingScrollToBottomAfterInteractionEnd = true
+                    } else {
+                        scheduleScrollToBottom(animated: true, attempts: 3)
                     }
                 } else {
                     emit(.didReceiveNewMessagesWhileScrolledUp(stream: resolvedStream(), newMessageIDs: appendedMessageIDs))
@@ -635,17 +651,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             }
         } else if typingIndicatorJustAppeared {
             // Only keep the typing indicator visible if the user is already pinned near the bottom.
-            if wasAtBottomBeforeUpdate && !wasUserInteracting {
-                // Typing indicator insertion increases contentSize before we scroll, which can briefly
-                // make us appear "not at bottom" and flash the SBB. Suppress that transient.
-                suppressAtBottomFalseUntilScrollDeadline = CACurrentMediaTime() + 1.0
+            if wasPinnedToBottomIntent && !wasUserInteracting {
                 scheduleScrollToBottom(animated: true)
-            } else if wasAtBottomBeforeUpdate && wasUserInteracting {
+            } else if wasPinnedToBottomIntent && wasUserInteracting {
                 // Defer the scroll; never show the SBB while within the at-bottom threshold.
                 pendingScrollToBottomAfterInteractionEnd = true
             }
         }
-        reportIsAtBottomIfChanged()
+        syncUnreadStateWithSBBState()
+        handleContentUpdateCompletion()
         NSLog("[KBTIMING] MFCV.update DONE dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
     }
 
@@ -665,26 +679,90 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         onScrollEvent?(event)
     }
 
-    private func reportIsAtBottomIfChanged() {
-        // Invariant: the indicator MUST be hidden when within the at-bottom threshold.
-        let isAtBottom = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
+    private func setSBBState(_ newState: SBBState) {
+        guard sbbState != newState else { return }
+        sbbState = newState
+        emitHideIndicatorIfChanged(force: true)
+    }
+
+    private func emitHideIndicatorIfChanged(force: Bool = false) {
+        // Keep the existing event contract: `isAtBottom=true` means "hide the SBB and clear unread".
+        // Pinned intent means we may report `true` even if transient geometry isn't at the last pixel.
+        let shouldHide = sbbState.shouldHideIndicator
+        if force || lastReportedHideIndicator != shouldHide {
+            lastReportedHideIndicator = shouldHide
+            emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: shouldHide))
+        }
+    }
+
+    private func distanceFromBottomClamped() -> CGFloat {
+        let contentInset = collectionView.contentInset
+        let minY = -contentInset.top
+        let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom)
+        guard maxY.isFinite, minY.isFinite else { return .greatestFiniteMagnitude }
+        let offsetY = collectionView.contentOffset.y
+        let clampedOffsetY = min(max(offsetY, minY), maxY)
+        let distance = max(0, maxY - clampedOffsetY)
+        return distance.isFinite ? distance : .greatestFiniteMagnitude
+    }
+
+    private func handleUserScrolled() {
+        let withinBottomThreshold = distanceFromBottomClamped() <= Self.scrollToBottomAtBottomThreshold
 
         if isUserInteracting {
-            suppressAtBottomFalseUntilScrollDeadline = nil
-        } else if let deadline = suppressAtBottomFalseUntilScrollDeadline {
-            if CACurrentMediaTime() > deadline {
-                suppressAtBottomFalseUntilScrollDeadline = nil
-            } else if !isAtBottom {
-                // Keep the indicator hidden while a programmatic scroll-to-bottom is pending/in-flight.
-                return
-            } else {
-                suppressAtBottomFalseUntilScrollDeadline = nil
+            switch sbbState {
+            case .atBottom, .atBottomDragging:
+                if !withinBottomThreshold {
+                    // Only user scroll can leave pinned-to-bottom states.
+                    setSBBState(unreadCount > 0 ? .scrolledUpUnread : .scrolledUp)
+                }
+            case .scrolledUp, .scrolledUpUnread:
+                if withinBottomThreshold {
+                    setSBBState(.atBottomDragging)
+                }
+            }
+        } else {
+            switch sbbState {
+            case .scrolledUp, .scrolledUpUnread:
+                if withinBottomThreshold {
+                    setSBBState(.atBottom)
+                }
+            case .atBottom, .atBottomDragging:
+                // Pinned intent: ignore geometry that looks \"not at bottom\" when not user-interacting.
+                break
             }
         }
 
-        if lastReportedIsAtBottom != isAtBottom {
-            lastReportedIsAtBottom = isAtBottom
-            emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: isAtBottom))
+        emitHideIndicatorIfChanged()
+    }
+
+    private func handleUserScrollSettled() {
+        // If the user is no longer interacting, normalize dragging->atBottom when within threshold.
+        guard !isUserInteracting else { return }
+        if sbbState == .atBottomDragging,
+           distanceFromBottomClamped() <= Self.scrollToBottomAtBottomThreshold {
+            setSBBState(.atBottom)
+        }
+        emitHideIndicatorIfChanged()
+    }
+
+    private func handleProgrammaticScrollEnded() {
+        handleUserScrollSettled()
+    }
+
+    private func handleContentUpdateCompletion() {
+        // ContentAppended/Mutated does not change pinned state. If we're scrolled up, visibility is stable.
+        emitHideIndicatorIfChanged()
+    }
+
+    private func syncUnreadStateWithSBBState() {
+        switch sbbState {
+        case .scrolledUp where unreadCount > 0:
+            setSBBState(.scrolledUpUnread)
+        case .scrolledUpUnread where unreadCount <= 0:
+            setSBBState(.scrolledUp)
+        default:
+            break
         }
     }
 
@@ -713,7 +791,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         guard let messageId = firstUnreadMessageId else { return }
         if didCrossAndClearFirstUnreadId == messageId { return }
-        guard let indexPath = dataSource.indexPath(for: messageId) else { return }
+        guard let indexPath = dataSource.indexPath(for: messageId) else {
+            // Spec: if the unread anchor disappears from the dataset, clear unread immediately.
+            unreadCount = 0
+            firstUnreadWasBelowViewportCenter = nil
+            didCrossAndClearFirstUnreadId = messageId
+            if sbbState == .scrolledUpUnread {
+                setSBBState(.scrolledUp)
+            }
+            emit(.didInvalidateFirstUnreadAnchor(stream: resolvedStream()))
+            return
+        }
         collectionView.layoutIfNeeded()
         guard let attrs = collectionView.layoutAttributesForItem(at: indexPath) else { return }
 
@@ -734,6 +822,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             pendingFlashIsUnreadTap = false
             performPendingFlashIfPossible()
             unreadCount = 0
+            if sbbState == .scrolledUpUnread {
+                setSBBState(.scrolledUp)
+            }
             emit(.didCrossFirstUnreadCenter(stream: resolvedStream(), messageId: messageId))
         }
 
@@ -744,7 +835,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard pendingScrollToBottomAfterInteractionEnd else { return }
         guard !isUserInteracting else { return }
         pendingScrollToBottomAfterInteractionEnd = false
-        suppressAtBottomFalseUntilScrollDeadline = CACurrentMediaTime() + 1.0
         scheduleScrollToBottom(animated: true, attempts: 3)
     }
 
