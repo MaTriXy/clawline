@@ -232,7 +232,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 viewModel: viewModel,
                 isCompact: isCompact,
                 topInset: topInset,
-                truncationBottomInset: truncationBottomInset
+                truncationBottomInset: truncationBottomInset,
+                firstUnreadMessageId: self.firstUnreadMessageId,
+                unreadCount: self.unreadCount
             )
         }
 #if os(visionOS)
@@ -518,7 +520,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         forceReconfigureAll = false
 
-        let newestMessageId = messages.last?.id
         let didLastMessageChange = (previousLastMessageId != newestMessageId)
         let isIncrementalAppend = (previousLastMessageId != nil) && !appendedMessageIDs.isEmpty
         let shouldAutoScrollToBottomAfterApply = didLastMessageChange
