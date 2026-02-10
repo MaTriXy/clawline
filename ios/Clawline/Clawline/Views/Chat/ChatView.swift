@@ -399,10 +399,9 @@ struct ChatView: View {
             )
         }
         .overlay(alignment: .bottom) {
-            // T029: Place the scroll-to-bottom button centered just above the message bar.
-            // Note: this follows SwiftUI's keyboard state; if we need tighter coupling to the UIKit
-            // keyboardLayoutGuide in the future, do that in a dedicated UIKit overlay (not inside
-            // the pinned input bar container).
+#if os(visionOS)
+            // visionOS: keep the scroll-to-bottom button in the main SwiftUI overlay.
+            // iOS/iPadOS: we pin it to the UIKit keyboardLayoutGuide via KeyboardPinnedContainerView.
             let stream = viewModel.activeStream
             let state = scrollButtonState(for: stream)
             let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
@@ -415,14 +414,8 @@ struct ChatView: View {
                     let current = scrollButtonState(for: stream)
                     if current.unreadCount > 0 {
                         if let firstUnread = current.firstUnreadMessageId {
-                            let hasTarget = viewModel.messages(for: stream).contains(where: { $0.id == firstUnread })
-                            if hasTarget {
-                                layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
-                                layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream)
-                            } else {
-                                // Invariant: if the anchor is stale/missing, fall back to bottom and clear unread.
-                                layoutCoordinator.scrollToBottom(channel: stream, animated: true)
-                            }
+                            layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
+                            layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream)
                         } else {
                             layoutCoordinator.scrollToBottom(channel: stream, animated: true)
                         }
@@ -437,6 +430,9 @@ struct ChatView: View {
             )
             .padding(.bottom, inputBarTopFromScreenBottom + 12)
             .frame(maxWidth: .infinity, alignment: .center)
+#else
+            EmptyView()
+#endif
         }
     }
 
@@ -504,6 +500,39 @@ struct ChatView: View {
                                  belowBarGap: CGFloat,
                                  isKeyboardVisible: Bool,
                                  layoutKey: ChatLayoutKey) -> some View {
+        let stream = viewModel.activeStream
+        let state = scrollButtonState(for: stream)
+        let scrollButtonGap: CGFloat = isKeyboardVisible ? belowBarGap : 12
+        let scrollButtonView: AnyView = AnyView(
+            ScrollToBottomButton(
+                isVisible: state.isVisible,
+                unreadCount: state.unreadCount,
+                bounceToken: state.bounceToken,
+                onTap: {
+                    let current = scrollButtonState(for: stream)
+                    if current.unreadCount > 0 {
+                        if let firstUnread = current.firstUnreadMessageId {
+                            let hasTarget = viewModel.messages(for: stream).contains(where: { $0.id == firstUnread })
+                            if hasTarget {
+                                layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
+                                layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream)
+                            } else {
+                                layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                            }
+                        } else {
+                            layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                        }
+                        mutateScrollButtonState(for: stream) { s in
+                            s.unreadCount = 0
+                            s.firstUnreadMessageId = nil
+                        }
+                        return
+                    }
+                    layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                }
+            )
+        )
+
         return KeyboardPinnedContainer(
             desiredBottomGap: belowBarGap,
             isKeyboardVisible: isKeyboardVisible,
@@ -511,6 +540,15 @@ struct ChatView: View {
             versionText: appVersionLabel,
             layoutCoordinator: layoutCoordinator,
             layoutKey: layoutKey
+#if os(visionOS)
+            ,
+            scrollButtonView: nil,
+            scrollButtonGap: 0
+#else
+            ,
+            scrollButtonView: scrollButtonView,
+            scrollButtonGap: scrollButtonGap
+#endif
         ) {
             MessageInputBar(
                 content: $viewModel.inputContent,
@@ -1188,6 +1226,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     let versionText: AttributedString?
     let layoutCoordinator: ChatLayoutCoordinator
     let layoutKey: ChatLayoutKey
+    let scrollButtonView: AnyView?
+    let scrollButtonGap: CGFloat
     let content: Content
 
     init(
@@ -1197,6 +1237,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         versionText: AttributedString? = nil,
         layoutCoordinator: ChatLayoutCoordinator,
         layoutKey: ChatLayoutKey,
+        scrollButtonView: AnyView? = nil,
+        scrollButtonGap: CGFloat = 0,
         @ViewBuilder content: () -> Content
     ) {
         self.desiredBottomGap = desiredBottomGap
@@ -1205,6 +1247,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         self.versionText = versionText
         self.layoutCoordinator = layoutCoordinator
         self.layoutKey = layoutKey
+        self.scrollButtonView = scrollButtonView
+        self.scrollButtonGap = scrollButtonGap
         self.content = content()
     }
 
@@ -1217,6 +1261,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         let t0 = CFAbsoluteTimeGetCurrent()
         uiView.hostingController.rootView = content
         uiView.updateVersionText(versionText)
+        uiView.updateScrollButton(scrollButtonView, gap: scrollButtonGap)
         uiView.setOnBarHeightChange { [weak layoutCoordinator] height in
             // Break potential SwiftUI layout cycles by only propagating meaningful bar height changes.
             // (On some iOS 26.2 devices we observed AttributeGraph "cycle detected" during launch.)
@@ -1241,6 +1286,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
 private final class KeyboardPinnedContainerView<Content: View>: UIView, KeyboardPinnedContainerViewProtocol {
     let hostingController: UIHostingController<Content>
     let versionLabel: UILabel
+    private var scrollButtonHost: UIHostingController<AnyView>?
+    private var scrollButtonBottomToBarTop: NSLayoutConstraint?
     private var minHeightConstraint: NSLayoutConstraint?
     private var hostingBottomToKeyboard: NSLayoutConstraint?
     private var versionLabelBottomToKeyboard: NSLayoutConstraint?
@@ -1302,6 +1349,39 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         }
     }
 
+    func updateScrollButton(_ view: AnyView?, gap: CGFloat) {
+#if os(visionOS)
+        _ = view
+        _ = gap
+        return
+#else
+        // Ensure the bar view is mounted so we can anchor the scroll button above it.
+        ensureConstraints(desiredBottomGap: 0)
+        guard let hostingView = hostingController.view else { return }
+
+        if scrollButtonHost == nil {
+            let host = UIHostingController(rootView: AnyView(EmptyView()))
+            host.view.backgroundColor = .clear
+            host.view.isOpaque = false
+            host.view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(host.view)
+            scrollButtonHost = host
+
+            let bottom = host.view.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -gap)
+            scrollButtonBottomToBarTop = bottom
+            NSLayoutConstraint.activate([
+                host.view.centerXAnchor.constraint(equalTo: centerXAnchor),
+                bottom,
+            ])
+        }
+
+        scrollButtonHost?.rootView = view ?? AnyView(EmptyView())
+        scrollButtonHost?.view.isHidden = (view == nil)
+        scrollButtonHost?.view.isUserInteractionEnabled = (view != nil)
+        scrollButtonBottomToBarTop?.constant = -gap
+#endif
+    }
+
     func setDesiredBottomGap(_ gap: CGFloat, isKeyboardVisible: Bool) {
         ensureConstraints(desiredBottomGap: gap)
 #if os(visionOS)
@@ -1320,6 +1400,9 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         if let hitView = hostingController.view, hitView.frame.contains(point) {
+            return true
+        }
+        if let scrollButtonHost, scrollButtonHost.view.frame.contains(point) {
             return true
         }
         if !versionLabel.isHidden && versionLabel.frame.contains(point) {
