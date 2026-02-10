@@ -2,6 +2,18 @@
 
 This file contains project-specific instructions shared by all AI assistants.
 
+## Development Process SOP
+
+**Full SOP:** See `sop/dev-process.md` in the shared workspace.
+
+Key rules:
+- Each agent works in its **own copy** of the repo (`cp -r`, not worktrees).
+- YOLO on `main` unless Flynn says otherwise.
+- Push to `origin/main` when work is ready. Pull before starting new work.
+- If `git pull --ff-only` fails: **stop and ask Flynn**. Never merge/rebase/force-push.
+- **Never close GitHub issues.** Only Flynn closes after testing.
+- When done: notify via `~/.local/libexec/clu/hosts/{host}/notify --session <key> -- 'message'`
+
 ## Project Overview
 
 Clawline is a native mobile chat app for communicating with Clawd assistants. It connects directly to a clawd process running the "Clawline provider" plugin (no gateway dependency).
