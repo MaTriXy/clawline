@@ -2197,26 +2197,10 @@ final class TableUIKitWrapperView: UIView {
     private var currentMetrics: ChatFlowTheme.Metrics?
     private var onExpandAction: (() -> Void)?
     private var cachedHeight: CGFloat?
-    private var traitObservation: (any NSObjectProtocol)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = false
-
-        // Register for trait changes (modern API)
-        traitObservation = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: TableUIKitWrapperView, previousTraitCollection: UITraitCollection) in
-            guard let self,
-                  let model = self.currentModel,
-                  let metrics = self.currentMetrics,
-                  let onExpand = self.onExpandAction else { return }
-            self.configure(
-                model: model,
-                role: self.currentRole,
-                metrics: metrics,
-                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-                onExpand: onExpand
-            )
-        }
     }
 
     required init?(coder: NSCoder) {
@@ -2270,6 +2254,21 @@ final class TableUIKitWrapperView: UIView {
 
         // Force layout to get accurate size
         hostingController.view.layoutIfNeeded()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle else { return }
+        guard let model = currentModel,
+              let metrics = currentMetrics,
+              let onExpand = onExpandAction else { return }
+        configure(
+            model: model,
+            role: currentRole,
+            metrics: metrics,
+            maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+            onExpand: onExpand
+        )
     }
 
     override var intrinsicContentSize: CGSize {
