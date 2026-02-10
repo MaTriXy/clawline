@@ -533,6 +533,14 @@ struct ChatView: View {
             )
         )
 
+#if os(visionOS)
+        let pinnedScrollButtonView: AnyView? = nil
+        let pinnedScrollButtonGap: CGFloat = 0
+#else
+        let pinnedScrollButtonView: AnyView? = scrollButtonView
+        let pinnedScrollButtonGap: CGFloat = scrollButtonGap
+#endif
+
         return KeyboardPinnedContainer(
             desiredBottomGap: belowBarGap,
             isKeyboardVisible: isKeyboardVisible,
@@ -540,15 +548,9 @@ struct ChatView: View {
             versionText: appVersionLabel,
             layoutCoordinator: layoutCoordinator,
             layoutKey: layoutKey
-#if os(visionOS)
             ,
-            scrollButtonView: nil,
-            scrollButtonGap: 0
-#else
-            ,
-            scrollButtonView: scrollButtonView,
-            scrollButtonGap: scrollButtonGap
-#endif
+            scrollButtonView: pinnedScrollButtonView,
+            scrollButtonGap: pinnedScrollButtonGap
         ) {
             MessageInputBar(
                 content: $viewModel.inputContent,
