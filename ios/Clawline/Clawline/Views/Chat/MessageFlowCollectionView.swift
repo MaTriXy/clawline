@@ -849,6 +849,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         } else {
             pendingScrollRestoreState = loadPersistedScrollState(for: newKey)
         }
+
+        // T036: Ensure pinned-intent matches the persisted position BEFORE we apply insets.
+        // Otherwise, the coordinator may "helpfully" keep the viewport pinned to bottom and
+        // effectively undo the restore on the first inset/layout pass.
+        if let state = pendingScrollRestoreState {
+            if state.atBottom {
+                setSBBState(.atBottom)
+            } else {
+                setSBBState(unreadCount > 0 ? .scrolledUpUnread : .scrolledUp)
+            }
+        }
     }
 
     private func scrollStateDefaultsKey(for persistenceKey: String) -> String {
@@ -925,6 +936,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         let clampedTargetY = min(max(targetY, minY), maxY)
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedTargetY), animated: false)
+
+        // The persisted value is best-effort; clamping can land us at bottom even if the saved
+        // distance no longer exists (e.g. shorter content). Normalize pinned intent to match the
+        // post-restore geometry so subsequent inset changes don't unexpectedly pin.
+        let isAtBottomNow = distanceFromBottomClamped() <= Self.scrollToBottomAtBottomThreshold
+        if isAtBottomNow {
+            setSBBState(.atBottom)
+        } else {
+            setSBBState(unreadCount > 0 ? .scrolledUpUnread : .scrolledUp)
+        }
 
         restoredScrollKeys.insert(persistenceKey)
         pendingScrollRestoreState = nil
