@@ -126,6 +126,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var didCrossAndClearFirstUnreadId: String?
     private var pendingFlashMessageId: String?
     private var pendingEntranceAnimationIds: Set<String> = []
+    private var suppressAtBottomFalseUntilScrollDeadline: CFTimeInterval?
     // Typing indicator morph is a bespoke overlay animation. During the morph we must prevent
     // normal lifecycle behaviors from fighting it:
     // - `willDisplay` resets (alpha/transform) can overwrite our fade-in target cell state.
@@ -315,6 +316,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         performPendingFlashIfPossible()
         schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // If the user starts interacting, stop suppressing state transitions.
+        suppressAtBottomFalseUntilScrollDeadline = nil
     }
 
     @objc private func handleWillResignActive() {
@@ -522,11 +528,21 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         let didLastMessageChange = (previousLastMessageId != newestMessageId)
         let isIncrementalAppend = (previousLastMessageId != nil) && !appendedMessageIDs.isEmpty
+        let shouldSuppressIndicatorDuringPendingScroll = didLastMessageChange
+            && isIncrementalAppend
+            && wasAtBottomBeforeUpdate
+            && !wasUserInteracting
         let shouldAutoScrollToBottomAfterApply = didLastMessageChange
             && isIncrementalAppend
             && wasAtBottomBeforeUpdate
             && !wasUserInteracting
             && !shouldMorph
+
+        if shouldSuppressIndicatorDuringPendingScroll {
+            // Invariant: if we were within the at-bottom threshold when a new message arrives, the indicator
+            // MUST remain hidden (even during the brief interval before we land back at the very bottom).
+            suppressAtBottomFalseUntilScrollDeadline = CACurrentMediaTime() + 1.25
+        }
 
         let afterSnapshotApplied: (() -> Void) = { [weak self] in
             guard let self else { return }
@@ -617,17 +633,19 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func reportIsAtBottomIfChanged() {
         // Invariant: the indicator MUST be hidden when within the at-bottom threshold.
-        let inset = collectionView.contentInset
-        let viewportBottomY = collectionView.contentOffset.y + collectionView.bounds.height - inset.bottom
-        let distanceFromBottom = collectionView.contentSize.height - viewportBottomY
         let isAtBottom = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
-        NSLog(
-            "[SCROLL-DBG] distFromBottom=%.1f isAtBottom=%d contentInset.top=%.1f .bottom=%.1f",
-            distanceFromBottom,
-            isAtBottom ? 1 : 0,
-            inset.top,
-            inset.bottom
-        )
+
+        if let deadline = suppressAtBottomFalseUntilScrollDeadline {
+            if CACurrentMediaTime() > deadline {
+                suppressAtBottomFalseUntilScrollDeadline = nil
+            } else if !isAtBottom {
+                // Keep the indicator hidden while a programmatic scroll-to-bottom is pending/in-flight.
+                return
+            } else {
+                suppressAtBottomFalseUntilScrollDeadline = nil
+            }
+        }
+
         if lastReportedIsAtBottom != isAtBottom {
             lastReportedIsAtBottom = isAtBottom
             emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: isAtBottom))
