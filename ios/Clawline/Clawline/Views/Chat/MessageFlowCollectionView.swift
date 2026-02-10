@@ -367,16 +367,29 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     func setBottomInset(_ totalBottomInset: CGFloat,
                         animatedDuration: TimeInterval? = nil,
                         animationOptions: UIView.AnimationOptions = []) {
+        let previousBottomInset = collectionView.contentInset.bottom
+        let delta = totalBottomInset - previousBottomInset
+        let wasAtBottom = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
+        let shouldPinToBottom = wasAtBottom && !isUserInteracting
         currentBottomInset = totalBottomInset
         if let animatedDuration, animatedDuration > 0, view.window != nil {
             UIView.animate(withDuration: animatedDuration, delay: 0, options: animationOptions) {
                 self.collectionView.contentInset.bottom = totalBottomInset
                 self.collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
+                if shouldPinToBottom {
+                    // Keep the viewport pinned to the bottom while the keyboard/input bar changes insets.
+                    // Without this, we can momentarily appear "not at bottom" and the SBB shows.
+                    self.adjustContentOffsetForBottomInsetChange(delta: delta)
+                }
             }
         } else {
             collectionView.contentInset.bottom = totalBottomInset
             collectionView.verticalScrollIndicatorInsets.bottom = totalBottomInset
+            if shouldPinToBottom {
+                adjustContentOffsetForBottomInsetChange(delta: delta)
+            }
         }
+        reportIsAtBottomIfChanged()
         NSLog("[KBTIMING] setBottomInset total=%.1f anim=%.2f", totalBottomInset, animatedDuration ?? 0)
     }
 
