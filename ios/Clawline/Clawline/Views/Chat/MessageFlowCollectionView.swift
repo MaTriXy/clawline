@@ -125,8 +125,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var firstUnreadWasBelowViewportCenter: Bool?
     private var didCrossAndClearFirstUnreadId: String?
     private var pendingFlashMessageId: String?
+    private var pendingFlashIsUnreadTap: Bool = false
     private var pendingEntranceAnimationIds: Set<String> = []
     private var suppressAtBottomFalseUntilScrollDeadline: CFTimeInterval?
+    private var pendingScrollToBottomAfterInteractionEnd: Bool = false
     // Typing indicator morph is a bespoke overlay animation. During the morph we must prevent
     // normal lifecycle behaviors from fighting it:
     // - `willDisplay` resets (alpha/transform) can overwrite our fade-in target cell state.
@@ -294,6 +296,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             reportIsAtBottomIfChanged()
             checkFirstUnreadCrossingIfNeeded()
             performPendingFlashIfPossible()
+            performPendingDeferredScrollToBottomIfNeeded()
             schedulePersistScrollState()
             flushDeferredBubbleSizingV2RemeasureIfNeeded()
         }
@@ -306,6 +309,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         reportIsAtBottomIfChanged()
         checkFirstUnreadCrossingIfNeeded()
         performPendingFlashIfPossible()
+        performPendingDeferredScrollToBottomIfNeeded()
         schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
     }
@@ -314,6 +318,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         reportIsAtBottomIfChanged()
         checkFirstUnreadCrossingIfNeeded()
         performPendingFlashIfPossible()
+        performPendingDeferredScrollToBottomIfNeeded()
         schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
     }
@@ -510,6 +515,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             snapshot.appendItems([TypingIndicatorCell.itemId])
         }
 
+        if typingIndicatorJustAppeared && wasAtBottomBeforeUpdate && !isUserInteracting {
+            // Prevent a transient "not at bottom" signal during typing indicator insertion.
+            suppressAtBottomFalseUntilScrollDeadline = CACurrentMediaTime() + 1.0
+        }
+
         let newItemIds = Set(snapshot.itemIdentifiers)
         let insertedIds = newItemIds.subtracting(oldItemIds)
         let newestMessageId = messages.last?.id
@@ -544,7 +554,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let shouldSuppressIndicatorDuringPendingScroll = didLastMessageChange
             && isIncrementalAppend
             && wasAtBottomBeforeUpdate
-            && !wasUserInteracting
         let shouldAutoScrollToBottomAfterApply = didLastMessageChange
             && isIncrementalAppend
             && wasAtBottomBeforeUpdate
@@ -602,7 +611,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 // Only defer the post-morph scroll if we would have auto-scrolled (user was pinned to bottom).
                 deferScrollToBottomUntilMorphCompletes = isIncrementalAppend && wasAtBottomBeforeUpdate && !wasUserInteracting
             } else if isIncrementalAppend {
-                if !(wasAtBottomBeforeUpdate && !wasUserInteracting) {
+                if wasAtBottomBeforeUpdate {
+                    // Invariant: indicator must remain hidden at bottom; if the user is interacting, defer the
+                    // auto-scroll until interaction ends (do not show unread / SBB).
+                    if wasUserInteracting {
+                        pendingScrollToBottomAfterInteractionEnd = true
+                    }
+                } else {
                     emit(.didReceiveNewMessagesWhileScrolledUp(stream: resolvedStream(), newMessageIDs: appendedMessageIDs))
                 }
             } else if !wasUserInteracting {
@@ -625,6 +640,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 // make us appear "not at bottom" and flash the SBB. Suppress that transient.
                 suppressAtBottomFalseUntilScrollDeadline = CACurrentMediaTime() + 1.0
                 scheduleScrollToBottom(animated: true)
+            } else if wasAtBottomBeforeUpdate && wasUserInteracting {
+                // Defer the scroll; never show the SBB while within the at-bottom threshold.
+                pendingScrollToBottomAfterInteractionEnd = true
             }
         }
         reportIsAtBottomIfChanged()
@@ -651,7 +669,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Invariant: the indicator MUST be hidden when within the at-bottom threshold.
         let isAtBottom = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
 
-        if let deadline = suppressAtBottomFalseUntilScrollDeadline {
+        if isUserInteracting {
+            suppressAtBottomFalseUntilScrollDeadline = nil
+        } else if let deadline = suppressAtBottomFalseUntilScrollDeadline {
             if CACurrentMediaTime() > deadline {
                 suppressAtBottomFalseUntilScrollDeadline = nil
             } else if !isAtBottom {
@@ -668,8 +688,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    func requestFlashMessage(messageId: String) {
+    func requestFlashMessage(messageId: String, isUnreadTap: Bool) {
         pendingFlashMessageId = messageId
+        pendingFlashIsUnreadTap = isUnreadTap
         performPendingFlashIfPossible()
     }
 
@@ -678,8 +699,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard let indexPath = dataSource.indexPath(for: messageId) else { return }
         guard let cell = collectionView.cellForItem(at: indexPath) else { return }
         guard let bubbleCell = cell as? MessageBubbleUIKitCell else { return }
+        let isUnreadTap = pendingFlashIsUnreadTap
         pendingFlashMessageId = nil
-        bubbleCell.flashUnreadAnchorHighlight()
+        pendingFlashIsUnreadTap = false
+        bubbleCell.flashUnreadAnchorHighlight(isUnreadTap: isUnreadTap)
     }
 
     private func checkFirstUnreadCrossingIfNeeded() {
@@ -708,12 +731,21 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             // Invariant: clearing-by-scroll triggers when the TOP edge crosses the viewport center, with a flash.
             didCrossAndClearFirstUnreadId = messageId
             pendingFlashMessageId = messageId
+            pendingFlashIsUnreadTap = false
             performPendingFlashIfPossible()
             unreadCount = 0
             emit(.didCrossFirstUnreadCenter(stream: resolvedStream(), messageId: messageId))
         }
 
         firstUnreadWasBelowViewportCenter = isBelowCenter
+    }
+
+    private func performPendingDeferredScrollToBottomIfNeeded() {
+        guard pendingScrollToBottomAfterInteractionEnd else { return }
+        guard !isUserInteracting else { return }
+        pendingScrollToBottomAfterInteractionEnd = false
+        suppressAtBottomFalseUntilScrollDeadline = CACurrentMediaTime() + 1.0
+        scheduleScrollToBottom(animated: true, attempts: 3)
     }
 
     private func updateScrollPersistenceKeyAndPendingRestoreState() {

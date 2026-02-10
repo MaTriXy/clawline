@@ -415,7 +415,7 @@ struct ChatView: View {
                     if current.unreadCount > 0 {
                         if let firstUnread = current.firstUnreadMessageId {
                             layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
-                            layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream)
+                            layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream, isUnreadTap: true)
                         } else {
                             layoutCoordinator.scrollToBottom(channel: stream, animated: true)
                         }
@@ -515,7 +515,7 @@ struct ChatView: View {
                             let hasTarget = viewModel.messages(for: stream).contains(where: { $0.id == firstUnread })
                             if hasTarget {
                                 layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
-                                layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream)
+                                layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream, isUnreadTap: true)
                             } else {
                                 layoutCoordinator.scrollToBottom(channel: stream, animated: true)
                             }

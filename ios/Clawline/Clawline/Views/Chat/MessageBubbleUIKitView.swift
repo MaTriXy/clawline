@@ -1898,7 +1898,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
         lastMismatch = nil
     }
 
-    func flashUnreadAnchorHighlight() {
+    func flashUnreadAnchorHighlight(isUnreadTap: Bool) {
         flashOverlayView?.removeFromSuperview()
         flashOverlayView = nil
 
@@ -1920,23 +1920,54 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
         contentView.addSubview(overlay)
         flashOverlayView = overlay
 
-        UIView.animate(
-            withDuration: 0.16,
-            delay: 0,
-            options: [.curveEaseOut, .allowUserInteraction]
-        ) {
-            overlay.alpha = 1
-        } completion: { _ in
-            UIView.animate(
-                withDuration: 0.38,
-                delay: 0.10,
-                options: [.curveEaseIn, .allowUserInteraction]
+        if isUnreadTap {
+            // 3 flashes over 1s, then a slow 3s fade.
+            UIView.animateKeyframes(
+                withDuration: 1.0,
+                delay: 0,
+                options: [.calculationModeLinear, .allowUserInteraction]
             ) {
-                overlay.alpha = 0
-            } completion: { [weak self] _ in
-                overlay.removeFromSuperview()
-                if self?.flashOverlayView === overlay {
-                    self?.flashOverlayView = nil
+                // Flash 1
+                UIView.addKeyframe(withRelativeStartTime: 0.00, relativeDuration: 0.10) { overlay.alpha = 1 }
+                UIView.addKeyframe(withRelativeStartTime: 0.10, relativeDuration: 0.12) { overlay.alpha = 0 }
+                // Flash 2
+                UIView.addKeyframe(withRelativeStartTime: 0.32, relativeDuration: 0.10) { overlay.alpha = 1 }
+                UIView.addKeyframe(withRelativeStartTime: 0.42, relativeDuration: 0.12) { overlay.alpha = 0 }
+                // Flash 3 (end "on")
+                UIView.addKeyframe(withRelativeStartTime: 0.64, relativeDuration: 0.10) { overlay.alpha = 1 }
+            } completion: { _ in
+                UIView.animate(
+                    withDuration: 3.0,
+                    delay: 0,
+                    options: [.curveEaseOut, .allowUserInteraction]
+                ) {
+                    overlay.alpha = 0
+                } completion: { [weak self] _ in
+                    overlay.removeFromSuperview()
+                    if self?.flashOverlayView === overlay {
+                        self?.flashOverlayView = nil
+                    }
+                }
+            }
+        } else {
+            UIView.animate(
+                withDuration: 0.16,
+                delay: 0,
+                options: [.curveEaseOut, .allowUserInteraction]
+            ) {
+                overlay.alpha = 1
+            } completion: { _ in
+                UIView.animate(
+                    withDuration: 0.38,
+                    delay: 0.10,
+                    options: [.curveEaseIn, .allowUserInteraction]
+                ) {
+                    overlay.alpha = 0
+                } completion: { [weak self] _ in
+                    overlay.removeFromSuperview()
+                    if self?.flashOverlayView === overlay {
+                        self?.flashOverlayView = nil
+                    }
                 }
             }
         }
