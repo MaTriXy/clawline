@@ -1,0 +1,58 @@
+{
+  "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/ClawlineApp.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/ClawlineApp.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/ClawlineApp.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/ClawlineApp.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/ClawlineApp.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/ClawlineApp.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/MessageBubbleUIKitView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageBubbleUIKitView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageBubbleUIKitView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageBubbleUIKitView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageBubbleUIKitView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageBubbleUIKitView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/MessageFlowCollectionView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageFlowCollectionView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageFlowCollectionView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageFlowCollectionView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageFlowCollectionView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/MessageFlowCollectionView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/TerminalBubbleUIKitView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TerminalBubbleUIKitView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TerminalBubbleUIKitView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TerminalBubbleUIKitView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TerminalBubbleUIKitView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TerminalBubbleUIKitView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/TypingIndicatorCell.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TypingIndicatorCell.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TypingIndicatorCell.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TypingIndicatorCell.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TypingIndicatorCell.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/TypingIndicatorCell.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Pairing/PairingView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/PairingView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/PairingView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/PairingView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/PairingView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/PairingView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/RootView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/RootView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/RootView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/RootView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/RootView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/arm64/RootView.swiftdeps"
+  }
+}

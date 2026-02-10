@@ -1059,6 +1059,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 bubbleSizingV2: layoutStateV2,
                 showsHeader: !hideHeader,
                 isDark: self.currentIsDark,
+                salientHighlightService: viewModel.salientHighlightService,
                 onRequestExpand: { [weak self] in
                     guard let self else { return }
                     self.onExpand?(message)

@@ -1,0 +1,58 @@
+{
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/ChatLayoutCoordinator.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatLayoutCoordinator.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatLayoutCoordinator.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatLayoutCoordinator.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatLayoutCoordinator.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatLayoutCoordinator.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/ChatMarkdownRenderer.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatMarkdownRenderer.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatMarkdownRenderer.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatMarkdownRenderer.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatMarkdownRenderer.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatMarkdownRenderer.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/ChatView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ChatView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/ExpandedMessageSheet.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ExpandedMessageSheet.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ExpandedMessageSheet.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ExpandedMessageSheet.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ExpandedMessageSheet.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/ExpandedMessageSheet.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/InteractiveHTMLBubbleUIKitView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/InteractiveHTMLBubbleUIKitView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/InteractiveHTMLBubbleUIKitView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/InteractiveHTMLBubbleUIKitView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/InteractiveHTMLBubbleUIKitView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/InteractiveHTMLBubbleUIKitView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/LinkCardUIKitView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkCardUIKitView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkCardUIKitView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkCardUIKitView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkCardUIKitView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkCardUIKitView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/LinkPreviewView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkPreviewView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkPreviewView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkPreviewView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkPreviewView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/LinkPreviewView.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Views/Chat/MessageBubbleUIKitView.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageBubbleUIKitView.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageBubbleUIKitView.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageBubbleUIKitView.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageBubbleUIKitView.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/Clawline.build/Objects-normal/arm64/MessageBubbleUIKitView.swiftdeps"
+  }
+}

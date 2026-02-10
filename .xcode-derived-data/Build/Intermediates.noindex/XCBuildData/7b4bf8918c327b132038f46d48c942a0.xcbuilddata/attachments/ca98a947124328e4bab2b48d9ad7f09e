@@ -1,0 +1,89 @@
+{
+  "" : {
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests-primary.dia",
+    "emit-module-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests-primary-emit-module.dia",
+    "pch" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests-primary.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/ClawlineTests/BubbleScrollTests.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/BubbleScrollTests.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/BubbleScrollTests.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/BubbleScrollTests.dia",
+    "index-unit-output-path" : "/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/BubbleScrollTests.o",
+    "llvm-bc" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/BubbleScrollTests.bc",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/BubbleScrollTests.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/BubbleScrollTests.swiftdeps",
+    "swiftmodule" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/BubbleScrollTests~partial.swiftmodule"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/ClawlineTests/ChatFlowOrganicComplianceTests.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatFlowOrganicComplianceTests.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatFlowOrganicComplianceTests.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatFlowOrganicComplianceTests.dia",
+    "index-unit-output-path" : "/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatFlowOrganicComplianceTests.o",
+    "llvm-bc" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatFlowOrganicComplianceTests.bc",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatFlowOrganicComplianceTests.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatFlowOrganicComplianceTests.swiftdeps",
+    "swiftmodule" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatFlowOrganicComplianceTests~partial.swiftmodule"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/ClawlineTests/ChatLayoutCoordinatorTests.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatLayoutCoordinatorTests.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatLayoutCoordinatorTests.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatLayoutCoordinatorTests.dia",
+    "index-unit-output-path" : "/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatLayoutCoordinatorTests.o",
+    "llvm-bc" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatLayoutCoordinatorTests.bc",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatLayoutCoordinatorTests.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatLayoutCoordinatorTests.swiftdeps",
+    "swiftmodule" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatLayoutCoordinatorTests~partial.swiftmodule"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/ClawlineTests/ChatViewModelTests.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatViewModelTests.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatViewModelTests.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatViewModelTests.dia",
+    "index-unit-output-path" : "/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatViewModelTests.o",
+    "llvm-bc" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatViewModelTests.bc",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatViewModelTests.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatViewModelTests.swiftdeps",
+    "swiftmodule" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ChatViewModelTests~partial.swiftmodule"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/ClawlineTests/ClawlineTests.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests.dia",
+    "index-unit-output-path" : "/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests.o",
+    "llvm-bc" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests.bc",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests.swiftdeps",
+    "swiftmodule" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ClawlineTests~partial.swiftmodule"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/ClawlineTests/ProviderServiceTests.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ProviderServiceTests.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ProviderServiceTests.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ProviderServiceTests.dia",
+    "index-unit-output-path" : "/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ProviderServiceTests.o",
+    "llvm-bc" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ProviderServiceTests.bc",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ProviderServiceTests.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ProviderServiceTests.swiftdeps",
+    "swiftmodule" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ProviderServiceTests~partial.swiftmodule"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/ClawlineTests/ScrollToBottomUnreadTests.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ScrollToBottomUnreadTests.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ScrollToBottomUnreadTests.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ScrollToBottomUnreadTests.dia",
+    "index-unit-output-path" : "/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ScrollToBottomUnreadTests.o",
+    "llvm-bc" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ScrollToBottomUnreadTests.bc",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ScrollToBottomUnreadTests.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ScrollToBottomUnreadTests.swiftdeps",
+    "swiftmodule" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/ScrollToBottomUnreadTests~partial.swiftmodule"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/ClawlineTests/SecureStoreTests.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/SecureStoreTests.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/SecureStoreTests.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/SecureStoreTests.dia",
+    "index-unit-output-path" : "/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/SecureStoreTests.o",
+    "llvm-bc" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/SecureStoreTests.bc",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/SecureStoreTests.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/SecureStoreTests.swiftdeps",
+    "swiftmodule" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-iphonesimulator/ClawlineTests.build/Objects-normal/arm64/SecureStoreTests~partial.swiftmodule"
+  }
+}

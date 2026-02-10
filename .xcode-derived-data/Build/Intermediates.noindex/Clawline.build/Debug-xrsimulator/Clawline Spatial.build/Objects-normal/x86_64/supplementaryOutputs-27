@@ -1,0 +1,58 @@
+{
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Models/MessagePresentation.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/MessagePresentation.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/MessagePresentation.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/MessagePresentation.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/MessagePresentation.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/MessagePresentation.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Models/PairingState.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PairingState.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PairingState.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PairingState.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PairingState.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PairingState.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Models/PendingAttachment.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingAttachment.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingAttachment.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingAttachment.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingAttachment.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingAttachment.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Models/PendingTextAttachment.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingTextAttachment.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingTextAttachment.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingTextAttachment.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingTextAttachment.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/PendingTextAttachment.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Models/ProviderWireModels.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/ProviderWireModels.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/ProviderWireModels.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/ProviderWireModels.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/ProviderWireModels.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/ProviderWireModels.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Models/SessionKey.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionKey.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionKey.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionKey.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionKey.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionKey.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Models/SessionRegistry.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionRegistry.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionRegistry.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionRegistry.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionRegistry.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/SessionRegistry.swiftdeps"
+  },
+  "/Users/mike/src/clawline/ios/Clawline/Clawline/Models/TerminalSessionDescriptor.swift" : {
+    "const-values" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/TerminalSessionDescriptor.swiftconstvalues",
+    "dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/TerminalSessionDescriptor.d",
+    "diagnostics" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/TerminalSessionDescriptor.dia",
+    "object" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/TerminalSessionDescriptor.o",
+    "swift-dependencies" : "/Users/mike/src/clawline/.xcode-derived-data/Build/Intermediates.noindex/Clawline.build/Debug-xrsimulator/Clawline Spatial.build/Objects-normal/x86_64/TerminalSessionDescriptor.swiftdeps"
+  }
+}

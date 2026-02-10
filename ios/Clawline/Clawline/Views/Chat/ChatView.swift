@@ -1700,7 +1700,8 @@ private final class PreviewUploadService: UploadServicing {
         settings: SettingsManager(),
         device: device,
         uploadService: PreviewUploadService(),
-        toastManager: toastManager
+        toastManager: toastManager,
+        salientHighlightService: SalientHighlightService()
     )
     return ChatView(
         viewModel: viewModel,
@@ -1721,7 +1722,8 @@ private final class PreviewUploadService: UploadServicing {
         settings: SettingsManager(),
         device: device,
         uploadService: PreviewUploadService(),
-        toastManager: toastManager
+        toastManager: toastManager,
+        salientHighlightService: SalientHighlightService()
     )
     return ChatView(
         viewModel: viewModel,
