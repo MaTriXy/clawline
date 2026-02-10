@@ -617,7 +617,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func reportIsAtBottomIfChanged() {
         // Invariant: the indicator MUST be hidden when within the at-bottom threshold.
+        let inset = collectionView.contentInset
+        let viewportBottomY = collectionView.contentOffset.y + collectionView.bounds.height - inset.bottom
+        let distanceFromBottom = collectionView.contentSize.height - viewportBottomY
         let isAtBottom = isNearBottom(extraMargin: Self.scrollToBottomAtBottomThreshold)
+        NSLog(
+            "[SCROLL-DBG] distFromBottom=%.1f isAtBottom=%d contentInset.top=%.1f .bottom=%.1f",
+            distanceFromBottom,
+            isAtBottom ? 1 : 0,
+            inset.top,
+            inset.bottom
+        )
         if lastReportedIsAtBottom != isAtBottom {
             lastReportedIsAtBottom = isAtBottom
             emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: isAtBottom))
