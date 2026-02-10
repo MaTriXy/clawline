@@ -621,6 +621,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         } else if typingIndicatorJustAppeared {
             // Only keep the typing indicator visible if the user is already pinned near the bottom.
             if wasAtBottomBeforeUpdate && !wasUserInteracting {
+                // Typing indicator insertion increases contentSize before we scroll, which can briefly
+                // make us appear "not at bottom" and flash the SBB. Suppress that transient.
+                suppressAtBottomFalseUntilScrollDeadline = CACurrentMediaTime() + 1.0
                 scheduleScrollToBottom(animated: true)
             }
         }
