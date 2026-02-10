@@ -67,8 +67,106 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         static let mediaCornerExponent: CGFloat = 5.0
     }
 
+    /// `UIStackView` lays out arranged subviews (including their final frames) in its own
+    /// `layoutSubviews` pass, which can occur after `LinkPreviewView.layoutSubviews`.
+    ///
+    /// If we update a `layer.mask` for the container too early, the mask can get stuck at a
+    /// smaller height, producing the exact failure mode reported by Flynn: only a top strip
+    /// paints while the rest of the viewport is hit-testable/scrollable but visually blank.
+    ///
+    /// Fix: make the container responsible for keeping its own mask in sync with its bounds.
+    private final class MaskedWebContainerView: UIView {
+        var cornerRadius: CGFloat = Constants.mediaCornerRadius
+        var exponent: CGFloat = Constants.mediaCornerExponent
+
+        private let maskLayer = CAShapeLayer()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            clipsToBounds = true
+            layer.mask = maskLayer
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard bounds.width > 1, bounds.height > 1 else { return }
+            maskLayer.frame = bounds
+            maskLayer.path = Self.superellipseRoundedRectPath(
+                rect: bounds,
+                radius: cornerRadius,
+                exponent: exponent
+            ).cgPath
+        }
+
+        private static func superellipseRoundedRectPath(rect: CGRect, radius: CGFloat, exponent: CGFloat) -> UIBezierPath {
+            let r = min(radius, min(rect.width, rect.height) / 2)
+            let steps = 12
+            let quarterPoints = superellipseQuarterPoints(radius: 1, exponent: exponent, steps: steps)
+
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+            appendCorner(path: path,
+                         center: CGPoint(x: rect.maxX - r, y: rect.minY + r),
+                         radius: r,
+                         points: quarterPoints,
+                         transform: { CGPoint(x: $0.y, y: -$0.x) })
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+            appendCorner(path: path,
+                         center: CGPoint(x: rect.maxX - r, y: rect.maxY - r),
+                         radius: r,
+                         points: quarterPoints,
+                         transform: { CGPoint(x: $0.x, y: $0.y) })
+            path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+            appendCorner(path: path,
+                         center: CGPoint(x: rect.minX + r, y: rect.maxY - r),
+                         radius: r,
+                         points: quarterPoints,
+                         transform: { CGPoint(x: -$0.y, y: $0.x) })
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+            appendCorner(path: path,
+                         center: CGPoint(x: rect.minX + r, y: rect.minY + r),
+                         radius: r,
+                         points: quarterPoints,
+                         transform: { CGPoint(x: -$0.x, y: -$0.y) })
+            path.close()
+            return path
+        }
+
+        private static func superellipseQuarterPoints(radius: CGFloat, exponent: CGFloat, steps: Int) -> [CGPoint] {
+            guard steps > 1 else { return [CGPoint(x: radius, y: 0), CGPoint(x: 0, y: radius)] }
+            let n = max(2, exponent)
+            let power = 2.0 / n
+            let step = (.pi / 2) / CGFloat(steps - 1)
+            return (0..<steps).map { idx in
+                let theta = CGFloat(idx) * step
+                let cosv = max(0, cos(theta))
+                let sinv = max(0, sin(theta))
+                let x = radius * pow(cosv, power)
+                let y = radius * pow(sinv, power)
+                return CGPoint(x: x, y: y)
+            }
+        }
+
+        private static func appendCorner(path: UIBezierPath,
+                                         center: CGPoint,
+                                         radius: CGFloat,
+                                         points: [CGPoint],
+                                         transform: (CGPoint) -> CGPoint) {
+            guard radius > 0 else { return }
+            for point in points {
+                let p = transform(CGPoint(x: point.x * radius, y: point.y * radius))
+                path.addLine(to: CGPoint(x: center.x + p.x, y: center.y + p.y))
+            }
+        }
+    }
+
     private let stackView = UIStackView()
-    private let webContainer = UIView()
+    private let webContainer = MaskedWebContainerView()
     private let statusLabel = UILabel()
     private let reloadButton = UIButton(type: .system)
     private let spinner = UIActivityIndicatorView(style: .medium)
@@ -78,7 +176,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private var maxHeight: CGFloat = Constants.defaultMaxHeight
     private var minHeight: CGFloat = Constants.defaultMinHeight
 
-    private let webContainerMaskLayer = CAShapeLayer()
     private var chromeBaseColor: UIColor?
     private var chromeIsDark: Bool = false
 
@@ -294,7 +391,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        updateWebCornerMask()
+        // MaskedWebContainerView keeps its own mask synced to its bounds.
     }
 
     private func setupViews() {
@@ -317,11 +414,8 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
 
         webContainer.translatesAutoresizingMaskIntoConstraints = false
         webContainer.backgroundColor = .clear
-        webContainer.clipsToBounds = true
-        // Match other embedded media (images/tables) with continuous squircle rounded corners.
-        // WKWebView has complex internal tiled layers; masking the container ensures the bottom
-        // corners clip reliably while scrolling.
-        webContainer.layer.mask = webContainerMaskLayer
+        webContainer.cornerRadius = Constants.mediaCornerRadius
+        webContainer.exponent = Constants.mediaCornerExponent
         stackView.addArrangedSubview(webContainer)
 
         webView.translatesAutoresizingMaskIntoConstraints = false
@@ -398,15 +492,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         applyChrome()
     }
 
-    private func updateWebCornerMask() {
-        guard webContainer.bounds.width > 1, webContainer.bounds.height > 1 else { return }
-        webContainerMaskLayer.frame = webContainer.bounds
-        webContainerMaskLayer.path = superellipseRoundedRectPath(
-            rect: webContainer.bounds,
-            radius: Constants.mediaCornerRadius,
-            exponent: Constants.mediaCornerExponent
-        ).cgPath
-    }
+    // Mask path computation now lives in MaskedWebContainerView.
 
     private func applyChrome() {
         guard let chromeBaseColor else { return }
@@ -1138,69 +1224,7 @@ private extension UIColor {
     }
 }
 
-private extension LinkPreviewView {
-    func superellipseRoundedRectPath(rect: CGRect, radius: CGFloat, exponent: CGFloat) -> UIBezierPath {
-        let r = min(radius, min(rect.width, rect.height) / 2)
-        let steps = 12
-        let quarterPoints = superellipseQuarterPoints(radius: 1, exponent: exponent, steps: steps)
-
-        let path = UIBezierPath()
-        path.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
-        appendCorner(path: path,
-                     center: CGPoint(x: rect.maxX - r, y: rect.minY + r),
-                     radius: r,
-                     points: quarterPoints,
-                     transform: { CGPoint(x: $0.y, y: -$0.x) })
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
-        appendCorner(path: path,
-                     center: CGPoint(x: rect.maxX - r, y: rect.maxY - r),
-                     radius: r,
-                     points: quarterPoints,
-                     transform: { CGPoint(x: $0.x, y: $0.y) })
-        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
-        appendCorner(path: path,
-                     center: CGPoint(x: rect.minX + r, y: rect.maxY - r),
-                     radius: r,
-                     points: quarterPoints,
-                     transform: { CGPoint(x: -$0.y, y: $0.x) })
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
-        appendCorner(path: path,
-                     center: CGPoint(x: rect.minX + r, y: rect.minY + r),
-                     radius: r,
-                     points: quarterPoints,
-                     transform: { CGPoint(x: -$0.x, y: -$0.y) })
-        path.close()
-        return path
-    }
-
-    func superellipseQuarterPoints(radius: CGFloat, exponent: CGFloat, steps: Int) -> [CGPoint] {
-        guard steps > 1 else { return [CGPoint(x: radius, y: 0), CGPoint(x: 0, y: radius)] }
-        let n = max(2, exponent)
-        let power = 2.0 / n
-        let step = (.pi / 2) / CGFloat(steps - 1)
-        return (0..<steps).map { idx in
-            let theta = CGFloat(idx) * step
-            let cosv = max(0, cos(theta))
-            let sinv = max(0, sin(theta))
-            let x = radius * pow(cosv, power)
-            let y = radius * pow(sinv, power)
-            return CGPoint(x: x, y: y)
-        }
-    }
-
-    func appendCorner(path: UIBezierPath,
-                      center: CGPoint,
-                      radius: CGFloat,
-                      points: [CGPoint],
-                      transform: (CGPoint) -> CGPoint) {
-        guard radius > 0 else { return }
-        for point in points {
-            let p = transform(CGPoint(x: point.x * radius, y: point.y * radius))
-            path.addLine(to: CGPoint(x: center.x + p.x, y: center.y + p.y))
-        }
-    }
-}
+// Superellipse helpers are implemented in MaskedWebContainerView.
 
 #if canImport(SwiftUI)
 struct LinkPreviewRepresentable: UIViewRepresentable {
