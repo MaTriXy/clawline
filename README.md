@@ -113,6 +113,30 @@ See [docs/architecture.md](docs/architecture.md) and [docs/ios-provider-connecti
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and contribution guidelines.
 
+### Development Model
+
+**Trunk-based development** — all work lands on `main` directly.
+
+- Coding agents each get an isolated clone (`cp -r`) of the repo
+- Agents commit and push to `origin/main` as they work
+- Conflicts stay small because everyone integrates continuously
+- Branches are used only when explicitly requested for complex multi-commit work
+
+### Stability & Tags
+
+`main` is always moving and may contain unverified work. **Tags mark stable points.**
+
+- **`main` HEAD** = latest code (may be incomplete or untested on device)
+- **Latest tag** = last verified-good build, tested on device
+
+To get stable code:
+```bash
+# Latest tagged release
+git checkout $(git describe --tags --abbrev=0)
+```
+
+Tags are created after on-device verification: `git tag v{YYYY-MM-DD}` (or a descriptive name).
+
 ### Running Tests
 
 ```bash
