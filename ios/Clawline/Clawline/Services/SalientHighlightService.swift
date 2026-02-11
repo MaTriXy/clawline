@@ -8,10 +8,15 @@
 import CryptoKit
 import Foundation
 import OSLog
+import QuartzCore
 
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
+
+extension Notification.Name {
+    static let salientHighlightScrollingChanged = Notification.Name("co.clicketyclacks.Clawline.salientHighlight.scrollingChanged")
+}
 
 final class SalientHighlightService: SalientHighlightServicing {
     nonisolated fileprivate static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "SalientHighlight")
@@ -26,6 +31,25 @@ final class SalientHighlightService: SalientHighlightServicing {
         return cache
     }()
     private let worker = Worker()
+    private var scrollObserver: NSObjectProtocol?
+
+    init() {
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: .salientHighlightScrollingChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            guard let isScrolling = note.userInfo?["isScrolling"] as? Bool else { return }
+            Task { await self.worker.setIsUserScrolling(isScrolling) }
+        }
+    }
+
+    deinit {
+        if let scrollObserver {
+            NotificationCenter.default.removeObserver(scrollObserver)
+        }
+    }
 
     func cachedHighlights(messageId: String, renderedText: String) -> SalientHighlights? {
         let key = CacheKey(messageId: messageId, renderedTextHash: Self.sha256Hex(renderedText), algorithmVersion: Self.algorithmVersion)
@@ -96,7 +120,17 @@ extension SalientHighlightService: @unchecked Sendable {}
 private actor Worker {
     private let maxConcurrentGenerations = 2
     private var availablePermits = 2
-    private var permitWaiters: [CheckedContinuation<Void, Never>] = []
+    private struct Waiter: Equatable {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Never>
+        static func == (lhs: Waiter, rhs: Waiter) -> Bool { lhs.id == rhs.id }
+    }
+    private var permitWaiters: [Waiter] = []
+    private var isUserScrolling: Bool = false
+    private var nextPermitGrantTime: CFTimeInterval = 0
+    private static let permitThrottleSeconds: CFTimeInterval = 0.15
+    private var throttleWakeTask: Task<Void, Never>?
+    private var permitGrantScheduled: Bool = false
     private var inFlight: [SalientHighlightService.CacheKey: Task<SalientHighlights?, Never>] = [:]
 
     private let fileManager = FileManager.default
@@ -105,6 +139,14 @@ private actor Worker {
     init() {
         let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
         baseURL = caches.appendingPathComponent("SalientHighlights/v1", isDirectory: true)
+    }
+
+    func setIsUserScrolling(_ isScrolling: Bool) {
+        if isUserScrolling == isScrolling { return }
+        isUserScrolling = isScrolling
+        if !isUserScrolling {
+            schedulePermitGrant()
+        }
     }
 
     func canGenerate() async -> Bool {
@@ -193,22 +235,84 @@ private actor Worker {
     }
 
     private func acquirePermit() async {
-        if availablePermits > 0 {
-            availablePermits -= 1
-            return
-        }
-        await withCheckedContinuation { cont in
-            permitWaiters.append(cont)
+        let waiterId = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { cont in
+                permitWaiters.append(Waiter(id: waiterId, continuation: cont))
+                // Allow multiple requests to enqueue before we pick the next one to run.
+                // This makes the effective ordering LIFO (newest wins) rather than FIFO.
+                schedulePermitGrant()
+            }
+        } onCancel: {
+            Task { await self.cancelPermitWaiter(id: waiterId) }
         }
     }
 
     private func releasePermit() {
-        if !permitWaiters.isEmpty {
-            let cont = permitWaiters.removeFirst()
-            cont.resume()
+        availablePermits = min(maxConcurrentGenerations, availablePermits + 1)
+        schedulePermitGrant()
+    }
+
+    private func cancelPermitWaiter(id: UUID) {
+        // Best-effort: if the awaiting task was cancelled before being granted a permit,
+        // remove its waiter so we don't leak an unresumable continuation.
+        if let idx = permitWaiters.lastIndex(where: { $0.id == id }) {
+            permitWaiters.remove(at: idx)
+        }
+    }
+
+    private func schedulePermitGrant() {
+        if permitGrantScheduled { return }
+        permitGrantScheduled = true
+        Task {
+            // Ensure we don't grant permits inline on the first enqueued request.
+            await Task.yield()
+            await self.runPermitGrant()
+        }
+    }
+
+    private func runPermitGrant() {
+        permitGrantScheduled = false
+        tryGrantPermits()
+    }
+
+    private func tryGrantPermits() {
+        guard !isUserScrolling else { return }
+        guard availablePermits > 0 else { return }
+        guard !permitWaiters.isEmpty else { return }
+
+        let now = CACurrentMediaTime()
+        if now < nextPermitGrantTime {
+            // Ensure only one wake task is scheduled while we're throttling.
+            if throttleWakeTask == nil {
+                let delay = nextPermitGrantTime - now
+                throttleWakeTask = Task { [delay] in
+                    try? await Task.sleep(nanoseconds: UInt64(max(0, delay) * 1_000_000_000))
+                    await self.clearThrottleWake()
+                    await self.schedulePermitGrant()
+                }
+            }
             return
         }
-        availablePermits = min(maxConcurrentGenerations, availablePermits + 1)
+
+        // Throttle: grant at most one permit every ~150ms to avoid saturating Foundation Models
+        // and starving the UI during cache invalidation.
+        nextPermitGrantTime = now + Self.permitThrottleSeconds
+
+        availablePermits -= 1
+        // LIFO: newest requests (typically bottom/most recent) get serviced first.
+        let waiter = permitWaiters.removeLast()
+        waiter.continuation.resume()
+
+        // Drain the queue (respecting throttle + scrolling). Without this, a backlog can stall
+        // if no new requests or permit releases occur after the first grant.
+        if availablePermits > 0, !permitWaiters.isEmpty {
+            schedulePermitGrant()
+        }
+    }
+
+    private func clearThrottleWake() {
+        throttleWakeTask = nil
     }
 
     private func performGeneration(

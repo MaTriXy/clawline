@@ -192,6 +192,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var sbbState: SBBState = .atBottom
     private var lastReportedHideIndicator: Bool?
     private var lastSeenBottomInsetForSBB: CGFloat?
+    private var isPostingSalientScrolling: Bool = false
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         false
@@ -327,6 +328,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
 #endif
         if !decelerate {
+            setSalientHighlightIsScrolling(false)
+        }
+        if !decelerate {
             handleUserScrollSettled()
             checkFirstUnreadCrossingIfNeeded()
             performPendingFlashIfPossible()
@@ -340,6 +344,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
+        setSalientHighlightIsScrolling(false)
         handleUserScrollSettled()
         checkFirstUnreadCrossingIfNeeded()
         performPendingFlashIfPossible()
@@ -359,9 +364,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // Spec: interaction = scroll view dragging/tracking. Enter a pinned-but-defer state.
+        setSalientHighlightIsScrolling(true)
         if sbbState == .atBottom {
             setSBBState(.atBottomDragging)
         }
+    }
+
+    private func setSalientHighlightIsScrolling(_ isScrolling: Bool) {
+        if isPostingSalientScrolling == isScrolling { return }
+        isPostingSalientScrolling = isScrolling
+        NotificationCenter.default.post(
+            name: .salientHighlightScrollingChanged,
+            object: nil,
+            userInfo: ["isScrolling": isScrolling]
+        )
     }
 
     @objc private func handleWillResignActive() {
