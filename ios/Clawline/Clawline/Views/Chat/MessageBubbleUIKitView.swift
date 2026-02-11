@@ -209,6 +209,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var salientToken: Int = 0
     private var salientMessageId: String?
     private var salientBaseAttributedText: NSAttributedString?
+    private var currentSalientHighlights: SalientHighlights?
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
     private var currentStream: ChatStream = .personal
@@ -528,6 +529,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         salientToken &+= 1
         salientMessageId = message.id
         salientBaseAttributedText = nil
+        currentSalientHighlights = nil
 
         let hasLinkPreview = Self.presentationHasLinkPreview(presentation)
         let rawMaxWidth = maxWidthOverride ?? maxWidth
@@ -598,8 +600,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 ]
             )
         } else {
-            bodyLabel.attributedText = MessageBubbleUIKitView.attributedBodyTextOnly(
-                presentation: presentation,
+            bodyLabel.attributedText = MessageTextPartRenderer.attributedText(
+                from: presentation,
                 sizeClass: sizeClass,
                 metrics: metrics,
                 inkColor: palette.ink
@@ -611,6 +613,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         applySalientHighlightsIfNeeded(
             message: message,
             isChromelessEmoji: isChromelessEmoji,
+            isDark: effectiveIsDark,
             salientHighlightService: salientHighlightService
         )
 
@@ -991,11 +994,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         salientTask = nil
         salientBaseAttributedText = nil
         salientMessageId = nil
+        currentSalientHighlights = nil
     }
 
     private func applySalientHighlightsIfNeeded(
         message: Message,
         isChromelessEmoji: Bool,
+        isDark: Bool,
         salientHighlightService: (any SalientHighlightServicing)?
     ) {
         guard message.role == .user else { return }
@@ -1008,7 +1013,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         // Apply memory-cached highlights immediately (no async churn on fast scroll).
         if let cached = salientHighlightService.cachedHighlights(messageId: message.id, renderedText: renderedText),
            !cached.spans.isEmpty {
-            bodyLabel.attributedText = SalientHighlightApplier.apply(cached, to: base)
+            currentSalientHighlights = cached
+            bodyLabel.attributedText = SalientHighlightApplier.apply(cached, to: base, isDark: isDark)
             return
         }
 
@@ -1025,7 +1031,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 guard self.salientToken == token else { return }
                 guard self.salientMessageId == messageId else { return }
                 guard let base = self.salientBaseAttributedText else { return }
-                let highlighted = SalientHighlightApplier.apply(highlights, to: base)
+                self.currentSalientHighlights = highlights
+                let highlighted = SalientHighlightApplier.apply(highlights, to: base, isDark: isDark)
                 if self.bodyLabel.attributedText?.isEqual(to: highlighted) == true {
                     return
                 }
@@ -1102,7 +1109,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.showsVerticalScrollIndicator = isOverflowing
         dynamicContentScrollView.alwaysBounceVertical = isOverflowing
         dynamicContentScrollView.contentInset.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+#if !os(visionOS)
         dynamicContentScrollView.scrollIndicatorInsets.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+#endif
         fadeView.isHidden = !isOverflowing
 
         guard !dynamicContentScrollView.isDragging,
@@ -1128,7 +1137,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentScrollView.contentLayoutGuide.layoutFrame.height,
             dynamicContentStack.bounds.height
         )
-        let scale = window?.windowScene?.screen.scale ?? max(1, traitCollection.displayScale)
+        let scale = max(1, traitCollection.displayScale)
         let epsilon = max(1.5, 2.0 / scale)
         return contentHeight > (viewportHeight + epsilon)
     }
@@ -1172,6 +1181,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         if let attributedText = bodyLabel.attributedText, attributedText.length > 0 {
             let mutable = NSMutableAttributedString(attributedString: attributedText)
             mutable.addAttribute(.foregroundColor, value: palette.ink, range: NSRange(location: 0, length: mutable.length))
+            if let highlights = currentSalientHighlights {
+                SalientHighlightApplier.apply(highlights, to: mutable, isDark: isDark)
+            }
             bodyLabel.attributedText = mutable
         }
 
@@ -1323,120 +1335,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         }
         .filter { !$0.isEmpty }
         .joined(separator: "\n\n")
-    }
-
-    /// Builds attributed string for text content only (excludes code blocks which are rendered separately)
-    private static func attributedBodyTextOnly(presentation: MessagePresentation,
-                                               sizeClass: MessageSizeClass,
-                                               metrics: ChatFlowTheme.Metrics,
-                                               inkColor: UIColor) -> NSAttributedString {
-        let baseFont: UIFont
-        let lineSpacing: CGFloat
-        switch sizeClass {
-        case .short:
-            baseFont = UIFont.systemFont(ofSize: metrics.shortFontSize, weight: .semibold)
-            lineSpacing = 0
-        case .medium:
-            baseFont = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
-            lineSpacing = 4
-        case .long:
-            baseFont = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular)
-            lineSpacing = 4
-        }
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = lineSpacing
-        paragraph.alignment = .left
-
-        let baseAttributes: [NSAttributedString.Key: Any] = [
-            .font: baseFont,
-            .foregroundColor: inkColor,
-            .paragraphStyle: paragraph
-        ]
-
-        let result = NSMutableAttributedString()
-        // Filter to only text parts (no code blocks or tables - those are rendered as separate views)
-        let textParts = presentation.parts.filter {
-            switch $0 {
-            case .text, .markdown, .inlineEmoji:
-                return true
-            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession, .interactiveHTML:
-                return false
-            }
-        }
-
-        for (index, part) in textParts.enumerated() {
-            if index > 0 {
-                result.append(NSAttributedString(string: "\n\n", attributes: baseAttributes))
-            }
-
-            switch part {
-            case .text(let value):
-                result.append(NSAttributedString(string: value, attributes: baseAttributes))
-
-            case .markdown(let value):
-                // Parse markdown to attributed string
-                if let parsed = ChatMarkdownRenderer.renderNSAttributedString(
-                    markdown: value,
-                    baseFont: baseFont,
-                    inkColor: inkColor,
-                    lineSpacing: lineSpacing
-                ) {
-                    result.append(parsed)
-                } else {
-                    result.append(NSAttributedString(string: value, attributes: baseAttributes))
-                }
-
-            case .inlineEmoji(let value):
-                result.append(NSAttributedString(string: value, attributes: baseAttributes))
-
-            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession, .interactiveHTML:
-                break
-            }
-        }
-
-        if presentation.detectedURLCount > 0 {
-            // #33: URLs should render as organic link cards, not inline underlined text.
-            return stripDetectedLinks(from: result)
-        }
-        return result
-    }
-
-    private static let detectedLinkStripper: NSDataDetector? = {
-        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-    }()
-
-    private static func stripDetectedLinks(from attributed: NSAttributedString) -> NSAttributedString {
-        guard let detector = detectedLinkStripper else { return attributed }
-        let mutable = NSMutableAttributedString(attributedString: attributed)
-        let fullRange = NSRange(location: 0, length: mutable.string.utf16.count)
-        let matches = detector.matches(in: mutable.string, options: [], range: fullRange)
-        for match in matches.reversed() {
-            guard match.resultType == .link else { continue }
-            mutable.replaceCharacters(in: match.range, with: "")
-        }
-
-        // Trim leading/trailing whitespace/newlines after removing the URLs.
-        func isTrimmable(_ scalar: Unicode.Scalar) -> Bool {
-            CharacterSet.whitespacesAndNewlines.contains(scalar)
-        }
-        while let first = mutable.string.unicodeScalars.first, isTrimmable(first) {
-            mutable.replaceCharacters(in: NSRange(location: 0, length: 1), with: "")
-        }
-        while let last = mutable.string.unicodeScalars.last, isTrimmable(last) {
-            let len = mutable.string.utf16.count
-            guard len > 0 else { break }
-            mutable.replaceCharacters(in: NSRange(location: len - 1, length: 1), with: "")
-        }
-
-        // Collapse 3+ newlines down to 2 to avoid large gaps where a URL was removed.
-        if mutable.string.contains("\n\n\n") {
-            let regex = try? NSRegularExpression(pattern: "\n{3,}", options: [])
-            let range = NSRange(location: 0, length: mutable.string.utf16.count)
-            regex?.replaceMatches(in: mutable.mutableString, options: [], range: range, withTemplate: "\n\n")
-        }
-
-        return mutable
     }
 
     private static func makeImageView(attachment: Attachment,

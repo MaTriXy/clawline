@@ -82,8 +82,66 @@ struct ExpandedMessageSheet: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(presentation.parts.enumerated()), id: \.offset) { item in
-                partView(item.element)
+            ForEach(fileAttachments) { attachment in
+                FileAttachmentRow(
+                    filename: attachment.filename ?? attachment.assetId ?? attachment.mimeType ?? "Attachment",
+                    sizeText: attachment.size.map(Self.formatFileSize),
+                    colorScheme: effectiveColorScheme
+                )
+            }
+
+            if let emojiOnlyText {
+                Text(emojiOnlyText)
+                    .font(.system(size: 32))
+            } else if let attributedText {
+                SelectableAttributedText(
+                    attributedString: attributedText,
+                    alignment: .left,
+                    onSelectionChange: { _ in },
+                    onLinkTap: { url in
+                        UIApplication.shared.open(url)
+                    }
+                )
+            }
+
+            ForEach(Array(linkPreviewURLs.enumerated()), id: \.offset) { item in
+                LinkPreviewRepresentable(url: item.element)
+                    .frame(maxWidth: .infinity)
+            }
+
+            ForEach(Array(codeBlocks.enumerated()), id: \.offset) { item in
+                CodeBlockView(language: item.element.language, code: item.element.code)
+            }
+
+            ForEach(Array(tables.enumerated()), id: \.offset) { item in
+                MarkdownTableView(
+                    model: item.element,
+                    role: message.role,
+                    metrics: metrics,
+                    maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                    colorScheme: effectiveColorScheme,
+                    isExpanded: true,
+                    onExpand: {},
+                    onCollapse: { dismiss() }
+                )
+            }
+
+            ForEach(Array(terminalSessions.enumerated()), id: \.offset) { item in
+                TerminalBubbleExpandedRepresentable(descriptor: item.element)
+                    .frame(maxWidth: .infinity)
+            }
+
+            ForEach(Array(interactiveHTMLDescriptors.enumerated()), id: \.offset) { item in
+                let descriptor = item.element
+                FileAttachmentRow(
+                    filename: descriptor.metadata?.title.map { "Interactive: \($0)" } ?? "Interactive HTML",
+                    sizeText: nil,
+                    colorScheme: effectiveColorScheme
+                )
+            }
+
+            ForEach(Array(mediaParts.enumerated()), id: \.offset) { item in
+                mediaPartView(item.element)
             }
         }
         .font(.system(size: metrics.bodyFontSize, weight: .regular))
@@ -91,50 +149,87 @@ struct ExpandedMessageSheet: View {
         .lineSpacing(4)
     }
 
-    @ViewBuilder
-    private func partView(_ part: MessagePart) -> some View {
-        switch part {
-        case .text(let value):
-            Text(value)
-        case .markdown(let value):
-            let baseFont = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular)
-            let ink = UIColor(ChatFlowTheme.ink(effectiveColorScheme))
-            if let ns = ChatMarkdownRenderer.renderNSAttributedString(
-                markdown: value,
-                baseFont: baseFont,
-                inkColor: ink,
-                lineSpacing: 4
-            ) {
-                SelectableAttributedText(
-                    attributedString: ns,
-                    alignment: .left,
-                    onSelectionChange: { _ in },
-                    onLinkTap: { url in
-                        UIApplication.shared.open(url)
-                    }
-                )
-            } else {
-                Text(value)
+    private var attributedText: NSAttributedString? {
+        let ink = UIColor(ChatFlowTheme.ink(effectiveColorScheme))
+        let attributed = MessageTextPartRenderer.attributedText(
+            from: presentation,
+            sizeClass: .long,
+            metrics: metrics,
+            inkColor: ink,
+            stripDetectedURLs: false
+        )
+        let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : attributed
+    }
+
+    private var emojiOnlyText: String? {
+        guard presentation.isEmojiOnly else { return nil }
+        let values = presentation.parts.compactMap { part -> String? in
+            if case .inlineEmoji(let value) = part { return value }
+            return nil
+        }
+        guard !values.isEmpty else { return nil }
+        return values.joined(separator: "\n\n")
+    }
+
+    private var fileAttachments: [Attachment] {
+        presentation.parts.compactMap { part in
+            if case .file(let attachment) = part { return attachment }
+            return nil
+        }
+    }
+
+    private var linkPreviewURLs: [URL] {
+        presentation.parts.compactMap { part in
+            if case .linkPreview(let url) = part { return url }
+            return nil
+        }
+    }
+
+    private var codeBlocks: [(language: String?, code: String)] {
+        presentation.parts.compactMap { part in
+            if case .code(let language, let code) = part {
+                return (language: language, code: code)
             }
-        case .inlineEmoji(let value):
-            Text(value)
-                .font(.system(size: 32))
-        case .code(let language, let code):
-            CodeBlockView(language: language, code: code)
-        case .linkPreview(let url):
-            LinkPreviewRepresentable(url: url)
-                .frame(maxWidth: .infinity)
-        case .table(let model):
-            MarkdownTableView(
-                model: model,
-                role: message.role,
-                metrics: metrics,
-                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-                colorScheme: effectiveColorScheme,
-                isExpanded: true,
-                onExpand: {},
-                onCollapse: { dismiss() }
-            )
+            return nil
+        }
+    }
+
+    private var tables: [TableModel] {
+        presentation.parts.compactMap { part in
+            if case .table(let model) = part { return model }
+            return nil
+        }
+    }
+
+    private var terminalSessions: [TerminalSessionDescriptor] {
+        presentation.parts.compactMap { part in
+            if case .terminalSession(let descriptor) = part { return descriptor }
+            return nil
+        }
+    }
+
+    private var interactiveHTMLDescriptors: [InteractiveHTMLDescriptor] {
+        presentation.parts.compactMap { part in
+            if case .interactiveHTML(let descriptor) = part { return descriptor }
+            return nil
+        }
+    }
+
+    private var mediaParts: [MessagePart] {
+        presentation.parts.filter { part in
+            switch part {
+            case .image, .gallery:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func mediaPartView(_ part: MessagePart) -> some View {
+        switch part {
         case .image(let attachment):
             if let data = attachment.data, let uiImage = UIImage(data: data) {
                 Image(uiImage: uiImage)
@@ -153,25 +248,12 @@ struct ExpandedMessageSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
             }
-        case .file(let attachment):
-            FileAttachmentRow(
-                filename: attachment.filename ?? attachment.assetId ?? attachment.mimeType ?? "Attachment",
-                sizeText: attachment.size.map(Self.formatFileSize),
-                colorScheme: effectiveColorScheme
-            )
-        case .terminalSession(let descriptor):
-            TerminalBubbleExpandedRepresentable(descriptor: descriptor)
-                .frame(maxWidth: .infinity)
-        case .interactiveHTML(let descriptor):
-            FileAttachmentRow(
-                filename: descriptor.metadata?.title.map { "Interactive: \($0)" } ?? "Interactive HTML",
-                sizeText: nil,
-                colorScheme: effectiveColorScheme
-            )
+        case .text, .markdown, .table, .code, .linkPreview, .file, .terminalSession, .interactiveHTML, .inlineEmoji:
+            EmptyView()
         }
     }
 
-    private static func formatFileSize(_ bytes: Int) -> String {
+    nonisolated private static func formatFileSize(_ bytes: Int) -> String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useKB, .useMB, .useGB]
         formatter.countStyle = .file
