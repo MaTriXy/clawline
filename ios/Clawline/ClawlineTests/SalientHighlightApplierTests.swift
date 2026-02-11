@@ -47,13 +47,29 @@ struct SalientHighlightApplierTests {
         #expect(rgb(result, at: 15) != RGB(red: 217, green: 175, blue: 98))
     }
 
-    private func makeHighlights(for text: String) -> SalientHighlights {
+    @Test("Salient highlight skips when ranges cover full message text")
+    func skipsHighlightsWhenSpansCoverEntireText() {
+        let base = makeBaseAttributedText()
+        let fullLength = (base.string as NSString).length
+        let highlights = makeHighlights(
+            for: base.string,
+            spans: [SalientSpan(startUTF16: 0, lengthUTF16: fullLength, style: .bold, kind: .fact, confidence: 0.9)]
+        )
+
+        let result = SalientHighlightApplier.apply(highlights, to: base, isDark: false)
+
+        #expect(fontRuns(result) == fontRuns(base))
+        #expect(rgb(result, at: 0) == rgb(base, at: 0))
+        #expect(rgb(result, at: 8) == rgb(base, at: 8))
+    }
+
+    private func makeHighlights(for text: String, spans: [SalientSpan]? = nil) -> SalientHighlights {
         SalientHighlights(
             messageId: "msg-1",
             renderedTextHash: SalientHighlightService.sha256Hex(text),
             renderedTextLengthUTF16: (text as NSString).length,
             algorithmVersion: 2,
-            spans: [
+            spans: spans ?? [
                 SalientSpan(startUTF16: 0, lengthUTF16: 10, style: .bold, kind: .fact, confidence: 0.9)
             ]
         )
