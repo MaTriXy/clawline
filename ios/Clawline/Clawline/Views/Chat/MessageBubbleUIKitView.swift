@@ -196,6 +196,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var contentPaddingScale: CGFloat = 1
     private var useContinuousCorners = true
     private weak var centeredOverlayView: UIView?
+    private var currentMessageId: String?
+    private var wasOverflowingOnLastLayout = false
 
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -464,6 +466,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    onInteractiveCallback: ((String, String, JSONValue?) -> Void)?,
                    salientHighlightService: (any SalientHighlightServicing)? = nil) {
         assert(Thread.isMainThread)
+        let isMessageReuse = (currentMessageId != nil && currentMessageId != message.id)
+        currentMessageId = message.id
         // Store for trait collection updates
         currentMessageRole = message.role
         currentStream = message.stream
@@ -888,12 +892,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Every bubble uses an outer scroll container. Bubble height is capped; if content overflows,
         // scrolling is enabled (inert when content fits).
-        dynamicContentScrollView.isScrollEnabled = false
-        dynamicContentScrollView.showsVerticalScrollIndicator = false
-        dynamicContentScrollView.showsHorizontalScrollIndicator = false
-        dynamicContentScrollView.alwaysBounceVertical = false
-        dynamicContentScrollView.alwaysBounceHorizontal = false
-        dynamicContentScrollView.setContentOffset(.zero, animated: false)
+        prepareOuterScrollStateForConfigure(isMessageReuse: isMessageReuse)
 
         if let bubbleSizingV2 {
             applyBubbleSizingV2(bubbleSizingV2)
@@ -935,10 +934,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Update border colors for light/dark mode
         updateBorderColors(isDark: palette.isDark)
+        setNeedsLayout()
     }
 
     func prepareForReuse() {
-        dynamicContentScrollView.setContentOffset(.zero, animated: false)
+        currentMessageId = nil
+        resetOuterScrollState(resetOffset: true)
+        wasOverflowingOnLastLayout = false
         salientTask?.cancel()
         salientTask = nil
         salientBaseAttributedText = nil
@@ -977,8 +979,23 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 guard self.salientToken == token else { return }
                 guard self.salientMessageId == messageId else { return }
                 guard let base = self.salientBaseAttributedText else { return }
-                self.bodyLabel.attributedText = SalientHighlightApplier.apply(highlights, to: base)
-                self.onRequestLayout?(messageId)
+                let highlighted = SalientHighlightApplier.apply(highlights, to: base)
+                if self.bodyLabel.attributedText?.isEqual(to: highlighted) == true {
+                    return
+                }
+                let width = self.bodyLabel.bounds.width
+                let previousHeight: CGFloat? = width > 1
+                    ? self.bodyLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+                    : nil
+                self.bodyLabel.attributedText = highlighted
+                if let previousHeight, width > 1 {
+                    let newHeight = self.bodyLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+                    if abs(newHeight - previousHeight) > 0.5 {
+                        self.onRequestLayout?(messageId)
+                    }
+                } else {
+                    self.onRequestLayout?(messageId)
+                }
             }
         }
     }
@@ -993,21 +1010,91 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         //
         // Terminal bubbles have their own scroll/interaction model; never enable outer bubble scrolling.
         guard currentSizeClass == .long, !hasTerminalSessionsForLayout else {
-            dynamicContentScrollView.isScrollEnabled = false
-            dynamicContentScrollView.showsVerticalScrollIndicator = false
-            dynamicContentScrollView.alwaysBounceVertical = false
-            dynamicContentScrollView.contentInset.bottom = 0
-            fadeView.isHidden = true
+            applyOuterScrollState(isOverflowing: false, forceResetOffset: true)
             return
         }
 
         dynamicContentScrollView.layoutIfNeeded()
-        let overflow = dynamicContentScrollView.contentSize.height > dynamicContentScrollView.bounds.height + 1
-        dynamicContentScrollView.isScrollEnabled = overflow
-        dynamicContentScrollView.showsVerticalScrollIndicator = overflow
-        dynamicContentScrollView.alwaysBounceVertical = overflow
-        dynamicContentScrollView.contentInset.bottom = overflow ? Self.bubbleScrollFadeHeight : 0
-        fadeView.isHidden = !overflow
+        dynamicContentStack.layoutIfNeeded()
+        let overflow = isOuterScrollOverflowing()
+        applyOuterScrollState(isOverflowing: overflow, forceResetOffset: !overflow)
+    }
+
+    private func prepareOuterScrollStateForConfigure(isMessageReuse: Bool) {
+        dynamicContentScrollView.isScrollEnabled = false
+        dynamicContentScrollView.showsVerticalScrollIndicator = false
+        dynamicContentScrollView.showsHorizontalScrollIndicator = false
+        dynamicContentScrollView.alwaysBounceVertical = false
+        dynamicContentScrollView.alwaysBounceHorizontal = false
+        fadeView.isHidden = true
+
+        // Cell reuse should always reset stale offsets. For same-message reconfigures
+        // (link preview/highlight updates), defer to overflow transition logic to avoid
+        // forcing the user back to top.
+        if isMessageReuse {
+            resetOuterScrollState(resetOffset: true)
+        }
+    }
+
+    private func resetOuterScrollState(resetOffset: Bool) {
+        dynamicContentScrollView.isScrollEnabled = false
+        dynamicContentScrollView.showsVerticalScrollIndicator = false
+        dynamicContentScrollView.alwaysBounceVertical = false
+        dynamicContentScrollView.contentInset = .zero
+        dynamicContentScrollView.scrollIndicatorInsets = .zero
+        if resetOffset {
+            dynamicContentScrollView.setContentOffset(.zero, animated: false)
+        }
+        fadeView.isHidden = true
+    }
+
+    private func applyOuterScrollState(isOverflowing: Bool, forceResetOffset: Bool) {
+        let overflowChanged = (wasOverflowingOnLastLayout != isOverflowing)
+        wasOverflowingOnLastLayout = isOverflowing
+
+        dynamicContentScrollView.isScrollEnabled = isOverflowing
+        dynamicContentScrollView.showsVerticalScrollIndicator = isOverflowing
+        dynamicContentScrollView.alwaysBounceVertical = isOverflowing
+        dynamicContentScrollView.contentInset.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+        dynamicContentScrollView.scrollIndicatorInsets.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+        fadeView.isHidden = !isOverflowing
+
+        guard !dynamicContentScrollView.isDragging,
+              !dynamicContentScrollView.isTracking,
+              !dynamicContentScrollView.isDecelerating else {
+            return
+        }
+
+        if !isOverflowing && (forceResetOffset || overflowChanged || abs(dynamicContentScrollView.contentOffset.y) > 0.5) {
+            dynamicContentScrollView.setContentOffset(.zero, animated: false)
+            return
+        }
+
+        clampOuterScrollOffsetIfNeeded()
+    }
+
+    private func isOuterScrollOverflowing() -> Bool {
+        let viewportHeight = dynamicContentScrollView.bounds.height
+        guard viewportHeight > 1 else { return false }
+
+        let contentHeight = max(
+            dynamicContentScrollView.contentSize.height,
+            dynamicContentScrollView.contentLayoutGuide.layoutFrame.height,
+            dynamicContentStack.bounds.height
+        )
+        let scale = window?.windowScene?.screen.scale ?? max(1, traitCollection.displayScale)
+        let epsilon = max(1.5, 2.0 / scale)
+        return contentHeight > (viewportHeight + epsilon)
+    }
+
+    private func clampOuterScrollOffsetIfNeeded() {
+        let inset = dynamicContentScrollView.adjustedContentInset
+        let minY = -inset.top
+        let maxY = max(minY, dynamicContentScrollView.contentSize.height - dynamicContentScrollView.bounds.height + inset.bottom)
+        let currentY = dynamicContentScrollView.contentOffset.y
+        let clampedY = min(max(currentY, minY), maxY)
+        guard abs(clampedY - currentY) > 0.5 else { return }
+        dynamicContentScrollView.setContentOffset(CGPoint(x: dynamicContentScrollView.contentOffset.x, y: clampedY), animated: false)
     }
 
     func setCenteredOverlayView(_ view: UIView?) {

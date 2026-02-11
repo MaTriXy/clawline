@@ -25,7 +25,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: ToastManager()
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -71,7 +72,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: toastManager
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -143,7 +145,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: toastManager
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -188,7 +191,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: toastManager
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -233,6 +237,7 @@ struct ChatViewModelTests {
             device: TestDevice(),
             uploadService: TestUploadService(),
             toastManager: toastManager,
+            salientHighlightService: SalientHighlightService(),
             connectionAlertGracePeriod: .milliseconds(500)
         )
         defer { viewModel.onDisappear() }
@@ -273,7 +278,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: ToastManager()
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -296,7 +302,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: ToastManager()
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -350,7 +357,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: uploadService,
-            toastManager: ToastManager()
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -399,7 +407,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: ToastManager()
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -430,7 +439,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: ToastManager()
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -478,7 +488,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: ToastManager()
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -519,7 +530,8 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: toastManager
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
 
@@ -614,6 +626,10 @@ private final class TestChatService: ChatServicing {
         lastSentAttachments = attachments
         lastSessionKey = sessionKey
         lastStream = sessionKey.map(SessionKey.stream)
+    }
+
+    func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {
+        // No-op for tests.
     }
 
     func emit(_ message: Message) {

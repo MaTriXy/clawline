@@ -119,6 +119,7 @@ extension SalientHighlightService: @unchecked Sendable {}
 
 private actor Worker {
     private let maxConcurrentGenerations = 2
+    private let maxInFlightGenerations = 10
     private var availablePermits = 2
     private struct Waiter: Equatable {
         let id: UUID
@@ -191,6 +192,10 @@ private actor Worker {
         let key = SalientHighlightService.CacheKey(messageId: messageId, renderedTextHash: renderedTextHash, algorithmVersion: algorithmVersion)
         if let existing = inFlight[key] {
             return await existing.value
+        }
+        if inFlight.count >= maxInFlightGenerations {
+            SalientHighlightService.logger.debug("generation_skipped_backpressure in_flight=\(self.inFlight.count, privacy: .public)")
+            return nil
         }
 
         let task = Task { [analysisText, renderedTextForResolution] in

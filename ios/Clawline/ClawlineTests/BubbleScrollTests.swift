@@ -56,6 +56,151 @@ struct BubbleScrollTests {
         #expect(scrollEnabledWithPreview == true)
     }
 
+    @Test("T047/T046: Overflow-to-fit transition clears stale inner offset and fade state")
+    @MainActor
+    func overflowTransitionResetsOffsetAndFade() {
+        let metrics = ChatFlowTheme.Metrics(isCompact: false)
+        let longMessage = Message(
+            id: "overflow-long",
+            role: .assistant,
+            content: Array(repeating: "This sentence is intentionally long for truncation coverage.", count: 36).joined(separator: " "),
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: "server:personal"
+        )
+        let shortMessage = Message(
+            id: "overflow-short",
+            role: .assistant,
+            content: "Short follow-up.",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: "server:personal"
+        )
+
+        let longPresentation = buildPresentation(longMessage, metrics: metrics, enableLinkPreviews: false)
+        let shortPresentation = buildPresentation(shortMessage, metrics: metrics, enableLinkPreviews: false)
+        let longSizeClass = MessageFlowRules.sizeClass(for: longPresentation)
+        let shortSizeClass = MessageFlowRules.sizeClass(for: shortPresentation)
+
+        let host = UIView(frame: CGRect(x: 0, y: 0, width: 360, height: 600))
+        host.layoutIfNeeded()
+        let bubble = MessageBubbleUIKitView(frame: CGRect(x: 0, y: 0, width: 320, height: 260))
+        host.addSubview(bubble)
+
+        bubble.configure(
+            message: longMessage,
+            presentation: longPresentation,
+            sizeClass: longSizeClass,
+            metrics: metrics,
+            maxWidth: 320,
+            truncationHeightOverride: 140,
+            bubbleSizingV2: nil,
+            showsHeader: true,
+            paddingScale: 1,
+            minWidthOverride: nil,
+            maxWidthOverride: nil,
+            useContinuousCorners: true,
+            isDark: false,
+            onRequestExpand: nil,
+            onRequestLayout: nil,
+            onInteractiveCallback: nil
+        )
+        bubble.layoutIfNeeded()
+
+        guard let scroll = innerBubbleScrollView(in: bubble),
+              let fade = truncationFadeView(in: bubble) else {
+            Issue.record("Expected inner scroll + fade views to exist")
+            return
+        }
+        #expect(scroll.isScrollEnabled)
+        #expect(fade.isHidden == false)
+
+        // Simulate a stale/bouncy offset that can leak across reuse/reconfigure.
+        scroll.contentOffset = CGPoint(x: 0, y: -18)
+
+        bubble.configure(
+            message: shortMessage,
+            presentation: shortPresentation,
+            sizeClass: shortSizeClass,
+            metrics: metrics,
+            maxWidth: 320,
+            truncationHeightOverride: 240,
+            bubbleSizingV2: nil,
+            showsHeader: true,
+            paddingScale: 1,
+            minWidthOverride: nil,
+            maxWidthOverride: nil,
+            useContinuousCorners: true,
+            isDark: false,
+            onRequestExpand: nil,
+            onRequestLayout: nil,
+            onInteractiveCallback: nil
+        )
+        bubble.layoutIfNeeded()
+
+        #expect(scroll.isScrollEnabled == false)
+        #expect(fade.isHidden)
+        #expect(abs(scroll.contentOffset.y) < 0.5)
+    }
+
+    @Test("T032: Salient highlight style-only updates avoid layout reflow callbacks")
+    @MainActor
+    func salientHighlightAvoidsLayoutReflowWhenHeightStable() async throws {
+        let metrics = ChatFlowTheme.Metrics(isCompact: false)
+        let message = Message(
+            id: "salient-style-only",
+            role: .user,
+            content: "Topic phrase stays one line and should not reflow",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: "server:personal"
+        )
+        let presentation = buildPresentation(message, metrics: metrics, enableLinkPreviews: false)
+        let renderedText = message.content
+        let highlights = SalientHighlights(
+            messageId: message.id,
+            renderedTextHash: SalientHighlightService.sha256Hex(renderedText),
+            renderedTextLengthUTF16: (renderedText as NSString).length,
+            algorithmVersion: 2,
+            spans: [
+                SalientSpan(startUTF16: 0, lengthUTF16: 5, style: .bold, kind: .fact, confidence: 0.9)
+            ]
+        )
+        let service = ImmediateHighlightService(storedHighlights: highlights)
+
+        let bubble = MessageBubbleUIKitView(frame: CGRect(x: 0, y: 0, width: 320, height: 200))
+        var layoutRequests = 0
+        bubble.configure(
+            message: message,
+            presentation: presentation,
+            sizeClass: MessageFlowRules.sizeClass(for: presentation),
+            metrics: metrics,
+            maxWidth: 320,
+            truncationHeightOverride: 220,
+            bubbleSizingV2: nil,
+            showsHeader: true,
+            paddingScale: 1,
+            minWidthOverride: nil,
+            maxWidthOverride: nil,
+            useContinuousCorners: true,
+            isDark: false,
+            onRequestExpand: nil,
+            onRequestLayout: { _ in layoutRequests += 1 },
+            onInteractiveCallback: nil,
+            salientHighlightService: service
+        )
+        bubble.layoutIfNeeded()
+
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(layoutRequests == 0)
+    }
+
     // MARK: Helpers
 
     @MainActor
@@ -65,14 +210,14 @@ struct BubbleScrollTests {
                                            maxWidth: CGFloat) -> Bool {
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
 
-        let bubble = MessageBubbleUIKitView(frame: .zero)
+        let bubble = MessageBubbleUIKitView(frame: CGRect(x: 0, y: 0, width: maxWidth, height: 1))
         bubble.configure(
             message: message,
             presentation: presentation,
             sizeClass: sizeClass,
             metrics: metrics,
             maxWidth: maxWidth,
-            truncationHeightOverride: nil,
+            truncationHeightOverride: 240,
             bubbleSizingV2: nil,
             showsHeader: true,
             paddingScale: 1,
@@ -81,8 +226,15 @@ struct BubbleScrollTests {
             useContinuousCorners: true,
             isDark: false,
             onRequestExpand: nil,
-            onRequestLayout: nil
+            onRequestLayout: nil,
+            onInteractiveCallback: nil
         )
+        let measured = bubble.systemLayoutSizeFitting(
+            CGSize(width: maxWidth, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        bubble.frame = CGRect(origin: .zero, size: measured)
         bubble.setNeedsLayout()
         bubble.layoutIfNeeded()
 
@@ -104,6 +256,28 @@ struct BubbleScrollTests {
             result.append(contentsOf: allScrollViews(in: sub))
         }
         return result
+    }
+
+    private func innerBubbleScrollView(in view: UIView) -> UIScrollView? {
+        allScrollViews(in: view).first(where: { $0.isDirectionalLockEnabled && !$0.showsHorizontalScrollIndicator })
+    }
+
+    private func truncationFadeView(in view: UIView) -> TruncationFadeView? {
+        if let fade = view as? TruncationFadeView {
+            return fade
+        }
+        for sub in view.subviews {
+            if let found = truncationFadeView(in: sub) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private struct ImmediateHighlightService: SalientHighlightServicing {
+        let storedHighlights: SalientHighlights
+        func cachedHighlights(messageId: String, renderedText: String) -> SalientHighlights? { nil }
+        func highlights(messageId: String, renderedText: String) async -> SalientHighlights? { storedHighlights }
     }
 
     private func buildPresentation(_ message: Message,
@@ -133,4 +307,3 @@ struct BubbleScrollTests {
         )
     }
 }
-

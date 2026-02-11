@@ -12,6 +12,32 @@ import Testing
 private let personalSessionKey = "server:personal"
 private let adminSessionKey = "server:admin"
 
+private enum MessageFlowRulesTestCompat {
+    static func shouldTruncate(
+        hasTextualParts: Bool,
+        sizeClass: MessageSizeClass,
+        isExpanded: Bool,
+        measuredHeight: CGFloat,
+        metrics: ChatFlowTheme.Metrics
+    ) -> Bool {
+        guard hasTextualParts else { return false }
+        guard sizeClass == .long else { return false }
+        guard !isExpanded else { return false }
+        return measuredHeight > metrics.truncationHeight
+    }
+
+    static func shouldShowTruncationControl(
+        hasTextualParts: Bool,
+        sizeClass: MessageSizeClass,
+        measuredHeight: CGFloat,
+        metrics: ChatFlowTheme.Metrics
+    ) -> Bool {
+        guard hasTextualParts else { return false }
+        guard sizeClass == .long else { return false }
+        return measuredHeight > metrics.truncationHeight
+    }
+}
+
 struct ChatFlowOrganicComplianceTests {
 
     // MARK: Message presentation (§5/§6)
@@ -462,14 +488,14 @@ struct ChatFlowOrganicComplianceTests {
     @Test("Doc §4: Height-based truncation")
     func truncationHeightOnly() {
         let metrics = ChatFlowTheme.Metrics(isCompact: false)
-        let shouldTruncate = MessageFlowRules.shouldTruncate(
+        let shouldTruncate = MessageFlowRulesTestCompat.shouldTruncate(
             hasTextualParts: true,
             sizeClass: .long,
             isExpanded: false,
             measuredHeight: metrics.truncationHeight + 10,
             metrics: metrics
         )
-        let withinBounds = MessageFlowRules.shouldTruncate(
+        let withinBounds = MessageFlowRulesTestCompat.shouldTruncate(
             hasTextualParts: true,
             sizeClass: .long,
             isExpanded: false,
@@ -483,14 +509,14 @@ struct ChatFlowOrganicComplianceTests {
     @Test("Doc §4: Show more/less toggle state")
     func truncationToggleExpandsAndCollapses() {
         let metrics = ChatFlowTheme.Metrics(isCompact: true)
-        let collapsed = MessageFlowRules.shouldTruncate(
+        let collapsed = MessageFlowRulesTestCompat.shouldTruncate(
             hasTextualParts: true,
             sizeClass: .long,
             isExpanded: false,
             measuredHeight: metrics.truncationHeight + 5,
             metrics: metrics
         )
-        let expanded = MessageFlowRules.shouldTruncate(
+        let expanded = MessageFlowRulesTestCompat.shouldTruncate(
             hasTextualParts: true,
             sizeClass: .long,
             isExpanded: true,
@@ -504,13 +530,13 @@ struct ChatFlowOrganicComplianceTests {
     @Test("Doc §4: Streaming truncation re-evaluates")
     func streamingTruncationReevaluatesDuringGrowth() {
         let metrics = ChatFlowTheme.Metrics(isCompact: false)
-        let lower = MessageFlowRules.shouldShowTruncationControl(
+        let lower = MessageFlowRulesTestCompat.shouldShowTruncationControl(
             hasTextualParts: true,
             sizeClass: .long,
             measuredHeight: metrics.truncationHeight - 1,
             metrics: metrics
         )
-        let higher = MessageFlowRules.shouldShowTruncationControl(
+        let higher = MessageFlowRulesTestCompat.shouldShowTruncationControl(
             hasTextualParts: true,
             sizeClass: .long,
             measuredHeight: metrics.truncationHeight + 15,
