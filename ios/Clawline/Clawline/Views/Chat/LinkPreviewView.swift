@@ -15,6 +15,21 @@ import WebKit
 import SwiftUI
 #endif
 
+private final class BubbleSafeAreaNeutralWebView: WKWebView {
+    override var safeAreaInsets: UIEdgeInsets { .zero }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        // Keep content anchored to the preview frame while chat list handles screen insets.
+        if scrollView.contentInset != .zero {
+            scrollView.contentInset = .zero
+        }
+        if scrollView.scrollIndicatorInsets != .zero {
+            scrollView.scrollIndicatorInsets = .zero
+        }
+    }
+}
+
 final class LinkPreviewSharedResources {
     static let shared = LinkPreviewSharedResources()
 
@@ -215,7 +230,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         configuration.mediaTypesRequiringUserActionForPlayback = .all
         configuration.allowsInlineMediaPlayback = true
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = BubbleSafeAreaNeutralWebView(frame: .zero, configuration: configuration)
         self.webView = webView
 
         super.init(frame: frame)
@@ -424,6 +439,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.clipsToBounds = true
+        webView.insetsLayoutMarginsFromSafeArea = false
         // Apply consistent rounding to WKWebView internals too (belt + suspenders).
         webView.layer.cornerRadius = Constants.mediaCornerRadius
         webView.layer.cornerCurve = .continuous
@@ -434,6 +450,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             .layerMaxXMaxYCorner
         ]
         webView.scrollView.clipsToBounds = true
+        webView.scrollView.insetsLayoutMarginsFromSafeArea = false
         webView.scrollView.layer.cornerRadius = Constants.mediaCornerRadius
         webView.scrollView.layer.cornerCurve = .continuous
         webView.scrollView.layer.maskedCorners = webView.layer.maskedCorners
@@ -445,6 +462,9 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.contentInset = .zero
         webView.scrollView.scrollIndicatorInsets = .zero
+        if #available(iOS 13.0, visionOS 1.0, *) {
+            webView.scrollView.automaticallyAdjustsScrollIndicatorInsets = false
+        }
         webView.allowsLinkPreview = false
         webView.isUserInteractionEnabled = true
         webContainer.addSubview(webView)

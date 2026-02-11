@@ -9,6 +9,21 @@ import OSLog
 import UIKit
 import WebKit
 
+private final class BubbleSafeAreaNeutralWebView: WKWebView {
+    override var safeAreaInsets: UIEdgeInsets { .zero }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        // Keep bubble-local coordinates stable even when the cell crosses device safe areas.
+        if scrollView.contentInset != .zero {
+            scrollView.contentInset = .zero
+        }
+        if scrollView.scrollIndicatorInsets != .zero {
+            scrollView.scrollIndicatorInsets = .zero
+        }
+    }
+}
+
 final class InteractiveHTMLBubbleUIKitView: UIView {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "InteractiveHTML")
 
@@ -320,14 +335,21 @@ private final class InteractiveHTMLWebKit: NSObject {
         }
         configuration.userContentController = userContent
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = BubbleSafeAreaNeutralWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
         webView.backgroundColor = .clear
+        webView.insetsLayoutMarginsFromSafeArea = false
+        webView.scrollView.insetsLayoutMarginsFromSafeArea = false
         webView.scrollView.backgroundColor = .clear
         webView.scrollView.bounces = false
         webView.scrollView.showsHorizontalScrollIndicator = false
         webView.scrollView.showsVerticalScrollIndicator = true
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.scrollView.contentInset = .zero
+        webView.scrollView.scrollIndicatorInsets = .zero
+        if #available(iOS 13.0, visionOS 1.0, *) {
+            webView.scrollView.automaticallyAdjustsScrollIndicatorInsets = false
+        }
 
         // Delegates are set by the owning view instance.
         return webView
