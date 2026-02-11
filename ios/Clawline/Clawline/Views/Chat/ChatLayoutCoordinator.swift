@@ -183,7 +183,7 @@ final class ChatLayoutCoordinator {
         let targetInset = targetBottomInset(for: inputs, metrics: metrics, barHeight: currentBarHeight)
         let previousInset = lastAppliedInset
         let list = activeListView()
-        let wasNearBottom = list?.isNearBottom(extraMargin: max(24, previousInset)) ?? false
+        let wasNearBottom = list?.isNearBottom(extraMargin: max(MessageFlowCollectionViewController.atBottomThreshold, previousInset)) ?? false
         let keyboardJustAppeared = inputs.isInputFocused && !(previousInputs?.isInputFocused ?? false)
         let transition = computeTransition(
             inputs: inputs,

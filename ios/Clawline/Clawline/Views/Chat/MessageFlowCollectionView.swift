@@ -152,7 +152,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     // iPad mini 6th gen portrait reference size for spatial layout rules.
     private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
 #endif
-    private static let scrollToBottomAtBottomThreshold: CGFloat = 12
+    /// Single source of truth for what “at bottom” means across:
+    /// - SBB visibility
+    /// - auto-scroll / pinned-to-bottom intent transitions
+    /// - scroll-state persistence
+    /// - keyboard/inset pinning decisions
+    ///
+    /// Keeping this unified avoids threshold mismatches (e.g. auto-scroll happens but SBB stays visible).
+    static let atBottomThreshold: CGFloat = 24
 
     // State-machine-driven SBB visibility.
     // Note: we preserve the existing `isAtBottomChanged(isAtBottom:)` event as the visibility signal
@@ -184,6 +191,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private var sbbState: SBBState = .atBottom
     private var lastReportedHideIndicator: Bool?
+    private var lastSeenBottomInsetForSBB: CGFloat?
 
     func collectionView(_ collectionView: UICollectionView, shouldHighlightItemAt indexPath: IndexPath) -> Bool {
         false
@@ -707,12 +715,24 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func handleUserScrolled() {
-        let withinBottomThreshold = distanceFromBottomClamped() <= Self.scrollToBottomAtBottomThreshold
+        let bottomInset = collectionView.contentInset.bottom
+        let bottomInsetChanged: Bool
+        if let previousBottomInset = lastSeenBottomInsetForSBB {
+            bottomInsetChanged = abs(bottomInset - previousBottomInset) > 0.5
+        } else {
+            bottomInsetChanged = false
+        }
+        lastSeenBottomInsetForSBB = bottomInset
+
+        let withinBottomThreshold = distanceFromBottomClamped() <= Self.atBottomThreshold
 
         if isUserInteracting {
             switch sbbState {
             case .atBottom, .atBottomDragging:
                 if !withinBottomThreshold {
+                    // Keyboard interactive dismiss and other inset changes can cause transient contentOffset
+                    // bounces that look like “scrolled up”. Those must NOT reveal the SBB.
+                    if bottomInsetChanged { break }
                     // Only user scroll can leave pinned-to-bottom states.
                     setSBBState(unreadCount > 0 ? .scrolledUpUnread : .scrolledUp)
                 }
@@ -740,7 +760,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // If the user is no longer interacting, normalize dragging->atBottom when within threshold.
         guard !isUserInteracting else { return }
         if sbbState == .atBottomDragging,
-           distanceFromBottomClamped() <= Self.scrollToBottomAtBottomThreshold {
+           distanceFromBottomClamped() <= Self.atBottomThreshold {
             setSBBState(.atBottom)
         }
         emitHideIndicatorIfChanged()
@@ -897,7 +917,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let offsetY = collectionView.contentOffset.y
         let clampedOffsetY = min(max(offsetY, minY), maxY)
         let distanceFromBottom = max(0, maxY - clampedOffsetY)
-        let isAtBottom = distanceFromBottom <= Self.scrollToBottomAtBottomThreshold
+        let isAtBottom = distanceFromBottom <= Self.atBottomThreshold
         let state = PersistedScrollState(
             atBottom: isAtBottom,
             distanceFromBottom: Double(distanceFromBottom),
