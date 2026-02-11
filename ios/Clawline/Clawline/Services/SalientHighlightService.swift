@@ -22,7 +22,7 @@ final class SalientHighlightService: SalientHighlightServicing {
     nonisolated fileprivate static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "SalientHighlight")
 
     // Bump to invalidate all cached results.
-    private static let algorithmVersion = 2
+    private static let algorithmVersion = 3
 
     // Keep memory cache modest; disk cache handles long histories.
     private let memoryCache: NSCache<NSString, SalientHighlightsBox> = {
@@ -338,10 +338,11 @@ private actor Worker {
             guard case .available = model.availability else { return nil }
 
             let instructions = """
-            You identify the topic/subject of a message so someone can scan chat history quickly.
-            Return 1 to 3 short phrases (not individual words) that capture what the message is about.
+            You identify the core salience of a message so someone can scan chat history quickly.
+            Highlight as little as possible while still conveying the essential point.
+            Prefer action phrases that preserve intent: include verb + object together (for example, "write the report"), not isolated nouns.
+            If there is no action, return the minimal phrase that captures the key decision, question, or fact.
             Each candidate must be an exact substring copied from the input text.
-            Prefer noun phrases or key claims.
             Do NOT highlight filler, process/meta questions, or scattered adjectives.
             Do NOT return overlapping candidates.
             kind must be one of: decision, question, fact, actionItem (classification only).
@@ -351,7 +352,8 @@ private actor Worker {
 
             let session = LanguageModelSession(instructions: instructions)
             let prompt = """
-            Identify 1-3 short topic phrases from this message:
+            Identify the core salient phrase(s) from this message.
+            Return only the minimal exact substring(s) needed to communicate the essential point.
 
             \"\"\"\n\(analysisText)\n\"\"\"
             """
@@ -446,7 +448,7 @@ private actor Worker {
             }
             result.append(span)
         }
-        return Array(result.prefix(3))
+        return result
     }
 }
 
@@ -456,7 +458,7 @@ private actor Worker {
 @available(iOS 26.0, visionOS 3.0, *)
 @Generable
 private struct SalientOutput {
-    @Guide(description: "Candidates to emphasize; each must be an exact substring of the input text.", .count(0...3))
+    @Guide(description: "Candidates to emphasize; each must be an exact substring of the input text.")
     var candidates: [Candidate]
 
     @Generable
