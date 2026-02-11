@@ -264,6 +264,27 @@ struct PairingView: View {
         }()
 
         return HStack(spacing: 12) {
+            if isStalled {
+                // Back button to return to address entry when pairing is stalled.
+                Button {
+                    viewModel.cancelPairing()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .frame(width: inputHeight, height: inputHeight)
+#if os(visionOS)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(0.3))
+                )
+#else
+                .glassEffect(.regular.interactive(), in: Circle())
+#endif
+                .accessibilityLabel("Back to server address")
+            }
+
             // Status bubble with text and spinner
             HStack(alignment: .center, spacing: 12) {
                 if isStalled {

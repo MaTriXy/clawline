@@ -189,14 +189,14 @@ final class PairingViewModel {
     /// Accepts very forgiving input (host, host:port, http/https/ws/wss URLs, with/without path)
     /// and normalizes it to a ws://…/ws (or wss://) URL, defaulting port 18800 and path /ws.
     ///
-    /// Important: we default to secure `wss` when the user doesn't provide a scheme. Users can
-    /// still force insecure `ws` by explicitly typing `ws://…` (useful for local dev servers).
+    /// Important: v1 provider defaults to plaintext transport, so bare host input maps to `ws`.
+    /// Users can still force secure transport by explicitly entering `https://` or `wss://`.
     private func normalizedWebSocketURL(from raw: String) -> URL? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        // Try to parse; if no scheme supplied, prepend wss:// to allow host:port/path parsing.
-        let initialString = trimmed.contains("://") ? trimmed : "wss://\(trimmed)"
+        // Try to parse; if no scheme supplied, prepend ws:// to allow host:port/path parsing.
+        let initialString = trimmed.contains("://") ? trimmed : "ws://\(trimmed)"
         guard var components = URLComponents(string: initialString) else { return nil }
 
         // Normalize scheme
@@ -208,7 +208,7 @@ final class PairingViewModel {
         case "ws", "wss":
             break
         default:
-            components.scheme = "wss"
+            components.scheme = "ws"
         }
 
         // Default port
@@ -273,6 +273,6 @@ final class PairingViewModel {
             error._code == CocoaError.fileReadUnknown.rawValue {
             return true
         }
-        return true
+        return false
     }
 }
