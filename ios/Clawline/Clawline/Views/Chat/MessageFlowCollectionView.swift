@@ -960,7 +960,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // The persisted value is best-effort; clamping can land us at bottom even if the saved
         // distance no longer exists (e.g. shorter content). Normalize pinned intent to match the
         // post-restore geometry so subsequent inset changes don't unexpectedly pin.
-        let isAtBottomNow = distanceFromBottomClamped() <= Self.scrollToBottomAtBottomThreshold
+        let isAtBottomNow = distanceFromBottomClamped() <= Self.atBottomThreshold
         if isAtBottomNow {
             setSBBState(.atBottom)
         } else {
