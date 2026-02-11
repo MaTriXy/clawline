@@ -9,7 +9,6 @@ import Foundation
 
 nonisolated enum SalientEmphasisStyle: String, Codable, Equatable {
     case bold
-    case italic
 }
 
 nonisolated struct SalientSpan: Codable, Equatable {

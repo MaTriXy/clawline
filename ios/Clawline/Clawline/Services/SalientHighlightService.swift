@@ -17,7 +17,7 @@ final class SalientHighlightService: SalientHighlightServicing {
     nonisolated fileprivate static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "SalientHighlight")
 
     // Bump to invalidate all cached results.
-    private static let algorithmVersion = 1
+    private static let algorithmVersion = 2
 
     // Keep memory cache modest; disk cache handles long histories.
     private let memoryCache: NSCache<NSString, SalientHighlightsBox> = {
@@ -229,18 +229,20 @@ private actor Worker {
             guard case .available = model.availability else { return nil }
 
             let instructions = """
-            You highlight salient parts of a message so someone can scan quickly.
-            Return up to 12 candidates. Each candidate must be an exact substring copied from the input text.
-            Prefer short phrases (not whole paragraphs). Avoid filler. Avoid overlapping candidates.
-            Use style=bold for decisions/actions/facts, style=italic for questions when appropriate.
-            kind must be one of: decision, question, fact, actionItem.
+            You identify the topic/subject of a message so someone can scan chat history quickly.
+            Return 1 to 3 short phrases (not individual words) that capture what the message is about.
+            Each candidate must be an exact substring copied from the input text.
+            Prefer noun phrases or key claims.
+            Do NOT highlight filler, process/meta questions, or scattered adjectives.
+            Do NOT return overlapping candidates.
+            kind must be one of: decision, question, fact, actionItem (classification only).
             confidence must be 0.0 to 1.0.
             If nothing is salient, return an empty candidates list.
             """
 
             let session = LanguageModelSession(instructions: instructions)
             let prompt = """
-            Identify the salient spans in this message:
+            Identify 1-3 short topic phrases from this message:
 
             \"\"\"\n\(analysisText)\n\"\"\"
             """
@@ -289,13 +291,12 @@ private actor Worker {
             guard range.location != NSNotFound, range.length > 0 else { continue }
             guard range.location + range.length <= fullLen else { continue }
 
-            let style = SalientEmphasisStyle(rawValue: candidate.style.lowercased()) ?? .bold
             let kind = SalientSpan.Kind(rawValue: candidate.kind)
             spans.append(
                 SalientSpan(
                     startUTF16: range.location,
                     lengthUTF16: range.length,
-                    style: style,
+                    style: .bold,
                     kind: kind,
                     confidence: candidate.confidence
                 )
@@ -336,7 +337,7 @@ private actor Worker {
             }
             result.append(span)
         }
-        return Array(result.prefix(12))
+        return Array(result.prefix(3))
     }
 }
 
@@ -346,16 +347,13 @@ private actor Worker {
 @available(iOS 26.0, visionOS 3.0, *)
 @Generable
 private struct SalientOutput {
-    @Guide(description: "Candidates to emphasize; each must be an exact substring of the input text.", .count(0...12))
+    @Guide(description: "Candidates to emphasize; each must be an exact substring of the input text.", .count(0...3))
     var candidates: [Candidate]
 
     @Generable
     struct Candidate {
         @Guide(description: "Exact substring copied from the input text. Keep it short.")
         var substring: String
-
-        @Guide(description: "bold for decisions/actions/facts, italic for questions when appropriate.")
-        var style: String
 
         @Guide(description: "decision, question, fact, actionItem")
         var kind: String

@@ -36,8 +36,6 @@ enum SalientHighlightApplier {
                 switch span.style {
                 case .bold:
                     desiredTraits = [.traitBold]
-                case .italic:
-                    desiredTraits = [.traitItalic]
                 }
 
                 let mergedTraits = font.fontDescriptor.symbolicTraits.union(desiredTraits)
@@ -55,8 +53,6 @@ enum SalientHighlightApplier {
                     switch span.style {
                     case .bold:
                         newFont = UIFont.systemFont(ofSize: size, weight: .bold)
-                    case .italic:
-                        newFont = UIFont.italicSystemFont(ofSize: size)
                     }
                     mutable.addAttribute(.font, value: newFont, range: subRange)
                 }
@@ -64,4 +60,3 @@ enum SalientHighlightApplier {
         }
     }
 }
-
