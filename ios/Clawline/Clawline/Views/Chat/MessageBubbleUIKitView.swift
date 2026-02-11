@@ -180,6 +180,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var salientToken: Int = 0
     private var salientMessageId: String?
     private var salientBaseAttributedText: NSAttributedString?
+    private var currentSalientHighlights: SalientHighlights?
     private var currentMetrics = ChatFlowTheme.Metrics(isCompact: true)
     private var currentMessageRole: Message.Role = .assistant
     private var currentStream: ChatStream = .personal
@@ -499,6 +500,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         salientToken &+= 1
         salientMessageId = message.id
         salientBaseAttributedText = nil
+        currentSalientHighlights = nil
 
         let hasLinkPreview = Self.presentationHasLinkPreview(presentation)
         let rawMaxWidth = maxWidthOverride ?? maxWidth
@@ -582,6 +584,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         applySalientHighlightsIfNeeded(
             message: message,
             isChromelessEmoji: isChromelessEmoji,
+            isDark: effectiveIsDark,
             salientHighlightService: salientHighlightService
         )
 
@@ -962,11 +965,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         salientTask = nil
         salientBaseAttributedText = nil
         salientMessageId = nil
+        currentSalientHighlights = nil
     }
 
     private func applySalientHighlightsIfNeeded(
         message: Message,
         isChromelessEmoji: Bool,
+        isDark: Bool,
         salientHighlightService: (any SalientHighlightServicing)?
     ) {
         guard message.role == .user else { return }
@@ -979,7 +984,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         // Apply memory-cached highlights immediately (no async churn on fast scroll).
         if let cached = salientHighlightService.cachedHighlights(messageId: message.id, renderedText: renderedText),
            !cached.spans.isEmpty {
-            bodyLabel.attributedText = SalientHighlightApplier.apply(cached, to: base)
+            currentSalientHighlights = cached
+            bodyLabel.attributedText = SalientHighlightApplier.apply(cached, to: base, isDark: isDark)
             return
         }
 
@@ -996,7 +1002,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 guard self.salientToken == token else { return }
                 guard self.salientMessageId == messageId else { return }
                 guard let base = self.salientBaseAttributedText else { return }
-                let highlighted = SalientHighlightApplier.apply(highlights, to: base)
+                self.currentSalientHighlights = highlights
+                let highlighted = SalientHighlightApplier.apply(highlights, to: base, isDark: isDark)
                 if self.bodyLabel.attributedText?.isEqual(to: highlighted) == true {
                     return
                 }
@@ -1141,6 +1148,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         if let attributedText = bodyLabel.attributedText, attributedText.length > 0 {
             let mutable = NSMutableAttributedString(attributedString: attributedText)
             mutable.addAttribute(.foregroundColor, value: palette.ink, range: NSRange(location: 0, length: mutable.length))
+            if let highlights = currentSalientHighlights {
+                SalientHighlightApplier.apply(highlights, to: mutable, isDark: isDark)
+            }
             bodyLabel.attributedText = mutable
         }
 
