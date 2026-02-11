@@ -209,10 +209,11 @@ struct BubbleScrollTests {
             Issue.record("Expected LinkPreviewView in bubble content")
             return
         }
+        let expectedPreviewMaxHeight = metrics.truncationHeight - (metrics.bubblePaddingVertical * 2)
         let previewMeasured = preview.sizeThatFits(
             CGSize(width: referenceWidthCap, height: .greatestFiniteMagnitude)
         )
-        #expect(previewMeasured.height <= metrics.truncationHeight + 1)
+        #expect(abs(previewMeasured.height - expectedPreviewMaxHeight) <= 1)
     }
 
     @Test("T032: Salient highlight style-only updates avoid layout reflow callbacks")

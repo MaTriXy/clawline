@@ -391,6 +391,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         max(120, bubbleReferenceSize.width - (metrics.containerPadding * 2))
     }
 
+    private static func linkPreviewViewportMaxHeight(heightCap: CGFloat, metrics: ChatFlowTheme.Metrics) -> CGFloat {
+        let standardVerticalPadding = max(0, metrics.bubblePaddingVertical * 2)
+        return max(44, heightCap - standardVerticalPadding)
+    }
+
     private static func presentationHasLinkPreview(_ presentation: MessagePresentation) -> Bool {
         presentation.parts.contains { part in
             if case .linkPreview = part { return true }
@@ -672,13 +677,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     let previewChromeBase = message.role == .user
                         ? palette.bubbleSelfGradient.last!
                         : palette.bubbleOtherGradient.last!
-                    let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight ?? {
-                        // V1 behavior
-                        let headerHeight: CGFloat = showsHeader ? 32 : 0
-                        let headerSpacing: CGFloat = showsHeader ? contentStack.spacing : 0
-                        let padding = currentContentPaddingVertical * 2
-                        return max(120, effectiveTruncationHeight - (headerHeight + headerSpacing + padding))
-                    }()
+                    let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight
+                        ?? Self.linkPreviewViewportMaxHeight(heightCap: effectiveTruncationHeight, metrics: metrics)
                     let previewMaxHeight = min(rawPreviewMaxHeight, metrics.truncationHeight)
                     if let bubbleSizingV2, let cacheKey = bubbleSizingV2.linkPreviewCacheKey {
                         previewView.configure(
@@ -719,13 +719,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             let previewChromeBase = message.role == .user
                 ? palette.bubbleSelfGradient.last!
                 : palette.bubbleOtherGradient.last!
-            let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight ?? {
-                // V1 behavior
-                let headerHeight: CGFloat = showsHeader ? 32 : 0
-                let headerSpacing: CGFloat = showsHeader ? contentStack.spacing : 0
-                let padding = currentContentPaddingVertical * 2
-                return max(120, effectiveTruncationHeight - (headerHeight + headerSpacing + padding))
-            }()
+            let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight
+                ?? Self.linkPreviewViewportMaxHeight(heightCap: effectiveTruncationHeight, metrics: metrics)
             let previewMaxHeight = min(rawPreviewMaxHeight, metrics.truncationHeight)
             if let bubbleSizingV2, let cacheKey = bubbleSizingV2.linkPreviewCacheKey {
                 previewView.configure(
