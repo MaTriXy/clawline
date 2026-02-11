@@ -31,23 +31,46 @@ struct MarkdownTableView: View {
     private var headerFill: Color {
         switch role {
         case .user:
-            return ChatFlowTheme.terracotta(colorScheme).opacity(colorScheme == .dark ? 0.12 : 0.30)
+            return ChatFlowTheme.terracotta(colorScheme).opacity(colorScheme == .dark ? 0.24 : 0.30)
         case .assistant:
-            return ChatFlowTheme.warmBrown(colorScheme).opacity(colorScheme == .dark ? 0.10 : 0.30)
+            return ChatFlowTheme.warmBrown(colorScheme).opacity(colorScheme == .dark ? 0.22 : 0.30)
         }
     }
 
     private var backgroundFill: Color {
         switch role {
         case .user:
-            return ChatFlowTheme.sage(colorScheme).opacity(colorScheme == .dark ? 0.18 : 0.12)
+            return ChatFlowTheme.sage(colorScheme).opacity(colorScheme == .dark ? 0.24 : 0.12)
         case .assistant:
-            return ChatFlowTheme.cream(colorScheme).opacity(colorScheme == .dark ? 0.18 : 0.12)
+            return colorScheme == .dark
+                ? ChatFlowTheme.warmBrown(colorScheme).opacity(0.08)
+                : ChatFlowTheme.cream(colorScheme).opacity(0.12)
         }
     }
 
     private var borderColor: Color {
-        ChatFlowTheme.stone(colorScheme).opacity(colorScheme == .dark ? 0.60 : 0.40)
+        colorScheme == .dark
+            ? Color.white.opacity(0.34)
+            : ChatFlowTheme.stone(colorScheme).opacity(0.40)
+    }
+
+    private var headerDividerOpacity: Double {
+        colorScheme == .dark ? 0.72 : 0.30
+    }
+
+    private var cellDividerOpacity: Double {
+        colorScheme == .dark ? 0.45 : 0.20
+    }
+
+    private var tableTextColor: UIColor {
+        if colorScheme == .dark {
+            return UIColor(red: 0.941, green: 0.918, blue: 0.894, alpha: 1.0)
+        }
+        return UIColor(ChatFlowTheme.ink(colorScheme))
+    }
+
+    private var emptyCellTextOpacity: Double {
+        colorScheme == .dark ? 0.82 : 0.60
     }
 
     private var visibleRows: [(index: Int, row: TableModel.Row)] {
@@ -197,7 +220,7 @@ struct MarkdownTableView: View {
                 .background(headerFill)
                 .overlay(alignment: .bottom) {
                     Rectangle()
-                        .fill(borderColor.opacity(0.3))
+                        .fill(borderColor.opacity(headerDividerOpacity))
                         .frame(maxWidth: .infinity)
                         .frame(height: 1)
                 }
@@ -217,7 +240,7 @@ struct MarkdownTableView: View {
                         .overlay(alignment: .trailing) {
                             if model.columns.count > 1 && column < model.columns.count - 1 {
                                 Rectangle()
-                                    .fill(borderColor.opacity(0.2))
+                                    .fill(borderColor.opacity(cellDividerOpacity))
                                     .frame(width: 1)
                             }
                         }
@@ -227,7 +250,7 @@ struct MarkdownTableView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(alignment: .bottom) {
                     Rectangle()
-                        .fill(borderColor.opacity(0.2))
+                        .fill(borderColor.opacity(cellDividerOpacity))
                         .frame(maxWidth: .infinity)
                         .frame(height: 1)
                 }
@@ -330,7 +353,7 @@ struct MarkdownTableView: View {
             if cell.isEmpty {
                 Text("—")
                     .font(.system(size: metrics.bodyFontSize, weight: isHeader ? .semibold : .regular))
-                    .foregroundColor(ChatFlowTheme.ink(colorScheme).opacity(0.6))
+                    .foregroundColor(ChatFlowTheme.ink(colorScheme).opacity(emptyCellTextOpacity))
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 SelectableAttributedText(
@@ -388,7 +411,7 @@ struct MarkdownTableView: View {
         let scaledFont = UIFontMetrics.default.scaledFont(for: baseFont)
         let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.addAttribute(.font, value: scaledFont, range: fullRange)
-        mutable.addAttribute(.foregroundColor, value: UIColor(ChatFlowTheme.ink(colorScheme)), range: fullRange)
+        mutable.addAttribute(.foregroundColor, value: tableTextColor, range: fullRange)
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = nsTextAlignment(for: alignment)
         paragraph.lineBreakMode = .byWordWrapping
