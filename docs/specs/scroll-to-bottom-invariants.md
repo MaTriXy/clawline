@@ -47,7 +47,7 @@ This spec covers:
 - The indicator **MUST NOT float mid-screen** after keyboard dismiss or inset changes.
 
 ### New messages
-- When the user is **at bottom** (within the bottom threshold), receiving newly appended messages **MUST auto-scroll to the very bottom** (preserve the old behavior).
+- When the user is **at bottom** (within the bottom threshold), receiving newly appended messages **MUST auto-scroll to the very bottom** — unless the user is actively interacting (finger on screen / dragging). If `wasUserInteracting`, auto-scroll **MAY be deferred** until the interaction ends.
 - When the user is **scrolled up**, receiving newly appended messages **MUST NOT auto-scroll** the list.
 - When scrolled up, receiving newly appended messages **MUST**:
   - increment `unreadCount` by the number of newly appended messages
@@ -84,6 +84,97 @@ When clearing via “top-cross-center”:
 
 ### Multi-stream
 - Unread + visibility state **MUST be tracked per stream** (switching streams shows the correct state for the visible stream).
+
+---
+
+## State Machine
+
+The SBB logic **SHOULD** be implemented as an explicit state machine to enforce invariants by construction rather than layered suppression hacks.
+
+### States
+
+| State | Indicator | Unread badge | Auto-scroll | Pinned |
+|---|---|---|---|---|
+| **AT_BOTTOM** | hidden | — | yes (on new content) | yes |
+| **AT_BOTTOM_DRAGGING** | hidden | — | deferred until drag ends | yes |
+| **SCROLLED_UP** | visible, no badge | — | no | no |
+| **SCROLLED_UP_UNREAD** | visible, badge(N) | shows count | no | no |
+
+### Pinned-to-bottom intent
+
+**This is the core concept that prevents indicator flicker.**
+
+When in any `AT_BOTTOM*` state, the system has **pinned intent** — it considers itself logically at the bottom regardless of transient geometry changes. Content growth, inset changes, layout passes, and typing indicator insertion can all temporarily make `contentOffset` appear "not at bottom." This MUST NOT cause a transition to `SCROLLED_UP`.
+
+**Only an explicit user upward scroll gesture (drag) beyond the threshold can leave `AT_BOTTOM*` states.** Nothing else.
+
+This eliminates the classic race condition:
+1. New content arrives → contentSize grows
+2. Geometry briefly says "not at bottom" (offset hasn't caught up)
+3. ~~Indicator flashes~~ → **No.** Pinned intent means we stay in AT_BOTTOM.
+4. Auto-scroll completes → back to actual bottom
+
+### Events
+
+State transitions are triggered by these events only:
+
+| Event | Description |
+|---|---|
+| **UserScrolled** | Scroll view moved due to user drag or deceleration (e.g. `scrollViewDidScroll`). Used for threshold crossings and unread-anchor center-crossing. |
+| **UserDragBegan** | ScrollView tracking began (finger on screen, dragging). |
+| **UserDragEnded** | ScrollView tracking/dragging ended (finger lifted). |
+| **ContentAppended** | New messages appended (per "newly appended messages" definition — previous last id still present, not initial load/backfill/reset). |
+| **ContentMutated** | Content changed without new messages (typing indicator insert/remove, streaming edits, image resize). |
+| **InsetsChanged** | Keyboard show/hide, safe-area changes, bounds changes. |
+| **IndicatorTapped** | User tapped the scroll-to-bottom indicator. |
+| **ScrolledToPosition** | Programmatic scroll completed (auto-scroll or tap-to-unread). |
+
+### Transitions
+
+```
+AT_BOTTOM
+  → UserDragBegan                          → AT_BOTTOM_DRAGGING
+  → UserScrolled (past threshold upward)   → SCROLLED_UP
+  → ContentAppended                        → [stay, auto-scroll to bottom]
+  → ContentMutated                         → [stay, pinned — no state change]
+  → InsetsChanged                          → [stay, pinned — adjust offset to maintain bottom]
+
+AT_BOTTOM_DRAGGING
+  → UserDragEnded                          → AT_BOTTOM (+ flush any deferred scroll)
+  → UserScrolled (past threshold upward)   → SCROLLED_UP
+  → ContentAppended                        → [stay, defer scroll until drag ends]
+  → ContentMutated                         → [stay, pinned — no state change]
+  → InsetsChanged                          → [stay, pinned]
+
+SCROLLED_UP
+  → ContentAppended                        → SCROLLED_UP_UNREAD (set firstUnreadId, count)
+  → UserScrolled (to within threshold)     → AT_BOTTOM
+  → IndicatorTapped                        → AT_BOTTOM (scroll to bottom)
+  → ContentMutated                         → [stay, no state change]
+  → InsetsChanged                          → [stay]
+
+SCROLLED_UP_UNREAD
+  → ContentAppended                        → [stay, increment count]
+  → UserScrolled (to within threshold)     → AT_BOTTOM (clear unread)
+  → IndicatorTapped                        → [scroll to firstUnreadId, flash 3x/1s + fade 3s, clear unread]
+      → ScrolledToPosition (at bottom)     → AT_BOTTOM
+      → ScrolledToPosition (not at bottom) → SCROLLED_UP
+  → firstUnread top crosses viewport center → SCROLLED_UP (flash, clear unread)
+  → ContentMutated                         → [stay, do NOT increment count]
+  → InsetsChanged                          → [stay]
+  → firstUnreadId missing from data        → SCROLLED_UP (clear unread — anchor invalidated)
+```
+
+### Key constraints
+
+- **Indicator visibility is derived from state, not computed independently.** If state is `AT_BOTTOM` or `AT_BOTTOM_DRAGGING`, indicator is hidden. Period. No "check isNearBottom" race conditions.
+- **Pinned intent: content growth never leaves AT_BOTTOM.** Only `UserScrolled` past threshold can transition to `SCROLLED_UP`. ContentAppended, ContentMutated, InsetsChanged all preserve AT_BOTTOM state.
+- **State transitions are the ONLY way to change visibility.** Content insertion, inset changes, and layout passes do NOT directly show/hide the indicator — they may trigger a state transition which then updates visibility.
+- **"At bottom" determination happens ONCE per event**, not continuously. This eliminates flicker from transient layout states during content update transactions.
+- **No suppression deadlines.** No timers. No `suppressAtBottomFalseUntilScrollDeadline`. Pinned intent replaces all suppression hacks.
+- **Interaction = scroll view dragging**, not arbitrary touches. Taps, long-press, link taps do NOT enter AT_BOTTOM_DRAGGING.
+- **Content update transaction**: snapshot apply → decide/perform scroll → evaluate state once. No intermediate state evaluations during the transaction.
+- **Unread anchor validity**: if `firstUnreadMessageId` is missing from the dataset (deleted, filtered, reset), immediately clear unread and transition to SCROLLED_UP.
 
 ---
 

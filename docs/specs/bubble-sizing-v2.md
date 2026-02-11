@@ -15,13 +15,13 @@ It is written against the current audit: `scratch/bubble-sizing-audit.md`.
    - outer-scroll decision inputs and final decision
 
 2. **Unified measurement + caching policy.**
-   - One measurement pipeline for offscreen sizing and live “re-measure after async content” sizing.
+   - One measurement pipeline for offscreen sizing and live "re-measure after async content" sizing.
    - Cached values must not lock in pathological sizes (explicit min-width floors; reject invalid measurements).
    - Clear invalidation rules keyed off message fingerprint + environment.
 
 3. **Link preview is a first-class measured subcomponent.**
-   - No more special-case “return cap height immediately” behavior during offscreen sizing.
-   - Link preview participates in measurement like other parts, with an explicit “estimated vs final” measurement state and cache invalidation when it becomes final.
+   - No more special-case "return cap height immediately" behavior during offscreen sizing.
+   - Link preview participates in measurement like other parts, with an explicit "estimated vs final" measurement state and cache invalidation when it becomes final.
 
 ## Non-Goals (Step 1)
 
@@ -36,13 +36,13 @@ Today there are multiple interacting decision points spread across files:
 - **Flow controller** decides wide/narrow and sometimes passes `truncationHeightOverride`.
 - **Bubble view** independently decides if outer scroll should be enabled by re-measuring its dynamic content.
 - **Offscreen sizing** has a major fork for link preview + truncation override where it returns the truncation cap height immediately, skipping real measurement.
-- **Caching** can persist too-small widths because `configureWidth` prefers cached width, and `applyMeasuredSize` clamps only to max width (no min width floor), so a bad measurement can “stick”.
+- **Caching** can persist too-small widths because `configureWidth` prefers cached width, and `applyMeasuredSize` clamps only to max width (no min width floor), so a bad measurement can "stick".
 
 This leads to recurring regressions: thin bubbles, squished avatars, missing scroll views, clipped cards.
 
 ## Proposed Architecture
 
-Introduce a single “layout planning + measurement” unit that produces **one** authoritative `BubbleLayoutState` for both:
+Introduce a single "layout planning + measurement" unit that produces **one** authoritative `BubbleLayoutState` for both:
 
 - `sizeForItem(at:)` (cell sizing)
 - `cell.configure(...)` / `MessageBubbleUIKitView.configure(...)` (actual rendering)
@@ -51,7 +51,7 @@ Introduce a single “layout planning + measurement” unit that produces **one*
 
 - **One source of truth:** once `BubbleLayoutPlan` is computed for `(message, env)`, no other file recomputes `isWide`, `maxWidth`, `heightCap`, or outer scroll enablement. Views apply decisions; they do not derive them.
 - **Cache safety:** cached measurements must never be able to force a bubble narrower than `minWidth` or wider than `maxWidth`, and must never be reused across a different environment (width/height/metrics/platform).
-- **Async correctness:** async subcomponents (link preview) must support `estimated -> final` transitions with deterministic invalidation and recomputation; no “bad value sticks” behavior is permitted.
+- **Async correctness:** async subcomponents (link preview) must support `estimated -> final` transitions with deterministic invalidation and recomputation; no "bad value sticks" behavior is permitted.
 
 ### New Types
 
@@ -80,7 +80,7 @@ Ownership: constructed by `MessageFlowCollectionViewController`. This environmen
 
 #### 2) `BubbleLayoutPlan`
 
-Computed once per message + environment (pure function, no UIView work). This is the “contract” shared between controller and bubble view.
+Computed once per message + environment (pure function, no UIView work). This is the "contract" shared between controller and bubble view.
 
 Fields:
 - `messageId: String`
@@ -94,7 +94,7 @@ Fields:
 - `measurables: [BubbleMeasurable]` (derived from parts; link preview becomes a normal entry)
 
 Notes:
-- `heightCap` is always computed and always present. The “two caps” become an explicit mode, not an implicit “override present or not”.
+- `heightCap` is always computed and always present. The "two caps" become an explicit mode, not an implicit "override present or not".
 
 #### 3) `BubbleMeasurement`
 
@@ -122,7 +122,7 @@ Minimum required cases:
 - link cards
 - **link preview** (first-class)
 
-Link preview sizing is allowed to be “estimated” until the live view reports a concrete height.
+Link preview sizing is allowed to be "estimated" until the live view reports a concrete height.
 
 ### Ownership and Flow
 
@@ -145,7 +145,7 @@ Ownership boundaries (explicit):
 
 #### Eliminating cross-file implicit contracts
 
-- The controller no longer “sometimes passes truncationHeightOverride”; instead it always passes a `BubbleLayoutState` that includes cap mode and cap height.
+- The controller no longer "sometimes passes truncationHeightOverride"; instead it always passes a `BubbleLayoutState` that includes cap mode and cap height.
 - The bubble view no longer inspects content and decides scroll enablement; it receives the decision and only applies constraints.
 
 ## Policy: Width, Height Caps, and Outer Scroll
@@ -165,7 +165,7 @@ Rules:
 
 Initial `minWidth` policy (correctness floors, not typography constraints):
 - `.short`: `minWidth = max(metrics.minBubbleWidth ?? 40, 40)`.
-- `.medium`: `minWidth = max(containerWidth * 0.25, metrics.minBubbleWidth ?? 80)` (preserving today’s intent).
+- `.medium`: `minWidth = max(containerWidth * 0.25, metrics.minBubbleWidth ?? 80)` (preserving today's intent).
 - `.long`: `minWidth = max(metrics.minBubbleWidth ?? 80, 80)`.
 
 Notes:
@@ -175,7 +175,7 @@ Notes:
 ### Height cap policy
 
 - `heightCap` is always computed in plan:
-  - `screenAware`: when `isWide == true` (today’s behavior).
+  - `screenAware`: when `isWide == true` (today's behavior).
   - `designSystem`: otherwise.
 
 - Measurement computes `outerScrollEnabled` using:
@@ -199,14 +199,14 @@ Definition:
 
 ### One measurer, two sources of truth
 
-We stop having “offscreen sizing logic” vs “live cell measuring” as two separate algorithms.
+We stop having "offscreen sizing logic" vs "live cell measuring" as two separate algorithms.
 
-- Offscreen measurement (initial layout): run measurer with the same plan, using “estimated sizes” for async components.
+- Offscreen measurement (initial layout): run measurer with the same plan, using "estimated sizes" for async components.
 - Live measurement (after async updates): rerun measurer with updated subcomponent measurements (e.g. link preview final height), producing a new `BubbleMeasurement` for the same key (or a bumped key version).
 
 ### Link preview measurement (first-class)
 
-Replace the current special-case “if link preview and truncation override exists, return cap height immediately”.
+Replace the current special-case "if link preview and truncation override exists, return cap height immediately".
 
 New behavior:
 - Link preview contributes a measured height like any other component.
@@ -218,6 +218,28 @@ New behavior:
 This ensures:
 - Short link previews produce short cells immediately (no forced cap-height).
 - Tall link previews participate in outer scrolling correctly (no cap bypass).
+
+### Web preview frame height (invariant)
+
+The web preview (WKWebView / `LinkPreviewView`) is a **fixed-size viewport**, not an auto-expanding container. It has its own internal scroll for page content.
+
+**Max web preview height** = `heightCap` − standard bubble padding (top + bottom).
+
+- If the rendered page is shorter than this max, the preview sizes to the page content height (no wasted space).
+- If the rendered page is taller, the preview stays at max height and the page scrolls **inside** the preview (internal WKWebView scroll).
+- The preview **never** expands beyond this max to fit the page. It is a browser viewport, not a layout container.
+
+**Interaction with other content:**
+
+Text and other content above/below the web preview are additive to total content height. The web preview's max height is independent — it gets its full allocation regardless of surrounding text.
+
+- If text + preview + padding ≤ `heightCap` → bubble is shorter than max (sizes to content).
+- If text + preview + padding > `heightCap` → bubble is at max height, outer scroll enables, user scrolls through text + preview together.
+
+**Example:** `heightCap` = 400pt, padding = 16pt top + 16pt bottom.
+- Web preview max height = 400 − 32 = 368pt.
+- Page is 1200pt tall → preview is 368pt, page scrolls internally.
+- Text above is 60pt → total content = 60 + 368 + 32 = 460pt > 400pt → outer scroll enables.
 
 ### Estimated -> Final State Machine (Required)
 
@@ -231,7 +253,7 @@ Transitions:
 1. Initial layout: compute plan -> measure with estimated link preview height -> cache `isFinal=false`.
 2. Link preview height callback (live view):
    - write `(url, width, metricsFingerprint) -> finalHeight` to `LinkPreviewMeasurementCache`
-   - enqueue the message id into a coalescing “needs remeasure” queue (main thread). Repeated callbacks for the same message id coalesce.
+   - enqueue the message id into a coalescing "needs remeasure" queue (main thread). Repeated callbacks for the same message id coalesce.
    - on the next runloop pass (debounced handler): bump `linkPreviewStateVersion` if the effective link preview height for this message/environment changed (monotonic), invalidate the bubble measurement cache entry for that message/environment, then request a layout update.
    - if the cell is visible, use `performBatchUpdates { reconfigureItems([indexPath]) }`; otherwise `invalidateLayout` is sufficient.
    - if a batch update is already in flight, defer the reconfigure until batch completion, and verify the index path still maps to the same message id (cell recycling safety).
@@ -247,13 +269,13 @@ Introduce a single cache map from `BubbleCacheKey -> BubbleMeasurement`.
 - `messageId`
 - `presentationFingerprint` (existing)
 - `envFingerprint` (container width/height + metrics hash + platform clamp mode)
-- `linkPreviewStateVersion: Int` (non-optional; `0` means “estimated/no final link preview height”, `>= 1` means “final link preview height known”)
+- `linkPreviewStateVersion: Int` (non-optional; `0` means "estimated/no final link preview height", `>= 1` means "final link preview height known")
 
-Cache key invariant: **if any input that can affect layout changes, the cache key must change.** There is no “optional” key component.
+Cache key invariant: **if any input that can affect layout changes, the cache key must change.** There is no "optional" key component.
 
 ### `linkPreviewStateVersion` Semantics (Required)
 
-- `linkPreviewStateVersion` is **per message instance**, not per URL. Purpose: it forces a recompute of the bubble measurement when the effective link preview height for this message/environment changes (including the initial “estimated -> first real height” transition).
+- `linkPreviewStateVersion` is **per message instance**, not per URL. Purpose: it forces a recompute of the bubble measurement when the effective link preview height for this message/environment changes (including the initial "estimated -> first real height" transition).
 - `LinkPreviewMeasurementCache` is a shared lookup table keyed by `(url, width, metricsFingerprint)`. It provides candidate final heights, but does not itself define bubble cache identity.
 - Storage: `MessageFlowCollectionViewController` maintains `linkPreviewStateVersion` in a controller-local `[messageId: Int]` map (or equivalent) keyed by message id + environment. It is not persisted across app launches.
 - Default: `linkPreviewStateVersion = 0` when the plan is built and no cached link preview height is available for this message/environment.
@@ -266,9 +288,9 @@ Cache key invariant: **if any input that can affect layout changes, the cache ke
 A cached measurement is only used when:
 - key matches exactly
 - measured sizes are within clamp bounds
-- measurement is not “known-bad” (e.g. width below min floor pre-clamp, height == 0, NaN)
+- measurement is not "known-bad" (e.g. width below min floor pre-clamp, height == 0, NaN)
 
-### No “cached width drives configure” footgun
+### No "cached width drives configure" footgun
 
 `configureWidth = sizeCache[id]?.width ?? maxWidth` is replaced by:
 - `configureWidth = measurement.measuredBubbleWidth` (already clamped)
@@ -295,7 +317,7 @@ Correctness must not depend on cache retention.
 
 ## How the 8 Code Paths Collapse
 
-From the audit’s list (A-H), the refactor target is a single path with parameterization.
+From the audit's list (A-H), the refactor target is a single path with parameterization.
 
 ### A. Typing indicator
 
@@ -310,7 +332,7 @@ Goal: no bespoke width/height cap behavior, and no accidental key collisions wit
 
 ### B. Cached size
 
-Becomes: fetch `BubbleMeasurement` by full key; if valid, use it. No partial reuse (no “cached width only”).
+Becomes: fetch `BubbleMeasurement` by full key; if valid, use it. No partial reuse (no "cached width only").
 
 ### C. Wide content
 
@@ -328,7 +350,7 @@ Replaced by:
 
 ### E. Non-link wide content capping
 
-Handled by the unified “contentHeight vs heightCap” logic; not a separate branch.
+Handled by the unified "contentHeight vs heightCap" logic; not a separate branch.
 
 ### F. Narrow content / design-system cap
 
@@ -395,6 +417,6 @@ Steps:
 
 - Exact formula for `minWidth` floors (per size class) derived from theme metrics so they can be tuned without code changes.
 - Whether link preview sizing should be cached per URL across messages or only per message instance.
-- The epsilon threshold for “effective height changed” when deciding whether to bump `linkPreviewStateVersion` (to avoid jitter/looping).
+- The epsilon threshold for "effective height changed" when deciding whether to bump `linkPreviewStateVersion` (to avoid jitter/looping).
 
-Resolved in this spec: representing “estimated vs final” is not optional. We use `linkPreviewStateVersion` in the bubble cache key.
+Resolved in this spec: representing "estimated vs final" is not optional. We use `linkPreviewStateVersion` in the bubble cache key.
