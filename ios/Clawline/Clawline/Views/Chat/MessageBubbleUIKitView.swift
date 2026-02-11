@@ -997,6 +997,12 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentScrollView.showsVerticalScrollIndicator = false
             dynamicContentScrollView.alwaysBounceVertical = false
             dynamicContentScrollView.contentInset.bottom = 0
+            // If a reused cell previously hosted a scrollable long bubble, the scroll view may
+            // retain a non-zero contentOffset. When this view is no longer scrollable, that can
+            // present as "bottom-aligned" content with a blank gap above.
+            if dynamicContentScrollView.contentOffset != .zero {
+                dynamicContentScrollView.setContentOffset(.zero, animated: false)
+            }
             fadeView.isHidden = true
             return
         }
@@ -1007,6 +1013,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.showsVerticalScrollIndicator = overflow
         dynamicContentScrollView.alwaysBounceVertical = overflow
         dynamicContentScrollView.contentInset.bottom = overflow ? Self.bubbleScrollFadeHeight : 0
+        if !overflow, dynamicContentScrollView.contentOffset != .zero {
+            // Keep non-overflowing bubbles pinned to the top of their content.
+            dynamicContentScrollView.setContentOffset(.zero, animated: false)
+        }
         fadeView.isHidden = !overflow
     }
 
