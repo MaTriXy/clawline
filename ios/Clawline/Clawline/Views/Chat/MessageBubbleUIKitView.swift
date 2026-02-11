@@ -155,6 +155,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private static let bubbleScrollFadeHeight: CGFloat = 25
     private static let mediaMaxHeight: CGFloat = 300
     private static let mediaCornerRadius: CGFloat = 12
+    // Keep large-screen bubble sizing aligned to iPad mini reference geometry.
+    private static let bubbleReferenceSize = CGSize(width: 744, height: 1133)
 
     private let gradientLayer = CAGradientLayer()
     private let maskLayer = CAShapeLayer()
@@ -385,6 +387,17 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         ])
     }
 
+    private static func linkPreviewWidthCap(metrics: ChatFlowTheme.Metrics) -> CGFloat {
+        max(120, bubbleReferenceSize.width - (metrics.containerPadding * 2))
+    }
+
+    private static func presentationHasLinkPreview(_ presentation: MessagePresentation) -> Bool {
+        presentation.parts.contains { part in
+            if case .linkPreview = part { return true }
+            return false
+        }
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -482,8 +495,15 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         salientMessageId = message.id
         salientBaseAttributedText = nil
 
-        let effectiveMaxWidth = maxWidthOverride ?? maxWidth
-        let effectiveTruncationHeight = truncationHeightOverride ?? metrics.truncationHeight
+        let hasLinkPreview = Self.presentationHasLinkPreview(presentation)
+        let rawMaxWidth = maxWidthOverride ?? maxWidth
+        let effectiveMaxWidth = hasLinkPreview
+            ? min(rawMaxWidth, Self.linkPreviewWidthCap(metrics: metrics))
+            : rawMaxWidth
+        let rawTruncationHeight = truncationHeightOverride ?? metrics.truncationHeight
+        let effectiveTruncationHeight = hasLinkPreview
+            ? min(rawTruncationHeight, metrics.truncationHeight)
+            : rawTruncationHeight
         // Reset width constraints per size class.
         currentMetrics = metrics
         minWidthConstraint.constant = minWidthOverride ?? 120
@@ -652,13 +672,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     let previewChromeBase = message.role == .user
                         ? palette.bubbleSelfGradient.last!
                         : palette.bubbleOtherGradient.last!
-                    let previewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight ?? {
+                    let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight ?? {
                         // V1 behavior
                         let headerHeight: CGFloat = showsHeader ? 32 : 0
                         let headerSpacing: CGFloat = showsHeader ? contentStack.spacing : 0
                         let padding = currentContentPaddingVertical * 2
                         return max(120, effectiveTruncationHeight - (headerHeight + headerSpacing + padding))
                     }()
+                    let previewMaxHeight = min(rawPreviewMaxHeight, metrics.truncationHeight)
                     if let bubbleSizingV2, let cacheKey = bubbleSizingV2.linkPreviewCacheKey {
                         previewView.configure(
                             url: linkPreviewURL,
@@ -698,13 +719,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             let previewChromeBase = message.role == .user
                 ? palette.bubbleSelfGradient.last!
                 : palette.bubbleOtherGradient.last!
-            let previewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight ?? {
+            let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight ?? {
                 // V1 behavior
                 let headerHeight: CGFloat = showsHeader ? 32 : 0
                 let headerSpacing: CGFloat = showsHeader ? contentStack.spacing : 0
                 let padding = currentContentPaddingVertical * 2
                 return max(120, effectiveTruncationHeight - (headerHeight + headerSpacing + padding))
             }()
+            let previewMaxHeight = min(rawPreviewMaxHeight, metrics.truncationHeight)
             if let bubbleSizingV2, let cacheKey = bubbleSizingV2.linkPreviewCacheKey {
                 previewView.configure(
                     url: linkPreviewURL,

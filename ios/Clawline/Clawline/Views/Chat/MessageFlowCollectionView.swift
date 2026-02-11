@@ -148,10 +148,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var restoredScrollKeys: Set<String> = []
     private var scrollStateWriteDebounceTimer: Timer?
     private static let scrollStateWriteDebounceSeconds: TimeInterval = 0.35
-#if os(visionOS)
-    // iPad mini 6th gen portrait reference size for spatial layout rules.
-    private static let visionOSReferenceSize = CGSize(width: 744, height: 1133)
-#endif
+    // iPad mini 6th gen portrait reference size used as the max chat geometry envelope on large screens.
+    private static let bubbleReferenceSize = CGSize(width: 744, height: 1133)
     /// Single source of truth for what “at bottom” means across:
     /// - SBB visibility
     /// - auto-scroll / pinned-to-bottom intent transitions
@@ -1255,18 +1253,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func effectiveContentWidth(metrics: ChatFlowTheme.Metrics) -> CGFloat {
         let width = availableContentWidth()
-#if os(visionOS)
-        let referenceWidth = max(0, Self.visionOSReferenceSize.width - (metrics.containerPadding * 2))
+        let referenceWidth = max(0, Self.bubbleReferenceSize.width - (metrics.containerPadding * 2))
         return min(width, referenceWidth)
-#else
-        return width
-#endif
     }
 
     private func effectiveContainerHeight() -> CGFloat {
         let height = collectionView.bounds.height
 #if os(visionOS)
-        return min(height, Self.visionOSReferenceSize.height)
+        return min(height, Self.bubbleReferenceSize.height)
 #else
         return height
 #endif
@@ -1355,6 +1349,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // IMPORTANT: Do not opt into screen-aware height caps just because a message contains a URL.
         // That can inflate the cap enough that "too-tall" markdown bubbles never overflow, so we
         // never show fade/scroll/tap-to-expand affordances.
+        //
+        // Link-preview bubbles must keep the design-system max-height cap across all form factors.
+        if presentation.parts.contains(where: { part in
+            if case .linkPreview = part { return true }
+            return false
+        }) {
+            return false
+        }
 
         let tableCount = presentation.parts.reduce(into: 0) { count, part in
             if case .table = part { count += 1 }

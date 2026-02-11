@@ -147,6 +147,74 @@ struct BubbleScrollTests {
         #expect(abs(scroll.contentOffset.y) < 0.5)
     }
 
+    @Test("T048: Link preview bubbles enforce iPad-mini width + large-height caps on large containers")
+    @MainActor
+    func linkPreviewCapsHoldOnLargeContainerInputs() {
+        let metrics = ChatFlowTheme.Metrics(isCompact: false)
+        let link = "https://example.com/status"
+        let message = Message(
+            id: "link-preview-cap",
+            role: .assistant,
+            content: "Status page:\n\(link)",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: "server:personal"
+        )
+        let presentation = buildPresentation(message, metrics: metrics, enableLinkPreviews: true)
+        let sizeClass = MessageFlowRules.sizeClass(for: presentation)
+
+        let host = UIView(frame: CGRect(x: 0, y: 0, width: 1280, height: 900))
+        host.layoutIfNeeded()
+        let bubble = MessageBubbleUIKitView(frame: CGRect(x: 0, y: 0, width: 1200, height: 300))
+        host.addSubview(bubble)
+
+        bubble.configure(
+            message: message,
+            presentation: presentation,
+            sizeClass: sizeClass,
+            metrics: metrics,
+            maxWidth: 1200,
+            truncationHeightOverride: 900,
+            bubbleSizingV2: nil,
+            showsHeader: true,
+            paddingScale: 1,
+            minWidthOverride: nil,
+            maxWidthOverride: nil,
+            useContinuousCorners: true,
+            isDark: false,
+            onRequestExpand: nil,
+            onRequestLayout: nil,
+            onInteractiveCallback: nil
+        )
+        let measured = bubble.systemLayoutSizeFitting(
+            CGSize(width: 1200, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        bubble.frame = CGRect(origin: .zero, size: measured)
+        bubble.layoutIfNeeded()
+
+        let referenceWidthCap = 744 - (metrics.containerPadding * 2)
+        let widthConstraintPresent = allConstraints(in: bubble).contains { constraint in
+            constraint.isActive &&
+            constraint.firstAttribute == .width &&
+            constraint.relation == .equal &&
+            abs(constraint.constant - referenceWidthCap) <= 1
+        }
+        #expect(widthConstraintPresent)
+
+        guard let preview = linkPreviewView(in: bubble) else {
+            Issue.record("Expected LinkPreviewView in bubble content")
+            return
+        }
+        let previewMeasured = preview.sizeThatFits(
+            CGSize(width: referenceWidthCap, height: .greatestFiniteMagnitude)
+        )
+        #expect(previewMeasured.height <= metrics.truncationHeight + 1)
+    }
+
     @Test("T032: Salient highlight style-only updates avoid layout reflow callbacks")
     @MainActor
     func salientHighlightAvoidsLayoutReflowWhenHeightStable() async throws {
@@ -272,6 +340,26 @@ struct BubbleScrollTests {
             }
         }
         return nil
+    }
+
+    private func linkPreviewView(in view: UIView) -> LinkPreviewView? {
+        if let preview = view as? LinkPreviewView {
+            return preview
+        }
+        for sub in view.subviews {
+            if let found = linkPreviewView(in: sub) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func allConstraints(in view: UIView) -> [NSLayoutConstraint] {
+        var result = view.constraints
+        for sub in view.subviews {
+            result.append(contentsOf: allConstraints(in: sub))
+        }
+        return result
     }
 
     private struct ImmediateHighlightService: SalientHighlightServicing {
