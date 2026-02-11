@@ -1073,7 +1073,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.showsVerticalScrollIndicator = isOverflowing
         dynamicContentScrollView.alwaysBounceVertical = isOverflowing
         dynamicContentScrollView.contentInset.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+#if !os(visionOS)
         dynamicContentScrollView.scrollIndicatorInsets.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+#endif
         fadeView.isHidden = !isOverflowing
 
         guard !dynamicContentScrollView.isDragging,
@@ -1099,7 +1101,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentScrollView.contentLayoutGuide.layoutFrame.height,
             dynamicContentStack.bounds.height
         )
-        let scale = window?.windowScene?.screen.scale ?? max(1, traitCollection.displayScale)
+        let scale = max(1, traitCollection.displayScale)
         let epsilon = max(1.5, 2.0 / scale)
         return contentHeight > (viewportHeight + epsilon)
     }

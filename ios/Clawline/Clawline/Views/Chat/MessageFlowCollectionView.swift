@@ -426,6 +426,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let delta = totalBottomInset - previousBottomInset
         let shouldPinToBottom = sbbState.isPinnedToBottomIntent && !isUserInteracting
         currentBottomInset = totalBottomInset
+        // Avoid re-applying the same inset; on visionOS we can get frequent relayout ticks and
+        // touching `contentInset` even with the same value can kick the scroll view.
+        if abs(collectionView.contentInset.bottom - totalBottomInset) <= 0.5,
+           abs(collectionView.verticalScrollIndicatorInsets.bottom - totalBottomInset) <= 0.5 {
+            return
+        }
         if let animatedDuration, animatedDuration > 0, view.window != nil {
             UIView.animate(withDuration: animatedDuration, delay: 0, options: animationOptions) {
                 self.collectionView.contentInset.bottom = totalBottomInset
@@ -2068,6 +2074,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let minY = -contentInset.top
         let maxY = collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom
         let clampedY = max(minY, min(targetY, maxY))
+        // If we're already at (or extremely near) the bottom, don't re-set contentOffset.
+        if abs(collectionView.contentOffset.y - clampedY) <= 0.5 {
+            return
+        }
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: animated)
         NSLog("[KBTIMING] scrollToBottom animated=%d targetY=%.1f dt=%.4f", animated ? 1 : 0, clampedY, CFAbsoluteTimeGetCurrent() - t0)
     }
