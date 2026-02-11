@@ -571,8 +571,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 ]
             )
         } else {
-            bodyLabel.attributedText = MessageBubbleUIKitView.attributedBodyTextOnly(
-                presentation: presentation,
+            bodyLabel.attributedText = MessageTextPartRenderer.attributedText(
+                from: presentation,
                 sizeClass: sizeClass,
                 metrics: metrics,
                 inkColor: palette.ink
@@ -1080,7 +1080,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.showsVerticalScrollIndicator = isOverflowing
         dynamicContentScrollView.alwaysBounceVertical = isOverflowing
         dynamicContentScrollView.contentInset.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+#if !os(visionOS)
         dynamicContentScrollView.scrollIndicatorInsets.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+#endif
         fadeView.isHidden = !isOverflowing
 
         guard !dynamicContentScrollView.isDragging,
@@ -1106,7 +1108,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentScrollView.contentLayoutGuide.layoutFrame.height,
             dynamicContentStack.bounds.height
         )
-        let scale = window?.windowScene?.screen.scale ?? max(1, traitCollection.displayScale)
+        let scale = max(1, traitCollection.displayScale)
         let epsilon = max(1.5, 2.0 / scale)
         return contentHeight > (viewportHeight + epsilon)
     }
@@ -1302,120 +1304,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         }
         .filter { !$0.isEmpty }
         .joined(separator: "\n\n")
-    }
-
-    /// Builds attributed string for text content only (excludes code blocks which are rendered separately)
-    private static func attributedBodyTextOnly(presentation: MessagePresentation,
-                                               sizeClass: MessageSizeClass,
-                                               metrics: ChatFlowTheme.Metrics,
-                                               inkColor: UIColor) -> NSAttributedString {
-        let baseFont: UIFont
-        let lineSpacing: CGFloat
-        switch sizeClass {
-        case .short:
-            baseFont = UIFont.systemFont(ofSize: metrics.shortFontSize, weight: .semibold)
-            lineSpacing = 0
-        case .medium:
-            baseFont = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
-            lineSpacing = 4
-        case .long:
-            baseFont = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular)
-            lineSpacing = 4
-        }
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = lineSpacing
-        paragraph.alignment = .left
-
-        let baseAttributes: [NSAttributedString.Key: Any] = [
-            .font: baseFont,
-            .foregroundColor: inkColor,
-            .paragraphStyle: paragraph
-        ]
-
-        let result = NSMutableAttributedString()
-        // Filter to only text parts (no code blocks or tables - those are rendered as separate views)
-        let textParts = presentation.parts.filter {
-            switch $0 {
-            case .text, .markdown, .inlineEmoji:
-                return true
-            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession, .interactiveHTML:
-                return false
-            }
-        }
-
-        for (index, part) in textParts.enumerated() {
-            if index > 0 {
-                result.append(NSAttributedString(string: "\n\n", attributes: baseAttributes))
-            }
-
-            switch part {
-            case .text(let value):
-                result.append(NSAttributedString(string: value, attributes: baseAttributes))
-
-            case .markdown(let value):
-                // Parse markdown to attributed string
-                if let parsed = ChatMarkdownRenderer.renderNSAttributedString(
-                    markdown: value,
-                    baseFont: baseFont,
-                    inkColor: inkColor,
-                    lineSpacing: lineSpacing
-                ) {
-                    result.append(parsed)
-                } else {
-                    result.append(NSAttributedString(string: value, attributes: baseAttributes))
-                }
-
-            case .inlineEmoji(let value):
-                result.append(NSAttributedString(string: value, attributes: baseAttributes))
-
-            case .linkPreview, .code, .table, .image, .gallery, .file, .terminalSession, .interactiveHTML:
-                break
-            }
-        }
-
-        if presentation.detectedURLCount > 0 {
-            // #33: URLs should render as organic link cards, not inline underlined text.
-            return stripDetectedLinks(from: result)
-        }
-        return result
-    }
-
-    private static let detectedLinkStripper: NSDataDetector? = {
-        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-    }()
-
-    private static func stripDetectedLinks(from attributed: NSAttributedString) -> NSAttributedString {
-        guard let detector = detectedLinkStripper else { return attributed }
-        let mutable = NSMutableAttributedString(attributedString: attributed)
-        let fullRange = NSRange(location: 0, length: mutable.string.utf16.count)
-        let matches = detector.matches(in: mutable.string, options: [], range: fullRange)
-        for match in matches.reversed() {
-            guard match.resultType == .link else { continue }
-            mutable.replaceCharacters(in: match.range, with: "")
-        }
-
-        // Trim leading/trailing whitespace/newlines after removing the URLs.
-        func isTrimmable(_ scalar: Unicode.Scalar) -> Bool {
-            CharacterSet.whitespacesAndNewlines.contains(scalar)
-        }
-        while let first = mutable.string.unicodeScalars.first, isTrimmable(first) {
-            mutable.replaceCharacters(in: NSRange(location: 0, length: 1), with: "")
-        }
-        while let last = mutable.string.unicodeScalars.last, isTrimmable(last) {
-            let len = mutable.string.utf16.count
-            guard len > 0 else { break }
-            mutable.replaceCharacters(in: NSRange(location: len - 1, length: 1), with: "")
-        }
-
-        // Collapse 3+ newlines down to 2 to avoid large gaps where a URL was removed.
-        if mutable.string.contains("\n\n\n") {
-            let regex = try? NSRegularExpression(pattern: "\n{3,}", options: [])
-            let range = NSRange(location: 0, length: mutable.string.utf16.count)
-            regex?.replaceMatches(in: mutable.mutableString, options: [], range: range, withTemplate: "\n\n")
-        }
-
-        return mutable
     }
 
     private static func makeImageView(attachment: Attachment,
