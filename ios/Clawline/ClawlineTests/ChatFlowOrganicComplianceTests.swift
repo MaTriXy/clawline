@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Testing
+import UIKit
 @testable import Clawline
 
 private let personalSessionKey = "server:personal"
@@ -133,6 +134,77 @@ struct ChatFlowOrganicComplianceTests {
             if case .text(let value) = part { return value.contains("Now compare") }
             return false
         }))
+    }
+
+    @Test("Bug #50: Mixed text/code keeps order and text extraction does not drop paragraphs")
+    func mixedTextCodeOrderAndExtraction() {
+        let message = sampleMessage(content: """
+        Intro paragraph.
+
+        ```swift
+        print("first")
+        ```
+
+        Middle paragraph with **markdown**.
+
+        ```python
+        print("second")
+        ```
+
+        Final paragraph.
+        """)
+        let presentation = buildPresentation(message)
+
+        let codeBlocks = presentation.parts.compactMap { part -> (String?, String)? in
+            if case .code(let language, let code) = part {
+                return (language, code)
+            }
+            return nil
+        }
+        #expect(codeBlocks.count == 2)
+        #expect(codeBlocks[0].0 == "swift")
+        #expect(codeBlocks[0].1.contains("print(\"first\")"))
+        #expect(codeBlocks[1].0 == "python")
+        #expect(codeBlocks[1].1.contains("print(\"second\")"))
+
+        let attributed = MessageTextPartRenderer.attributedText(
+            from: presentation,
+            sizeClass: .long,
+            metrics: ChatFlowTheme.Metrics(isCompact: true),
+            inkColor: .black
+        )
+        let renderedText = attributed.string
+        #expect(renderedText.contains("Intro paragraph."))
+        #expect(renderedText.contains("Middle paragraph with markdown."))
+        #expect(renderedText.contains("Final paragraph."))
+        #expect(!renderedText.contains("print(\"first\")"))
+        #expect(!renderedText.contains("print(\"second\")"))
+    }
+
+    @Test("Bug #50: Expanded text extraction preserves URLs")
+    func expandedTextExtractionPreservesURLs() {
+        let message = sampleMessage(content: "See https://a.example and https://b.example")
+        let presentation = buildPresentation(message)
+        let metrics = ChatFlowTheme.Metrics(isCompact: true)
+
+        let bubbleText = MessageTextPartRenderer.attributedText(
+            from: presentation,
+            sizeClass: .long,
+            metrics: metrics,
+            inkColor: .black
+        ).string
+        let expandedText = MessageTextPartRenderer.attributedText(
+            from: presentation,
+            sizeClass: .long,
+            metrics: metrics,
+            inkColor: .black,
+            stripDetectedURLs: false
+        ).string
+
+        #expect(!bubbleText.contains("https://a.example"))
+        #expect(!bubbleText.contains("https://b.example"))
+        #expect(expandedText.contains("https://a.example"))
+        #expect(expandedText.contains("https://b.example"))
     }
 
     @Test("Doc §5: Markdown tables promote to table part")
