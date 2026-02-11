@@ -12,6 +12,35 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+private final class BubbleSafeAreaNeutralScrollView: UIScrollView {
+    override var safeAreaInsets: UIEdgeInsets { .zero }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        stabilizeInsetBehavior()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        stabilizeInsetBehavior()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        stabilizeInsetBehavior()
+    }
+
+    private func stabilizeInsetBehavior() {
+        if contentInsetAdjustmentBehavior != .never {
+            contentInsetAdjustmentBehavior = .never
+        }
+        if #available(iOS 13.0, visionOS 1.0, *), automaticallyAdjustsScrollIndicatorInsets {
+            automaticallyAdjustsScrollIndicatorInsets = false
+        }
+        insetsLayoutMarginsFromSafeArea = false
+    }
+}
+
 final class MessageBubbleUIKitContainerView: UIView {
     private let bubbleView = MessageBubbleUIKitView()
     private let badgeView = MessageFailureBadgeView()
@@ -146,7 +175,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private let contentStack = UIStackView()
     private let headerStack = UIStackView()
     private let dynamicContentWrapper = UIView()  // Clips for truncation
-    private let dynamicContentScrollView = UIScrollView()
+    private let dynamicContentScrollView = BubbleSafeAreaNeutralScrollView()
     private let dynamicContentStack = UIStackView()  // Holds text + code blocks
     private let avatarView = AvatarCircleView()
     private let senderLabel = UILabel()
@@ -1105,7 +1134,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     private func clampOuterScrollOffsetIfNeeded() {
-        let inset = dynamicContentScrollView.adjustedContentInset
+        // Use only explicit insets we own. adjustedContentInset can vary with screen-edge safe areas
+        // as cells move, which makes inner bubble content appear to jump while scrolling (#70 / T050).
+        let inset = dynamicContentScrollView.contentInset
         let minY = -inset.top
         let maxY = max(minY, dynamicContentScrollView.contentSize.height - dynamicContentScrollView.bounds.height + inset.bottom)
         let currentY = dynamicContentScrollView.contentOffset.y

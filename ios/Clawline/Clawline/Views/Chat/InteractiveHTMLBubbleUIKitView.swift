@@ -14,13 +14,38 @@ private final class BubbleSafeAreaNeutralWebView: WKWebView {
 
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
+        stabilizeScrollInsets()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        stabilizeScrollInsets()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        stabilizeScrollInsets()
+    }
+
+    private func stabilizeScrollInsets() {
         // Keep bubble-local coordinates stable even when the cell crosses device safe areas.
+        if scrollView.contentInsetAdjustmentBehavior != .never {
+            scrollView.contentInsetAdjustmentBehavior = .never
+        }
         if scrollView.contentInset != .zero {
             scrollView.contentInset = .zero
         }
-        if scrollView.scrollIndicatorInsets != .zero {
-            scrollView.scrollIndicatorInsets = .zero
+        let hasVerticalIndicatorInsets = scrollView.verticalScrollIndicatorInsets != .zero
+        let hasHorizontalIndicatorInsets = scrollView.horizontalScrollIndicatorInsets != .zero
+        if hasVerticalIndicatorInsets || hasHorizontalIndicatorInsets {
+            scrollView.verticalScrollIndicatorInsets = .zero
+            scrollView.horizontalScrollIndicatorInsets = .zero
         }
+        if #available(iOS 13.0, visionOS 1.0, *), scrollView.automaticallyAdjustsScrollIndicatorInsets {
+            scrollView.automaticallyAdjustsScrollIndicatorInsets = false
+        }
+        scrollView.insetsLayoutMarginsFromSafeArea = false
+        insetsLayoutMarginsFromSafeArea = false
     }
 }
 
