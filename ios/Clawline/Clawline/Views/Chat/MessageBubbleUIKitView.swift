@@ -180,6 +180,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private let avatarView = AvatarCircleView()
     private let senderLabel = UILabel()
     private let bodyLabel = UITextView()
+    private let bodyTextContainer = UIView()
     private let fadeView = TruncationFadeView()
     private static let bubbleScrollFadeHeight: CGFloat = 25
     private static let mediaMaxHeight: CGFloat = 300
@@ -324,6 +325,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         headerStack.addArrangedSubview(senderLabel)
 
         bodyLabel.backgroundColor = .clear
+        bodyLabel.translatesAutoresizingMaskIntoConstraints = false
         bodyLabel.isUserInteractionEnabled = true
         bodyLabel.isEditable = false
         bodyLabel.isSelectable = true
@@ -341,6 +343,20 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             bubbleTap.require(toFail: longPress)
             bodyTap.require(toFail: longPress)
         }
+
+        bodyTextContainer.translatesAutoresizingMaskIntoConstraints = false
+        bodyTextContainer.backgroundColor = .clear
+        bodyTextContainer.addSubview(bodyLabel)
+        // Keep text left-aligned and allow OTW caps without forcing non-text content to narrow.
+        let bodyPrefersFillWidth = bodyLabel.widthAnchor.constraint(equalTo: bodyTextContainer.widthAnchor)
+        bodyPrefersFillWidth.priority = .defaultLow
+        NSLayoutConstraint.activate([
+            bodyLabel.topAnchor.constraint(equalTo: bodyTextContainer.topAnchor),
+            bodyLabel.leadingAnchor.constraint(equalTo: bodyTextContainer.leadingAnchor),
+            bodyLabel.trailingAnchor.constraint(lessThanOrEqualTo: bodyTextContainer.trailingAnchor),
+            bodyLabel.bottomAnchor.constraint(equalTo: bodyTextContainer.bottomAnchor),
+            bodyPrefersFillWidth
+        ])
 
         contentStack.addArrangedSubview(headerStack)
 
@@ -644,8 +660,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         }
 
         if hasTextContent {
-            dynamicContentStack.addArrangedSubview(bodyLabel)
-            dynamicContentViews.append(bodyLabel)
+            dynamicContentStack.addArrangedSubview(bodyTextContainer)
+            dynamicContentViews.append(bodyTextContainer)
         }
 
         let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
