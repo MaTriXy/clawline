@@ -14,7 +14,9 @@ enum MessageTextPartRenderer {
         sizeClass: MessageSizeClass,
         metrics: ChatFlowTheme.Metrics,
         inkColor: UIColor,
-        stripDetectedURLs: Bool = true
+        stripDetectedURLs: Bool = true,
+        isDarkMode: Bool = false,
+        enableMarkdownHighlights: Bool = false
     ) -> NSAttributedString {
         let baseFont: UIFont
         let lineSpacing: CGFloat
@@ -41,6 +43,9 @@ enum MessageTextPartRenderer {
         ]
 
         let result = NSMutableAttributedString()
+        let markHighlightColor: UIColor? = enableMarkdownHighlights
+            ? SalientHighlightApplier.highlightColor(isDark: isDarkMode)
+            : nil
         let textParts = presentation.parts.filter {
             switch $0 {
             case .text, .markdown, .inlineEmoji:
@@ -63,7 +68,8 @@ enum MessageTextPartRenderer {
                     markdown: value,
                     baseFont: baseFont,
                     inkColor: inkColor,
-                    lineSpacing: lineSpacing
+                    lineSpacing: lineSpacing,
+                    markHighlightColor: markHighlightColor
                 ) {
                     result.append(parsed)
                 } else {

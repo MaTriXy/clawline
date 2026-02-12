@@ -156,7 +156,9 @@ struct ExpandedMessageSheet: View {
             sizeClass: .long,
             metrics: metrics,
             inkColor: ink,
-            stripDetectedURLs: false
+            stripDetectedURLs: false,
+            isDarkMode: effectiveColorScheme == .dark,
+            enableMarkdownHighlights: message.role == .assistant
         )
         let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : attributed

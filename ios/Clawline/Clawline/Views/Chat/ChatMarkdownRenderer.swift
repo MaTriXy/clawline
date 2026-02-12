@@ -9,15 +9,20 @@ import Foundation
 import UIKit
 
 enum ChatMarkdownRenderer {
+    private static let markOpenSentinel = "\u{F0000}"
+    private static let markCloseSentinel = "\u{F0001}"
+
     static func renderAttributedString(markdown: String,
                                        baseFont: UIFont,
                                        inkColor: UIColor,
-                                       lineSpacing: CGFloat) -> AttributedString? {
+                                       lineSpacing: CGFloat,
+                                       markHighlightColor: UIColor? = nil) -> AttributedString? {
         guard let ns = renderNSAttributedString(
             markdown: markdown,
             baseFont: baseFont,
             inkColor: inkColor,
-            lineSpacing: lineSpacing
+            lineSpacing: lineSpacing,
+            markHighlightColor: markHighlightColor
         ) else {
             return nil
         }
@@ -27,12 +32,20 @@ enum ChatMarkdownRenderer {
     static func renderNSAttributedString(markdown: String,
                                          baseFont: UIFont,
                                          inkColor: UIColor,
-                                         lineSpacing: CGFloat) -> NSAttributedString? {
+                                         lineSpacing: CGFloat,
+                                         markHighlightColor: UIColor? = nil) -> NSAttributedString? {
+        let parsedMarkdown: String
+        if markHighlightColor != nil {
+            parsedMarkdown = preprocessMarkHighlightSyntax(markdown)
+        } else {
+            parsedMarkdown = markdown
+        }
+
         // Prefer full parsing (block syntax like headings), but fall back to inline-only.
         let attributed: AttributedString
-        if let full = try? AttributedString(markdown: markdown, options: .init(interpretedSyntax: .full)) {
+        if let full = try? AttributedString(markdown: parsedMarkdown, options: .init(interpretedSyntax: .full)) {
             attributed = full
-        } else if let inline = try? AttributedString(markdown: markdown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+        } else if let inline = try? AttributedString(markdown: parsedMarkdown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
             attributed = inline
         } else {
             return nil
@@ -78,9 +91,163 @@ enum ChatMarkdownRenderer {
         }
 
         // Ensure ATX heading levels (#..######) render visibly.
-        applyHeadingStyles(markdown: markdown, nsAttributed: nsAttributed, baseFont: baseFont)
+        applyHeadingStyles(markdown: parsedMarkdown, nsAttributed: nsAttributed, baseFont: baseFont)
+        if let markHighlightColor {
+            applyMarkHighlights(nsAttributed: nsAttributed, color: markHighlightColor)
+        }
 
         return nsAttributed
+    }
+
+    private static func applyMarkHighlights(nsAttributed: NSMutableAttributedString, color: UIColor) {
+        let text = nsAttributed.string as NSString
+        let openToken = markOpenSentinel as NSString
+        let closeToken = markCloseSentinel as NSString
+
+        var pairs: [(open: NSRange, close: NSRange)] = []
+        var searchStart = 0
+
+        while searchStart < text.length {
+            let openRange = text.range(of: openToken as String, options: [], range: NSRange(location: searchStart, length: text.length - searchStart))
+            if openRange.location == NSNotFound { break }
+
+            let closeSearchStart = openRange.location + openRange.length
+            if closeSearchStart >= text.length { break }
+
+            let closeRange = text.range(of: closeToken as String, options: [], range: NSRange(location: closeSearchStart, length: text.length - closeSearchStart))
+            if closeRange.location == NSNotFound { break }
+
+            pairs.append((open: openRange, close: closeRange))
+            searchStart = closeRange.location + closeRange.length
+        }
+
+        for pair in pairs.reversed() {
+            let contentStart = pair.open.location + pair.open.length
+            let contentLength = pair.close.location - contentStart
+            if contentLength > 0 {
+                nsAttributed.addAttribute(.foregroundColor, value: color, range: NSRange(location: contentStart, length: contentLength))
+            }
+            nsAttributed.deleteCharacters(in: pair.close)
+            nsAttributed.deleteCharacters(in: pair.open)
+        }
+    }
+
+    private static func preprocessMarkHighlightSyntax(_ markdown: String) -> String {
+        let characters = Array(markdown)
+        guard characters.count >= 4 else { return markdown }
+
+        var delimiterPositions: [Int] = []
+        var index = 0
+        var inFence = false
+        var inlineCodeDelimiterLength: Int?
+        var isLineStart = true
+
+        while index < characters.count {
+            let character = characters[index]
+
+            if character == "\n" {
+                isLineStart = true
+                index += 1
+                continue
+            }
+
+            if character == "`" {
+                let tickCount = countConsecutiveBackticks(characters, from: index)
+
+                if inlineCodeDelimiterLength == nil && tickCount >= 3 && isLineStart {
+                    inFence.toggle()
+                    index += tickCount
+                    isLineStart = false
+                    continue
+                }
+
+                if !inFence {
+                    if let delimiterLength = inlineCodeDelimiterLength {
+                        if tickCount == delimiterLength {
+                            inlineCodeDelimiterLength = nil
+                            index += tickCount
+                            isLineStart = false
+                            continue
+                        }
+                    } else {
+                        inlineCodeDelimiterLength = tickCount
+                        index += tickCount
+                        isLineStart = false
+                        continue
+                    }
+                }
+
+                index += tickCount
+                isLineStart = false
+                continue
+            }
+
+            if !inFence,
+               inlineCodeDelimiterLength == nil,
+               character == "=",
+               index + 1 < characters.count,
+               characters[index + 1] == "=" {
+                delimiterPositions.append(index)
+                index += 2
+                isLineStart = false
+                continue
+            }
+
+            if character != " " && character != "\t" && character != "\r" {
+                isLineStart = false
+            }
+            index += 1
+        }
+
+        var pairs: [(open: Int, close: Int)] = []
+        var open: Int?
+        for delimiter in delimiterPositions {
+            if let start = open {
+                let contentStart = start + 2
+                if delimiter > contentStart {
+                    pairs.append((open: start, close: delimiter))
+                    open = nil
+                } else {
+                    open = delimiter
+                }
+            } else {
+                open = delimiter
+            }
+        }
+
+        guard !pairs.isEmpty else { return markdown }
+
+        var replacements: [Int: String] = [:]
+        replacements.reserveCapacity(pairs.count * 2)
+        for pair in pairs {
+            replacements[pair.open] = markOpenSentinel
+            replacements[pair.close] = markCloseSentinel
+        }
+
+        var output = String()
+        output.reserveCapacity(markdown.count)
+        index = 0
+        while index < characters.count {
+            if let replacement = replacements[index] {
+                output.append(replacement)
+                index += 2
+            } else {
+                output.append(characters[index])
+                index += 1
+            }
+        }
+
+        return output
+    }
+
+    private static func countConsecutiveBackticks(_ characters: [Character], from start: Int) -> Int {
+        var count = 0
+        var index = start
+        while index < characters.count, characters[index] == "`" {
+            count += 1
+            index += 1
+        }
+        return count
     }
 
     private static func applyHeadingStyles(markdown: String,
@@ -172,4 +339,3 @@ enum ChatMarkdownRenderer {
         return results
     }
 }
-

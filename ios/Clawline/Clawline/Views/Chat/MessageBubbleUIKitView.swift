@@ -604,7 +604,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 from: presentation,
                 sizeClass: sizeClass,
                 metrics: metrics,
-                inkColor: palette.ink
+                inkColor: palette.ink,
+                isDarkMode: effectiveIsDark,
+                enableMarkdownHighlights: message.role == .assistant
             )
         }
 
