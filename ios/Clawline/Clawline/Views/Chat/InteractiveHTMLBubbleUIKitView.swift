@@ -9,46 +9,6 @@ import OSLog
 import UIKit
 import WebKit
 
-private final class BubbleSafeAreaNeutralWebView: WKWebView {
-    override var safeAreaInsets: UIEdgeInsets { .zero }
-
-    override func safeAreaInsetsDidChange() {
-        super.safeAreaInsetsDidChange()
-        stabilizeScrollInsets()
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        stabilizeScrollInsets()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        stabilizeScrollInsets()
-    }
-
-    private func stabilizeScrollInsets() {
-        // Keep bubble-local coordinates stable even when the cell crosses device safe areas.
-        if scrollView.contentInsetAdjustmentBehavior != .never {
-            scrollView.contentInsetAdjustmentBehavior = .never
-        }
-        if scrollView.contentInset != .zero {
-            scrollView.contentInset = .zero
-        }
-        let hasVerticalIndicatorInsets = scrollView.verticalScrollIndicatorInsets != .zero
-        let hasHorizontalIndicatorInsets = scrollView.horizontalScrollIndicatorInsets != .zero
-        if hasVerticalIndicatorInsets || hasHorizontalIndicatorInsets {
-            scrollView.verticalScrollIndicatorInsets = .zero
-            scrollView.horizontalScrollIndicatorInsets = .zero
-        }
-        if #available(iOS 13.0, visionOS 1.0, *), scrollView.automaticallyAdjustsScrollIndicatorInsets {
-            scrollView.automaticallyAdjustsScrollIndicatorInsets = false
-        }
-        scrollView.insetsLayoutMarginsFromSafeArea = false
-        insetsLayoutMarginsFromSafeArea = false
-    }
-}
-
 final class InteractiveHTMLBubbleUIKitView: UIView {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "InteractiveHTML")
 
@@ -360,7 +320,7 @@ private final class InteractiveHTMLWebKit: NSObject {
         }
         configuration.userContentController = userContent
 
-        let webView = BubbleSafeAreaNeutralWebView(frame: .zero, configuration: configuration)
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.insetsLayoutMarginsFromSafeArea = false
