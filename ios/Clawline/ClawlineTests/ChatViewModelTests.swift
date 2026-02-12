@@ -473,6 +473,189 @@ struct ChatViewModelTests {
         #expect(chatService.lastSessionKey == adminSessionKey)
     }
 
+    @Test("Send waits for server session provisioning before dispatch")
+    @MainActor
+    func sendWaitsForSessionProvisioning() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitConnectionState(.connected)
+        for _ in 0..<50 {
+            if viewModel.connectionState == .connected { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
+        try await Task.sleep(for: .milliseconds(20))
+
+        viewModel.inputContent = NSAttributedString(string: "Wait for provisioning")
+        viewModel.send()
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(chatService.lastSentId == nil)
+
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey]
+            )
+        ))
+
+        for _ in 0..<50 {
+            if chatService.lastSentId != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(chatService.lastSessionKey == personalSessionKey)
+    }
+
+    @Test("Send blocks stale synthetic session keys after provisioning")
+    @MainActor
+    func sendBlocksStaleSyntheticSessionKey() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitConnectionState(.connected)
+        for _ in 0..<50 {
+            if viewModel.connectionState == .connected { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let staleKey = "agent:main:clawline:user:s_deadbeef"
+        chatService.emit(
+            Message(
+                id: "s_seed_stale",
+                role: .assistant,
+                content: "stale seed",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: staleKey
+            )
+        )
+        for _ in 0..<50 {
+            if viewModel.orderedSessionKeys.contains(staleKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        viewModel.setActiveSessionKey(staleKey)
+
+        chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
+        try await Task.sleep(for: .milliseconds(20))
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey]
+            )
+        ))
+        try await Task.sleep(for: .milliseconds(20))
+
+        viewModel.inputContent = NSAttributedString(string: "Do not send stale")
+        viewModel.send()
+        try await Task.sleep(for: .milliseconds(40))
+
+        #expect(chatService.lastSentId == nil)
+        #expect(toastManager.debugMessages.contains("This stream is unavailable. Switch streams and try again."))
+    }
+
+    @Test("Pending send keeps target session while stream switching")
+    @MainActor
+    func pendingSendKeepsTargetSessionDuringSwitch() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitConnectionState(.connected)
+        for _ in 0..<50 {
+            if viewModel.connectionState == .connected { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let customKey = "agent:main:clawline:user:s_abcd1234"
+        chatService.emit(
+            Message(
+                id: "s_seed_custom",
+                role: .assistant,
+                content: "custom seed",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: customKey
+            )
+        )
+        for _ in 0..<50 {
+            if viewModel.orderedSessionKeys.contains(customKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        viewModel.setActiveSessionKey(customKey)
+        #expect(viewModel.activeSessionKey == customKey)
+
+        chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
+        try await Task.sleep(for: .milliseconds(20))
+
+        viewModel.inputContent = NSAttributedString(string: "queued while provisioning")
+        viewModel.send()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(chatService.lastSentId == nil)
+
+        viewModel.setActiveSessionKey(personalSessionKey)
+        #expect(viewModel.activeSessionKey == personalSessionKey)
+
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey, customKey]
+            )
+        ))
+
+        for _ in 0..<50 {
+            if chatService.lastSentId != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(chatService.lastSessionKey == customKey)
+    }
+
     @Test("Incoming messages route to matching stream")
     @MainActor
     func incomingMessagesRoutePerStream() async throws {

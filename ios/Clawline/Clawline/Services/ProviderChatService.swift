@@ -457,9 +457,8 @@ final class ProviderChatService: ChatServicing {
             resolveAuthContinuation(with: .success(()))
             logger.info("state -> connected (auth success)")
             updateState(.connected)
-            if let features = result.features {
-                emitServiceEvent(.sessionProvisioningAvailable(features.contains("session_info")))
-            }
+            let supportsSessionProvisioning = result.features?.contains("session_info") ?? false
+            emitServiceEvent(.sessionProvisioningAvailable(supportsSessionProvisioning))
             if let info = sessionInfo(from: result) {
                 emitServiceEvent(.sessionInfo(info))
             }

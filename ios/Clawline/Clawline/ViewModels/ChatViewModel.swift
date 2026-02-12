@@ -127,10 +127,27 @@ final class ChatViewModel: ChatViewModelHosting {
     private let messageCacheLimit = 500
     private var restoredSessionKeys: Set<String> = []
     private var restoredStreamMetadataForUserId: String?
+    private var supportsSessionProvisioning = false
+    private var hasResolvedProvisioningCapability = true
+    private var hasReceivedSessionProvisioning = false
+    private var provisionedSessionKeys: Set<String> = []
+    private var pendingProvisionedSend: PendingProvisionedSend?
 
     private struct PendingLocalMessage: Equatable {
         let id: String
         let sessionKey: String
+    }
+
+    private struct PendingProvisionedSend {
+        let content: String
+        let attachments: [PendingAttachment]
+        let sessionKey: String
+    }
+
+    private enum SendProvisioningState {
+        case ready
+        case waiting
+        case unavailable
     }
 
     init(auth: any AuthManaging,
@@ -304,34 +321,56 @@ final class ChatViewModel: ChatViewModelHosting {
             return
         }
 
+        ensureDefaultActiveSessionIfNeeded()
+        let outboundSessionKey = activeSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !outboundSessionKey.isEmpty else {
+            toastManager.show("No stream selected.")
+            return
+        }
+
+        switch sendProvisioningState(for: outboundSessionKey) {
+        case .ready:
+            beginSend(content: text, pendingAttachments: pendingAttachments, sessionKey: outboundSessionKey)
+        case .waiting:
+            pendingProvisionedSend = PendingProvisionedSend(
+                content: text,
+                attachments: pendingAttachments,
+                sessionKey: outboundSessionKey
+            )
+            toastManager.show("Connecting to stream…")
+        case .unavailable:
+            toastManager.show("This stream is unavailable. Switch streams and try again.")
+        }
+    }
+
+    private func beginSend(content: String,
+                           pendingAttachments: [PendingAttachment],
+                           sessionKey: String) {
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
-
-        ensureDefaultActiveSessionIfNeeded()
-        let outboundSessionKey = activeSessionKey
 
         isSending = true  // Set immediately to prevent double-tap race condition
         let placeholder = Message(
             id: clientId,
             role: .user,
-            content: text,
+            content: content,
             timestamp: Date(),
             streaming: false,
             attachments: makeDisplayAttachments(from: pendingAttachments),
             deviceId: deviceId,
-            sessionKey: outboundSessionKey
+            sessionKey: sessionKey
         )
         appendMessage(placeholder)
-        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: outboundSessionKey))
+        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
 
         error = nil
 
         sendTask = Task { [weak self] in
             await self?.performSend(
                 clientId: clientId,
-                content: text,
+                content: content,
                 pendingAttachments: pendingAttachments,
-                sessionKey: outboundSessionKey
+                sessionKey: sessionKey
             )
         }
     }
@@ -437,6 +476,7 @@ final class ChatViewModel: ChatViewModelHosting {
         connectionStableTask = nil
         restoredSessionKeys.removeAll()
         restoredStreamMetadataForUserId = nil
+        resetSessionProvisioningState(clearPendingSend: true)
         clearMessageCache()
         clearStreamMetadataCache()
     }
@@ -769,6 +809,7 @@ final class ChatViewModel: ChatViewModelHosting {
         case .disconnected:
             connectionStableTask?.cancel()
             connectionStableTask = nil
+            resetSessionProvisioningState(clearPendingSend: true)
             beginConnectionAlert(message: "Not connected to provider.")
             scheduleReconnect(reason: .connectionStateDisconnected)
             isAssistantTyping = false
@@ -776,11 +817,13 @@ final class ChatViewModel: ChatViewModelHosting {
         case .failed(let err):
             connectionStableTask?.cancel()
             connectionStableTask = nil
+            resetSessionProvisioningState(clearPendingSend: true)
             handleConnectionFailure(err)
             scheduleReconnect(reason: .connectionStateFailed)
             isAssistantTyping = false
             typingSessionKey = nil
         case .connecting, .reconnecting:
+            resetSessionProvisioningState(clearPendingSend: true)
             beginConnectionAlert(message: "Reconnecting…", shouldAnnounce: false)
             isAssistantTyping = false
             typingSessionKey = nil
@@ -1241,17 +1284,78 @@ final class ChatViewModel: ChatViewModelHosting {
                 self.typingSessionKey = nil
             }
         case .streamSnapshot(let streams):
+            hasResolvedProvisioningCapability = true
+            supportsSessionProvisioning = true
+            hasReceivedSessionProvisioning = true
+            provisionedSessionKeys = Set(streams.map(\.sessionKey))
             applyStreamSnapshot(streams)
+            attemptPendingProvisionedSendIfPossible()
         case .streamCreated(let stream):
+            hasResolvedProvisioningCapability = true
+            supportsSessionProvisioning = true
+            hasReceivedSessionProvisioning = true
+            provisionedSessionKeys.insert(stream.sessionKey)
             applyStreamUpsert(stream)
+            attemptPendingProvisionedSendIfPossible()
         case .streamUpdated(let stream):
             applyStreamUpsert(stream)
         case .streamDeleted(let sessionKey):
+            provisionedSessionKeys.remove(sessionKey)
             applyStreamDeletion(sessionKey: sessionKey)
-        case .sessionProvisioningAvailable:
+            attemptPendingProvisionedSendIfPossible()
+        case .sessionProvisioningAvailable(let supported):
+            hasResolvedProvisioningCapability = true
+            supportsSessionProvisioning = supported
+            attemptPendingProvisionedSendIfPossible()
+        case .sessionInfo(let info):
+            hasResolvedProvisioningCapability = true
+            supportsSessionProvisioning = true
+            hasReceivedSessionProvisioning = true
+            provisionedSessionKeys = Set(info.sessionKeys)
+            attemptPendingProvisionedSendIfPossible()
+        }
+    }
+
+    private func sendProvisioningState(for sessionKey: String) -> SendProvisioningState {
+        if hasReceivedSessionProvisioning {
+            return provisionedSessionKeys.contains(sessionKey) ? .ready : .unavailable
+        }
+        if supportsSessionProvisioning {
+            return .waiting
+        }
+        if connectionState == .connected && !hasResolvedProvisioningCapability {
+            return .waiting
+        }
+        return .ready
+    }
+
+    private func attemptPendingProvisionedSendIfPossible() {
+        guard !isSending else { return }
+        guard let pending = pendingProvisionedSend else { return }
+
+        switch sendProvisioningState(for: pending.sessionKey) {
+        case .ready:
+            pendingProvisionedSend = nil
+            beginSend(
+                content: pending.content,
+                pendingAttachments: pending.attachments,
+                sessionKey: pending.sessionKey
+            )
+        case .waiting:
             break
-        case .sessionInfo:
-            break
+        case .unavailable:
+            pendingProvisionedSend = nil
+            toastManager.show("This stream is unavailable. Switch streams and try again.")
+        }
+    }
+
+    private func resetSessionProvisioningState(clearPendingSend: Bool) {
+        supportsSessionProvisioning = false
+        hasResolvedProvisioningCapability = false
+        hasReceivedSessionProvisioning = false
+        provisionedSessionKeys.removeAll()
+        if clearPendingSend {
+            pendingProvisionedSend = nil
         }
     }
 
