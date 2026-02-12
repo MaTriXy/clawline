@@ -986,6 +986,9 @@ enum MessagePresentationBuilder {
     }
 
     private static func looksLikeMarkdown(_ text: String) -> Bool {
+        if text.contains("==") {
+            return true
+        }
         let markdownIndicators = ["#", "*", "_", "~", "`", ">", "[", "]"]
         return markdownIndicators.contains(where: { text.contains($0) })
     }
