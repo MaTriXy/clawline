@@ -83,8 +83,8 @@ protocol KeyboardPinnedContainerViewProtocol: AnyObject {
 @Observable
 final class ChatLayoutCoordinator {
     @ObservationIgnored private var barView: KeyboardPinnedContainerViewProtocol?
-    @ObservationIgnored private var listViews: [ChatStream: WeakBox<MessageFlowCollectionViewController>] = [:]
-    @ObservationIgnored private var activeStream: ChatStream = .personal
+    @ObservationIgnored private var listViews: [String: WeakBox<MessageFlowCollectionViewController>] = [:]
+    @ObservationIgnored private var activeSessionKey: String = ""
     @ObservationIgnored private var latestInputs: ChatLayoutInputs?
     @ObservationIgnored private var latestMetrics: ChatLayoutMetrics?
     @ObservationIgnored private var previousInputs: ChatLayoutInputs?
@@ -109,35 +109,35 @@ final class ChatLayoutCoordinator {
         applyTransitionIfPossible(reason: "registerBarView")
     }
 
-    func registerListView(_ view: MessageFlowCollectionViewController, channel: ChatStream) {
+    func registerListView(_ view: MessageFlowCollectionViewController, sessionKey: String) {
         dispatchPrecondition(condition: .onQueue(.main))
-        listViews[channel] = WeakBox(view)
-        applyLatestInset(to: view, isActive: channel == activeStream)
+        listViews[sessionKey] = WeakBox(view)
+        applyLatestInset(to: view, isActive: sessionKey == activeSessionKey)
     }
 
-    func setActiveStream(_ channel: ChatStream) {
+    func setActiveSessionKey(_ sessionKey: String) {
         dispatchPrecondition(condition: .onQueue(.main))
-        activeStream = channel
+        activeSessionKey = sessionKey
     }
 
     func scrollToBottom(animated: Bool) {
         dispatchPrecondition(condition: .onQueue(.main))
-        scrollToBottom(channel: activeStream, animated: animated)
+        scrollToBottom(sessionKey: activeSessionKey, animated: animated)
     }
 
-    func scrollToBottom(channel: ChatStream, animated: Bool) {
+    func scrollToBottom(sessionKey: String, animated: Bool) {
         dispatchPrecondition(condition: .onQueue(.main))
-        listViews[channel]?.value?.scheduleScrollToBottom(animated: animated)
+        listViews[sessionKey]?.value?.scheduleScrollToBottom(animated: animated)
     }
 
-    func scrollToMessageCentered(messageId: String, channel: ChatStream, animated: Bool) {
+    func scrollToMessageCentered(messageId: String, sessionKey: String, animated: Bool) {
         dispatchPrecondition(condition: .onQueue(.main))
-        listViews[channel]?.value?.scrollToMessageCentered(messageId: messageId, animated: animated)
+        listViews[sessionKey]?.value?.scrollToMessageCentered(messageId: messageId, animated: animated)
     }
 
-    func flashMessage(messageId: String, channel: ChatStream, isUnreadTap: Bool = false) {
+    func flashMessage(messageId: String, sessionKey: String, isUnreadTap: Bool = false) {
         dispatchPrecondition(condition: .onQueue(.main))
-        listViews[channel]?.value?.requestFlashMessage(messageId: messageId, isUnreadTap: isUnreadTap)
+        listViews[sessionKey]?.value?.requestFlashMessage(messageId: messageId, isUnreadTap: isUnreadTap)
     }
 
     func updateInputs(_ inputs: ChatLayoutInputs, metrics: ChatLayoutMetrics) {
@@ -363,7 +363,7 @@ final class ChatLayoutCoordinator {
     }
 
     private func activeListView() -> MessageFlowCollectionViewController? {
-        listViews[activeStream]?.value
+        listViews[activeSessionKey]?.value
     }
 
     private func applyLatestInset(to view: MessageFlowCollectionViewController, isActive: Bool) {

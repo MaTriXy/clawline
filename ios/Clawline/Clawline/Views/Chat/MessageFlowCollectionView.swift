@@ -11,10 +11,10 @@ import SwiftUI
 import UIKit
 
 enum MessageFlowScrollEvent: Equatable {
-    case isAtBottomChanged(stream: ChatStream, isAtBottom: Bool)
-    case didReceiveNewMessagesWhileScrolledUp(stream: ChatStream, newMessageIDs: [String])
-    case didCrossFirstUnreadCenter(stream: ChatStream, messageId: String)
-    case didInvalidateFirstUnreadAnchor(stream: ChatStream)
+    case isAtBottomChanged(sessionKey: String, isAtBottom: Bool)
+    case didReceiveNewMessagesWhileScrolledUp(sessionKey: String, newMessageIDs: [String])
+    case didCrossFirstUnreadCenter(sessionKey: String, messageId: String)
+    case didInvalidateFirstUnreadAnchor(sessionKey: String)
 }
 
 @MainActor
@@ -27,8 +27,8 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var unreadCount: Int
     var onExpand: ((Message) -> Void)?
     var layoutCoordinator: ChatLayoutCoordinator
-    /// Optional channel override - if provided, shows messages for this channel instead of activeStream
-    var channel: ChatStream?
+    /// Optional session override - if provided, shows messages for this session instead of activeSessionKey
+    var sessionKey: String?
     var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.settingsManager) private var settings
@@ -49,12 +49,12 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             firstUnreadMessageId: firstUnreadMessageId,
             unreadCount: unreadCount,
             onExpand: onExpand,
-            channel: channel,
+            sessionKey: sessionKey,
             onScrollEvent: onScrollEvent,
             isDark: isDark
         )
-        if let channel = channel {
-            layoutCoordinator.registerListView(controller, channel: channel)
+        if let sessionKey {
+            layoutCoordinator.registerListView(controller, sessionKey: sessionKey)
         }
         return controller
     }
@@ -73,12 +73,12 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             firstUnreadMessageId: firstUnreadMessageId,
             unreadCount: unreadCount,
             onExpand: onExpand,
-            channel: channel,
+            sessionKey: sessionKey,
             onScrollEvent: onScrollEvent,
             isDark: isDark
         )
-        if let channel = channel {
-            layoutCoordinator.registerListView(uiViewController, channel: channel)
+        if let sessionKey {
+            layoutCoordinator.registerListView(uiViewController, sessionKey: sessionKey)
         }
     }
 }
@@ -86,7 +86,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
 final class MessageFlowCollectionViewController: UIViewController, UICollectionViewDelegateFlowLayout {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     private var collectionView: UICollectionView!
-    private var channelOverride: ChatStream?
+    private var channelOverride: String?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var flowLayout: MessageFlowLayout!
     private let uiKitBubbleSizer = MessageBubbleUIKitView()
@@ -485,7 +485,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         firstUnreadMessageId: String?,
         unreadCount: Int,
         onExpand: ((Message) -> Void)? = nil,
-        channel: ChatStream? = nil,
+        sessionKey: String? = nil,
         onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)? = nil,
         isDark: Bool? = nil
     ) {
@@ -495,7 +495,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let wasUserInteracting = isUserInteracting
         let wasPinnedToBottomIntent = sbbState.isPinnedToBottomIntent
         self.viewModel = viewModel
-        self.channelOverride = channel
+        self.channelOverride = sessionKey
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
         self.onScrollEvent = onScrollEvent
@@ -536,8 +536,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         NSLog("[KBTIMING] MFCV.update layoutDecision fullLayout=%d dt=%.4f", needsFullLayout ? 1 : 0, CFAbsoluteTimeGetCurrent() - t0)
 
-        // Use channel override if provided, otherwise use activeStream messages
-        let messages = channel.map { viewModel.messages(for: $0) } ?? viewModel.messages
+        // Use session override if provided, otherwise use active session messages.
+        let messages = sessionKey.map { viewModel.messages(for: $0) } ?? viewModel.messages
         let appendedMessageIDs = Self.appendedMessageIDs(previousLastMessageId: previousLastMessageId, messageIDs: messages.map(\.id))
         let messageCount = messages.count
         if Set(messages.map(\.id)).count != messageCount {
@@ -558,9 +558,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Add typing indicator when assistant is typing (server-controlled)
         // Only show on the matching channel page (for paged TabView)
-        let effectiveStream = channel ?? viewModel.activeStream
+        let effectiveSessionKey = sessionKey ?? viewModel.activeSessionKey
         let showTypingIndicator = viewModel.isAssistantTyping
-            && viewModel.typingStream == effectiveStream
+            && viewModel.typingSessionKey == effectiveSessionKey
         let typingIndicatorJustAppeared = showTypingIndicator && !wasShowingTypingIndicator
         let shouldMorph = viewModel.shouldMorphTypingIndicator && wasShowingTypingIndicator
         if showTypingIndicator != wasShowingTypingIndicator {
@@ -662,7 +662,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                         scheduleScrollToBottom(animated: true, attempts: 3)
                     }
                 } else {
-                    emit(.didReceiveNewMessagesWhileScrolledUp(stream: resolvedStream(), newMessageIDs: appendedMessageIDs))
+                    emit(.didReceiveNewMessagesWhileScrolledUp(sessionKey: resolvedSessionKey(), newMessageIDs: appendedMessageIDs))
                 }
             } else if !wasUserInteracting {
                 // T036: On cold start, restore the last scroll position instead of forcing a reset-to-bottom.
@@ -699,8 +699,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         return Array(messageIDs[next...])
     }
 
-    private func resolvedStream() -> ChatStream {
-        channelOverride ?? viewModel?.activeStream ?? .personal
+    private func resolvedSessionKey() -> String {
+        channelOverride ?? viewModel?.activeSessionKey ?? ""
     }
 
     private func emit(_ event: MessageFlowScrollEvent) {
@@ -719,7 +719,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let shouldHide = sbbState.shouldHideIndicator
         if force || lastReportedHideIndicator != shouldHide {
             lastReportedHideIndicator = shouldHide
-            emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: shouldHide))
+            emit(.isAtBottomChanged(sessionKey: resolvedSessionKey(), isAtBottom: shouldHide))
         }
     }
 
@@ -839,7 +839,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             if sbbState == .scrolledUpUnread {
                 setSBBState(.scrolledUp)
             }
-            emit(.didInvalidateFirstUnreadAnchor(stream: resolvedStream()))
+            emit(.didInvalidateFirstUnreadAnchor(sessionKey: resolvedSessionKey()))
             return
         }
         collectionView.layoutIfNeeded()
@@ -865,7 +865,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             if sbbState == .scrolledUpUnread {
                 setSBBState(.scrolledUp)
             }
-            emit(.didCrossFirstUnreadCenter(stream: resolvedStream(), messageId: messageId))
+            emit(.didCrossFirstUnreadCenter(sessionKey: resolvedSessionKey(), messageId: messageId))
         }
 
         firstUnreadWasBelowViewportCenter = isBelowCenter
@@ -880,8 +880,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func updateScrollPersistenceKeyAndPendingRestoreState() {
         guard let viewModel else { return }
-        let stream = resolvedStream()
-        let newKey = viewModel.messageStorageKey(for: stream)
+        let newKey = resolvedSessionKey()
         guard newKey != scrollPersistenceKey else { return }
         scrollPersistenceKey = newKey
         if restoredScrollKeys.contains(newKey) {
@@ -1032,8 +1031,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     for: indexPath
                 ) as? TypingIndicatorCell
                 let metrics = ChatFlowTheme.Metrics(isCompact: self.isCompact)
-                let typingStream = viewModel.typingStream ?? viewModel.activeStream
-                let storageKey = viewModel.messageStorageKey(for: typingStream)
+                let storageKey = viewModel.typingSessionKey ?? viewModel.activeSessionKey
                 let message = TypingIndicatorCell.makeMessage(sessionKey: storageKey)
                 let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
                 let sizeClass = MessageFlowRules.sizeClass(for: presentation)
@@ -1422,8 +1420,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Handle typing indicator size
         if id == TypingIndicatorCell.itemId {
             let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-            let typingStream = viewModel.typingStream ?? viewModel.activeStream
-            let storageKey = viewModel.messageStorageKey(for: typingStream)
+            let storageKey = viewModel.typingSessionKey ?? viewModel.activeSessionKey
             let message = TypingIndicatorCell.makeMessage(sessionKey: storageKey)
             let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
             let sizeClass = MessageFlowRules.sizeClass(for: presentation)

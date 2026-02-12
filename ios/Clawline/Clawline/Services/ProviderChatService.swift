@@ -195,6 +195,7 @@ final class ProviderChatService: ChatServicing {
     private let deviceId: String
     private let baseURLProvider: () -> URL?
     private let userIdProvider: () -> String?
+    private let streamAPIClient: StreamAPIClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let ackInterval: Duration = .seconds(5)
@@ -212,11 +213,13 @@ final class ProviderChatService: ChatServicing {
     private var shouldNotifyDisconnect = true
     private var pendingDisconnectReason: String?
     private var isConnecting = false
+    private var authToken: String?
 
     init(connector: any WebSocketConnecting,
          deviceId: String,
          baseURLProvider: @escaping () -> URL? = { ProviderBaseURLStore.baseURL },
          userIdProvider: @escaping () -> String? = { nil },
+         streamAPIClient: StreamAPIClient? = nil,
          encoder: JSONEncoder = JSONEncoder(),
          decoder: JSONDecoder = JSONDecoder()) {
         self.connector = connector
@@ -225,11 +228,56 @@ final class ProviderChatService: ChatServicing {
         self.userIdProvider = userIdProvider
         self.encoder = encoder
         self.decoder = decoder
+        self.streamAPIClient = streamAPIClient ?? StreamAPIClient(baseURLProvider: baseURLProvider)
     }
 
     var incomingMessages: AsyncStream<Message> { messageBroadcaster.stream() }
     var connectionState: AsyncStream<ConnectionState> { stateBroadcaster.stream(initial: lastConnectionState) }
     var serviceEvents: AsyncStream<ChatServiceEvent> { serviceEventBroadcaster.stream() }
+
+    func fetchStreams() async throws -> [StreamSession] {
+        do {
+            return try await streamAPIClient.fetchStreams(token: authToken)
+        } catch {
+            throw mapStreamAPIError(error)
+        }
+    }
+
+    func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
+        do {
+            return try await streamAPIClient.createStream(
+                displayName: displayName,
+                idempotencyKey: idempotencyKey,
+                token: authToken
+            )
+        } catch {
+            throw mapStreamAPIError(error)
+        }
+    }
+
+    func renameStream(sessionKey: String, displayName: String) async throws -> StreamSession {
+        do {
+            return try await streamAPIClient.renameStream(
+                sessionKey: sessionKey,
+                displayName: displayName,
+                token: authToken
+            )
+        } catch {
+            throw mapStreamAPIError(error)
+        }
+    }
+
+    func deleteStream(sessionKey: String, idempotencyKey: String?) async throws -> String {
+        do {
+            return try await streamAPIClient.deleteStream(
+                sessionKey: sessionKey,
+                idempotencyKey: idempotencyKey,
+                token: authToken
+            )
+        } catch {
+            throw mapStreamAPIError(error)
+        }
+    }
 
     func connect(token: String, lastMessageId: String?) async throws {
         if isConnecting {
@@ -257,6 +305,7 @@ final class ProviderChatService: ChatServicing {
 
         do {
             try await awaitAuthResult(client: client, token: token, lastMessageId: lastMessageId)
+            authToken = token
         } catch {
             logger.info("state -> failed (auth timeout) error=\(error.localizedDescription, privacy: .public)")
             updateState(.failed(error))
@@ -279,6 +328,7 @@ final class ProviderChatService: ChatServicing {
         receiveTask = nil
         socket?.close(with: .normalClosure)
         socket = nil
+        authToken = nil
         if !pendingMessages.isEmpty {
             for (messageId, pending) in pendingMessages {
                 pending.retryTask?.cancel()
@@ -384,6 +434,14 @@ final class ProviderChatService: ChatServicing {
                 handleTyping(data: data)
             case "session_info":
                 handleSessionInfo(data: data)
+            case "stream_snapshot":
+                handleStreamSnapshot(data: data)
+            case "stream_created":
+                handleStreamCreated(data: data)
+            case "stream_updated":
+                handleStreamUpdated(data: data)
+            case "stream_deleted":
+                handleStreamDeleted(data: data)
             case "event":
                 handleEvent(data: data)
             default:
@@ -546,6 +604,38 @@ final class ProviderChatService: ChatServicing {
         default:
             logger.debug("Unknown event type: \(envelope.event, privacy: .public)")
         }
+    }
+
+    private func handleStreamSnapshot(data: Data) {
+        guard let payload = try? decoder.decode(StreamSnapshotPayload.self, from: data) else {
+            logger.warning("Failed to decode stream_snapshot payload")
+            return
+        }
+        emitServiceEvent(.streamSnapshot(payload.streams))
+    }
+
+    private func handleStreamCreated(data: Data) {
+        guard let payload = try? decoder.decode(StreamMutationPayload.self, from: data) else {
+            logger.warning("Failed to decode stream_created payload")
+            return
+        }
+        emitServiceEvent(.streamCreated(payload.stream))
+    }
+
+    private func handleStreamUpdated(data: Data) {
+        guard let payload = try? decoder.decode(StreamMutationPayload.self, from: data) else {
+            logger.warning("Failed to decode stream_updated payload")
+            return
+        }
+        emitServiceEvent(.streamUpdated(payload.stream))
+    }
+
+    private func handleStreamDeleted(data: Data) {
+        guard let payload = try? decoder.decode(StreamDeletedPayload.self, from: data) else {
+            logger.warning("Failed to decode stream_deleted payload")
+            return
+        }
+        emitServiceEvent(.streamDeleted(sessionKey: payload.sessionKey))
     }
 
     private func resolveSessionKey(from payload: TypingEventPayload) -> String? {
@@ -713,6 +803,16 @@ final class ProviderChatService: ChatServicing {
         case .failure(let error):
             continuation.resume(throwing: error)
         }
+    }
+
+    private func mapStreamAPIError(_ error: Swift.Error) -> Swift.Error {
+        if let streamError = error as? StreamAPIError {
+            return Error.serverError(code: streamError.code, message: streamError.message)
+        }
+        if let providerError = error as? Error {
+            return providerError
+        }
+        return error
     }
 
     private func awaitAuthResult(client: any WebSocketClient, token: String, lastMessageId: String?) async throws {

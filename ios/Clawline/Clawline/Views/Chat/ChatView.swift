@@ -104,7 +104,7 @@ struct ChatView: View {
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var focusRequestID = 0
     @State private var shouldRestoreFocusAfterPicker = false
-    @State private var scrollButtonStateByStream: [ChatStream: ScrollButtonState] = [:]
+    @State private var scrollButtonStateBySessionKey: [String: ScrollButtonState] = [:]
 
     init(viewModel: ChatViewModel, toastManager: ToastManager) {
         self._viewModel = Bindable(wrappedValue: viewModel)
@@ -126,6 +126,7 @@ struct ChatView: View {
         case attachmentMenu
         case expandedMessage(Message)
         case camera
+        case streamManager
 
         var id: String {
             switch self {
@@ -135,6 +136,8 @@ struct ChatView: View {
                 return "expandedMessage-\(message.id)"
             case .camera:
                 return "camera"
+            case .streamManager:
+                return "streamManager"
             }
         }
     }
@@ -146,29 +149,29 @@ struct ChatView: View {
         var bounceToken: Int = 0
     }
 
-    private func scrollButtonState(for stream: ChatStream) -> ScrollButtonState {
-        scrollButtonStateByStream[stream] ?? ScrollButtonState()
+    private func scrollButtonState(for sessionKey: String) -> ScrollButtonState {
+        scrollButtonStateBySessionKey[sessionKey] ?? ScrollButtonState()
     }
 
-    private func mutateScrollButtonState(for stream: ChatStream, _ mutate: (inout ScrollButtonState) -> Void) {
-        var state = scrollButtonState(for: stream)
+    private func mutateScrollButtonState(for sessionKey: String, _ mutate: (inout ScrollButtonState) -> Void) {
+        var state = scrollButtonState(for: sessionKey)
         mutate(&state)
-        scrollButtonStateByStream[stream] = state
+        scrollButtonStateBySessionKey[sessionKey] = state
     }
 
     private func handleMessageFlowScrollEvent(_ event: MessageFlowScrollEvent) {
         switch event {
-        case .isAtBottomChanged(let stream, let isAtBottom):
-            mutateScrollButtonState(for: stream) { state in
+        case .isAtBottomChanged(let sessionKey, let isAtBottom):
+            mutateScrollButtonState(for: sessionKey) { state in
                 state.isVisible = !isAtBottom
                 if isAtBottom {
                     state.unreadCount = 0
                     state.firstUnreadMessageId = nil
                 }
             }
-        case .didReceiveNewMessagesWhileScrolledUp(let stream, let newMessageIDs):
+        case .didReceiveNewMessagesWhileScrolledUp(let sessionKey, let newMessageIDs):
             guard let first = newMessageIDs.first else { return }
-            mutateScrollButtonState(for: stream) { state in
+            mutateScrollButtonState(for: sessionKey) { state in
                 state.isVisible = true
                 if state.firstUnreadMessageId == nil {
                     state.firstUnreadMessageId = first
@@ -176,13 +179,13 @@ struct ChatView: View {
                 state.unreadCount += newMessageIDs.count
                 state.bounceToken &+= 1
             }
-        case .didCrossFirstUnreadCenter(let stream, _):
-            mutateScrollButtonState(for: stream) { state in
+        case .didCrossFirstUnreadCenter(let sessionKey, _):
+            mutateScrollButtonState(for: sessionKey) { state in
                 state.unreadCount = 0
                 state.firstUnreadMessageId = nil
             }
-        case .didInvalidateFirstUnreadAnchor(let stream):
-            mutateScrollButtonState(for: stream) { state in
+        case .didInvalidateFirstUnreadAnchor(let sessionKey):
+            mutateScrollButtonState(for: sessionKey) { state in
                 state.unreadCount = 0
                 state.firstUnreadMessageId = nil
             }
@@ -338,28 +341,26 @@ struct ChatView: View {
             containerPadding: metrics.containerPadding
         )
 
-        let messageLayer: AnyView = viewModel.showsAdminStream
-            ? AnyView(
-                pagedStreamView(topInset: topInset, truncationBottomInset: truncationBottomInset)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: [.top, .bottom])
-            )
-            : AnyView(
-                messageList(
-                    topInset: topInset,
-                    truncationBottomInset: truncationBottomInset,
-                    channel: .personal
-                )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: [.top, .bottom])
-            )
+        let messageLayer: AnyView = AnyView(
+            pagedStreamView(topInset: topInset, truncationBottomInset: truncationBottomInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea(.container, edges: [.top, .bottom])
+        )
 
         ZStack(alignment: .top) {
-            // Paged stream view when a second server-provisioned session exists; otherwise single stream.
             messageLayer
                 // #31: fade out message content behind the system status bar (mask, not overlay tint).
                 .compositingGroup()
                 .mask(statusBarFadeMask(topInset: topInset))
+
+            if !viewModel.orderedSessionKeys.isEmpty {
+                StreamPageDotsView(
+                    sessionKeys: viewModel.orderedSessionKeys,
+                    activeSessionKey: viewModel.activeSessionKey,
+                    onTap: { activeSheet = .streamManager }
+                )
+                .padding(.top, topInset + 10)
+            }
 
             streamToastView(
                 geometry: geometry,
@@ -379,11 +380,11 @@ struct ChatView: View {
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
         }
-        .onChange(of: viewModel.activeStream) { _, newValue in
-            layoutCoordinator.setActiveStream(newValue)
+        .onChange(of: viewModel.activeSessionKey) { _, newValue in
+            layoutCoordinator.setActiveSessionKey(newValue)
         }
         .onAppear {
-            layoutCoordinator.setActiveStream(viewModel.activeStream)
+            layoutCoordinator.setActiveSessionKey(viewModel.activeSessionKey)
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
         }
@@ -407,8 +408,8 @@ struct ChatView: View {
 #if os(visionOS)
             // visionOS: keep the scroll-to-bottom button in the main SwiftUI overlay.
             // iOS/iPadOS: we pin it to the UIKit keyboardLayoutGuide via KeyboardPinnedContainerView.
-            let stream = viewModel.activeStream
-            let state = scrollButtonState(for: stream)
+            let sessionKey = viewModel.activeSessionKey
+            let state = scrollButtonState(for: sessionKey)
             let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
             let inputBarTopFromScreenBottom = keyboardInset + belowBarGap + resolvedInputHeight
             ScrollToBottomButton(
@@ -416,21 +417,21 @@ struct ChatView: View {
                 unreadCount: state.unreadCount,
                 bounceToken: state.bounceToken,
                 onTap: {
-                    let current = scrollButtonState(for: stream)
+                    let current = scrollButtonState(for: sessionKey)
                     if current.unreadCount > 0 {
                         if let firstUnread = current.firstUnreadMessageId {
-                            layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
-                            layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream, isUnreadTap: true)
+                            layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, sessionKey: sessionKey, animated: true)
+                            layoutCoordinator.flashMessage(messageId: firstUnread, sessionKey: sessionKey, isUnreadTap: true)
                         } else {
-                            layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                            layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
                         }
-                        mutateScrollButtonState(for: stream) { s in
+                        mutateScrollButtonState(for: sessionKey) { s in
                             s.unreadCount = 0
                             s.firstUnreadMessageId = nil
                         }
                         return
                     }
-                    layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                    layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
                 }
             )
             .padding(.bottom, inputBarTopFromScreenBottom + 12)
@@ -505,8 +506,8 @@ struct ChatView: View {
                                  belowBarGap: CGFloat,
                                  isKeyboardVisible: Bool,
                                  layoutKey: ChatLayoutKey) -> some View {
-        let stream = viewModel.activeStream
-        let state = scrollButtonState(for: stream)
+        let sessionKey = viewModel.activeSessionKey
+        let state = scrollButtonState(for: sessionKey)
         let scrollButtonGap: CGFloat = isKeyboardVisible ? belowBarGap : 12
         let scrollButtonView: AnyView = AnyView(
             ScrollToBottomButton(
@@ -514,26 +515,26 @@ struct ChatView: View {
                 unreadCount: state.unreadCount,
                 bounceToken: state.bounceToken,
                 onTap: {
-                    let current = scrollButtonState(for: stream)
+                    let current = scrollButtonState(for: sessionKey)
                     if current.unreadCount > 0 {
                         if let firstUnread = current.firstUnreadMessageId {
-                            let hasTarget = viewModel.messages(for: stream).contains(where: { $0.id == firstUnread })
+                            let hasTarget = viewModel.messages(for: sessionKey).contains(where: { $0.id == firstUnread })
                             if hasTarget {
-                                layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, channel: stream, animated: true)
-                                layoutCoordinator.flashMessage(messageId: firstUnread, channel: stream, isUnreadTap: true)
+                                layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, sessionKey: sessionKey, animated: true)
+                                layoutCoordinator.flashMessage(messageId: firstUnread, sessionKey: sessionKey, isUnreadTap: true)
                             } else {
-                                layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                                layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
                             }
                         } else {
-                            layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                            layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
                         }
-                        mutateScrollButtonState(for: stream) { s in
+                        mutateScrollButtonState(for: sessionKey) { s in
                             s.unreadCount = 0
                             s.firstUnreadMessageId = nil
                         }
                         return
                     }
-                    layoutCoordinator.scrollToBottom(channel: stream, animated: true)
+                    layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
                 }
             )
         )
@@ -561,8 +562,7 @@ struct ChatView: View {
                 content: $viewModel.inputContent,
                 selectionRange: $selectionRange,
                 pendingInsertions: $pendingInputInsertions,
-                placeholderText: viewModel.serverSessionKey(for: viewModel.activeStream)
-                    ?? viewModel.messageStorageKey(for: viewModel.activeStream),
+                placeholderText: viewModel.activeSessionDisplayName,
                 resetToken: viewModel.inputResetToken,
                 canSend: viewModel.canSend,
                 isSending: viewModel.isSending,
@@ -634,8 +634,8 @@ struct ChatView: View {
 
     private func messageList(topInset: CGFloat,
                              truncationBottomInset: CGFloat,
-                             channel: ChatStream) -> some View {
-        let state = scrollButtonState(for: channel)
+                             sessionKey: String) -> some View {
+        let state = scrollButtonState(for: sessionKey)
         let list = MessageFlowCollectionView(
             viewModel: viewModel,
             topInset: topInset,
@@ -647,7 +647,7 @@ struct ChatView: View {
                 activeSheet = .expandedMessage(message)
             },
             layoutCoordinator: layoutCoordinator,
-            channel: channel,
+            sessionKey: sessionKey,
             onScrollEvent: handleMessageFlowScrollEvent
         )
         // We manage keyboard avoidance manually inside the collection view.
@@ -702,56 +702,45 @@ struct ChatView: View {
                 }
             )
             #endif
+        case .streamManager:
+            StreamManagerSheet(viewModel: viewModel)
+                .presentationDetents([.medium, .large])
         }
     }
 
-    /// Paged TabView for horizontal swipe between streams (admin only)
+    /// Paged TabView for horizontal swipe between streams.
     @ViewBuilder
     private func pagedStreamView(topInset: CGFloat, truncationBottomInset: CGFloat) -> some View {
         TabView(selection: streamBinding) {
-            messageList(
-                topInset: topInset,
-                truncationBottomInset: truncationBottomInset,
-                channel: .personal
-            )
-                .background {
+            ForEach(viewModel.orderedSessionKeys, id: \.self) { sessionKey in
+                messageList(
+                    topInset: topInset,
+                    truncationBottomInset: truncationBottomInset,
+                    sessionKey: sessionKey
+                )
+                    .background {
 #if os(visionOS)
-                    Color.clear
+                        Color.clear
 #else
-                    ChatFlowTheme.pageBackground(colorScheme)
-                        .ignoresSafeArea()
-                        .overlay(NoiseOverlayView().ignoresSafeArea())
+                        ChatFlowTheme.pageBackground(colorScheme)
+                            .ignoresSafeArea()
+                            .overlay(NoiseOverlayView().ignoresSafeArea())
 #endif
-                }
-                .tag(ChatStream.personal)
-
-            messageList(
-                topInset: topInset,
-                truncationBottomInset: truncationBottomInset,
-                channel: .admin
-            )
-                .background {
-#if os(visionOS)
-                    Color.clear
-#else
-                    ChatFlowTheme.pageBackground(colorScheme)
-                        .ignoresSafeArea()
-                        .overlay(NoiseOverlayView().ignoresSafeArea())
-#endif
-                }
-                .tag(ChatStream.admin)
+                    }
+                    .tag(sessionKey)
+            }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .scrollContentBackground(.hidden)
         .background(Color.clear)
     }
 
-    /// Binding that syncs TabView selection with viewModel.activeStream
-    private var streamBinding: Binding<ChatStream> {
+    /// Binding that syncs TabView selection with viewModel.activeSessionKey.
+    private var streamBinding: Binding<String> {
         Binding(
-            get: { viewModel.activeStream },
-            set: { newStream in
-                guard newStream != viewModel.activeStream else { return }
+            get: { viewModel.activeSessionKey },
+            set: { newSessionKey in
+                guard newSessionKey != viewModel.activeSessionKey else { return }
 
                 // Haptic feedback
 #if !os(visionOS)
@@ -760,10 +749,9 @@ struct ChatView: View {
 #endif
 
                 // Switch stream and show toast
-                viewModel.setActiveStream(newStream)
-                let sessionKey = viewModel.messageStorageKey(for: newStream)
+                viewModel.setActiveSessionKey(newSessionKey)
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    streamToastManager.show(sessionKey: sessionKey)
+                    streamToastManager.show(sessionKey: newSessionKey)
                 }
             }
         )
@@ -1547,6 +1535,30 @@ private final class PreviewChatService: ChatServicing {
     func disconnect() {}
     func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String?) async throws {}
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {}
+    func fetchStreams() async throws -> [StreamSession] { [] }
+    func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
+        StreamSession(
+            sessionKey: "preview",
+            displayName: displayName,
+            kind: "custom",
+            orderIndex: 0,
+            isBuiltIn: false,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+    }
+    func renameStream(sessionKey: String, displayName: String) async throws -> StreamSession {
+        StreamSession(
+            sessionKey: sessionKey,
+            displayName: displayName,
+            kind: "custom",
+            orderIndex: 0,
+            isBuiltIn: false,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+    }
+    func deleteStream(sessionKey: String, idempotencyKey: String?) async throws -> String { sessionKey }
 }
 
 private struct AttachmentSourceSheet: View {
