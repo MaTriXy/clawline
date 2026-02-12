@@ -417,6 +417,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     var currentBottomInset: CGFloat = 0
     private var pendingScrollToBottomAttempts: Int = 0
     private var pendingScrollToBottomAnimated: Bool = false
+    // Allow layout/inset transitions to settle between retries so appended-message auto-scroll
+    // lands on the true bottom instead of an intermediate geometry snapshot.
+    private let scrollToBottomRetryDelay: DispatchTimeInterval = .milliseconds(160)
 
     /// Single source of truth for setting bottom content inset (driven by coordinator).
     func setBottomInset(_ totalBottomInset: CGFloat,
@@ -466,14 +469,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         NSLog("[KBTIMING] performPendingScrollToBottom remaining=%d", pendingScrollToBottomAttempts)
         let animated = pendingScrollToBottomAnimated
         pendingScrollToBottomAttempts -= 1
+        // Animate only the first hop; retries are precision corrections once geometry settles.
+        pendingScrollToBottomAnimated = false
         collectionView.layoutIfNeeded()
         scrollToBottom(animated: animated)
         if pendingScrollToBottomAttempts > 0 {
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + scrollToBottomRetryDelay) { [weak self] in
                 self?.performPendingScrollToBottomIfNeeded()
             }
-        } else {
-            pendingScrollToBottomAnimated = false
         }
     }
 
