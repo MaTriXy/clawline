@@ -195,6 +195,7 @@ final class ChatLayoutCoordinator {
             barHeight: currentBarHeight,
             previousBarHeight: lastAppliedBarHeight,
             isUserInteracting: list?.isUserInteracting ?? false,
+            isPinnedToBottomIntent: list?.isPinnedToBottomIntent ?? false,
             didJustStabilize: didJustStabilize,
             wasNearBottom: wasNearBottom,
             keyboardJustAppeared: keyboardJustAppeared
@@ -256,6 +257,7 @@ final class ChatLayoutCoordinator {
         barHeight: CGFloat,
         previousBarHeight: CGFloat,
         isUserInteracting: Bool,
+        isPinnedToBottomIntent: Bool,
         didJustStabilize: Bool,
         wasNearBottom: Bool,
         keyboardJustAppeared: Bool
@@ -303,7 +305,9 @@ final class ChatLayoutCoordinator {
             // If we were pinned near the bottom, keep the bottom anchored by adjusting contentOffset
             // by the inset delta; otherwise the scroll view can appear to have extra "bottom padding".
             if wasNearBottom && abs(insetDelta) > 0.5 {
-                scrollAction = .adjustOffset(delta: insetDelta)
+                // Pinned lists already apply this delta inside `setBottomInset`.
+                // Applying it again here can double-shift content downward.
+                scrollAction = isPinnedToBottomIntent ? .none : .adjustOffset(delta: insetDelta)
             } else {
                 scrollAction = .none
             }
@@ -374,7 +378,8 @@ final class ChatLayoutCoordinator {
         view.setBottomInset(targetInset)
         if isActive {
             let delta = targetInset - previousInset
-            if abs(delta) > 0.5 {
+            // Active pinned lists already self-correct in `setBottomInset`.
+            if abs(delta) > 0.5, !view.isPinnedToBottomIntent {
                 view.adjustContentOffsetForBottomInsetChange(delta: delta)
             }
         }
