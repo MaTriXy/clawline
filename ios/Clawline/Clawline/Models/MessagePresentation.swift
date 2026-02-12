@@ -942,13 +942,13 @@ enum MessagePresentationBuilder {
 
     private static func isTerminalSessionAttachment(_ attachment: Attachment) -> Bool {
         guard attachment.type == .document else { return false }
-        return attachment.mimeType?.lowercased() == TerminalSessionDescriptor.mimeType
+        return mimeTypeEquals(attachment.mimeType, expected: TerminalSessionDescriptor.mimeType)
     }
 
     private static func interactiveHTMLAttachments(from attachments: [Attachment]) -> [Attachment] {
         attachments.filter { attachment in
             guard attachment.type == .document else { return false }
-            return attachment.mimeType?.lowercased() == InteractiveHTMLDescriptor.mimeType
+            return mimeTypeEquals(attachment.mimeType, expected: InteractiveHTMLDescriptor.mimeType)
         }
     }
 
@@ -970,7 +970,7 @@ enum MessagePresentationBuilder {
 
     private static func decodeInteractiveHTMLDescriptor(from attachment: Attachment) -> InteractiveHTMLDescriptor? {
         guard attachment.type == .document,
-              attachment.mimeType?.lowercased() == InteractiveHTMLDescriptor.mimeType,
+              mimeTypeEquals(attachment.mimeType, expected: InteractiveHTMLDescriptor.mimeType),
               let data = attachment.data,
               !data.isEmpty else {
             return nil
@@ -1002,7 +1002,7 @@ enum MessagePresentationBuilder {
         guard !trimmed.isEmpty else { return false }
         guard looksLikeJSON(trimmed) else { return false }
         return fileAttachments.contains { attachment in
-            if let mime = attachment.mimeType?.lowercased() {
+            if let mime = normalizedMimeType(attachment.mimeType) {
                 if mime == "application/json" || mime == "text/json" || mime.hasSuffix("+json") {
                     return true
                 }
@@ -1020,6 +1020,17 @@ enum MessagePresentationBuilder {
             return true
         }
         return false
+    }
+
+    private static func normalizedMimeType(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let base = raw.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true).first
+        let trimmed = base?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func mimeTypeEquals(_ raw: String?, expected: String) -> Bool {
+        normalizedMimeType(raw) == expected
     }
 
     private static func extractURLs(from text: String) -> [URL] {

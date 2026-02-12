@@ -502,6 +502,73 @@ struct ChatFlowOrganicComplianceTests {
         }))
     }
 
+    @Test("Terminal bubbles: mime parameters still route terminal-session attachments")
+    func messagePresentationTerminalSessionAttachmentParsesWithMimeParameters() throws {
+        let descriptor = TerminalSessionDescriptor(
+            version: 1,
+            terminalSessionId: "ts_params",
+            title: "gateway logs",
+            provider: .init(baseUrl: "https://example.com", wsPath: "/ws/terminal"),
+            capabilities: .init(interactive: true, supportsBinaryFrames: true, supportsResize: true, supportsDetach: true),
+            auth: .init(mode: .chatToken, terminalAccessToken: nil),
+            expiresAtMs: 1_700_000_000_000
+        )
+        let data = try JSONEncoder().encode(descriptor)
+        let terminalAttachment = Clawline.Attachment(
+            id: "term2",
+            type: .document,
+            mimeType: "\(TerminalSessionDescriptor.mimeType); charset=utf-8",
+            data: data,
+            assetId: nil
+        )
+        let message = sampleMessage(content: "Live logs:", attachments: [terminalAttachment], sessionKey: SessionKey.clawlineMain(userId: "mike"))
+        let presentation = buildPresentation(message)
+
+        #expect(presentation.parts.contains(where: { part in
+            if case .terminalSession(let decoded) = part {
+                return decoded.terminalSessionId == "ts_params"
+            }
+            return false
+        }))
+        #expect(!presentation.parts.contains(where: { part in
+            if case .file(let attachment) = part {
+                return attachment.id == "term2"
+            }
+            return false
+        }))
+    }
+
+    @Test("Interactive HTML: mime parameters still route to interactive bubble part")
+    func messagePresentationInteractiveHTMLAttachmentParsesWithMimeParameters() throws {
+        let descriptor = InteractiveHTMLDescriptor(
+            version: 1,
+            html: "<html><body><h1>Hello</h1></body></html>",
+            metadata: .init(title: "Card", height: .auto, maxHeight: 320, backgroundColor: nil)
+        )
+        let data = try JSONEncoder().encode(descriptor)
+        let attachment = Clawline.Attachment(
+            id: "html1",
+            type: .document,
+            mimeType: "\(InteractiveHTMLDescriptor.mimeType); charset=utf-8",
+            data: data,
+            assetId: nil
+        )
+        let presentation = buildPresentation(sampleMessage(content: "", attachments: [attachment]))
+
+        #expect(presentation.parts.contains(where: { part in
+            if case .interactiveHTML(let decoded) = part {
+                return decoded.version == 1 && decoded.html.contains("Hello")
+            }
+            return false
+        }))
+        #expect(!presentation.parts.contains(where: { part in
+            if case .file(let fileAttachment) = part {
+                return fileAttachment.id == "html1"
+            }
+            return false
+        }))
+    }
+
     @Test("Doc §6: Word count strips markdown syntax")
     func wordCountStripsMarkdown() {
         let presentation = buildPresentation(sampleMessage(content: "**bold** _italic_ `code` text"))
