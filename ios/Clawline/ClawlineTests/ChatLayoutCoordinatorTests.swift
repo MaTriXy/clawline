@@ -34,6 +34,7 @@ struct ChatLayoutCoordinatorTests {
             barHeight: 44,
             previousBarHeight: 44,
             isUserInteracting: false,
+            isPinnedToBottomIntent: true,
             didJustStabilize: false,
             wasNearBottom: true,
             keyboardJustAppeared: true
@@ -65,6 +66,7 @@ struct ChatLayoutCoordinatorTests {
             barHeight: 44,
             previousBarHeight: 88,
             isUserInteracting: false,
+            isPinnedToBottomIntent: false,
             didJustStabilize: false,
             wasNearBottom: false,
             keyboardJustAppeared: false
@@ -95,6 +97,7 @@ struct ChatLayoutCoordinatorTests {
             barHeight: 44,
             previousBarHeight: 44,
             isUserInteracting: false,
+            isPinnedToBottomIntent: false,
             didJustStabilize: true,
             wasNearBottom: false,
             keyboardJustAppeared: false
@@ -125,9 +128,40 @@ struct ChatLayoutCoordinatorTests {
             barHeight: 44,
             previousBarHeight: 44,
             isUserInteracting: true,
+            isPinnedToBottomIntent: true,
             didJustStabilize: false,
             wasNearBottom: true,
             keyboardJustAppeared: true
+        )
+
+        #expect(transition.scrollAction == .none)
+    }
+
+    @Test("Inset decrease while pinned does not double-apply offset correction")
+    @MainActor
+    func pinnedInsetDecreaseSkipsExtraAdjust() {
+        let coordinator = ChatLayoutCoordinator()
+        let inputs = ChatLayoutInputs(
+            keyboardHeight: 300,
+            keyboardVisible: true,
+            isInputFocused: true,
+            keyboardAnimationDuration: 0.25,
+            keyboardAnimationCurve: .easeInOut,
+            safeAreaBottom: 0,
+            usesExternalKeyboardInsets: true
+        )
+        let transition = coordinator.computeTransition(
+            inputs: inputs,
+            previousInputs: inputs,
+            previousInset: 220,
+            targetInset: 180,
+            barHeight: 44,
+            previousBarHeight: 44,
+            isUserInteracting: false,
+            isPinnedToBottomIntent: true,
+            didJustStabilize: false,
+            wasNearBottom: true,
+            keyboardJustAppeared: false
         )
 
         #expect(transition.scrollAction == .none)

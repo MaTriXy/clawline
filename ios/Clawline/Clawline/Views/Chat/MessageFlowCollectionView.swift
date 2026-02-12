@@ -2127,6 +2127,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.isDragging || collectionView.isTracking
     }
 
+    var isPinnedToBottomIntent: Bool {
+        sbbState.isPinnedToBottomIntent
+    }
+
     private func fingerprint(for message: Message) -> Int {
         var hasher = Hasher()
         hasher.combine(message.content)
