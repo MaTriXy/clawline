@@ -25,25 +25,42 @@ final class ChatViewModel: ChatViewModelHosting {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     private let instanceId = UUID().uuidString
     private(set) var messages: [Message] = []
-    private(set) var activeStream: ChatStream = .personal
-    private var didRestoreActiveStream = false
+    private(set) var activeSessionKey: String = ""
+    private(set) var streamsBySessionKey: [String: StreamSession] = [:]
+    private(set) var orderedSessionKeys: [String] = []
+    private var syntheticSessionKeys: Set<String> = []
+    private var didRestoreActiveSessionKey = false
 
-    /// Returns messages for a specific stream (used by paged stream views)
-    func messages(for stream: ChatStream) -> [Message] {
-        let storageKey = storageKey(for: stream)
-        return sessionMessages[storageKey] ?? []
+    func messages(for sessionKey: String) -> [Message] {
+        sessionMessages[sessionKey] ?? []
     }
-    func serverSessionKey(for stream: ChatStream) -> String? {
-        return sessionKeyByStream[stream]
+
+    func stream(for sessionKey: String) -> StreamSession? {
+        streamsBySessionKey[sessionKey]
     }
-    func messageStorageKey(for stream: ChatStream) -> String {
-        storageKey(for: stream)
+
+    var orderedStreams: [StreamSession] {
+        orderedSessionKeys.compactMap { streamsBySessionKey[$0] }
     }
-    private func storageKey(for stream: ChatStream) -> String {
-        sessionKeyByStream[stream] ?? localStorageKey(for: stream)
+
+    var activeStream: ChatStream {
+        SessionRegistry.shared.stream(for: activeSessionKey)
     }
-    private func localStorageKey(for stream: ChatStream) -> String {
-        "local:\(stream.rawValue)"
+
+    func setActiveSessionKey(_ sessionKey: String) {
+        guard orderedSessionKeys.contains(sessionKey) else { return }
+        guard activeSessionKey != sessionKey else { return }
+        activeSessionKey = sessionKey
+        restoreLastServerMessageIdIfNeeded(for: sessionKey)
+        restoreCachedMessagesIfNeeded(for: sessionKey)
+        ensureSessionStorage(for: sessionKey)
+        messages = sessionMessages[sessionKey] ?? []
+        lastServerMessageId = lastServerMessageIdBySession[sessionKey]
+        persistActiveSessionKey(sessionKey)
+    }
+
+    var activeSessionDisplayName: String {
+        streamsBySessionKey[activeSessionKey]?.displayName ?? fallbackDisplayName(for: activeSessionKey)
     }
     private(set) var lastServerMessageId: String?
     var inputContent: NSAttributedString = NSAttributedString() {
@@ -56,7 +73,6 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var isSending: Bool = false
     private(set) var isAssistantTyping: Bool = false
     private(set) var typingSessionKey: String?
-    private(set) var typingStream: ChatStream?
     private(set) var connectionState: ConnectionState = .disconnected
     private(set) var connectionAlert: ConnectionAlertSeverity? {
         didSet {
@@ -66,10 +82,6 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var inputResetToken: Int = 0
     private(set) var error: String?
     private(set) var sendTask: Task<Void, Never>?
-    private var supportsSessionProvisioning: Bool = false
-    private var hasProvisionedSessions: Bool = false
-    private var pendingSendAfterProvisioning: Bool = false
-    private var pendingProvisionedSend: PendingProvisionedSend?
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
     private(set) var shouldMorphTypingIndicator: Bool = false
 
@@ -114,25 +126,28 @@ final class ChatViewModel: ChatViewModelHosting {
     private var pendingPersistPayloads: [String: [Message]] = [:]
     private let messageCacheLimit = 500
     private var restoredSessionKeys: Set<String> = []
-    private var sessionKeyByStream: [ChatStream: String] = [:]
-    private var dmScope: String?
-
-    var showsAdminStream: Bool {
-        guard let adminKey = sessionKeyByStream[.admin] else { return false }
-        guard let personalKey = sessionKeyByStream[.personal] else { return true }
-        return adminKey != personalKey
-    }
+    private var restoredStreamMetadataForUserId: String?
+    private var supportsSessionProvisioning = false
+    private var hasResolvedProvisioningCapability = true
+    private var hasReceivedSessionProvisioning = false
+    private var provisionedSessionKeys: Set<String> = []
+    private var pendingProvisionedSend: PendingProvisionedSend?
 
     private struct PendingLocalMessage: Equatable {
         let id: String
         let sessionKey: String
-        let stream: ChatStream
     }
 
     private struct PendingProvisionedSend {
         let content: String
         let attachments: [PendingAttachment]
-        let stream: ChatStream
+        let sessionKey: String
+    }
+
+    private enum SendProvisioningState {
+        case ready
+        case waiting
+        case unavailable
     }
 
     init(auth: any AuthManaging,
@@ -202,18 +217,17 @@ final class ChatViewModel: ChatViewModelHosting {
             if observationTask == nil {
                 startObserving()
             }
+            restoreStreamMetadataIfNeeded()
+            ensureDefaultActiveSessionIfNeeded()
             restoreLastServerMessageIdIfNeeded()
-            restoreActiveStreamIfNeeded()
-            let activeStorageKey = storageKey(for: activeStream)
-            restoreLastServerMessageIdIfNeeded(for: activeStorageKey)
-            restoreCachedMessagesIfNeeded(for: activeStorageKey)
-            let personalStorageKey = storageKey(for: .personal)
-            restoreLastServerMessageIdIfNeeded(for: personalStorageKey)
-            restoreCachedMessagesIfNeeded(for: personalStorageKey)
-            if auth.isAdmin {
-                let adminStorageKey = storageKey(for: .admin)
-                restoreLastServerMessageIdIfNeeded(for: adminStorageKey)
-                restoreCachedMessagesIfNeeded(for: adminStorageKey)
+            restoreActiveSessionKeyIfNeeded()
+            if !activeSessionKey.isEmpty {
+                restoreLastServerMessageIdIfNeeded(for: activeSessionKey)
+                restoreCachedMessagesIfNeeded(for: activeSessionKey)
+            }
+            for sessionKey in orderedSessionKeys where sessionKey != activeSessionKey {
+                restoreLastServerMessageIdIfNeeded(for: sessionKey)
+                restoreCachedMessagesIfNeeded(for: sessionKey)
             }
             switch connectionState {
             case .connected, .connecting, .reconnecting:
@@ -222,7 +236,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 scheduleReconnect(immediate: true, reason: .authStateChange)
             }
         } else {
-            didRestoreActiveStream = false
+            didRestoreActiveSessionKey = false
             observationTask?.cancel()
             observationTask = nil
             reconnectTask?.cancel()
@@ -231,20 +245,6 @@ final class ChatViewModel: ChatViewModelHosting {
             connectionStableTask = nil
             chatService.disconnect()
         }
-    }
-
-    func setActiveStream(_ stream: ChatStream) {
-        // Admin/DM surface is only selectable if the server provisioned a distinct session key for it.
-        if stream == .admin, sessionKeyByStream[.admin] == nil { return }
-        guard activeStream != stream else { return }
-        activeStream = stream
-        let activeStorageKey = storageKey(for: stream)
-        restoreLastServerMessageIdIfNeeded(for: activeStorageKey)
-        restoreCachedMessagesIfNeeded(for: activeStorageKey)
-        ensureSessionStorage(for: activeStorageKey)
-        messages = sessionMessages[activeStorageKey] ?? []
-        lastServerMessageId = lastServerMessageIdBySession[activeStorageKey]
-        persistActiveStream(stream)
     }
 
     func handleSceneDidBecomeActive() {
@@ -321,49 +321,56 @@ final class ChatViewModel: ChatViewModelHosting {
             return
         }
 
-        let clientId = "c_\(UUID().uuidString)"
-        activeClientMessageId = clientId
-
-        let stream = activeStream
-        if supportsSessionProvisioning,
-           (!hasProvisionedSessions || serverSessionKey(for: stream) == nil) {
-            pendingSendAfterProvisioning = true
-            pendingProvisionedSend = PendingProvisionedSend(
-                content: text,
-                attachments: pendingAttachments,
-                stream: stream
-            )
-            if stream != activeStream {
-                activeStream = stream
-            }
-            toastManager.show("Connecting to stream…")
+        ensureDefaultActiveSessionIfNeeded()
+        let outboundSessionKey = activeSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !outboundSessionKey.isEmpty else {
+            toastManager.show("No stream selected.")
             return
         }
 
+        switch sendProvisioningState(for: outboundSessionKey) {
+        case .ready:
+            beginSend(content: text, pendingAttachments: pendingAttachments, sessionKey: outboundSessionKey)
+        case .waiting:
+            pendingProvisionedSend = PendingProvisionedSend(
+                content: text,
+                attachments: pendingAttachments,
+                sessionKey: outboundSessionKey
+            )
+            toastManager.show("Connecting to stream…")
+        case .unavailable:
+            toastManager.show("This stream is unavailable. Switch streams and try again.")
+        }
+    }
+
+    private func beginSend(content: String,
+                           pendingAttachments: [PendingAttachment],
+                           sessionKey: String) {
+        let clientId = "c_\(UUID().uuidString)"
+        activeClientMessageId = clientId
+
         isSending = true  // Set immediately to prevent double-tap race condition
-        let storageKey = storageKey(for: stream)
-        let outboundSessionKey = serverSessionKey(for: stream)
         let placeholder = Message(
             id: clientId,
             role: .user,
-            content: text,
+            content: content,
             timestamp: Date(),
             streaming: false,
             attachments: makeDisplayAttachments(from: pendingAttachments),
             deviceId: deviceId,
-            sessionKey: storageKey
+            sessionKey: sessionKey
         )
         appendMessage(placeholder)
-        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: storageKey, stream: stream))
+        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
 
         error = nil
 
         sendTask = Task { [weak self] in
             await self?.performSend(
                 clientId: clientId,
-                content: text,
+                content: content,
                 pendingAttachments: pendingAttachments,
-                sessionKey: outboundSessionKey
+                sessionKey: sessionKey
             )
         }
     }
@@ -407,19 +414,18 @@ final class ChatViewModel: ChatViewModelHosting {
         setMessages(messageList, for: sessionKey)
 
         pendingLocalMessages.removeAll { $0.id == messageId }
-        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey, stream: message.stream))
+        pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
         messageFailures.removeValue(forKey: messageId)
 
         isSending = true
         activeClientMessageId = clientId
 
-        let outboundSessionKey = serverSessionKey(for: message.stream)
         sendTask = Task { [weak self] in
             await self?.performRetrySend(
                 clientId: clientId,
                 content: retryMessage.content,
                 attachments: retryMessage.attachments,
-                sessionKey: outboundSessionKey
+                sessionKey: sessionKey
             )
         }
     }
@@ -458,24 +464,79 @@ final class ChatViewModel: ChatViewModelHosting {
         clearInput()
         sessionMessages = [:]
         messages = []
-        activeStream = .personal
+        activeSessionKey = ""
+        streamsBySessionKey = [:]
+        orderedSessionKeys = []
+        syntheticSessionKeys = []
         pendingLocalMessages.removeAll()
         isAssistantTyping = false
         typingSessionKey = nil
-        typingStream = nil
         shouldMorphTypingIndicator = false
         connectionStableTask?.cancel()
         connectionStableTask = nil
-        supportsSessionProvisioning = false
-        hasProvisionedSessions = false
-        pendingSendAfterProvisioning = false
-        pendingProvisionedSend = nil
         restoredSessionKeys.removeAll()
+        restoredStreamMetadataForUserId = nil
+        resetSessionProvisioningState(clearPendingSend: true)
         clearMessageCache()
+        clearStreamMetadataCache()
     }
 
     func clearError() {
         error = nil
+    }
+
+    func canRenameStream(sessionKey: String) -> Bool {
+        guard let stream = streamsBySessionKey[sessionKey] else { return false }
+        return !stream.isBuiltIn && !syntheticSessionKeys.contains(sessionKey)
+    }
+
+    func canDeleteStream(sessionKey: String) -> Bool {
+        guard let stream = streamsBySessionKey[sessionKey] else { return false }
+        return !stream.isBuiltIn && !syntheticSessionKeys.contains(sessionKey)
+    }
+
+    func createStream(displayName: String) async {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            let stream = try await chatService.createStream(
+                displayName: trimmed,
+                idempotencyKey: Self.makeIdempotencyKey()
+            )
+            applyStreamUpsert(stream)
+            setActiveSessionKey(stream.sessionKey)
+        } catch {
+            toastManager.show(error.localizedDescription)
+        }
+    }
+
+    func renameStream(sessionKey: String, displayName: String) async {
+        guard canRenameStream(sessionKey: sessionKey) else { return }
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            let stream = try await chatService.renameStream(sessionKey: sessionKey, displayName: trimmed)
+            applyStreamUpsert(stream)
+        } catch {
+            toastManager.show(error.localizedDescription)
+        }
+    }
+
+    func deleteStream(sessionKey: String) async {
+        guard canDeleteStream(sessionKey: sessionKey) else { return }
+        do {
+            _ = try await chatService.deleteStream(
+                sessionKey: sessionKey,
+                idempotencyKey: Self.makeIdempotencyKey()
+            )
+            applyStreamDeletion(sessionKey: sessionKey)
+        } catch {
+            toastManager.show(error.localizedDescription)
+        }
+    }
+
+    private static func makeIdempotencyKey() -> String {
+        "req_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())"
     }
 
     private func handleIncoming(_ message: Message) {
@@ -502,16 +563,14 @@ final class ChatViewModel: ChatViewModelHosting {
 
         // Check if this is an assistant message arriving while typing indicator is visible.
         // If so, the UI should morph the typing indicator into this message instead of inserting new.
-        updateSessionKey(message.sessionKey, for: message.stream)
+        ensureStreamEntry(for: message.sessionKey)
 
         if message.role == .assistant,
            isAssistantTyping,
-           let typingStream,
-           typingStream == message.stream {
+           typingSessionKey == message.sessionKey {
             shouldMorphTypingIndicator = true
             isAssistantTyping = false
             self.typingSessionKey = nil
-            self.typingStream = nil
         } else {
             shouldMorphTypingIndicator = false
         }
@@ -535,37 +594,6 @@ final class ChatViewModel: ChatViewModelHosting {
 
         updateLastServerMessageIdIfNeeded(with: resolvedMessage)
         resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
-    }
-
-    private func updateSessionKey(_ sessionKey: String, for stream: ChatStream) {
-        let existing = sessionKeyByStream[stream]
-        guard existing != sessionKey else { return }
-
-        let localKey = localStorageKey(for: stream)
-        if let localMessages = sessionMessages[localKey] {
-            var merged = sessionMessages[sessionKey] ?? []
-            for message in localMessages where !merged.contains(where: { $0.id == message.id }) {
-                merged.append(message)
-            }
-            sessionMessages[sessionKey] = merged
-            sessionMessages.removeValue(forKey: localKey)
-        }
-
-        if let localLast = lastServerMessageIdBySession.removeValue(forKey: localKey) {
-            lastServerMessageIdBySession[sessionKey] = localLast
-        }
-
-        sessionKeyByStream[stream] = sessionKey
-
-        pendingLocalMessages = pendingLocalMessages.map { pending in
-            guard pending.stream == stream else { return pending }
-            return PendingLocalMessage(id: pending.id, sessionKey: sessionKey, stream: pending.stream)
-        }
-
-        if activeStream == stream {
-            messages = sessionMessages[sessionKey] ?? []
-            lastServerMessageId = lastServerMessageIdBySession[sessionKey]
-        }
     }
 
     private func resolveAssetAttachmentsIfNeeded(for message: Message) {
@@ -660,7 +688,6 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.sessionKey == message.sessionKey })
-            ?? pendingLocalMessages.firstIndex(where: { $0.stream == message.stream })
         guard let pendingIndex else {
             return false
         }
@@ -716,7 +743,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func setMessages(_ newMessages: [Message], for sessionKey: String) {
         sessionMessages[sessionKey] = newMessages
         persistMessages(newMessages, for: sessionKey)
-        if sessionKey == storageKey(for: activeStream) {
+        if sessionKey == activeSessionKey {
             messages = newMessages
             let total = newMessages.count
             let uniqueCount = Set(newMessages.map(\.id)).count
@@ -735,7 +762,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func updateLastServerMessageIdIfNeeded(with message: Message) {
         guard message.id.hasPrefix("s_") else { return }
         lastServerMessageIdBySession[message.sessionKey] = message.id
-        if message.sessionKey == storageKey(for: activeStream) {
+        if message.sessionKey == activeSessionKey {
             lastServerMessageId = message.id
         }
         persistLastServerMessageId(message.id, for: message.sessionKey)
@@ -779,34 +806,27 @@ final class ChatViewModel: ChatViewModelHosting {
             lastForegroundReconnectTrigger = nil
             isAssistantTyping = false
             typingSessionKey = nil
-            typingStream = nil
         case .disconnected:
             connectionStableTask?.cancel()
             connectionStableTask = nil
-            supportsSessionProvisioning = false
-            hasProvisionedSessions = false
-            pendingProvisionedSend = nil
+            resetSessionProvisioningState(clearPendingSend: true)
             beginConnectionAlert(message: "Not connected to provider.")
             scheduleReconnect(reason: .connectionStateDisconnected)
             isAssistantTyping = false
             typingSessionKey = nil
-            typingStream = nil
         case .failed(let err):
             connectionStableTask?.cancel()
             connectionStableTask = nil
-            supportsSessionProvisioning = false
-            hasProvisionedSessions = false
-            pendingProvisionedSend = nil
+            resetSessionProvisioningState(clearPendingSend: true)
             handleConnectionFailure(err)
             scheduleReconnect(reason: .connectionStateFailed)
             isAssistantTyping = false
             typingSessionKey = nil
-            typingStream = nil
         case .connecting, .reconnecting:
+            resetSessionProvisioningState(clearPendingSend: true)
             beginConnectionAlert(message: "Reconnecting…", shouldAnnounce: false)
             isAssistantTyping = false
             typingSessionKey = nil
-            typingStream = nil
         }
     }
 
@@ -1251,52 +1271,99 @@ final class ChatViewModel: ChatViewModelHosting {
         case .connectionInterrupted(let reason):
             beginConnectionAlert(message: reason ?? "Connection interrupted.")
         case .userInfo(let info):
-            let wasAdmin = auth.isAdmin
             auth.updateAdminStatus(info.isAdmin)
-            if info.isAdmin {
-                let adminStorageKey = storageKey(for: .admin)
-                restoreCachedMessagesIfNeeded(for: adminStorageKey)
-                ensureSessionStorage(for: adminStorageKey)
-                if !wasAdmin {
-                    toastManager.show("DM channel unlocked")
-                }
-                if activeStream != .admin, persistedStream() == .admin {
-                    setActiveStream(.admin)
-                }
-            } else if wasAdmin {
-                toastManager.show("DM access revoked")
-                if activeStream == .admin {
-                    setActiveStream(.personal)
-                }
-            }
         case .typingStateChanged(let isTyping, let sessionKey):
-            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) sessionKey=\(sessionKey, privacy: .public) activeStream=\(self.activeStream.rawValue, privacy: .public)")
-            // Track which session has the typing indicator
-            // (used by paged TabView to show indicator only on the correct page)
+            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) sessionKey=\(sessionKey, privacy: .public) activeSessionKey=\(self.activeSessionKey, privacy: .public)")
+            ensureStreamEntry(for: sessionKey)
             if isTyping {
-                let stream = SessionKey.stream(for: sessionKey)
-                updateSessionKey(sessionKey, for: stream)
                 self.isAssistantTyping = true
                 self.typingSessionKey = sessionKey
-                self.typingStream = stream
             } else if self.typingSessionKey == sessionKey {
                 // Only clear if the stop event is for the same session we're tracking
                 self.isAssistantTyping = false
                 self.typingSessionKey = nil
-                self.typingStream = nil
             }
+        case .streamSnapshot(let streams):
+            hasResolvedProvisioningCapability = true
+            supportsSessionProvisioning = true
+            hasReceivedSessionProvisioning = true
+            provisionedSessionKeys = Set(streams.map(\.sessionKey))
+            applyStreamSnapshot(streams)
+            attemptPendingProvisionedSendIfPossible()
+        case .streamCreated(let stream):
+            hasResolvedProvisioningCapability = true
+            supportsSessionProvisioning = true
+            hasReceivedSessionProvisioning = true
+            provisionedSessionKeys.insert(stream.sessionKey)
+            applyStreamUpsert(stream)
+            attemptPendingProvisionedSendIfPossible()
+        case .streamUpdated(let stream):
+            applyStreamUpsert(stream)
+        case .streamDeleted(let sessionKey):
+            provisionedSessionKeys.remove(sessionKey)
+            applyStreamDeletion(sessionKey: sessionKey)
+            attemptPendingProvisionedSendIfPossible()
         case .sessionProvisioningAvailable(let supported):
+            hasResolvedProvisioningCapability = true
             supportsSessionProvisioning = supported
+            attemptPendingProvisionedSendIfPossible()
         case .sessionInfo(let info):
-            applySessionInfo(info)
+            hasResolvedProvisioningCapability = true
+            supportsSessionProvisioning = true
+            hasReceivedSessionProvisioning = true
+            provisionedSessionKeys = Set(info.sessionKeys)
+            attemptPendingProvisionedSendIfPossible()
         }
     }
 
-    private func streamDefaultsKey() -> String {
-        if let userId = auth.currentUserId, !userId.isEmpty {
-            return "clawline.lastStream.\(userId)"
+    private func sendProvisioningState(for sessionKey: String) -> SendProvisioningState {
+        if hasReceivedSessionProvisioning {
+            return provisionedSessionKeys.contains(sessionKey) ? .ready : .unavailable
         }
-        return "clawline.lastStream"
+        if supportsSessionProvisioning {
+            return .waiting
+        }
+        if connectionState == .connected && !hasResolvedProvisioningCapability {
+            return .waiting
+        }
+        return .ready
+    }
+
+    private func attemptPendingProvisionedSendIfPossible() {
+        guard !isSending else { return }
+        guard let pending = pendingProvisionedSend else { return }
+
+        switch sendProvisioningState(for: pending.sessionKey) {
+        case .ready:
+            pendingProvisionedSend = nil
+            beginSend(
+                content: pending.content,
+                pendingAttachments: pending.attachments,
+                sessionKey: pending.sessionKey
+            )
+        case .waiting:
+            break
+        case .unavailable:
+            pendingProvisionedSend = nil
+            toastManager.show("This stream is unavailable. Switch streams and try again.")
+        }
+    }
+
+    private func resetSessionProvisioningState(clearPendingSend: Bool) {
+        supportsSessionProvisioning = false
+        hasResolvedProvisioningCapability = false
+        hasReceivedSessionProvisioning = false
+        provisionedSessionKeys.removeAll()
+        if clearPendingSend {
+            pendingProvisionedSend = nil
+        }
+    }
+
+    private func activeSessionDefaultsKey() -> String {
+        if let userId = auth.currentUserId, !userId.isEmpty {
+            return "clawline.lastSessionKey.\(userId)"
+        }
+        return "clawline.lastSessionKey"
     }
 
     private func lastServerMessageDefaultsKey(for sessionKey: String) -> String {
@@ -1320,9 +1387,9 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func restoreLastServerMessageIdIfNeeded() {
         guard lastServerMessageId == nil else { return }
-        let sessionKey = storageKey(for: activeStream)
-        restoreLastServerMessageIdIfNeeded(for: sessionKey)
-        lastServerMessageId = lastServerMessageIdBySession[sessionKey]
+        guard !activeSessionKey.isEmpty else { return }
+        restoreLastServerMessageIdIfNeeded(for: activeSessionKey)
+        lastServerMessageId = lastServerMessageIdBySession[activeSessionKey]
     }
 
     private func restoreLastServerMessageIdIfNeeded(for sessionKey: String) {
@@ -1390,7 +1457,7 @@ final class ChatViewModel: ChatViewModelHosting {
                     self.setMessages(filtered, for: sessionKey)
                     let cachedLast = self.lastServerMessageId(from: filtered)
                     self.lastServerMessageIdBySession[sessionKey] = cachedLast
-                    if self.storageKey(for: self.activeStream) == sessionKey {
+                    if self.activeSessionKey == sessionKey {
                         self.lastServerMessageId = cachedLast
                     }
                     self.persistLastServerMessageId(cachedLast, for: sessionKey)
@@ -1404,7 +1471,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func clearCursor(for sessionKey: String) {
-        if self.storageKey(for: self.activeStream) == sessionKey {
+        if self.activeSessionKey == sessionKey {
             self.lastServerMessageId = nil
         }
         self.lastServerMessageIdBySession.removeValue(forKey: sessionKey)
@@ -1458,90 +1525,265 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    private func persistActiveStream(_ stream: ChatStream) {
-        streamDefaults.set(stream.rawValue, forKey: streamDefaultsKey())
+    private func persistActiveSessionKey(_ sessionKey: String) {
+        streamDefaults.set(sessionKey, forKey: activeSessionDefaultsKey())
     }
 
-    private func persistedStream() -> ChatStream? {
-        if let raw = streamDefaults.string(forKey: streamDefaultsKey()) {
-            return ChatStream(rawValue: raw)
+    private func persistedActiveSessionKey() -> String? {
+        if let stored = streamDefaults.string(forKey: activeSessionDefaultsKey()),
+           !stored.isEmpty {
+            return stored
         }
         let legacyKey = auth.currentUserId.map { "clawline.lastChannel.\($0)" } ?? "clawline.lastChannel"
-        if let raw = streamDefaults.string(forKey: legacyKey) {
-            streamDefaults.set(raw, forKey: streamDefaultsKey())
-            return ChatStream(rawValue: raw)
+        if let raw = streamDefaults.string(forKey: legacyKey),
+           let legacyStream = ChatStream(rawValue: raw),
+           let migrated = preferredSessionKey(for: legacyStream) {
+            streamDefaults.set(migrated, forKey: activeSessionDefaultsKey())
+            return migrated
         }
         return nil
     }
 
-    private func restoreActiveStreamIfNeeded() {
-        guard !didRestoreActiveStream else { return }
-        didRestoreActiveStream = true
-        guard let stored = persistedStream() else { return }
-        setActiveStream(stored)
+    private func restoreActiveSessionKeyIfNeeded() {
+        guard !didRestoreActiveSessionKey else { return }
+        didRestoreActiveSessionKey = true
+        guard let stored = persistedActiveSessionKey() else { return }
+        if orderedSessionKeys.contains(stored) {
+            setActiveSessionKey(stored)
+        }
     }
 
-    private func applySessionInfo(_ info: SessionInfo) {
-        hasProvisionedSessions = !info.sessionKeys.isEmpty
-        dmScope = info.dmScope
+    private func preferredSessionKey(for stream: ChatStream) -> String? {
+        let ordered = orderedStreams
+        switch stream {
+        case .personal:
+            return streamMainSessionKey() ?? ordered.first?.sessionKey
+        case .admin:
+            return ordered.first(where: { $0.kind == "dm" || $0.kind == "global_dm" })?.sessionKey
+        }
+    }
 
-        let keys = info.sessionKeys
-        let globalKey = SessionKey.admin
+    func setActiveStream(_ stream: ChatStream) {
+        guard let sessionKey = preferredSessionKey(for: stream) else { return }
+        setActiveSessionKey(sessionKey)
+    }
 
-        // Session keys are opaque; do not parse. The only key we can reliably identify without
-        // relying on server ordering is the Clawline-owned Main key.
-        let userId = (info.userId ?? auth.currentUserId ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let expectedMainKey = userId.isEmpty ? nil : SessionKey.clawlineMain(userId: userId)
-        let personalKey = expectedMainKey.flatMap { keys.contains($0) ? $0 : nil }
-            ?? keys.first(where: { $0 != globalKey })
-            ?? keys.first
+    private func streamMainSessionKey() -> String? {
+        if let main = orderedStreams.first(where: { $0.kind == "main" })?.sessionKey {
+            return main
+        }
+        if let userId = auth.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !userId.isEmpty {
+            return SessionKey.clawlineMain(userId: userId)
+        }
+        return nil
+    }
 
-        // This client has two chat surfaces:
-        // - Personal: Main stream (always)
-        // - Admin/DM: Global operator session (admins) OR per-user DM session (non-global dmScope)
-        var adminKey: String?
-        if (info.isAdmin ?? false), keys.contains(globalKey) {
-            adminKey = globalKey
-        } else if (info.dmScope ?? "") != "main" {
-            adminKey = keys.first(where: { $0 != personalKey && $0 != globalKey })
+    private func ensureDefaultActiveSessionIfNeeded() {
+        if activeSessionKey.isEmpty {
+            if let main = streamMainSessionKey() {
+                ensureStreamEntry(for: main)
+                activeSessionKey = main
+            } else if let first = orderedSessionKeys.first {
+                activeSessionKey = first
+            }
+            if !activeSessionKey.isEmpty {
+                ensureSessionStorage(for: activeSessionKey)
+                messages = sessionMessages[activeSessionKey] ?? []
+                lastServerMessageId = lastServerMessageIdBySession[activeSessionKey]
+            }
+        }
+    }
+
+    private func ensureStreamEntry(for sessionKey: String) {
+        guard !sessionKey.isEmpty else { return }
+        guard streamsBySessionKey[sessionKey] == nil else { return }
+        let synthesized = StreamSession(
+            sessionKey: sessionKey,
+            displayName: fallbackDisplayName(for: sessionKey),
+            kind: "custom",
+            orderIndex: nextSyntheticOrderIndex(),
+            isBuiltIn: false,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        streamsBySessionKey[sessionKey] = synthesized
+        syntheticSessionKeys.insert(sessionKey)
+        recalculateOrderedSessionKeys()
+        SessionRegistry.shared.upsert(synthesized)
+        ensureSessionStorage(for: sessionKey)
+    }
+
+    private func applyStreamSnapshot(_ streams: [StreamSession]) {
+        var byKey: [String: StreamSession] = Dictionary(uniqueKeysWithValues: streams.map { ($0.sessionKey, $0) })
+        for (sessionKey, cachedMessages) in sessionMessages
+            where byKey[sessionKey] == nil && !cachedMessages.isEmpty {
+            byKey[sessionKey] = StreamSession(
+                sessionKey: sessionKey,
+                displayName: fallbackDisplayName(for: sessionKey),
+                kind: "custom",
+                orderIndex: nextSyntheticOrderIndex(from: byKey.values),
+                isBuiltIn: false,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+        }
+        let serverKeys = Set(streams.map(\.sessionKey))
+        syntheticSessionKeys = Set(byKey.keys).subtracting(serverKeys)
+        streamsBySessionKey = byKey
+        recalculateOrderedSessionKeys()
+        for sessionKey in orderedSessionKeys {
+            ensureSessionStorage(for: sessionKey)
+            restoreLastServerMessageIdIfNeeded(for: sessionKey)
+            restoreCachedMessagesIfNeeded(for: sessionKey)
+        }
+        restoreActiveSessionKeyIfNeeded()
+        ensureDefaultActiveSessionIfNeeded()
+        if !orderedSessionKeys.contains(activeSessionKey) {
+            applyStreamDeletion(sessionKey: activeSessionKey)
+        } else {
+            messages = sessionMessages[activeSessionKey] ?? []
+            lastServerMessageId = lastServerMessageIdBySession[activeSessionKey]
+        }
+        SessionRegistry.shared.replace(with: orderedStreams)
+        persistStreamMetadata()
+    }
+
+    private func applyStreamUpsert(_ stream: StreamSession) {
+        streamsBySessionKey[stream.sessionKey] = stream
+        syntheticSessionKeys.remove(stream.sessionKey)
+        recalculateOrderedSessionKeys()
+        ensureSessionStorage(for: stream.sessionKey)
+        restoreLastServerMessageIdIfNeeded(for: stream.sessionKey)
+        restoreCachedMessagesIfNeeded(for: stream.sessionKey)
+        ensureDefaultActiveSessionIfNeeded()
+        SessionRegistry.shared.upsert(stream)
+        persistStreamMetadata()
+    }
+
+    private func applyStreamDeletion(sessionKey: String) {
+        streamsBySessionKey.removeValue(forKey: sessionKey)
+        syntheticSessionKeys.remove(sessionKey)
+        recalculateOrderedSessionKeys()
+        sessionMessages.removeValue(forKey: sessionKey)
+        lastServerMessageIdBySession.removeValue(forKey: sessionKey)
+        persistLastServerMessageId(nil, for: sessionKey)
+        persistMessages([], for: sessionKey)
+        pendingLocalMessages.removeAll { $0.sessionKey == sessionKey }
+        if typingSessionKey == sessionKey {
+            typingSessionKey = nil
+            isAssistantTyping = false
         }
 
-        if adminKey == personalKey { adminKey = nil }
-
-        var sessions: [ChatStream: String] = [:]
-        if let personalKey { sessions[.personal] = personalKey }
-        if let adminKey { sessions[.admin] = adminKey }
-        sessionKeyByStream = sessions
-        SessionRegistry.shared.update(personal: personalKey, admin: adminKey)
-
-        // Ensure storage exists for the provisioned sessions.
-        if let personalKey { ensureSessionStorage(for: personalKey) }
-        if let adminKey { ensureSessionStorage(for: adminKey) }
-
-        // Restore persisted cursor + cached messages once we know the real server session keys.
-        if let personalKey {
-            restoreLastServerMessageIdIfNeeded(for: personalKey)
-            restoreCachedMessagesIfNeeded(for: personalKey)
+        if activeSessionKey == sessionKey {
+            let fallback = streamMainSessionKey().flatMap { orderedSessionKeys.contains($0) ? $0 : nil }
+                ?? orderedSessionKeys.first
+                ?? streamMainSessionKey()
+            if let fallback {
+                ensureStreamEntry(for: fallback)
+                setActiveSessionKey(fallback)
+            } else {
+                activeSessionKey = ""
+                messages = []
+                lastServerMessageId = nil
+            }
+        } else if !activeSessionKey.isEmpty {
+            messages = sessionMessages[activeSessionKey] ?? []
+            lastServerMessageId = lastServerMessageIdBySession[activeSessionKey]
         }
-        if let adminKey {
-            restoreLastServerMessageIdIfNeeded(for: adminKey)
-            restoreCachedMessagesIfNeeded(for: adminKey)
-        }
+        SessionRegistry.shared.remove(sessionKey: sessionKey)
+        persistStreamMetadata()
+    }
 
-        // If the current stream is no longer available, fall back to personal.
-        if activeStream == .admin, sessions[.admin] == nil {
-            setActiveStream(.personal)
-        } else if let sessionKey = sessions[activeStream] {
-            messages = sessionMessages[sessionKey] ?? []
-            lastServerMessageId = lastServerMessageIdBySession[sessionKey]
-        }
+    private func recalculateOrderedSessionKeys() {
+        orderedSessionKeys = streamsBySessionKey.values
+            .sorted { lhs, rhs in
+                if lhs.orderIndex == rhs.orderIndex {
+                    return lhs.sessionKey < rhs.sessionKey
+                }
+                return lhs.orderIndex < rhs.orderIndex
+            }
+            .map(\.sessionKey)
+    }
 
-        if pendingSendAfterProvisioning, let pending = pendingProvisionedSend {
-            pendingSendAfterProvisioning = false
-            pendingProvisionedSend = nil
-            inputContent = NSAttributedString(string: pending.content)
-            stageAttachments(pending.attachments)
-            send()
+    private func nextSyntheticOrderIndex(from streams: Dictionary<String, StreamSession>.Values? = nil) -> Int {
+        let values = streams ?? streamsBySessionKey.values
+        let maxOrder = values.map(\.orderIndex).max() ?? -1
+        return maxOrder + 1
+    }
+
+    private func fallbackDisplayName(for sessionKey: String) -> String {
+        guard let tail = sessionKey.split(separator: ":").last else {
+            return sessionKey
+        }
+        return String(tail)
+    }
+
+    private func streamMetadataCacheDirectoryURL() -> URL? {
+        let fileManager = FileManager.default
+        guard let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let directoryURL = baseURL
+            .appendingPathComponent("Clawline", isDirectory: true)
+            .appendingPathComponent("StreamCache", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        } catch {
+            logger.error("stream cache create dir failed error=\(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        return directoryURL
+    }
+
+    private func streamMetadataCacheURL(for userId: String) -> URL? {
+        guard let dir = streamMetadataCacheDirectoryURL() else { return nil }
+        let filename = safeFilename(for: userId)
+        return dir.appendingPathComponent("\(filename).json")
+    }
+
+    private func restoreStreamMetadataIfNeeded() {
+        guard let userId = auth.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !userId.isEmpty else { return }
+        guard restoredStreamMetadataForUserId != userId else { return }
+        restoredStreamMetadataForUserId = userId
+        guard let url = streamMetadataCacheURL(for: userId),
+              let data = try? Data(contentsOf: url) else {
+            return
+        }
+        let decoder = JSONDecoder()
+        if let streams = try? decoder.decode([StreamSession].self, from: data) {
+            streamsBySessionKey = Dictionary(uniqueKeysWithValues: streams.map { ($0.sessionKey, $0) })
+            recalculateOrderedSessionKeys()
+            SessionRegistry.shared.replace(with: orderedStreams)
+        }
+    }
+
+    private func persistStreamMetadata() {
+        guard let userId = auth.currentUserId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !userId.isEmpty,
+              let url = streamMetadataCacheURL(for: userId) else { return }
+        let payload = orderedStreams
+        Task.detached {
+            let encoder = JSONEncoder()
+            do {
+                let data = try encoder.encode(payload)
+                try data.write(to: url, options: [.atomic])
+            } catch {
+                let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
+                logger.error("stream cache write failed userId=\(userId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    private func clearStreamMetadataCache() {
+        let fileManager = FileManager.default
+        guard let directoryURL = streamMetadataCacheDirectoryURL() else { return }
+        guard let contents = try? fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for fileURL in contents {
+            try? fileManager.removeItem(at: fileURL)
         }
     }
 
@@ -1610,7 +1852,8 @@ final class ChatViewModel: ChatViewModelHosting {
         }
         isSending = false
 
-        let sessionKey = resolvedSessionKey ?? storageKey(for: activeStream)
+        ensureDefaultActiveSessionIfNeeded()
+        let sessionKey = resolvedSessionKey ?? activeSessionKey
         let ack = Message(
             id: "s_no_reply_\(UUID().uuidString)",
             role: .assistant,
@@ -1689,7 +1932,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     @MainActor
     private func connectionSnapshot() -> (token: String?, lastMessageId: String?) {
-        let activeKey = storageKey(for: activeStream)
+        let activeKey = activeSessionKey
         let cursor = lastServerMessageIdBySession[activeKey] ?? lastServerMessageId
         return (auth.token, cursor)
     }

@@ -3,7 +3,7 @@ import UIKit
 import Testing
 @testable import Clawline
 
-private let personalSessionKey = "server:personal"
+private let personalSessionKey = SessionKey.clawlineMain(userId: "user")
 private let adminSessionKey = SessionKey.admin
 
 struct ChatViewModelTests {
@@ -79,7 +79,7 @@ struct ChatViewModelTests {
 
         await viewModel.onAppear()
 
-        let sessionKey = "test:\(UUID().uuidString)"
+        let sessionKey = personalSessionKey
         let messageId = "s_stream"
         chatService.emit(
             Message(
@@ -429,6 +429,10 @@ struct ChatViewModelTests {
         auth.storeCredentials(token: "jwt", userId: "user")
         auth.updateAdminStatus(true)
         let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: adminSessionKey, displayName: "Admin", kind: "global_dm", orderIndex: 1, isBuiltIn: true),
+        ]
         // Ensure async streams are initialized so early emits buffer reliably.
         _ = chatService.incomingMessages
         _ = chatService.connectionState
@@ -445,12 +449,7 @@ struct ChatViewModelTests {
         defer { viewModel.onDisappear() }
 
         await resetViewModelForTest(viewModel, auth: auth)
-        chatService.emitServiceEvent(.sessionInfo(SessionInfo(
-            userId: "user",
-            isAdmin: true,
-            dmScope: nil,
-            sessionKeys: [personalSessionKey, adminSessionKey]
-        )))
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
         try await Task.sleep(for: .milliseconds(30))
         chatService.emit(
             Message(
@@ -466,7 +465,7 @@ struct ChatViewModelTests {
         )
         try await Task.sleep(for: .milliseconds(30))
 
-        viewModel.setActiveStream(.admin)
+        viewModel.setActiveSessionKey(adminSessionKey)
         viewModel.inputContent = NSAttributedString(string: "Admin ping")
         viewModel.send()
         try await Task.sleep(for: .milliseconds(30))
@@ -474,13 +473,12 @@ struct ChatViewModelTests {
         #expect(chatService.lastSessionKey == adminSessionKey)
     }
 
-    @Test("Incoming messages route to matching stream")
+    @Test("Send waits for server session provisioning before dispatch")
     @MainActor
-    func incomingMessagesRoutePerStream() async throws {
+    func sendWaitsForSessionProvisioning() async throws {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
-        auth.updateAdminStatus(true)
         let chatService = TestChatService()
         let viewModel = ChatViewModel(
             auth: auth,
@@ -493,7 +491,206 @@ struct ChatViewModelTests {
         )
         defer { viewModel.onDisappear() }
 
-        await resetViewModelForTest(viewModel, auth: auth)
+        await viewModel.onAppear()
+        chatService.emitConnectionState(.connected)
+        for _ in 0..<50 {
+            if viewModel.connectionState == .connected { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
+        try await Task.sleep(for: .milliseconds(20))
+
+        viewModel.inputContent = NSAttributedString(string: "Wait for provisioning")
+        viewModel.send()
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(chatService.lastSentId == nil)
+
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey]
+            )
+        ))
+
+        for _ in 0..<50 {
+            if chatService.lastSentId != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(chatService.lastSessionKey == personalSessionKey)
+    }
+
+    @Test("Send blocks stale synthetic session keys after provisioning")
+    @MainActor
+    func sendBlocksStaleSyntheticSessionKey() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitConnectionState(.connected)
+        for _ in 0..<50 {
+            if viewModel.connectionState == .connected { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let staleKey = "agent:main:clawline:user:s_deadbeef"
+        chatService.emit(
+            Message(
+                id: "s_seed_stale",
+                role: .assistant,
+                content: "stale seed",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: staleKey
+            )
+        )
+        for _ in 0..<50 {
+            if viewModel.orderedSessionKeys.contains(staleKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        viewModel.setActiveSessionKey(staleKey)
+
+        chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
+        try await Task.sleep(for: .milliseconds(20))
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey]
+            )
+        ))
+        try await Task.sleep(for: .milliseconds(20))
+
+        viewModel.inputContent = NSAttributedString(string: "Do not send stale")
+        viewModel.send()
+        try await Task.sleep(for: .milliseconds(40))
+
+        #expect(chatService.lastSentId == nil)
+        #expect(toastManager.debugMessages.contains("This stream is unavailable. Switch streams and try again."))
+    }
+
+    @Test("Pending send keeps target session while stream switching")
+    @MainActor
+    func pendingSendKeepsTargetSessionDuringSwitch() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitConnectionState(.connected)
+        for _ in 0..<50 {
+            if viewModel.connectionState == .connected { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let customKey = "agent:main:clawline:user:s_abcd1234"
+        chatService.emit(
+            Message(
+                id: "s_seed_custom",
+                role: .assistant,
+                content: "custom seed",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: customKey
+            )
+        )
+        for _ in 0..<50 {
+            if viewModel.orderedSessionKeys.contains(customKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        viewModel.setActiveSessionKey(customKey)
+        #expect(viewModel.activeSessionKey == customKey)
+
+        chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
+        try await Task.sleep(for: .milliseconds(20))
+
+        viewModel.inputContent = NSAttributedString(string: "queued while provisioning")
+        viewModel.send()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(chatService.lastSentId == nil)
+
+        viewModel.setActiveSessionKey(personalSessionKey)
+        #expect(viewModel.activeSessionKey == personalSessionKey)
+
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey, customKey]
+            )
+        ))
+
+        for _ in 0..<50 {
+            if chatService.lastSentId != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(chatService.lastSessionKey == customKey)
+    }
+
+    @Test("Incoming messages route to matching stream")
+    @MainActor
+    func incomingMessagesRoutePerStream() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        auth.updateAdminStatus(true)
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: adminSessionKey, displayName: "Admin", kind: "global_dm", orderIndex: 1, isBuiltIn: true),
+        ]
+        _ = chatService.incomingMessages
+        _ = chatService.connectionState
+        _ = chatService.serviceEvents
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.orderedSessionKeys.contains(adminSessionKey) { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        viewModel.setActiveSessionKey(adminSessionKey)
+        #expect(viewModel.activeSessionKey == adminSessionKey)
 
         let adminMessage = Message(
             id: "s_admin",
@@ -509,14 +706,144 @@ struct ChatViewModelTests {
         chatService.emit(adminMessage)
         try await Task.sleep(for: .milliseconds(10))
 
-        #expect(viewModel.messages.isEmpty)
-        viewModel.setActiveStream(.admin)
-        try await Task.sleep(forDuration: .milliseconds(50))
-        #expect(viewModel.messages.count == 1)
-        #expect(viewModel.messages.first?.id == "s_admin")
+        var routedMessages: [Message] = []
+        for _ in 0..<50 {
+            routedMessages = await MainActor.run { viewModel.messages(for: adminSessionKey) }
+            if routedMessages.first?.id == "s_admin" {
+                break
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+        #expect(routedMessages.count == 1)
+        #expect(routedMessages.first?.id == "s_admin")
     }
 
-    @Test("user_info event updates admin state and surfaces toast")
+    @Test("Stream snapshot replaces metadata and falls back when active is removed")
+    @MainActor
+    func streamSnapshotReplacementFallback() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: adminSessionKey, displayName: "Admin", kind: "global_dm", orderIndex: 1, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.orderedSessionKeys.contains(adminSessionKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        viewModel.setActiveSessionKey(adminSessionKey)
+        #expect(viewModel.activeSessionKey == adminSessionKey)
+
+        chatService.emitServiceEvent(.streamSnapshot([
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]))
+        try await Task.sleep(for: .milliseconds(40))
+
+        #expect(viewModel.orderedSessionKeys == [personalSessionKey])
+        #expect(viewModel.activeSessionKey == personalSessionKey)
+    }
+
+    @Test("Incremental stream events update metadata")
+    @MainActor
+    func incrementalStreamEvents() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        try await Task.sleep(for: .milliseconds(30))
+
+        let customKey = "agent:main:clawline:user:s_deadbeef"
+        chatService.emitServiceEvent(.streamCreated(
+            makeStreamSession(sessionKey: customKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false)
+        ))
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(viewModel.orderedSessionKeys.contains(customKey))
+
+        chatService.emitServiceEvent(.streamUpdated(
+            makeStreamSession(sessionKey: customKey, displayName: "Research v2", kind: "custom", orderIndex: 1, isBuiltIn: false)
+        ))
+        var displayName: String?
+        for _ in 0..<50 {
+            displayName = await MainActor.run { viewModel.stream(for: customKey)?.displayName }
+            if displayName == "Research v2" {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(displayName == "Research v2")
+    }
+
+    @Test("Deleting active stream falls back to main stream")
+    @MainActor
+    func deletingActiveStreamFallsBack() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        let customKey = "agent:main:clawline:user:s_ff00ff00"
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: customKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.orderedSessionKeys.contains(customKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        viewModel.setActiveSessionKey(customKey)
+        #expect(viewModel.activeSessionKey == customKey)
+
+        chatService.emitServiceEvent(.streamDeleted(sessionKey: customKey))
+        try await Task.sleep(for: .milliseconds(30))
+
+        #expect(viewModel.activeSessionKey == personalSessionKey)
+        #expect(viewModel.stream(for: customKey) == nil)
+    }
+
+    @Test("user_info event updates admin state")
     @MainActor
     func userInfoEventUpdatesAdminState() async throws {
         resetChatPersistence()
@@ -542,14 +869,10 @@ struct ChatViewModelTests {
         try await Task.sleep(for: .milliseconds(30))
 
         #expect(auth.isAdmin)
-        let unlockMessages = await MainActor.run { toastManager.debugMessages }
-        #expect(unlockMessages.contains("DM channel unlocked"))
 
         chatService.emitServiceEvent(.userInfo(ChatUserInfo(userId: "user", isAdmin: false)))
         try await Task.sleep(for: .milliseconds(30))
         #expect(auth.isAdmin == false)
-        let revokeMessages = await MainActor.run { toastManager.debugMessages }
-        #expect(revokeMessages.contains("DM access revoked"))
     }
 }
 
@@ -588,7 +911,7 @@ private final class TestChatService: ChatServicing {
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
     private(set) var lastSessionKey: String?
-    private(set) var lastStream: ChatStream?
+    var streams: [StreamSession] = []
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -625,7 +948,6 @@ private final class TestChatService: ChatServicing {
         lastSentId = id
         lastSentAttachments = attachments
         lastSessionKey = sessionKey
-        lastStream = sessionKey.map(SessionKey.stream)
     }
 
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {
@@ -651,6 +973,39 @@ private final class TestChatService: ChatServicing {
             bufferedEvents.append(event)
         }
     }
+
+    func fetchStreams() async throws -> [StreamSession] {
+        streams
+    }
+
+    func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
+        let stream = StreamSession(
+            sessionKey: "agent:main:clawline:user:s_\(UUID().uuidString.prefix(8).lowercased())",
+            displayName: displayName,
+            kind: "custom",
+            orderIndex: streams.count,
+            isBuiltIn: false,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        streams.append(stream)
+        return stream
+    }
+
+    func renameStream(sessionKey: String, displayName: String) async throws -> StreamSession {
+        if let index = streams.firstIndex(where: { $0.sessionKey == sessionKey }) {
+            var stream = streams[index]
+            stream.displayName = displayName
+            streams[index] = stream
+            return stream
+        }
+        throw StreamAPIError(code: "stream_not_found", message: "not found", statusCode: 404)
+    }
+
+    func deleteStream(sessionKey: String, idempotencyKey: String?) async throws -> String {
+        streams.removeAll { $0.sessionKey == sessionKey }
+        return sessionKey
+    }
 }
 
 @MainActor
@@ -670,7 +1025,9 @@ private func resetChatPersistence() {
     let defaults = UserDefaults.standard
     for key in defaults.dictionaryRepresentation().keys {
         if key.hasPrefix("clawline.lastServerMessageId.")
-            || key.hasPrefix("clawline.lastStream") {
+            || key.hasPrefix("clawline.lastStream")
+            || key.hasPrefix("clawline.lastSessionKey")
+            || key.hasPrefix("clawline.scrollState.v1.") {
             defaults.removeObject(forKey: key)
         }
     }
@@ -683,6 +1040,10 @@ private func resetChatPersistence() {
         .appendingPathComponent("Clawline", isDirectory: true)
         .appendingPathComponent("MessageCache", isDirectory: true)
     try? fileManager.removeItem(at: directoryURL)
+    let streamDirectoryURL = baseURL
+        .appendingPathComponent("Clawline", isDirectory: true)
+        .appendingPathComponent("StreamCache", isDirectory: true)
+    try? fileManager.removeItem(at: streamDirectoryURL)
 }
 
 @MainActor
@@ -726,6 +1087,24 @@ private func makeAttributedContent(with ids: [UUID]) -> NSAttributedString {
         mutable.append(NSAttributedString(attachment: attachment))
     }
     return mutable
+}
+
+private func makeStreamSession(
+    sessionKey: String,
+    displayName: String,
+    kind: String,
+    orderIndex: Int,
+    isBuiltIn: Bool
+) -> StreamSession {
+    StreamSession(
+        sessionKey: sessionKey,
+        displayName: displayName,
+        kind: kind,
+        orderIndex: orderIndex,
+        isBuiltIn: isBuiltIn,
+        createdAt: Date(),
+        updatedAt: Date()
+    )
 }
 
 private struct TestDevice: DeviceIdentifying {

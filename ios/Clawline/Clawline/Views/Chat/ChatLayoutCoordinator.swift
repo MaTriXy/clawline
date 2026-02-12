@@ -83,8 +83,8 @@ protocol KeyboardPinnedContainerViewProtocol: AnyObject {
 @Observable
 final class ChatLayoutCoordinator {
     @ObservationIgnored private var barView: KeyboardPinnedContainerViewProtocol?
-    @ObservationIgnored private var listViews: [ChatStream: WeakBox<MessageFlowCollectionViewController>] = [:]
-    @ObservationIgnored private var activeStream: ChatStream = .personal
+    @ObservationIgnored private var listViews: [String: WeakBox<MessageFlowCollectionViewController>] = [:]
+    @ObservationIgnored private var activeSessionKey: String = ""
     @ObservationIgnored private var latestInputs: ChatLayoutInputs?
     @ObservationIgnored private var latestMetrics: ChatLayoutMetrics?
     @ObservationIgnored private var previousInputs: ChatLayoutInputs?
@@ -109,35 +109,35 @@ final class ChatLayoutCoordinator {
         applyTransitionIfPossible(reason: "registerBarView")
     }
 
-    func registerListView(_ view: MessageFlowCollectionViewController, channel: ChatStream) {
+    func registerListView(_ view: MessageFlowCollectionViewController, sessionKey: String) {
         dispatchPrecondition(condition: .onQueue(.main))
-        listViews[channel] = WeakBox(view)
-        applyLatestInset(to: view, isActive: channel == activeStream)
+        listViews[sessionKey] = WeakBox(view)
+        applyLatestInset(to: view, isActive: sessionKey == activeSessionKey)
     }
 
-    func setActiveStream(_ channel: ChatStream) {
+    func setActiveSessionKey(_ sessionKey: String) {
         dispatchPrecondition(condition: .onQueue(.main))
-        activeStream = channel
+        activeSessionKey = sessionKey
     }
 
     func scrollToBottom(animated: Bool) {
         dispatchPrecondition(condition: .onQueue(.main))
-        scrollToBottom(channel: activeStream, animated: animated)
+        scrollToBottom(sessionKey: activeSessionKey, animated: animated)
     }
 
-    func scrollToBottom(channel: ChatStream, animated: Bool) {
+    func scrollToBottom(sessionKey: String, animated: Bool) {
         dispatchPrecondition(condition: .onQueue(.main))
-        listViews[channel]?.value?.scheduleScrollToBottom(animated: animated)
+        listViews[sessionKey]?.value?.scheduleScrollToBottom(animated: animated)
     }
 
-    func scrollToMessageCentered(messageId: String, channel: ChatStream, animated: Bool) {
+    func scrollToMessageCentered(messageId: String, sessionKey: String, animated: Bool) {
         dispatchPrecondition(condition: .onQueue(.main))
-        listViews[channel]?.value?.scrollToMessageCentered(messageId: messageId, animated: animated)
+        listViews[sessionKey]?.value?.scrollToMessageCentered(messageId: messageId, animated: animated)
     }
 
-    func flashMessage(messageId: String, channel: ChatStream, isUnreadTap: Bool = false) {
+    func flashMessage(messageId: String, sessionKey: String, isUnreadTap: Bool = false) {
         dispatchPrecondition(condition: .onQueue(.main))
-        listViews[channel]?.value?.requestFlashMessage(messageId: messageId, isUnreadTap: isUnreadTap)
+        listViews[sessionKey]?.value?.requestFlashMessage(messageId: messageId, isUnreadTap: isUnreadTap)
     }
 
     func updateInputs(_ inputs: ChatLayoutInputs, metrics: ChatLayoutMetrics) {
@@ -195,6 +195,7 @@ final class ChatLayoutCoordinator {
             barHeight: currentBarHeight,
             previousBarHeight: lastAppliedBarHeight,
             isUserInteracting: list?.isUserInteracting ?? false,
+            isPinnedToBottomIntent: list?.isPinnedToBottomIntent ?? false,
             didJustStabilize: didJustStabilize,
             wasNearBottom: wasNearBottom,
             keyboardJustAppeared: keyboardJustAppeared
@@ -256,6 +257,7 @@ final class ChatLayoutCoordinator {
         barHeight: CGFloat,
         previousBarHeight: CGFloat,
         isUserInteracting: Bool,
+        isPinnedToBottomIntent: Bool,
         didJustStabilize: Bool,
         wasNearBottom: Bool,
         keyboardJustAppeared: Bool
@@ -303,7 +305,9 @@ final class ChatLayoutCoordinator {
             // If we were pinned near the bottom, keep the bottom anchored by adjusting contentOffset
             // by the inset delta; otherwise the scroll view can appear to have extra "bottom padding".
             if wasNearBottom && abs(insetDelta) > 0.5 {
-                scrollAction = .adjustOffset(delta: insetDelta)
+                // Pinned lists already apply this delta inside `setBottomInset`.
+                // Applying it again here can double-shift content downward.
+                scrollAction = isPinnedToBottomIntent ? .none : .adjustOffset(delta: insetDelta)
             } else {
                 scrollAction = .none
             }
@@ -363,7 +367,7 @@ final class ChatLayoutCoordinator {
     }
 
     private func activeListView() -> MessageFlowCollectionViewController? {
-        listViews[activeStream]?.value
+        listViews[activeSessionKey]?.value
     }
 
     private func applyLatestInset(to view: MessageFlowCollectionViewController, isActive: Bool) {
@@ -374,7 +378,8 @@ final class ChatLayoutCoordinator {
         view.setBottomInset(targetInset)
         if isActive {
             let delta = targetInset - previousInset
-            if abs(delta) > 0.5 {
+            // Active pinned lists already self-correct in `setBottomInset`.
+            if abs(delta) > 0.5, !view.isPinnedToBottomIntent {
                 view.adjustContentOffsetForBottomInsetChange(delta: delta)
             }
         }

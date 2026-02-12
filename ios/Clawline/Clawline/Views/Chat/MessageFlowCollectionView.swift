@@ -11,10 +11,10 @@ import SwiftUI
 import UIKit
 
 enum MessageFlowScrollEvent: Equatable {
-    case isAtBottomChanged(stream: ChatStream, isAtBottom: Bool)
-    case didReceiveNewMessagesWhileScrolledUp(stream: ChatStream, newMessageIDs: [String])
-    case didCrossFirstUnreadCenter(stream: ChatStream, messageId: String)
-    case didInvalidateFirstUnreadAnchor(stream: ChatStream)
+    case isAtBottomChanged(sessionKey: String, isAtBottom: Bool)
+    case didReceiveNewMessagesWhileScrolledUp(sessionKey: String, newMessageIDs: [String])
+    case didCrossFirstUnreadCenter(sessionKey: String, messageId: String)
+    case didInvalidateFirstUnreadAnchor(sessionKey: String)
 }
 
 @MainActor
@@ -27,8 +27,8 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var unreadCount: Int
     var onExpand: ((Message) -> Void)?
     var layoutCoordinator: ChatLayoutCoordinator
-    /// Optional channel override - if provided, shows messages for this channel instead of activeStream
-    var channel: ChatStream?
+    /// Optional session override - if provided, shows messages for this session instead of activeSessionKey
+    var sessionKey: String?
     var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.settingsManager) private var settings
@@ -49,12 +49,12 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             firstUnreadMessageId: firstUnreadMessageId,
             unreadCount: unreadCount,
             onExpand: onExpand,
-            channel: channel,
+            sessionKey: sessionKey,
             onScrollEvent: onScrollEvent,
             isDark: isDark
         )
-        if let channel = channel {
-            layoutCoordinator.registerListView(controller, channel: channel)
+        if let sessionKey {
+            layoutCoordinator.registerListView(controller, sessionKey: sessionKey)
         }
         return controller
     }
@@ -73,12 +73,12 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             firstUnreadMessageId: firstUnreadMessageId,
             unreadCount: unreadCount,
             onExpand: onExpand,
-            channel: channel,
+            sessionKey: sessionKey,
             onScrollEvent: onScrollEvent,
             isDark: isDark
         )
-        if let channel = channel {
-            layoutCoordinator.registerListView(uiViewController, channel: channel)
+        if let sessionKey {
+            layoutCoordinator.registerListView(uiViewController, sessionKey: sessionKey)
         }
     }
 }
@@ -86,7 +86,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
 final class MessageFlowCollectionViewController: UIViewController, UICollectionViewDelegateFlowLayout {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     private var collectionView: UICollectionView!
-    private var channelOverride: ChatStream?
+    private var channelOverride: String?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var flowLayout: MessageFlowLayout!
     private let uiKitBubbleSizer = MessageBubbleUIKitView()
@@ -485,7 +485,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         firstUnreadMessageId: String?,
         unreadCount: Int,
         onExpand: ((Message) -> Void)? = nil,
-        channel: ChatStream? = nil,
+        sessionKey: String? = nil,
         onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)? = nil,
         isDark: Bool? = nil
     ) {
@@ -495,7 +495,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let wasUserInteracting = isUserInteracting
         let wasPinnedToBottomIntent = sbbState.isPinnedToBottomIntent
         self.viewModel = viewModel
-        self.channelOverride = channel
+        self.channelOverride = sessionKey
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
         self.onScrollEvent = onScrollEvent
@@ -536,8 +536,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         NSLog("[KBTIMING] MFCV.update layoutDecision fullLayout=%d dt=%.4f", needsFullLayout ? 1 : 0, CFAbsoluteTimeGetCurrent() - t0)
 
-        // Use channel override if provided, otherwise use activeStream messages
-        let messages = channel.map { viewModel.messages(for: $0) } ?? viewModel.messages
+        // Use session override if provided, otherwise use active session messages.
+        let messages = sessionKey.map { viewModel.messages(for: $0) } ?? viewModel.messages
         let appendedMessageIDs = Self.appendedMessageIDs(previousLastMessageId: previousLastMessageId, messageIDs: messages.map(\.id))
         let messageCount = messages.count
         if Set(messages.map(\.id)).count != messageCount {
@@ -558,9 +558,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Add typing indicator when assistant is typing (server-controlled)
         // Only show on the matching channel page (for paged TabView)
-        let effectiveStream = channel ?? viewModel.activeStream
+        let effectiveSessionKey = sessionKey ?? viewModel.activeSessionKey
         let showTypingIndicator = viewModel.isAssistantTyping
-            && viewModel.typingStream == effectiveStream
+            && viewModel.typingSessionKey == effectiveSessionKey
         let typingIndicatorJustAppeared = showTypingIndicator && !wasShowingTypingIndicator
         let shouldMorph = viewModel.shouldMorphTypingIndicator && wasShowingTypingIndicator
         if showTypingIndicator != wasShowingTypingIndicator {
@@ -662,7 +662,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                         scheduleScrollToBottom(animated: true, attempts: 3)
                     }
                 } else {
-                    emit(.didReceiveNewMessagesWhileScrolledUp(stream: resolvedStream(), newMessageIDs: appendedMessageIDs))
+                    emit(.didReceiveNewMessagesWhileScrolledUp(sessionKey: resolvedSessionKey(), newMessageIDs: appendedMessageIDs))
                 }
             } else if !wasUserInteracting {
                 // T036: On cold start, restore the last scroll position instead of forcing a reset-to-bottom.
@@ -699,8 +699,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         return Array(messageIDs[next...])
     }
 
-    private func resolvedStream() -> ChatStream {
-        channelOverride ?? viewModel?.activeStream ?? .personal
+    private func resolvedSessionKey() -> String {
+        channelOverride ?? viewModel?.activeSessionKey ?? ""
     }
 
     private func emit(_ event: MessageFlowScrollEvent) {
@@ -719,7 +719,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let shouldHide = sbbState.shouldHideIndicator
         if force || lastReportedHideIndicator != shouldHide {
             lastReportedHideIndicator = shouldHide
-            emit(.isAtBottomChanged(stream: resolvedStream(), isAtBottom: shouldHide))
+            emit(.isAtBottomChanged(sessionKey: resolvedSessionKey(), isAtBottom: shouldHide))
         }
     }
 
@@ -839,7 +839,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             if sbbState == .scrolledUpUnread {
                 setSBBState(.scrolledUp)
             }
-            emit(.didInvalidateFirstUnreadAnchor(stream: resolvedStream()))
+            emit(.didInvalidateFirstUnreadAnchor(sessionKey: resolvedSessionKey()))
             return
         }
         collectionView.layoutIfNeeded()
@@ -865,7 +865,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             if sbbState == .scrolledUpUnread {
                 setSBBState(.scrolledUp)
             }
-            emit(.didCrossFirstUnreadCenter(stream: resolvedStream(), messageId: messageId))
+            emit(.didCrossFirstUnreadCenter(sessionKey: resolvedSessionKey(), messageId: messageId))
         }
 
         firstUnreadWasBelowViewportCenter = isBelowCenter
@@ -880,8 +880,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func updateScrollPersistenceKeyAndPendingRestoreState() {
         guard let viewModel else { return }
-        let stream = resolvedStream()
-        let newKey = viewModel.messageStorageKey(for: stream)
+        let newKey = resolvedSessionKey()
         guard newKey != scrollPersistenceKey else { return }
         scrollPersistenceKey = newKey
         if restoredScrollKeys.contains(newKey) {
@@ -1032,8 +1031,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     for: indexPath
                 ) as? TypingIndicatorCell
                 let metrics = ChatFlowTheme.Metrics(isCompact: self.isCompact)
-                let typingStream = viewModel.typingStream ?? viewModel.activeStream
-                let storageKey = viewModel.messageStorageKey(for: typingStream)
+                let storageKey = viewModel.typingSessionKey ?? viewModel.activeSessionKey
                 let message = TypingIndicatorCell.makeMessage(sessionKey: storageKey)
                 let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
                 let sizeClass = MessageFlowRules.sizeClass(for: presentation)
@@ -1073,12 +1071,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 containerWidth: contentWidth
             )
-            // Only certain embedded content (tables/images/etc) gets the full screen-aware truncation height.
-            // Plain text/markdown bubbles (even if they contain URLs) keep the design-system cap (metrics.truncationHeight).
-            let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-            let truncationHeightOverride: CGFloat? = prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth)
-                ? self.effectiveTruncationHeight(metrics: metrics)
-                : nil
+            let truncationHeightOverride = self.truncationHeightOverrideForMessageBubble(
+                presentation: presentation,
+                metrics: metrics
+            )
             let layoutStateV2: BubbleSizingV2.LayoutState?
             let configureWidth: CGFloat
             let truncationHeightOverrideV1: CGFloat?
@@ -1310,6 +1306,33 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         return result
     }
 
+    private func hasLinkPreviewPart(_ presentation: MessagePresentation) -> Bool {
+        presentation.parts.contains { part in
+            if case .linkPreview = part { return true }
+            return false
+        }
+    }
+
+    private func isSingleLinkPreviewBubble(presentation: MessagePresentation) -> Bool {
+        presentation.hasSingleURL && hasLinkPreviewPart(presentation)
+    }
+
+    private func truncationHeightOverrideForMessageBubble(
+        presentation: MessagePresentation,
+        metrics: ChatFlowTheme.Metrics
+    ) -> CGFloat? {
+        if isSingleLinkPreviewBubble(presentation: presentation) {
+            return effectiveTruncationHeight(metrics: metrics)
+        }
+        // Only certain embedded content (tables/images/etc) gets the full screen-aware truncation height.
+        // Plain text/markdown bubbles (even if they contain URLs) keep the design-system cap (metrics.truncationHeight).
+        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
+        guard prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth) else {
+            return nil
+        }
+        return effectiveTruncationHeight(metrics: metrics)
+    }
+
     private func prefersWideBubbleWidth(presentation: MessagePresentation,
                                         maxLineWidth: CGFloat) -> Bool {
         if presentation.hasSingleURL {
@@ -1356,7 +1379,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // That can inflate the cap enough that "too-tall" markdown bubbles never overflow, so we
         // never show fade/scroll/tap-to-expand affordances.
         //
-        // Link-preview bubbles must keep the design-system max-height cap across all form factors.
+        // Link-preview bubbles keep the design-system max-height cap by default; single-link
+        // bubbles are overridden separately via `truncationHeightOverrideForMessageBubble`.
         if presentation.parts.contains(where: { part in
             if case .linkPreview = part { return true }
             return false
@@ -1422,8 +1446,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Handle typing indicator size
         if id == TypingIndicatorCell.itemId {
             let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-            let typingStream = viewModel.typingStream ?? viewModel.activeStream
-            let storageKey = viewModel.messageStorageKey(for: typingStream)
+            let storageKey = viewModel.typingSessionKey ?? viewModel.activeSessionKey
             let message = TypingIndicatorCell.makeMessage(sessionKey: storageKey)
             let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
             let sizeClass = MessageFlowRules.sizeClass(for: presentation)
@@ -1492,12 +1515,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             containerWidth: availableWidth
         )
         let failureReason = viewModel.failureMessage(for: message.id)
-        // Only certain embedded content (tables/images/etc) gets the full screen-aware truncation height.
-        // Plain text/markdown bubbles (even if they contain URLs) keep the design-system cap (metrics.truncationHeight).
-        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-        let truncationHeightOverride: CGFloat? = prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth)
-            ? effectiveTruncationHeight(metrics: metrics)
-            : nil
+        let truncationHeightOverride = truncationHeightOverrideForMessageBubble(
+            presentation: presentation,
+            metrics: metrics
+        )
         let measuredSize = measureUIKitBubbleSize(
             message: message,
             presentation: presentation,
@@ -1629,6 +1650,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                    showsHeader: Bool) -> BubbleSizingV2.Plan {
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
         let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
+        let isSingleLinkPreview = isSingleLinkPreviewBubble(presentation: presentation)
         let isWide = prefersWideBubbleWidth(presentation: presentation, maxLineWidth: maxLineWidth)
         let prefersScreenAwareHeightCap = prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth)
 
@@ -1665,10 +1687,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Short/medium bubbles should grow to content (no truncation chrome), even with Dynamic Type.
         let allowsOuterScroll = (sizeClass == .long)
 
-        let heightCapMode: BubbleSizingV2.HeightCapMode = prefersScreenAwareHeightCap ? .screenAware : .designSystem
+        let heightCapMode: BubbleSizingV2.HeightCapMode = (isSingleLinkPreview || prefersScreenAwareHeightCap) ? .screenAware : .designSystem
         let heightCap: CGFloat = {
             // If outer-scroll is disabled, use a very generous cap so we never force overflow.
             guard allowsOuterScroll else { return 2000 }
+            if isSingleLinkPreview {
+                return effectiveTruncationHeight(metrics: metrics)
+            }
             switch heightCapMode {
             case .screenAware:
                 return effectiveTruncationHeight(metrics: metrics)
@@ -1686,6 +1711,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             messageId: message.id,
             presentationFingerprint: fingerprints[message.id] ?? fingerprint(for: message),
             sizeClass: sizeClass,
+            isSingleLinkPreview: isSingleLinkPreview,
             isWide: isWide,
             maxWidth: maxWidth,
             minWidth: minWidth,
@@ -1760,14 +1786,18 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let paddingHorizontal = round((presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal) * 1)
         let contentWidth = max(1, measurement.measuredBubbleWidth - (paddingHorizontal * 2))
         let cacheKey = "\(url.absoluteString)|w=\(Int(contentWidth.rounded()))|m=\(env.metricsFingerprint)"
-        let estimated = bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: cacheKey) ?? 120
         let previewMaxHeight = linkPreviewViewportMaxHeight(plan: plan, metrics: metrics)
+        let fixedPreviewHeight: CGFloat? = plan.isSingleLinkPreview ? previewMaxHeight : nil
+        let estimated = fixedPreviewHeight
+            ?? bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: cacheKey)
+            ?? 120
+        let previewMinHeight = fixedPreviewHeight ?? 40
         return BubbleSizingV2.LayoutState(
             plan: plan,
             measurement: measurement,
             linkPreviewCacheKey: cacheKey,
             linkPreviewEstimatedHeight: estimated,
-            linkPreviewMinHeight: 40,
+            linkPreviewMinHeight: previewMinHeight,
             linkPreviewMaxHeight: previewMaxHeight
         )
     }
@@ -1808,8 +1838,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let linkPreviewCacheKey: String? = plan.linkPreviewURL.map { url in
             "\(url.absoluteString)|w=\(Int(contentWidth.rounded()))|m=\(env.metricsFingerprint)"
         }
-        let linkPreviewEstimatedHeight: CGFloat? = linkPreviewCacheKey.flatMap { bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: $0) }
         let linkPreviewMaxHeight = linkPreviewViewportMaxHeight(plan: plan, metrics: metrics)
+        let fixedPreviewHeight: CGFloat? = plan.isSingleLinkPreview ? linkPreviewMaxHeight : nil
+        let linkPreviewEstimatedHeight: CGFloat? = fixedPreviewHeight
+            ?? linkPreviewCacheKey.flatMap { bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: $0) }
+        let previewInitialHeight = linkPreviewEstimatedHeight ?? 120
+        let previewMinHeight = fixedPreviewHeight ?? 40
 
         // Pass 1: compute chrome height with an upper-bound link preview max height.
         let provisional1 = BubbleSizingV2.LayoutState(
@@ -1824,8 +1858,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 isFinal: linkPreviewEstimatedHeight != nil
             ),
             linkPreviewCacheKey: linkPreviewCacheKey,
-            linkPreviewEstimatedHeight: linkPreviewEstimatedHeight ?? 120,
-            linkPreviewMinHeight: 40,
+            linkPreviewEstimatedHeight: previewInitialHeight,
+            linkPreviewMinHeight: previewMinHeight,
             linkPreviewMaxHeight: linkPreviewMaxHeight
         )
         uiKitBubbleSizer.configure(
@@ -1865,8 +1899,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 isFinal: linkPreviewEstimatedHeight != nil
             ),
             linkPreviewCacheKey: linkPreviewCacheKey,
-            linkPreviewEstimatedHeight: linkPreviewEstimatedHeight ?? 120,
-            linkPreviewMinHeight: 40,
+            linkPreviewEstimatedHeight: previewInitialHeight,
+            linkPreviewMinHeight: previewMinHeight,
             linkPreviewMaxHeight: linkPreviewMaxHeight
         )
         uiKitBubbleSizer.configure(
@@ -1893,6 +1927,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let badgeExtra: CGFloat = (failureReason != nil) ? 32 : 0
         let outerScrollEnabled = plan.allowsOuterScroll && measured2.height > plan.heightCap
         let cellHeight: CGFloat = {
+            if plan.isSingleLinkPreview {
+                return plan.heightCap + badgeExtra
+            }
             if plan.allowsOuterScroll {
                 return min(measured2.height, plan.heightCap) + badgeExtra
             }
@@ -1914,8 +1951,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             plan: plan,
             measurement: measurement,
             linkPreviewCacheKey: linkPreviewCacheKey,
-            linkPreviewEstimatedHeight: linkPreviewEstimatedHeight ?? 120,
-            linkPreviewMinHeight: 40,
+            linkPreviewEstimatedHeight: previewInitialHeight,
+            linkPreviewMinHeight: previewMinHeight,
             linkPreviewMaxHeight: linkPreviewMaxHeight
         )
     }
@@ -2128,6 +2165,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     var isUserInteracting: Bool {
         collectionView.isDragging || collectionView.isTracking
+    }
+
+    var isPinnedToBottomIntent: Bool {
+        sbbState.isPinnedToBottomIntent
     }
 
     private func fingerprint(for message: Message) -> Int {
@@ -2375,10 +2416,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             metrics: metrics,
             containerWidth: effectiveContentWidth(metrics: metrics)
         )
-        let maxLineWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize)
-        let truncationHeightOverride: CGFloat? = prefersScreenAwareTruncationHeight(presentation: presentation, maxLineWidth: maxLineWidth)
-            ? effectiveTruncationHeight(metrics: metrics)
-            : nil
+        let truncationHeightOverride = truncationHeightOverrideForMessageBubble(
+            presentation: presentation,
+            metrics: metrics
+        )
         let failureReason = viewModel.failureMessage(for: message.id)
         let minWidth: CGFloat = 120
         // #63: Non-short bubbles should never shrink below their size-class max width.

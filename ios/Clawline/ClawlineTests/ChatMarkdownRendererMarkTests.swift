@@ -97,6 +97,46 @@ struct ChatMarkdownRendererMarkTests {
         #expect(rgb(enabled, at: 0) == RGB(red: 158, green: 62, blue: 28))
     }
 
+    @Test("MessagePresentationBuilder routes mark syntax through markdown renderer")
+    func messagePresentationBuilderRoutesMarkSyntaxThroughMarkdownRenderer() {
+        let message = Message(
+            id: "s_mark_route",
+            role: .assistant,
+            content: "Alpha ==focus== beta",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: "agent:main:clawline:user:main"
+        )
+        var state = StreamingTableParseState()
+        let presentation = MessagePresentationBuilder.build(
+            from: message,
+            metrics: ChatFlowTheme.Metrics(isCompact: true),
+            streamingState: &state
+        )
+
+        #expect(presentation.parts.contains(where: { part in
+            if case .markdown(let value) = part {
+                return value == "Alpha ==focus== beta"
+            }
+            return false
+        }))
+
+        let rendered = MessageTextPartRenderer.attributedText(
+            from: presentation,
+            sizeClass: .long,
+            metrics: ChatFlowTheme.Metrics(isCompact: true),
+            inkColor: .black,
+            isDarkMode: false,
+            enableMarkdownHighlights: true
+        )
+        #expect(rendered.string == "Alpha focus beta")
+        let focusRange = (rendered.string as NSString).range(of: "focus")
+        #expect(focusRange.location != NSNotFound)
+        #expect(rgb(rendered, at: focusRange.location) == RGB(red: 158, green: 62, blue: 28))
+    }
+
     private func rgb(_ attributed: NSAttributedString, at index: Int) -> RGB? {
         guard index >= 0, index < attributed.length else { return nil }
         guard let color = attributed.attribute(.foregroundColor, at: index, effectiveRange: nil) as? UIColor else {

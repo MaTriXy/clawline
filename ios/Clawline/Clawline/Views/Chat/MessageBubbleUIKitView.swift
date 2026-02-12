@@ -449,6 +449,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         }
     }
 
+    private static func presentationIsSingleLinkPreview(_ presentation: MessagePresentation) -> Bool {
+        presentation.hasSingleURL && presentationHasLinkPreview(presentation)
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -548,12 +552,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         currentSalientHighlights = nil
 
         let hasLinkPreview = Self.presentationHasLinkPreview(presentation)
+        let isSingleLinkPreview = Self.presentationIsSingleLinkPreview(presentation)
         let rawMaxWidth = maxWidthOverride ?? maxWidth
         let effectiveMaxWidth = hasLinkPreview
             ? min(rawMaxWidth, Self.linkPreviewWidthCap(metrics: metrics))
             : rawMaxWidth
         let rawTruncationHeight = truncationHeightOverride ?? metrics.truncationHeight
-        let effectiveTruncationHeight = hasLinkPreview
+        let effectiveTruncationHeight = (hasLinkPreview && !isSingleLinkPreview)
             ? min(rawTruncationHeight, metrics.truncationHeight)
             : rawTruncationHeight
         // Reset width constraints per size class.
@@ -668,7 +673,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             if case .linkPreview(let url) = part { return url }
             return nil
         }).first
-        let shouldShowInlineReloadButton = presentation.hasSingleURL && linkPreviewURL != nil
+        let shouldShowInlineReloadButton = isSingleLinkPreview && linkPreviewURL != nil
 
         // Flynn: URLs should render as tappable cards per the design-system, independent of embedded preview success.
         // For multi-URL messages, cards render for each unique URL; for single-URL messages, card renders above preview.
@@ -729,7 +734,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                         : palette.bubbleOtherGradient.last!
                     let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight
                         ?? Self.linkPreviewViewportMaxHeight(heightCap: effectiveTruncationHeight, metrics: metrics)
-                    let previewMaxHeight = min(rawPreviewMaxHeight, metrics.truncationHeight)
+                    let previewMaxHeight = isSingleLinkPreview
+                        ? rawPreviewMaxHeight
+                        : min(rawPreviewMaxHeight, metrics.truncationHeight)
                     if let bubbleSizingV2, let cacheKey = bubbleSizingV2.linkPreviewCacheKey {
                         previewView.configure(
                             url: linkPreviewURL,
@@ -737,6 +744,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                             minHeight: bubbleSizingV2.linkPreviewMinHeight,
                             cacheKey: cacheKey,
                             initialHeight: bubbleSizingV2.linkPreviewEstimatedHeight
+                        )
+                    } else if isSingleLinkPreview {
+                        previewView.configure(
+                            url: linkPreviewURL,
+                            maxHeight: previewMaxHeight,
+                            minHeight: previewMaxHeight,
+                            initialHeight: previewMaxHeight
                         )
                     } else {
                         previewView.configure(url: linkPreviewURL, maxHeight: previewMaxHeight)
@@ -771,7 +785,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 : palette.bubbleOtherGradient.last!
             let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight
                 ?? Self.linkPreviewViewportMaxHeight(heightCap: effectiveTruncationHeight, metrics: metrics)
-            let previewMaxHeight = min(rawPreviewMaxHeight, metrics.truncationHeight)
+            let previewMaxHeight = isSingleLinkPreview
+                ? rawPreviewMaxHeight
+                : min(rawPreviewMaxHeight, metrics.truncationHeight)
             if let bubbleSizingV2, let cacheKey = bubbleSizingV2.linkPreviewCacheKey {
                 previewView.configure(
                     url: linkPreviewURL,
@@ -779,6 +795,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     minHeight: bubbleSizingV2.linkPreviewMinHeight,
                     cacheKey: cacheKey,
                     initialHeight: bubbleSizingV2.linkPreviewEstimatedHeight
+                )
+            } else if isSingleLinkPreview {
+                previewView.configure(
+                    url: linkPreviewURL,
+                    maxHeight: previewMaxHeight,
+                    minHeight: previewMaxHeight,
+                    initialHeight: previewMaxHeight
                 )
             } else {
                 previewView.configure(url: linkPreviewURL, maxHeight: previewMaxHeight)

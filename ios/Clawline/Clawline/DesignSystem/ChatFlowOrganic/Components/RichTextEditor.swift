@@ -55,6 +55,7 @@ struct RichTextEditor: UIViewRepresentable {
         textView.smartDashesType = .yes
         textView.smartInsertDeleteType = .yes
         textView.attributedText = attributedText
+        textView.isInputEnabled = isEditable
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return textView
@@ -84,8 +85,8 @@ struct RichTextEditor: UIViewRepresentable {
         }
         context.coordinator.isApplyingLocalEdit = false
 
-        if textView.isEditable != isEditable {
-            textView.isEditable = isEditable
+        if textView.isInputEnabled != isEditable {
+            textView.isInputEnabled = isEditable
         }
 
         if textView.tintColor != tintColor {
@@ -298,6 +299,16 @@ struct RichTextEditor: UIViewRepresentable {
 final class PastableTextView: UITextView, UITextPasteDelegate {
     var onPasteImages: (([UIImage]) -> Void)?
     var onLayout: ((CGFloat) -> Void)?
+    var isInputEnabled: Bool = true {
+        didSet {
+            guard oldValue != isInputEnabled else { return }
+            isEditable = isInputEnabled
+            isSelectable = isInputEnabled
+            if !isInputEnabled && isFirstResponder {
+                resignFirstResponder()
+            }
+        }
+    }
 
     /// Image providers collected during the delegate's `transforming` calls,
     /// flushed after the run-loop tick so all items from a single paste are batched.
@@ -320,6 +331,89 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         onLayout?(bounds.width)
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        let base = super.keyCommands ?? []
+        let emacsCommands: [UIKeyCommand] = [
+            UIKeyCommand(input: "a", modifierFlags: [.control], action: #selector(didPressCtrlA)),
+            UIKeyCommand(input: "e", modifierFlags: [.control], action: #selector(didPressCtrlE)),
+            UIKeyCommand(input: "w", modifierFlags: [.control], action: #selector(didPressCtrlW)),
+            UIKeyCommand(input: "u", modifierFlags: [.control], action: #selector(didPressCtrlU)),
+            UIKeyCommand(input: "k", modifierFlags: [.control], action: #selector(didPressCtrlK)),
+            UIKeyCommand(input: "c", modifierFlags: [.control], action: #selector(didPressCtrlC))
+        ]
+        return base + emacsCommands
+    }
+
+    private var canHandleInputShortcut: Bool {
+        isInputEnabled && isFirstResponder
+    }
+
+    @objc private func didPressCtrlA(_ sender: UIKeyCommand) {
+        guard canHandleInputShortcut else { return }
+        selectedTextRange = textRange(from: beginningOfDocument, to: beginningOfDocument)
+    }
+
+    @objc private func didPressCtrlE(_ sender: UIKeyCommand) {
+        guard canHandleInputShortcut else { return }
+        selectedTextRange = textRange(from: endOfDocument, to: endOfDocument)
+    }
+
+    @objc private func didPressCtrlW(_ sender: UIKeyCommand) {
+        guard canHandleInputShortcut else { return }
+
+        if let selectedRange = selectedTextRange, !selectedRange.isEmpty {
+            replace(selectedRange, withText: "")
+            return
+        }
+
+        guard let cursor = selectedTextRange?.start else { return }
+        guard let textBeforeCursorRange = textRange(from: beginningOfDocument, to: cursor),
+              let textBeforeCursor = text(in: textBeforeCursorRange),
+              !textBeforeCursor.isEmpty else { return }
+
+        var deleteStartIndex = textBeforeCursor.endIndex
+        while deleteStartIndex > textBeforeCursor.startIndex {
+            let previousIndex = textBeforeCursor.index(before: deleteStartIndex)
+            if !textBeforeCursor[previousIndex].isWhitespace { break }
+            deleteStartIndex = previousIndex
+        }
+
+        while deleteStartIndex > textBeforeCursor.startIndex {
+            let previousIndex = textBeforeCursor.index(before: deleteStartIndex)
+            if textBeforeCursor[previousIndex].isWhitespace { break }
+            deleteStartIndex = previousIndex
+        }
+
+        let charsToDelete = textBeforeCursor.distance(from: deleteStartIndex, to: textBeforeCursor.endIndex)
+        guard charsToDelete > 0,
+              let deleteStart = position(from: cursor, offset: -charsToDelete),
+              let deleteRange = textRange(from: deleteStart, to: cursor) else { return }
+
+        replace(deleteRange, withText: "")
+    }
+
+    @objc private func didPressCtrlU(_ sender: UIKeyCommand) {
+        guard canHandleInputShortcut else { return }
+        guard let cursor = selectedTextRange?.start,
+              let range = textRange(from: beginningOfDocument, to: cursor),
+              !range.isEmpty else { return }
+        replace(range, withText: "")
+    }
+
+    @objc private func didPressCtrlK(_ sender: UIKeyCommand) {
+        guard canHandleInputShortcut else { return }
+        guard let cursor = selectedTextRange?.start,
+              let range = textRange(from: cursor, to: endOfDocument),
+              !range.isEmpty else { return }
+        replace(range, withText: "")
+    }
+
+    @objc private func didPressCtrlC(_ sender: UIKeyCommand) {
+        guard canHandleInputShortcut else { return }
+        guard let fullRange = textRange(from: beginningOfDocument, to: endOfDocument) else { return }
+        replace(fullRange, withText: "")
     }
 
     // MARK: - Paste action gating

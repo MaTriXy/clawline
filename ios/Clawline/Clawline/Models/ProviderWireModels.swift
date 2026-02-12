@@ -7,6 +7,21 @@
 
 import Foundation
 
+struct StreamSnapshotPayload: Codable, Equatable {
+    let type: String
+    let streams: [StreamSession]
+}
+
+struct StreamMutationPayload: Codable, Equatable {
+    let type: String
+    let stream: StreamSession
+}
+
+struct StreamDeletedPayload: Codable, Equatable {
+    let type: String
+    let sessionKey: String
+}
+
 struct ServerMessagePayload: Codable, Equatable {
     let type: String
     let id: String
