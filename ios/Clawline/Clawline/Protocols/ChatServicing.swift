@@ -35,6 +35,10 @@ enum ChatServiceEvent: Equatable {
     case connectionInterrupted(reason: String?)
     case userInfo(ChatUserInfo)
     case typingStateChanged(isTyping: Bool, sessionKey: String)
+    case streamSnapshot([StreamSession])
+    case streamCreated(StreamSession)
+    case streamUpdated(StreamSession)
+    case streamDeleted(sessionKey: String)
     case sessionProvisioningAvailable(Bool)
     /// Server-authoritative session provisioning manifest.
     /// Session keys are the only routing identifiers on the wire (Clawline invariants N3/N7).
@@ -67,4 +71,9 @@ protocol ChatServicing {
         action: String,
         data: JSONValue?
     ) async throws
+
+    func fetchStreams() async throws -> [StreamSession]
+    func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession
+    func renameStream(sessionKey: String, displayName: String) async throws -> StreamSession
+    func deleteStream(sessionKey: String, idempotencyKey: String?) async throws -> String
 }

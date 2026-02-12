@@ -158,6 +158,88 @@ struct ProviderServiceTests {
             && $0.contains("\"content\":\"Hello\"")
         })
     }
+
+    @Test("Chat service emits stream snapshot events")
+    func chatStreamSnapshotEvent() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "stream_snapshot", "streams": [{ "sessionKey": "agent:main:clawline:user:main", "displayName": "Personal", "kind": "main", "orderIndex": 0, "isBuiltIn": true, "createdAt": 1700000000000, "updatedAt": 1700000000000 }] }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+
+        var snapshot: [StreamSession] = []
+        for _ in 0..<20 {
+            guard let event = await eventIterator.next() else { continue }
+            if case .streamSnapshot(let streams) = event {
+                snapshot = streams
+                break
+            }
+        }
+
+        #expect(snapshot.count == 1)
+        #expect(snapshot.first?.sessionKey == "agent:main:clawline:user:main")
+    }
+
+    @Test("Chat service emits incremental stream events")
+    func chatIncrementalStreamEvents() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "stream_created", "stream": { "sessionKey": "agent:main:clawline:user:s_abcd1234", "displayName": "Research", "kind": "custom", "orderIndex": 1, "isBuiltIn": false, "createdAt": 1700000000000, "updatedAt": 1700000000000 } }"#)
+            mockSocket.enqueue(text: #"{ "type": "stream_updated", "stream": { "sessionKey": "agent:main:clawline:user:s_abcd1234", "displayName": "Research v2", "kind": "custom", "orderIndex": 1, "isBuiltIn": false, "createdAt": 1700000000000, "updatedAt": 1700000001000 } }"#)
+            mockSocket.enqueue(text: #"{ "type": "stream_deleted", "sessionKey": "agent:main:clawline:user:s_abcd1234" }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+
+        var sawCreated = false
+        var sawUpdated = false
+        var sawDeleted = false
+        for _ in 0..<40 {
+            guard let event = await eventIterator.next() else { continue }
+            switch event {
+            case .streamCreated(let stream):
+                sawCreated = stream.displayName == "Research"
+            case .streamUpdated(let stream):
+                sawUpdated = stream.displayName == "Research v2"
+            case .streamDeleted(let sessionKey):
+                sawDeleted = sessionKey == "agent:main:clawline:user:s_abcd1234"
+            default:
+                break
+            }
+            if sawCreated && sawUpdated && sawDeleted {
+                break
+            }
+        }
+
+        #expect(sawCreated)
+        #expect(sawUpdated)
+        #expect(sawDeleted)
+    }
 }
 
 // MARK: - Test doubles
