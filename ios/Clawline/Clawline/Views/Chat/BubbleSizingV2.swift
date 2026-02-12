@@ -26,7 +26,6 @@ enum BubbleSizingV2 {
         let messageId: String
         let presentationFingerprint: Int
         let sizeClass: MessageSizeClass
-        let isSingleLinkPreview: Bool
         let isWide: Bool
         let maxWidth: CGFloat
         let minWidth: CGFloat
@@ -154,3 +153,4 @@ enum BubbleSizingV2 {
         max(minValue, min(maxValue, value))
     }
 }
+

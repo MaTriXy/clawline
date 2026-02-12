@@ -147,7 +147,7 @@ struct BubbleScrollTests {
         #expect(abs(scroll.contentOffset.y) < 0.5)
     }
 
-    @Test("T048: Single-link previews keep fixed full-height viewport using the available-height cap")
+    @Test("T048: Link preview bubbles enforce iPad-mini width + large-height caps on large containers")
     @MainActor
     func linkPreviewCapsHoldOnLargeContainerInputs() {
         let metrics = ChatFlowTheme.Metrics(isCompact: false)
@@ -209,7 +209,7 @@ struct BubbleScrollTests {
             Issue.record("Expected LinkPreviewView in bubble content")
             return
         }
-        let expectedPreviewMaxHeight = 900 - (metrics.bubblePaddingVertical * 2)
+        let expectedPreviewMaxHeight = metrics.truncationHeight - (metrics.bubblePaddingVertical * 2)
         let previewMeasured = preview.sizeThatFits(
             CGSize(width: referenceWidthCap, height: .greatestFiniteMagnitude)
         )
