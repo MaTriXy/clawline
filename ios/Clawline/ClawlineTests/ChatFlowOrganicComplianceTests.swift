@@ -569,6 +569,64 @@ struct ChatFlowOrganicComplianceTests {
         }))
     }
 
+    @Test("Rich attachment routing: shared MIME dispatch handles terminal + interactive docs in one pass")
+    func messagePresentationRichAttachmentSharedDispatch() throws {
+        let terminalDescriptor = TerminalSessionDescriptor(
+            version: 1,
+            terminalSessionId: "ts_shared",
+            title: "shared terminal",
+            provider: .init(baseUrl: "https://example.com", wsPath: "/ws/terminal"),
+            capabilities: .init(interactive: true, supportsBinaryFrames: true, supportsResize: true, supportsDetach: true),
+            auth: .init(mode: .chatToken, terminalAccessToken: nil),
+            expiresAtMs: 1_700_000_000_000
+        )
+        let interactiveDescriptor = InteractiveHTMLDescriptor(
+            version: 1,
+            html: "<html><body><button>Ping</button></body></html>",
+            metadata: .init(title: "Card", height: .auto, maxHeight: 320, backgroundColor: nil)
+        )
+        let terminalAttachment = Clawline.Attachment(
+            id: "shared-term",
+            type: .document,
+            mimeType: TerminalSessionDescriptor.mimeType,
+            data: try JSONEncoder().encode(terminalDescriptor),
+            assetId: nil
+        )
+        let interactiveAttachment = Clawline.Attachment(
+            id: "shared-html",
+            type: .document,
+            mimeType: InteractiveHTMLDescriptor.mimeType,
+            data: try JSONEncoder().encode(interactiveDescriptor),
+            assetId: nil
+        )
+        let presentation = buildPresentation(
+            sampleMessage(
+                content: "Two rich docs",
+                attachments: [terminalAttachment, interactiveAttachment],
+                sessionKey: SessionKey.clawlineMain(userId: "mike")
+            )
+        )
+
+        #expect(presentation.parts.contains(where: { part in
+            if case .terminalSession(let descriptor) = part {
+                return descriptor.terminalSessionId == "ts_shared"
+            }
+            return false
+        }))
+        #expect(presentation.parts.contains(where: { part in
+            if case .interactiveHTML(let descriptor) = part {
+                return descriptor.version == 1 && descriptor.html.contains("Ping")
+            }
+            return false
+        }))
+        #expect(!presentation.parts.contains(where: { part in
+            if case .file(let attachment) = part {
+                return attachment.id == "shared-term" || attachment.id == "shared-html"
+            }
+            return false
+        }))
+    }
+
     @Test("Doc §6: Word count strips markdown syntax")
     func wordCountStripsMarkdown() {
         let presentation = buildPresentation(sampleMessage(content: "**bold** _italic_ `code` text"))

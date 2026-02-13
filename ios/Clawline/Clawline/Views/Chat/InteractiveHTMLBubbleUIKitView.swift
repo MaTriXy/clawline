@@ -292,7 +292,7 @@ private final class InteractiveHTMLWebKit: NSObject {
 
         let rules = """
         [{
-          "trigger": { "url-filter": "^(?!data:)(?!about:).*$" },
+          "trigger": { "url-filter": ".*" },
           "action": { "type": "block" }
         }]
         """
@@ -369,12 +369,13 @@ extension InteractiveHTMLBubbleUIKitView: WKNavigationDelegate, WKUIDelegate {
         }
 
         guard !heightLocked else { return }
-        measureAndReveal(maxHeight: maxHeight, attempt: 0)
+        measureAndReveal(maxHeight: maxHeight)
     }
 
-    private func measureAndReveal(maxHeight: CGFloat, attempt: Int) {
+    private func measureAndReveal(maxHeight: CGFloat) {
         guard let webView else { return }
-        evaluateContentHeight(webView: webView) { [weak self] measured, error in
+        let js = "Math.ceil(document.body.scrollHeight)"
+        webView.evaluateJavaScript(js) { [weak self] value, error in
             guard let self else { return }
             if let error {
                 self.isInitialLoadInProgress = false
@@ -383,18 +384,14 @@ extension InteractiveHTMLBubbleUIKitView: WKNavigationDelegate, WKUIDelegate {
                 self.showError("Content failed to render.")
                 return
             }
+            let measured: CGFloat? = {
+                if let n = value as? NSNumber { return CGFloat(truncating: n) }
+                if let d = value as? Double { return CGFloat(d) }
+                return nil
+            }()
             guard let measured else {
                 self.isInitialLoadInProgress = false
                 self.showError("Content failed to render.")
-                return
-            }
-
-            // Some valid layouts (e.g. viewport-relative/flex roots) can report tiny heights on
-            // the first frame. Retry a couple of times before locking to 44pt.
-            if measured <= 44.5, attempt < 2 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                    self?.measureAndReveal(maxHeight: maxHeight, attempt: attempt + 1)
-                }
                 return
             }
 
@@ -404,52 +401,6 @@ extension InteractiveHTMLBubbleUIKitView: WKNavigationDelegate, WKUIDelegate {
             UIView.animate(withDuration: 0.18) {
                 webView.alpha = 1
             }
-        }
-    }
-
-    private func evaluateContentHeight(
-        webView: WKWebView,
-        completion: @escaping (CGFloat?, Error?) -> Void
-    ) {
-        let js = """
-        (() => {
-          const body = document.body;
-          const doc = document.documentElement;
-          if (!body || !doc) { return 0; }
-          const values = [
-            body.scrollHeight, body.offsetHeight, body.clientHeight,
-            doc.scrollHeight, doc.offsetHeight, doc.clientHeight,
-            (document.scrollingElement ? document.scrollingElement.scrollHeight : 0)
-          ].filter((v) => Number.isFinite(v));
-
-          let maxBottom = 0;
-          const elements = body.querySelectorAll('*');
-          for (const el of elements) {
-            const rect = el.getBoundingClientRect();
-            const bottom = rect.bottom + window.scrollY;
-            if (Number.isFinite(bottom)) {
-              maxBottom = Math.max(maxBottom, bottom);
-            }
-          }
-          values.push(maxBottom);
-          return Math.ceil(Math.max(...values, 0));
-        })();
-        """
-
-        webView.evaluateJavaScript(js) { value, error in
-            if let error {
-                completion(nil, error)
-                return
-            }
-            if let n = value as? NSNumber {
-                completion(CGFloat(truncating: n), nil)
-                return
-            }
-            if let d = value as? Double {
-                completion(CGFloat(d), nil)
-                return
-            }
-            completion(nil, nil)
         }
     }
 

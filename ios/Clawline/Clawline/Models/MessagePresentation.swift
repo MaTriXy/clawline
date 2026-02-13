@@ -216,6 +216,16 @@ enum MessagePresentationBuilder {
     private static let pendingLineLimit = 6
     private static let pendingTimeLimit: TimeInterval = 1.0
 
+    private struct RichAttachmentPart {
+        let part: MessagePart
+    }
+
+    private struct AttachmentBuckets {
+        let richParts: [RichAttachmentPart]
+        let imageAttachments: [Attachment]
+        let fileAttachments: [Attachment]
+    }
+
     static func build(
         from message: Message,
         metrics: ChatFlowTheme.Metrics,
@@ -223,11 +233,13 @@ enum MessagePresentationBuilder {
     ) -> MessagePresentation {
         let segments = Segmenter.split(message.content)
         let terminalAllowed = SessionKey.isClawlinePersonalDM(message.sessionKey)
-        let terminalAttachments = terminalAllowed ? terminalSessionAttachments(from: message.attachments) : []
-        let interactiveAttachments = interactiveHTMLAttachments(from: message.attachments)
-        let imageAttachments = imageAttachments(from: message.attachments)
-        let fileAttachments = fileAttachments(from: message.attachments)
-        let hasAttachments = !terminalAttachments.isEmpty || !interactiveAttachments.isEmpty || !imageAttachments.isEmpty || !fileAttachments.isEmpty
+        let attachmentBuckets = partitionAttachments(
+            from: message.attachments,
+            terminalAllowed: terminalAllowed
+        )
+        let imageAttachments = attachmentBuckets.imageAttachments
+        let fileAttachments = attachmentBuckets.fileAttachments
+        let hasAttachments = !attachmentBuckets.richParts.isEmpty || !imageAttachments.isEmpty || !fileAttachments.isEmpty
         var parts: [MessagePart] = []
         var collectedPlainText: [String] = []
         var hasTextual = false
@@ -240,28 +252,10 @@ enum MessagePresentationBuilder {
             fileAttachments: fileAttachments
         )
 
-        // Terminal sessions are encoded as a special document attachment; intercept them early so
-        // they never fall through to the generic file attachment UI.
-        //
-        // Policy: DM-only. If a provider violates this, we ignore and let it render as a generic file.
-        var decodedTerminalAttachmentIDs: Set<String> = []
-        for attachment in terminalAttachments {
-            if let descriptor = decodeTerminalSessionDescriptor(from: attachment) {
-                parts.append(.terminalSession(descriptor))
-                hasBlockedParts = true
-                decodedTerminalAttachmentIDs.insert(attachment.id)
-            }
-        }
-
-        // Interactive HTML bubbles are encoded as a special document attachment; intercept them
-        // so they never fall through to the generic file attachment UI.
-        var decodedInteractiveAttachmentIDs: Set<String> = []
-        for attachment in interactiveAttachments {
-            if let descriptor = decodeInteractiveHTMLDescriptor(from: attachment) {
-                parts.append(.interactiveHTML(descriptor))
-                hasBlockedParts = true
-                decodedInteractiveAttachmentIDs.insert(attachment.id)
-            }
+        // Rich document attachments share one MIME dispatch path.
+        for richPart in attachmentBuckets.richParts {
+            parts.append(richPart.part)
+            hasBlockedParts = true
         }
 
         if message.streaming {
@@ -323,9 +317,6 @@ enum MessagePresentationBuilder {
         }
         if !fileAttachments.isEmpty {
             for attachment in fileAttachments {
-                if decodedTerminalAttachmentIDs.contains(attachment.id) || decodedInteractiveAttachmentIDs.contains(attachment.id) {
-                    continue
-                }
                 parts.append(.file(attachment))
             }
         }
@@ -914,45 +905,63 @@ enum MessagePresentationBuilder {
         mime?.lowercased().hasPrefix("image/") == true
     }
 
-    private static func imageAttachments(from attachments: [Attachment]) -> [Attachment] {
-        attachments.filter { attachment in
+    private static func partitionAttachments(
+        from attachments: [Attachment],
+        terminalAllowed: Bool
+    ) -> AttachmentBuckets {
+        var richParts: [RichAttachmentPart] = []
+        var imageAttachments: [Attachment] = []
+        var fileAttachments: [Attachment] = []
+
+        for attachment in attachments {
             switch attachment.type {
             case .image:
-                return true
+                imageAttachments.append(attachment)
             case .asset:
                 // Check mime type first; only treat data-bearing assets as images
                 // when mime is image/* (or absent, for backward compat with older data).
                 if let mime = attachment.mimeType {
-                    return isImageMime(mime)
+                    if isImageMime(mime) {
+                        imageAttachments.append(attachment)
+                    } else {
+                        fileAttachments.append(attachment)
+                    }
+                    continue
                 }
-                // No mime: fall back to data presence (legacy behavior).
-                return attachment.data != nil
+                // No mime: fall back to data presence (legacy behavior for image assets).
+                if attachment.data != nil {
+                    imageAttachments.append(attachment)
+                } else {
+                    fileAttachments.append(attachment)
+                }
             case .document:
-                return false
+                // Terminal sessions are DM-only; invalid/blocked payloads fall back to generic files.
+                if terminalAllowed,
+                   let descriptor = decodeTerminalSessionDescriptor(from: attachment) {
+                    richParts.append(
+                        RichAttachmentPart(
+                            part: .terminalSession(descriptor)
+                        )
+                    )
+                    continue
+                }
+                if let descriptor = decodeInteractiveHTMLDescriptor(from: attachment) {
+                    richParts.append(
+                        RichAttachmentPart(
+                            part: .interactiveHTML(descriptor)
+                        )
+                    )
+                    continue
+                }
+                fileAttachments.append(attachment)
             }
         }
-    }
 
-    private static func fileAttachments(from attachments: [Attachment]) -> [Attachment] {
-        attachments.filter { attachment in
-            switch attachment.type {
-            case .document:
-                return true
-            case .asset:
-                // Mirror of imageAttachments: non-image mime → file.
-                if let mime = attachment.mimeType {
-                    return !isImageMime(mime)
-                }
-                // No mime + no data → unknown, treat as file.
-                return attachment.data == nil
-            case .image:
-                return false
-            }
-        }
-    }
-
-    private static func terminalSessionAttachments(from attachments: [Attachment]) -> [Attachment] {
-        attachments.filter(isTerminalSessionAttachment)
+        return AttachmentBuckets(
+            richParts: richParts,
+            imageAttachments: imageAttachments,
+            fileAttachments: fileAttachments
+        )
     }
 
     private static func isTerminalSessionAttachment(_ attachment: Attachment) -> Bool {

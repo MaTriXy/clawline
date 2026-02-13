@@ -126,6 +126,7 @@ struct ProviderServiceTests {
 
         #expect(connector.connectedURL?.absoluteString == "wss://example.com/ws")
         #expect(mockSocket.sentTexts.contains { $0.contains("\"type\":\"auth\"") && $0.contains("\"lastMessageId\":\"s_0\"") })
+        #expect(mockSocket.sentTexts.contains { $0.contains("\"clientFeatures\":[\"terminal_bubbles_v1\"]") })
         #expect(message?.content == "Hi")
     }
 

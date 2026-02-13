@@ -93,6 +93,7 @@ final class ProviderChatService: ChatServicing {
         let token: String
         let deviceId: String
         let lastMessageId: String?
+        let clientFeatures: [String]?
         let client: ClientDescriptor
     }
 
@@ -198,6 +199,7 @@ final class ProviderChatService: ChatServicing {
     private let streamAPIClient: StreamAPIClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let supportedClientFeatures = ["terminal_bubbles_v1"]
     private let ackInterval: Duration = .seconds(5)
     private let authTimeout: Duration = .seconds(12)
 
@@ -826,9 +828,10 @@ final class ProviderChatService: ChatServicing {
                                 token: token,
                                 deviceId: self.deviceId,
                                 lastMessageId: lastMessageId,
+                                clientFeatures: self.supportedClientFeatures,
                                 client: ClientDescriptor(
                                     id: Self.clientID,
-                                    features: ["terminal_bubbles_v1"]
+                                    features: self.supportedClientFeatures
                                 )
                             )
                             let data = try self.encoder.encode(authPayload)
