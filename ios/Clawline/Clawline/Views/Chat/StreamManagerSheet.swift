@@ -68,23 +68,24 @@ struct StreamManagerSheet: View {
             .padding(.vertical, listOuterVerticalPadding)
             .disabled(isWorking)
 
-            // One-tap add button - directly creates a stream with auto-generated name
-            Button {
-                Task { await addStreamDirectly() }
-            } label: {
-                ZStack {
+            // Keep add affordance vertically centered regardless of keyboard/layout changes.
+            ZStack {
+                Button {
+                    Task { await addStreamDirectly() }
+                } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 26, weight: .medium))
                         .foregroundStyle(.primary)
+                        .frame(width: 44, height: 44, alignment: .center)
+                        .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .disabled(isWorking)
+                .accessibilityLabel("Add stream")
+                .accessibilityHint("Creates a new stream")
             }
-            .buttonStyle(.plain)
-            .frame(height: functionBarHeight)
-            .disabled(isWorking)
-            .accessibilityLabel("Add stream")
-            .accessibilityHint("Creates a new stream")
+            .frame(maxWidth: .infinity)
+            .frame(height: functionBarHeight, alignment: .center)
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .frame(height: cappedContainerHeight)
