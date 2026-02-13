@@ -46,22 +46,21 @@ struct StreamManagerSheet: View {
                     rowContent(for: stream)
                         .listRowSeparator(.hidden)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if activeEditor != .renaming(stream.sessionKey) {
-                                if viewModel.canRenameStream(sessionKey: stream.sessionKey) {
-                                    Button {
-                                        beginRenaming(stream)
-                                    } label: {
-                                        Label("Rename", systemImage: "pencil")
-                                    }
-                                }
-                                if viewModel.canDeleteStream(sessionKey: stream.sessionKey) {
-                                    Button(role: .destructive) {
-                                        Task { await deleteStream(stream) }
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
+                            Button {
+                                beginRenaming(stream)
+                            } label: {
+                                Label("Rename", systemImage: "pencil")
                             }
+                            .disabled(!canPerformRenameAction(for: stream))
+                            .tint(canPerformRenameAction(for: stream) ? .blue : Color.gray.opacity(0.35))
+
+                            Button {
+                                Task { await deleteStream(stream) }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .disabled(!canPerformDeleteAction(for: stream))
+                            .tint(canPerformDeleteAction(for: stream) ? .red : Color.gray.opacity(0.35))
                         }
                 }
             }
@@ -100,7 +99,7 @@ struct StreamManagerSheet: View {
     private func rowContent(for stream: StreamSession) -> some View {
         if activeEditor == .renaming(stream.sessionKey) {
             TextField("Stream name", text: $draftName)
-                .font(.system(size: 18))
+                .font(.system(size: 28))
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled(false)
                 .submitLabel(.done)
@@ -118,7 +117,7 @@ struct StreamManagerSheet: View {
                         .fill(stream.sessionKey == viewModel.activeSessionKey ? Color.accentColor : Color.primary.opacity(0.25))
                         .frame(width: 8, height: 8)
                     Text(stream.displayName)
-                        .font(.system(size: 18, weight: stream.sessionKey == viewModel.activeSessionKey ? .semibold : .regular))
+                        .font(.system(size: 28, weight: stream.sessionKey == viewModel.activeSessionKey ? .semibold : .regular))
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -139,6 +138,18 @@ struct StreamManagerSheet: View {
         activeEditor = nil
         draftName = ""
         focusedEditor = nil
+    }
+
+    private func canPerformRenameAction(for stream: StreamSession) -> Bool {
+        guard !isWorking else { return false }
+        guard activeEditor != .renaming(stream.sessionKey) else { return false }
+        return viewModel.canRenameStream(sessionKey: stream.sessionKey)
+    }
+
+    private func canPerformDeleteAction(for stream: StreamSession) -> Bool {
+        guard !isWorking else { return false }
+        guard activeEditor != .renaming(stream.sessionKey) else { return false }
+        return viewModel.canDeleteStream(sessionKey: stream.sessionKey)
     }
 
     private func addStreamDirectly() async {
