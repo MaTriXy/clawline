@@ -332,10 +332,16 @@ final class ChatLayoutCoordinator {
         markInputsChanged()
     }
 
-    private func currentInsetBarHeight(for inputs: ChatLayoutInputs, metrics: ChatLayoutMetrics) -> CGFloat {
+    func currentInsetBarHeight(for inputs: ChatLayoutInputs, metrics: ChatLayoutMetrics) -> CGFloat {
         let candidate = barHeightCache
         if candidate > 0.5 {
-            if abs(candidate - barHeightCandidate) < 0.5 {
+            if barHeightCandidate <= 0.5 {
+                // First real measurement after bootstrap: adopt immediately so underfilled lists
+                // account for the full input bar height without waiting for another transition tick.
+                barHeightCandidate = candidate
+                barHeightCandidateApplyIndex = applyIndex
+                hasStableBarHeight = true
+            } else if abs(candidate - barHeightCandidate) < 0.5 {
                 if applyIndex - barHeightCandidateApplyIndex >= 1 {
                     hasStableBarHeight = true
                 }

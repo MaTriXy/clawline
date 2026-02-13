@@ -166,4 +166,31 @@ struct ChatLayoutCoordinatorTests {
 
         #expect(transition.scrollAction == .none)
     }
+
+    @Test("T071: First measured bar height immediately updates list bottom inset")
+    @MainActor
+    func firstMeasuredBarHeightAppliesWithoutSecondTick() {
+        let coordinator = ChatLayoutCoordinator()
+        let metrics = ChatLayoutMetrics(
+            belowBarGap: 24,
+            flowGap: 10,
+            containerPadding: 12
+        )
+        let inputs = ChatLayoutInputs(
+            keyboardHeight: 0,
+            keyboardVisible: false,
+            isInputFocused: false,
+            keyboardAnimationDuration: 0.25,
+            keyboardAnimationCurve: .easeInOut,
+            safeAreaBottom: 0,
+            usesExternalKeyboardInsets: true
+        )
+
+        let bootstrapHeight = coordinator.currentInsetBarHeight(for: inputs, metrics: metrics)
+        #expect(abs(bootstrapHeight - MessageInputBarMetrics.minInputBarHeight) <= 0.5)
+
+        coordinator.updateBarHeight(88)
+        let resolvedHeight = coordinator.currentInsetBarHeight(for: inputs, metrics: metrics)
+        #expect(abs(resolvedHeight - 88) <= 0.5)
+    }
 }
