@@ -16,6 +16,8 @@ struct StreamManagerSheet: View {
     @State private var draftName = ""
     @State private var activeEditor: EditorMode?
     @State private var isWorking = false
+    @State private var isCreatingStream = false
+    @State private var deletingSessionKeys: Set<String> = []
     @FocusState private var focusedEditor: EditorMode?
 
     private enum EditorMode: Hashable {
@@ -77,11 +79,19 @@ struct StreamManagerSheet: View {
                 Button {
                     Task { await addStreamDirectly() }
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 26, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .frame(width: 44, height: 44, alignment: .center)
-                        .contentShape(Rectangle())
+                    ZStack {
+                        if isCreatingStream {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.secondary)
+                        } else {
+                            Image(systemName: "plus")
+                                .font(.system(size: 26, weight: .medium))
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                    .frame(width: 44, height: 44, alignment: .center)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(isWorking)
@@ -145,9 +155,15 @@ struct StreamManagerSheet: View {
                     Text(stream.displayName)
                         .font(.system(size: 28, weight: stream.sessionKey == viewModel.activeSessionKey ? .semibold : .regular))
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    if isDeletingStream(stream.sessionKey) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.secondary)
+                    }
                 }
             }
             .buttonStyle(.plain)
+            .disabled(isWorking || isDeletingStream(stream.sessionKey))
             .contentShape(Rectangle())
         }
     }
@@ -164,25 +180,34 @@ struct StreamManagerSheet: View {
         activeEditor = nil
         draftName = ""
         focusedEditor = nil
+        deletingSessionKeys.removeAll()
     }
 
     private func canPerformRenameAction(for stream: StreamSession) -> Bool {
         guard !isWorking else { return false }
+        guard !isDeletingStream(stream.sessionKey) else { return false }
         guard activeEditor != .renaming(stream.sessionKey) else { return false }
         return viewModel.canRenameStream(sessionKey: stream.sessionKey)
     }
 
     private func canPerformDeleteAction(for stream: StreamSession) -> Bool {
         guard !isWorking else { return false }
+        guard !isDeletingStream(stream.sessionKey) else { return false }
         guard activeEditor != .renaming(stream.sessionKey) else { return false }
         return viewModel.canDeleteStream(sessionKey: stream.sessionKey)
+    }
+
+    private func isDeletingStream(_ sessionKey: String) -> Bool {
+        deletingSessionKeys.contains(sessionKey)
     }
 
     private func addStreamDirectly() async {
         let existingCount = viewModel.orderedStreams.count
         let name = "Stream \(existingCount + 1)"
         isWorking = true
+        isCreatingStream = true
         let succeeded = await viewModel.createStream(displayName: name)
+        isCreatingStream = false
         isWorking = false
         guard succeeded else { return }
         // Switch to the new stream and dismiss
@@ -203,9 +228,12 @@ struct StreamManagerSheet: View {
     }
 
     private func deleteStream(_ stream: StreamSession) async {
-        isWorking = true
-        _ = await viewModel.deleteStream(sessionKey: stream.sessionKey)
-        isWorking = false
+        guard !isDeletingStream(stream.sessionKey) else { return }
+        deletingSessionKeys.insert(stream.sessionKey)
+        let succeeded = await viewModel.deleteStream(sessionKey: stream.sessionKey)
+        if !succeeded {
+            deletingSessionKeys.remove(stream.sessionKey)
+        }
         if activeEditor == .renaming(stream.sessionKey) {
             resetInlineEditing()
         }
