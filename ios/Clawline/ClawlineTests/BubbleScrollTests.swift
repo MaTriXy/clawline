@@ -216,6 +216,28 @@ struct BubbleScrollTests {
         #expect(abs(previewMeasured.height - expectedPreviewMaxHeight) <= 1)
     }
 
+    @Test("T060: Single-link cap uses live bottom inset (not truncation reserve)")
+    func singleLinkCapUsesLiveViewportInsets() {
+        let cap = BubbleSizingV2.availableHeightCap(
+            containerHeight: 1366,
+            topInset: 24,
+            bottomInset: 120,
+            flowPadding: 12
+        )
+        #expect(abs(cap - 1198) <= 0.5)
+    }
+
+    @Test("T060: Single-link cap tracks full container height for large iPad/vision viewports")
+    func singleLinkCapUsesFullContainerHeight() {
+        let cap = BubbleSizingV2.availableHeightCap(
+            containerHeight: 1600,
+            topInset: 20,
+            bottomInset: 160,
+            flowPadding: 12
+        )
+        #expect(abs(cap - 1396) <= 0.5)
+    }
+
     @Test("T032: Salient highlight style-only updates avoid layout reflow callbacks")
     @MainActor
     func salientHighlightAvoidsLayoutReflowWhenHeightStable() async throws {

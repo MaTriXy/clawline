@@ -153,4 +153,14 @@ enum BubbleSizingV2 {
     static func clamp(_ value: CGFloat, _ minValue: CGFloat, _ maxValue: CGFloat) -> CGFloat {
         max(minValue, min(maxValue, value))
     }
+
+    static func availableHeightCap(
+        containerHeight: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat,
+        flowPadding: CGFloat
+    ) -> CGFloat {
+        let available = containerHeight - topInset - bottomInset - (flowPadding * 2)
+        return max(120, floor(available))
+    }
 }

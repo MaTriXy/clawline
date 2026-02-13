@@ -1271,8 +1271,21 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func effectiveTruncationHeight(metrics: ChatFlowTheme.Metrics) -> CGFloat {
         let baseHeight = effectiveContainerHeight()
         let bottomInset = max(currentBottomInset, truncationBottomInset)
-        let available = baseHeight - topInset - bottomInset - (metrics.containerPadding * 2)
-        return max(120, floor(available))
+        return BubbleSizingV2.availableHeightCap(
+            containerHeight: baseHeight,
+            topInset: topInset,
+            bottomInset: bottomInset,
+            flowPadding: metrics.containerPadding
+        )
+    }
+
+    private func effectiveSingleLinkPreviewHeightCap(metrics: ChatFlowTheme.Metrics) -> CGFloat {
+        BubbleSizingV2.availableHeightCap(
+            containerHeight: collectionView.bounds.height,
+            topInset: topInset,
+            bottomInset: currentBottomInset,
+            flowPadding: metrics.containerPadding
+        )
     }
 
     private func maxItemWidth(for sizeClass: MessageSizeClass,
@@ -1322,7 +1335,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         metrics: ChatFlowTheme.Metrics
     ) -> CGFloat? {
         if isSingleLinkPreviewBubble(presentation: presentation) {
-            return effectiveTruncationHeight(metrics: metrics)
+            return effectiveSingleLinkPreviewHeightCap(metrics: metrics)
         }
         // Only certain embedded content (tables/images/etc) gets the full screen-aware truncation height.
         // Plain text/markdown bubbles (even if they contain URLs) keep the design-system cap (metrics.truncationHeight).
@@ -1689,11 +1702,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         let heightCapMode: BubbleSizingV2.HeightCapMode = (isSingleLinkPreview || prefersScreenAwareHeightCap) ? .screenAware : .designSystem
         let heightCap: CGFloat = {
+            if isSingleLinkPreview {
+                return effectiveSingleLinkPreviewHeightCap(metrics: metrics)
+            }
             // If outer-scroll is disabled, use a very generous cap so we never force overflow.
             guard allowsOuterScroll else { return 2000 }
-            if isSingleLinkPreview {
-                return effectiveTruncationHeight(metrics: metrics)
-            }
             switch heightCapMode {
             case .screenAware:
                 return effectiveTruncationHeight(metrics: metrics)
