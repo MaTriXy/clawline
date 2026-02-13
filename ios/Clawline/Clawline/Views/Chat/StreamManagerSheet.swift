@@ -30,16 +30,35 @@ struct StreamManagerSheet: View {
     }
 
     private let listRowHeight: CGFloat = 52
+    private let listRowSpacing: CGFloat = 8
     private let functionBarHeight: CGFloat = 58
     private let listOuterVerticalPadding: CGFloat = 16
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
 
-    private var cappedContainerHeight: CGFloat {
-        StreamSelectorLayout.containerHeight(
-            itemCount: viewModel.orderedStreams.count + pendingCreateRows.count,
+    private var listItemCount: Int {
+        viewModel.orderedStreams.count + pendingCreateRows.count
+    }
+
+    private var allowsListScrolling: Bool {
+        StreamSelectorLayout.isOverflowing(
+            itemCount: listItemCount,
             showsCreateInlineRow: false,
             rowHeight: listRowHeight,
+            rowSpacing: listRowSpacing,
+            functionBarHeight: functionBarHeight,
+            outerVerticalPadding: listOuterVerticalPadding,
+            maxAvailableHeight: maxAvailableHeight,
+            minimumPopoverHeight: minimumPopoverHeight
+        )
+    }
+
+    private var cappedContainerHeight: CGFloat {
+        StreamSelectorLayout.containerHeight(
+            itemCount: listItemCount,
+            showsCreateInlineRow: false,
+            rowHeight: listRowHeight,
+            rowSpacing: listRowSpacing,
             functionBarHeight: functionBarHeight,
             outerVerticalPadding: listOuterVerticalPadding,
             maxAvailableHeight: maxAvailableHeight,
@@ -52,6 +71,7 @@ struct StreamManagerSheet: View {
             List {
                 ForEach(viewModel.orderedStreams) { stream in
                     rowContent(for: stream)
+                        .frame(minHeight: listRowHeight, alignment: .center)
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -88,10 +108,15 @@ struct StreamManagerSheet: View {
                     }
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
+                    .frame(minHeight: listRowHeight, alignment: .center)
                     .contentShape(Rectangle())
                 }
             }
             .listStyle(.plain)
+            .listRowSpacing(listRowSpacing)
+            .scrollDisabled(!allowsListScrolling)
+            .scrollBounceBehavior(.basedOnSize)
+            .contentMargins(.vertical, 0, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
             .padding(.vertical, listOuterVerticalPadding)
@@ -259,14 +284,57 @@ enum StreamSelectorLayout {
         itemCount: Int,
         showsCreateInlineRow: Bool,
         rowHeight: CGFloat,
+        rowSpacing: CGFloat,
         functionBarHeight: CGFloat,
         outerVerticalPadding: CGFloat,
         maxAvailableHeight: CGFloat,
         minimumPopoverHeight: CGFloat
     ) -> CGFloat {
-        let rows = max(1, itemCount + (showsCreateInlineRow ? 1 : 0))
-        let desired = CGFloat(rows) * rowHeight + functionBarHeight + (outerVerticalPadding * 2)
+        let desired = desiredHeight(
+            itemCount: itemCount,
+            showsCreateInlineRow: showsCreateInlineRow,
+            rowHeight: rowHeight,
+            rowSpacing: rowSpacing,
+            functionBarHeight: functionBarHeight,
+            outerVerticalPadding: outerVerticalPadding
+        )
         let cap = max(minimumPopoverHeight, maxAvailableHeight)
         return min(desired, cap)
+    }
+
+    static func isOverflowing(
+        itemCount: Int,
+        showsCreateInlineRow: Bool,
+        rowHeight: CGFloat,
+        rowSpacing: CGFloat,
+        functionBarHeight: CGFloat,
+        outerVerticalPadding: CGFloat,
+        maxAvailableHeight: CGFloat,
+        minimumPopoverHeight: CGFloat
+    ) -> Bool {
+        let desired = desiredHeight(
+            itemCount: itemCount,
+            showsCreateInlineRow: showsCreateInlineRow,
+            rowHeight: rowHeight,
+            rowSpacing: rowSpacing,
+            functionBarHeight: functionBarHeight,
+            outerVerticalPadding: outerVerticalPadding
+        )
+        let cap = max(minimumPopoverHeight, maxAvailableHeight)
+        return desired > cap + 0.5
+    }
+
+    private static func desiredHeight(
+        itemCount: Int,
+        showsCreateInlineRow: Bool,
+        rowHeight: CGFloat,
+        rowSpacing: CGFloat,
+        functionBarHeight: CGFloat,
+        outerVerticalPadding: CGFloat
+    ) -> CGFloat {
+        let rows = max(1, itemCount + (showsCreateInlineRow ? 1 : 0))
+        let interRowSpacing = CGFloat(max(0, rows - 1)) * rowSpacing
+        let listHeight = CGFloat(rows) * rowHeight + interRowSpacing + (outerVerticalPadding * 2)
+        return listHeight + functionBarHeight
     }
 }
