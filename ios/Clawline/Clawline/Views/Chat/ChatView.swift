@@ -99,6 +99,7 @@ struct ChatView: View {
     @State private var selectionRange = NSRange(location: 0, length: 0)
     @State private var pendingInputInsertions: [PendingAttachment] = []
     @State private var activeSheet: ChatSheet?
+    @State private var isStreamManagerPopoverPresented = false
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
@@ -134,7 +135,6 @@ struct ChatView: View {
         case attachmentMenu
         case expandedMessage(Message)
         case camera
-        case streamManager
 
         var id: String {
             switch self {
@@ -144,8 +144,6 @@ struct ChatView: View {
                 return "expandedMessage-\(message.id)"
             case .camera:
                 return "camera"
-            case .streamManager:
-                return "streamManager"
             }
         }
     }
@@ -413,11 +411,7 @@ struct ChatView: View {
     @ViewBuilder
     private func floatingPageDotsView(viewModel: ChatViewModel, inputBarTopFromScreenBottom: CGFloat) -> some View {
         if !viewModel.orderedSessionKeys.isEmpty {
-            StreamPageDotsView(
-                sessionKeys: viewModel.orderedSessionKeys,
-                activeSessionKey: viewModel.activeSessionKey,
-                onTap: { activeSheet = .streamManager }
-            )
+            streamPageDotsControl(viewModel: viewModel)
             .padding(.bottom, inputBarTopFromScreenBottom + floatingPageDotsBottomGap)
             .ignoresSafeArea(.container, edges: .bottom)
         }
@@ -746,11 +740,7 @@ struct ChatView: View {
         let pageDotsView: AnyView? = viewModel.orderedSessionKeys.isEmpty
             ? nil
             : AnyView(
-                StreamPageDotsView(
-                    sessionKeys: viewModel.orderedSessionKeys,
-                    activeSessionKey: viewModel.activeSessionKey,
-                    onTap: { activeSheet = .streamManager }
-                )
+                streamPageDotsControl(viewModel: viewModel)
             )
 
 #if os(visionOS)
@@ -931,9 +921,6 @@ struct ChatView: View {
                 }
             )
             #endif
-        case .streamManager:
-            StreamManagerSheet(viewModel: viewModel)
-                .presentationDetents([.medium, .large])
         }
     }
 
@@ -969,21 +956,43 @@ struct ChatView: View {
         Binding(
             get: { viewModel.activeSessionKey },
             set: { newSessionKey in
-                guard newSessionKey != viewModel.activeSessionKey else { return }
-
-                // Haptic feedback
-#if !os(visionOS)
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred()
-#endif
-
-                // Switch stream and show toast
-                viewModel.setActiveSessionKey(newSessionKey)
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    streamToastManager.show(sessionKey: newSessionKey)
-                }
+                selectStream(newSessionKey)
             }
         )
+    }
+
+    private func streamPageDotsControl(viewModel: ChatViewModel) -> some View {
+        StreamPageDotsView(
+            sessionKeys: viewModel.orderedSessionKeys,
+            activeSessionKey: viewModel.activeSessionKey,
+            onTap: { isStreamManagerPopoverPresented = true }
+        )
+        .popover(
+            isPresented: $isStreamManagerPopoverPresented,
+            attachmentAnchor: .rect(.bounds),
+            arrowEdge: .top
+        ) {
+            StreamManagerSheet(
+                viewModel: viewModel,
+                isPresented: $isStreamManagerPopoverPresented,
+                onSelectStream: selectStream
+            )
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private func selectStream(_ sessionKey: String) {
+        guard sessionKey != viewModel.activeSessionKey else { return }
+
+        #if !os(visionOS)
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        #endif
+
+        viewModel.setActiveSessionKey(sessionKey)
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            streamToastManager.show(sessionKey: sessionKey)
+        }
     }
 
     private func errorBanner(_ message: String) -> some View {

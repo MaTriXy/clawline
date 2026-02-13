@@ -495,9 +495,9 @@ final class ChatViewModel: ChatViewModelHosting {
         return !stream.isBuiltIn && !syntheticSessionKeys.contains(sessionKey)
     }
 
-    func createStream(displayName: String) async {
+    func createStream(displayName: String) async -> Bool {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
         do {
             let stream = try await chatService.createStream(
                 displayName: trimmed,
@@ -505,33 +505,39 @@ final class ChatViewModel: ChatViewModelHosting {
             )
             applyStreamUpsert(stream)
             setActiveSessionKey(stream.sessionKey)
+            return true
         } catch {
             toastManager.show(error.localizedDescription)
+            return false
         }
     }
 
-    func renameStream(sessionKey: String, displayName: String) async {
-        guard canRenameStream(sessionKey: sessionKey) else { return }
+    func renameStream(sessionKey: String, displayName: String) async -> Bool {
+        guard canRenameStream(sessionKey: sessionKey) else { return false }
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
         do {
             let stream = try await chatService.renameStream(sessionKey: sessionKey, displayName: trimmed)
             applyStreamUpsert(stream)
+            return true
         } catch {
             toastManager.show(error.localizedDescription)
+            return false
         }
     }
 
-    func deleteStream(sessionKey: String) async {
-        guard canDeleteStream(sessionKey: sessionKey) else { return }
+    func deleteStream(sessionKey: String) async -> Bool {
+        guard canDeleteStream(sessionKey: sessionKey) else { return false }
         do {
             _ = try await chatService.deleteStream(
                 sessionKey: sessionKey,
                 idempotencyKey: Self.makeIdempotencyKey()
             )
             applyStreamDeletion(sessionKey: sessionKey)
+            return true
         } catch {
             toastManager.show(error.localizedDescription)
+            return false
         }
     }
 

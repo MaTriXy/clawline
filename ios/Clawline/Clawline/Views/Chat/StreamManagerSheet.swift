@@ -9,132 +9,169 @@ import SwiftUI
 
 struct StreamManagerSheet: View {
     @Bindable var viewModel: ChatViewModel
-    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
+    let onSelectStream: (String) -> Void
 
-    @State private var newStreamName = ""
-    @State private var renameTarget: StreamSession?
-    @State private var renameValue = ""
-    @State private var deleteTarget: StreamSession?
+    @State private var draftName = ""
+    @State private var activeEditor: EditorMode?
     @State private var isWorking = false
+    @State private var isAddButtonPopoverPresented = false
+    @FocusState private var focusedEditor: EditorMode?
+
+    private enum EditorMode: Hashable {
+        case creating(UUID)
+        case renaming(String)
+    }
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
             List {
-                Section("Add Stream") {
-                    HStack(spacing: 12) {
-                        TextField("Stream name", text: $newStreamName)
-                            .textInputAutocapitalization(.words)
-                            .autocorrectionDisabled(false)
-                        Button("Add") {
+                ForEach(viewModel.orderedStreams) { stream in
+                    rowContent(for: stream)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if activeEditor != .renaming(stream.sessionKey) {
+                                if viewModel.canRenameStream(sessionKey: stream.sessionKey) {
+                                    Button {
+                                        beginRenaming(stream)
+                                    } label: {
+                                        Label("Rename", systemImage: "pencil")
+                                    }
+                                }
+                                if viewModel.canDeleteStream(sessionKey: stream.sessionKey) {
+                                    Button(role: .destructive) {
+                                        Task { await deleteStream(stream) }
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                            }
+                        }
+                }
+                if case .creating(let id) = activeEditor {
+                    TextField("Stream name", text: $draftName)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled(false)
+                        .submitLabel(.done)
+                        .focused($focusedEditor, equals: .creating(id))
+                        .onSubmit {
                             Task { await createStream() }
                         }
-                        .disabled(isWorking || newStreamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                }
-
-                Section("Streams") {
-                    ForEach(viewModel.orderedStreams) { stream in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(stream.displayName)
-                                    .font(.body.weight(stream.sessionKey == viewModel.activeSessionKey ? .semibold : .regular))
-                                Text(stream.sessionKey)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if stream.isBuiltIn {
-                                Text("Built-in")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else if viewModel.canRenameStream(sessionKey: stream.sessionKey) {
-                                Button("Rename") {
-                                    renameTarget = stream
-                                    renameValue = stream.displayName
-                                }
-                                .buttonStyle(.borderless)
-                                Button("Delete", role: .destructive) {
-                                    deleteTarget = stream
-                                }
-                                .buttonStyle(.borderless)
-                            } else {
-                                Text("Read-only")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
                 }
             }
-            .navigationTitle("Streams")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
+            .listStyle(.plain)
             .disabled(isWorking)
-            .alert("Rename Stream", isPresented: renamePresentedBinding) {
-                TextField("Name", text: $renameValue)
-                Button("Cancel", role: .cancel) {
-                    renameTarget = nil
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button {
+                    beginCreatingStream()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.semibold))
                 }
-                Button("Save") {
-                    Task { await renameStream() }
+                .buttonStyle(.plain)
+                .disabled(isWorking)
+                .popover(
+                    isPresented: $isAddButtonPopoverPresented,
+                    attachmentAnchor: .rect(.bounds),
+                    arrowEdge: .top
+                ) {
+                    Image(systemName: "plus")
+                        .font(.title2.weight(.semibold))
+                        .padding(12)
+                        .presentationCompactAdaptation(.popover)
                 }
-            } message: {
-                Text("Enter a new stream name.")
+                Spacer()
             }
-            .alert("Delete Stream?", isPresented: deletePresentedBinding) {
-                Button("Cancel", role: .cancel) {
-                    deleteTarget = nil
-                }
-                Button("Delete", role: .destructive) {
-                    Task { await deleteStream() }
-                }
-            } message: {
-                Text("This permanently deletes the stream and its message history.")
+            .padding(.vertical, 10)
+        }
+        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360, minHeight: 260, maxHeight: 420)
+        .onChange(of: isPresented) { _, presented in
+            if !presented {
+                resetInlineEditing()
             }
         }
     }
 
-    private var renamePresentedBinding: Binding<Bool> {
-        Binding(
-            get: { renameTarget != nil },
-            set: { if !$0 { renameTarget = nil } }
-        )
+    @ViewBuilder
+    private func rowContent(for stream: StreamSession) -> some View {
+        if activeEditor == .renaming(stream.sessionKey) {
+            TextField("Stream name", text: $draftName)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled(false)
+                .submitLabel(.done)
+                .focused($focusedEditor, equals: .renaming(stream.sessionKey))
+                .onSubmit {
+                    Task { await renameStream(stream) }
+                }
+        } else {
+            Button {
+                onSelectStream(stream.sessionKey)
+                isPresented = false
+            } label: {
+                Text(stream.displayName)
+                    .fontWeight(stream.sessionKey == viewModel.activeSessionKey ? .semibold : .regular)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+        }
     }
 
-    private var deletePresentedBinding: Binding<Bool> {
-        Binding(
-            get: { deleteTarget != nil },
-            set: { if !$0 { deleteTarget = nil } }
-        )
+    private func beginCreatingStream() {
+        let token = UUID()
+        activeEditor = .creating(token)
+        draftName = ""
+        isAddButtonPopoverPresented = true
+        Task { @MainActor in
+            focusedEditor = .creating(token)
+        }
+    }
+
+    private func beginRenaming(_ stream: StreamSession) {
+        activeEditor = .renaming(stream.sessionKey)
+        draftName = stream.displayName
+        isAddButtonPopoverPresented = false
+        Task { @MainActor in
+            focusedEditor = .renaming(stream.sessionKey)
+        }
+    }
+
+    private func resetInlineEditing() {
+        activeEditor = nil
+        draftName = ""
+        focusedEditor = nil
+        isAddButtonPopoverPresented = false
     }
 
     private func createStream() async {
-        let trimmed = newStreamName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         isWorking = true
-        await viewModel.createStream(displayName: trimmed)
-        newStreamName = ""
+        let succeeded = await viewModel.createStream(displayName: trimmed)
         isWorking = false
+        guard succeeded else { return }
+        resetInlineEditing()
     }
 
-    private func renameStream() async {
-        guard let target = renameTarget else { return }
-        let trimmed = renameValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func renameStream(_ stream: StreamSession) async {
+        let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         isWorking = true
-        await viewModel.renameStream(sessionKey: target.sessionKey, displayName: trimmed)
-        renameTarget = nil
+        let succeeded = await viewModel.renameStream(sessionKey: stream.sessionKey, displayName: trimmed)
         isWorking = false
+        guard succeeded else { return }
+        resetInlineEditing()
     }
 
-    private func deleteStream() async {
-        guard let target = deleteTarget else { return }
+    private func deleteStream(_ stream: StreamSession) async {
         isWorking = true
-        await viewModel.deleteStream(sessionKey: target.sessionKey)
-        deleteTarget = nil
+        _ = await viewModel.deleteStream(sessionKey: stream.sessionKey)
         isWorking = false
+        if activeEditor == .renaming(stream.sessionKey) {
+            resetInlineEditing()
+        }
     }
 }
