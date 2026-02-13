@@ -16,12 +16,17 @@ struct StreamManagerSheet: View {
     @State private var draftName = ""
     @State private var activeEditor: EditorMode?
     @State private var isWorking = false
-    @State private var isCreatingStream = false
     @State private var deletingSessionKeys: Set<String> = []
+    @State private var pendingCreateRows: [PendingCreateRow] = []
     @FocusState private var focusedEditor: EditorMode?
 
     private enum EditorMode: Hashable {
         case renaming(String)
+    }
+
+    private struct PendingCreateRow: Identifiable, Hashable {
+        let id: UUID
+        let displayName: String
     }
 
     private let listRowHeight: CGFloat = 52
@@ -32,7 +37,7 @@ struct StreamManagerSheet: View {
 
     private var cappedContainerHeight: CGFloat {
         StreamSelectorLayout.containerHeight(
-            itemCount: viewModel.orderedStreams.count,
+            itemCount: viewModel.orderedStreams.count + pendingCreateRows.count,
             showsCreateInlineRow: false,
             rowHeight: listRowHeight,
             functionBarHeight: functionBarHeight,
@@ -67,6 +72,24 @@ struct StreamManagerSheet: View {
                             .tint(canPerformDeleteAction(for: stream) ? .red : Color.gray.opacity(0.35))
                         }
                 }
+
+                ForEach(pendingCreateRows) { pendingRow in
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(Color.primary.opacity(0.18))
+                            .frame(width: 8, height: 8)
+                        Text(pendingRow.displayName)
+                            .font(.system(size: 28, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.secondary)
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .contentShape(Rectangle())
+                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -77,24 +100,16 @@ struct StreamManagerSheet: View {
             // Keep add affordance vertically centered regardless of keyboard/layout changes.
             ZStack {
                 Button {
-                    Task { await addStreamDirectly() }
+                    addStreamDirectly()
                 } label: {
-                    ZStack {
-                        if isCreatingStream {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(.secondary)
-                        } else {
-                            Image(systemName: "plus")
-                                .font(.system(size: 26, weight: .medium))
-                                .foregroundStyle(.primary)
-                        }
-                    }
+                    Image(systemName: "plus")
+                        .font(.system(size: 26, weight: .medium))
+                        .foregroundStyle(.primary)
                     .frame(width: 44, height: 44, alignment: .center)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(isWorking)
+                .disabled(activeEditor != nil)
                 .accessibilityLabel("Add stream")
                 .accessibilityHint("Creates a new stream")
             }
@@ -181,6 +196,7 @@ struct StreamManagerSheet: View {
         draftName = ""
         focusedEditor = nil
         deletingSessionKeys.removeAll()
+        pendingCreateRows.removeAll()
     }
 
     private func canPerformRenameAction(for stream: StreamSession) -> Bool {
@@ -201,20 +217,18 @@ struct StreamManagerSheet: View {
         deletingSessionKeys.contains(sessionKey)
     }
 
-    private func addStreamDirectly() async {
-        let existingCount = viewModel.orderedStreams.count
+    private func addStreamDirectly() {
+        let existingCount = viewModel.orderedStreams.count + pendingCreateRows.count
         let name = "Stream \(existingCount + 1)"
-        isWorking = true
-        isCreatingStream = true
-        let succeeded = await viewModel.createStream(displayName: name)
-        isCreatingStream = false
-        isWorking = false
-        guard succeeded else { return }
-        // Switch to the new stream and dismiss
-        if let newStream = viewModel.orderedStreams.last {
-            onSelectStream(newStream.sessionKey)
+        let pendingID = UUID()
+        pendingCreateRows.append(PendingCreateRow(id: pendingID, displayName: name))
+
+        Task {
+            _ = await viewModel.createStream(displayName: name)
+            await MainActor.run {
+                pendingCreateRows.removeAll { $0.id == pendingID }
+            }
         }
-        isPresented = false
     }
 
     private func renameStream(_ stream: StreamSession) async {
