@@ -609,10 +609,14 @@ struct ChatView: View {
         .onChange(of: geometry.safeAreaInsets.bottom) { _, _ in layoutRevision &+= 1 }
         .onChange(of: horizontalSizeClass) { _, _ in layoutRevision &+= 1 }
         .overlay(alignment: .bottom) {
+#if os(visionOS)
             floatingPageDotsView(
                 viewModel: viewModel,
                 inputBarTopFromScreenBottom: inputBarTopFromScreenBottom
             )
+#else
+            EmptyView()
+#endif
         }
         .overlay(alignment: .bottom) {
             inputBarOverlay(
@@ -718,15 +722,28 @@ struct ChatView: View {
                 }
             )
         )
+        let pageDotsView: AnyView? = viewModel.orderedSessionKeys.isEmpty
+            ? nil
+            : AnyView(
+                StreamPageDotsView(
+                    sessionKeys: viewModel.orderedSessionKeys,
+                    activeSessionKey: viewModel.activeSessionKey,
+                    onTap: { activeSheet = .streamManager }
+                )
+            )
 
 #if os(visionOS)
         let pinnedScrollButtonView: AnyView? = nil
         let pinnedScrollButtonGap: CGFloat = 0
         let pinnedScrollButtonHorizontalOffset: CGFloat = 0
+        let pinnedPageDotsView: AnyView? = nil
+        let pinnedPageDotsGap: CGFloat = 0
 #else
         let pinnedScrollButtonView: AnyView? = scrollButtonView
         let pinnedScrollButtonGap: CGFloat = floatingScrollButtonBottomGap
         let pinnedScrollButtonHorizontalOffset = activeScrollButtonHorizontalOffset(containerWidth: geometry.size.width)
+        let pinnedPageDotsView: AnyView? = pageDotsView
+        let pinnedPageDotsGap: CGFloat = floatingPageDotsBottomGap
 #endif
 
         return KeyboardPinnedContainer(
@@ -739,7 +756,9 @@ struct ChatView: View {
             ,
             scrollButtonView: pinnedScrollButtonView,
             scrollButtonGap: pinnedScrollButtonGap,
-            scrollButtonHorizontalOffset: pinnedScrollButtonHorizontalOffset
+            scrollButtonHorizontalOffset: pinnedScrollButtonHorizontalOffset,
+            pageDotsView: pinnedPageDotsView,
+            pageDotsGap: pinnedPageDotsGap
         ) {
             MessageInputBar(
                 content: $viewModel.inputContent,
@@ -1407,6 +1426,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     let scrollButtonView: AnyView?
     let scrollButtonGap: CGFloat
     let scrollButtonHorizontalOffset: CGFloat
+    let pageDotsView: AnyView?
+    let pageDotsGap: CGFloat
     let content: Content
 
     init(
@@ -1419,6 +1440,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         scrollButtonView: AnyView? = nil,
         scrollButtonGap: CGFloat = 0,
         scrollButtonHorizontalOffset: CGFloat = 0,
+        pageDotsView: AnyView? = nil,
+        pageDotsGap: CGFloat = 0,
         @ViewBuilder content: () -> Content
     ) {
         self.desiredBottomGap = desiredBottomGap
@@ -1430,6 +1453,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         self.scrollButtonView = scrollButtonView
         self.scrollButtonGap = scrollButtonGap
         self.scrollButtonHorizontalOffset = scrollButtonHorizontalOffset
+        self.pageDotsView = pageDotsView
+        self.pageDotsGap = pageDotsGap
         self.content = content()
     }
 
@@ -1447,6 +1472,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             gap: scrollButtonGap,
             horizontalOffset: scrollButtonHorizontalOffset
         )
+        uiView.updatePageDots(pageDotsView, gap: pageDotsGap)
         uiView.setOnBarHeightChange { [weak layoutCoordinator] height in
             // Break potential SwiftUI layout cycles by only propagating meaningful bar height changes.
             // (On some iOS 26.2 devices we observed AttributeGraph "cycle detected" during launch.)
@@ -1474,6 +1500,8 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private var scrollButtonHost: UIHostingController<AnyView>?
     private var scrollButtonBottomToBarTop: NSLayoutConstraint?
     private var scrollButtonCenterX: NSLayoutConstraint?
+    private var pageDotsHost: UIHostingController<AnyView>?
+    private var pageDotsBottomToBarTop: NSLayoutConstraint?
     private var minHeightConstraint: NSLayoutConstraint?
     private var hostingBottomToKeyboard: NSLayoutConstraint?
     private var versionLabelBottomToKeyboard: NSLayoutConstraint?
@@ -1572,6 +1600,39 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
 #endif
     }
 
+    func updatePageDots(_ view: AnyView?, gap: CGFloat) {
+#if os(visionOS)
+        _ = view
+        _ = gap
+        return
+#else
+        // Mount above the input bar so dots track the same runtime anchor as the bar.
+        ensureConstraints(desiredBottomGap: 0)
+        guard let hostingView = hostingController.view else { return }
+
+        if pageDotsHost == nil {
+            let host = UIHostingController(rootView: AnyView(EmptyView()))
+            host.view.backgroundColor = .clear
+            host.view.isOpaque = false
+            host.view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(host.view)
+            pageDotsHost = host
+
+            let bottom = host.view.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -gap)
+            pageDotsBottomToBarTop = bottom
+            NSLayoutConstraint.activate([
+                host.view.centerXAnchor.constraint(equalTo: centerXAnchor),
+                bottom,
+            ])
+        }
+
+        pageDotsHost?.rootView = view ?? AnyView(EmptyView())
+        pageDotsHost?.view.isHidden = (view == nil)
+        pageDotsHost?.view.isUserInteractionEnabled = (view != nil)
+        pageDotsBottomToBarTop?.constant = -gap
+#endif
+    }
+
     func setDesiredBottomGap(_ gap: CGFloat, isKeyboardVisible: Bool) {
         ensureConstraints(desiredBottomGap: gap)
 #if os(visionOS)
@@ -1593,6 +1654,9 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             return true
         }
         if let scrollButtonHost, scrollButtonHost.view.frame.contains(point) {
+            return true
+        }
+        if let pageDotsHost, pageDotsHost.view.frame.contains(point) {
             return true
         }
         if !versionLabel.isHidden && versionLabel.frame.contains(point) {
