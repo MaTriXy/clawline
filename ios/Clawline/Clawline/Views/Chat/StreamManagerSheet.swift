@@ -68,11 +68,21 @@ struct StreamManagerSheet: View {
                 Button {
                     beginCreatingStream()
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.title3.weight(.semibold))
+                    HStack(spacing: 5) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 15, weight: .semibold))
+                        Image(systemName: "arrowtriangle.down.fill")
+                            .font(.system(size: 8, weight: .bold))
+                            .offset(y: 1)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .glassEffect(.regular.interactive(), in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .disabled(isWorking)
+                .accessibilityLabel("Add stream")
+                .accessibilityHint("Opens stream creation")
                 .popover(
                     isPresented: $isAddButtonPopoverPresented,
                     attachmentAnchor: .rect(.bounds),
