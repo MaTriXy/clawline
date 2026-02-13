@@ -24,6 +24,7 @@ struct StreamManagerSheet: View {
 
     private let listRowHeight: CGFloat = 52
     private let functionBarHeight: CGFloat = 58
+    private let listOuterVerticalPadding: CGFloat = 16
     private let minimumPopoverHeight: CGFloat = 140
 
     private var cappedContainerHeight: CGFloat {
@@ -32,6 +33,7 @@ struct StreamManagerSheet: View {
             showsCreateInlineRow: false,
             rowHeight: listRowHeight,
             functionBarHeight: functionBarHeight,
+            outerVerticalPadding: listOuterVerticalPadding,
             maxAvailableHeight: maxAvailableHeight,
             minimumPopoverHeight: minimumPopoverHeight
         )
@@ -64,6 +66,7 @@ struct StreamManagerSheet: View {
                 }
             }
             .listStyle(.plain)
+            .padding(.vertical, listOuterVerticalPadding)
             .disabled(isWorking)
 
             // One-tap add button - directly creates a stream with auto-generated name
@@ -176,11 +179,12 @@ enum StreamSelectorLayout {
         showsCreateInlineRow: Bool,
         rowHeight: CGFloat,
         functionBarHeight: CGFloat,
+        outerVerticalPadding: CGFloat,
         maxAvailableHeight: CGFloat,
         minimumPopoverHeight: CGFloat
     ) -> CGFloat {
         let rows = max(1, itemCount + (showsCreateInlineRow ? 1 : 0))
-        let desired = CGFloat(rows) * rowHeight + functionBarHeight
+        let desired = CGFloat(rows) * rowHeight + functionBarHeight + (outerVerticalPadding * 2)
         let cap = max(minimumPopoverHeight, maxAvailableHeight)
         return min(desired, cap)
     }

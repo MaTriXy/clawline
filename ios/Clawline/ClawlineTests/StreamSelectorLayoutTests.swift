@@ -18,11 +18,12 @@ struct StreamSelectorLayoutTests {
             showsCreateInlineRow: false,
             rowHeight: CGFloat(44),
             functionBarHeight: CGFloat(52),
+            outerVerticalPadding: CGFloat(16),
             maxAvailableHeight: CGFloat(640),
             minimumPopoverHeight: CGFloat(140)
         )
 
-        #expect(height == CGFloat(184))
+        #expect(height == CGFloat(216))
     }
 
     @Test("Long stream list caps height and relies on internal scrolling")
@@ -32,6 +33,7 @@ struct StreamSelectorLayoutTests {
             showsCreateInlineRow: false,
             rowHeight: CGFloat(44),
             functionBarHeight: CGFloat(52),
+            outerVerticalPadding: CGFloat(16),
             maxAvailableHeight: CGFloat(340),
             minimumPopoverHeight: CGFloat(140)
         )
