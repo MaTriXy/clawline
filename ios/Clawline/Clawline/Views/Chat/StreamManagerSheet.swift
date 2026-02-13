@@ -30,8 +30,8 @@ struct StreamManagerSheet: View {
     }
 
     private let listRowHeight: CGFloat = 52
-    private let listRowSpacing: CGFloat = 8
-    private let functionBarHeight: CGFloat = 58
+    private let listRowSpacing: CGFloat = 4
+    private let functionBarHeight: CGFloat = 46
     private let listOuterVerticalPadding: CGFloat = 16
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
@@ -130,8 +130,8 @@ struct StreamManagerSheet: View {
                     Image(systemName: "plus")
                         .font(.system(size: 26, weight: .medium))
                         .foregroundStyle(.primary)
-                    .frame(width: 44, height: 44, alignment: .center)
-                    .contentShape(Rectangle())
+                        .frame(width: 36, height: 36, alignment: .center)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(activeEditor != nil)
@@ -146,23 +146,9 @@ struct StreamManagerSheet: View {
 #if !os(visionOS)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
 #endif
-        .background(
-            RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.08))
-        )
         .overlay(
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.35),
-                            Color.white.opacity(0.12)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 0.8
-                )
+                .stroke(Color.white.opacity(0.18), lineWidth: 0.6)
         )
         .onChange(of: isPresented) { _, presented in
             if !presented {
