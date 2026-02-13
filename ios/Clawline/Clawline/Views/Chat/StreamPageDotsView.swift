@@ -13,6 +13,7 @@ struct StreamPageDotsView: View {
     let onTap: () -> Void
 
     private let maxVisibleDots = 11
+    static let controlHeight: CGFloat = 23
 
     private var activeIndex: Int {
         sessionKeys.firstIndex(of: activeSessionKey) ?? 0

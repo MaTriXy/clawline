@@ -519,11 +519,20 @@ struct ChatView: View {
                              toastManager: ToastManager) -> some View {
         @Bindable var viewModel = viewModel
         let topInset: CGFloat = geometry.safeAreaInsets.top
-        let metrics = ChatFlowTheme.Metrics(isCompact: horizontalSizeClass == .compact)
+        let isCompactLayout = horizontalSizeClass == .compact
+        let metrics = ChatFlowTheme.Metrics(isCompact: isCompactLayout)
         let resolvedInputHeight = max(inputBarHeight, MessageInputBarMetrics.minInputBarHeight)
         let keyboardVisibleHeight = max(0, keyboardHeight - geometry.safeAreaInsets.bottom)
         let isKeyboardVisible = keyboardVisibleHeight > 0.5
         let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
+        let showsStreamPager = !viewModel.orderedSessionKeys.isEmpty
+        let stackTopInsetFromInputBarTop: CGFloat = (!isCompactLayout && showsStreamPager)
+            ? (floatingPageDotsBottomGap + StreamPageDotsView.controlHeight)
+            : 0
+        let bottomFlowGap: CGFloat = isCompactLayout
+            ? metrics.flowGap
+            : ChatFlowTheme.Metrics(isCompact: false).flowGap
+        let bottomInsetFlowGap = stackTopInsetFromInputBarTop + bottomFlowGap
         // Gap below input bar: version label area (keyboard hidden) or minimal gap (keyboard up)
         let belowBarGap: CGFloat = isKeyboardVisible ? 12 : 24
         let inputBarTopFromScreenBottom: CGFloat = {
@@ -535,19 +544,11 @@ struct ChatView: View {
             return keyboardInset + belowBarGap + resolvedInputHeight
 #endif
         }()
-        let effectiveFlowGap: CGFloat = {
-#if os(visionOS)
-            // #49: visionOS needs more breathing room between the message flow and the input bar.
-            return metrics.flowGap * 2
-#else
-            return metrics.flowGap
-#endif
-        }()
-        // The flow layout's sectionInset.bottom (containerPadding) already provides
-        // padding below the last cell. Subtract it so the effective gap between the
-        // last bubble and the input bar top equals exactly flowGap.
+        // The flow layout's sectionInset.bottom (containerPadding) already provides padding below
+        // the last cell. Subtract it so the effective gap between the last bubble and the top of
+        // the message bar stack (pager + input bar on regular layouts) equals the desired flow gap.
         let listBottomInset = keyboardInset + belowBarGap + resolvedInputHeight
-            + effectiveFlowGap - metrics.containerPadding
+            + bottomInsetFlowGap - metrics.containerPadding
         let cachedKeyboardHeight = max(keyboardHeight, lastNonZeroKeyboardHeight)
         let isLandscape = geometry.size.width > geometry.size.height
         let estimatedKeyboardHeight: CGFloat = {
@@ -558,7 +559,7 @@ struct ChatView: View {
         }()
         let truncationKeyboardHeight = cachedKeyboardHeight > 0.5 ? cachedKeyboardHeight : estimatedKeyboardHeight
         let truncationBottomInset = truncationKeyboardHeight + 12 + resolvedInputHeight
-            + effectiveFlowGap - metrics.containerPadding
+            + bottomInsetFlowGap - metrics.containerPadding
         let layoutInputs = ChatLayoutInputs(
             keyboardHeight: keyboardHeight,
             keyboardVisible: isKeyboardVisible,
@@ -570,7 +571,7 @@ struct ChatView: View {
         )
         let layoutMetrics = ChatLayoutMetrics(
             belowBarGap: belowBarGap,
-            flowGap: effectiveFlowGap,
+            flowGap: bottomInsetFlowGap,
             containerPadding: metrics.containerPadding
         )
         let layoutKey = ChatLayoutKey(
@@ -581,7 +582,7 @@ struct ChatView: View {
             isInputFocused: isInputFocused,
             keyboardVisible: isKeyboardVisible,
             belowBarGap: belowBarGap,
-            flowGap: effectiveFlowGap,
+            flowGap: bottomInsetFlowGap,
             containerPadding: metrics.containerPadding
         )
         let streamSelectorSpacingFromMessageBarTop: CGFloat = 8
