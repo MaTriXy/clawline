@@ -12,17 +12,47 @@ struct StreamPageDotsView: View {
     let activeSessionKey: String
     let onTap: () -> Void
 
+    private let maxVisibleDots = 11
+
     private var activeIndex: Int {
         sessionKeys.firstIndex(of: activeSessionKey) ?? 0
+    }
+
+    private var visibleDotIndices: [Int] {
+        guard sessionKeys.count > maxVisibleDots else {
+            return Array(sessionKeys.indices)
+        }
+        let halfWindow = maxVisibleDots / 2
+        let maxStart = sessionKeys.count - maxVisibleDots
+        let start = min(max(0, activeIndex - halfWindow), maxStart)
+        return Array(start..<(start + maxVisibleDots))
+    }
+
+    private var showsLeadingOverflow: Bool {
+        (visibleDotIndices.first ?? 0) > 0
+    }
+
+    private var showsTrailingOverflow: Bool {
+        (visibleDotIndices.last ?? -1) < sessionKeys.count - 1
     }
 
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 7) {
-                ForEach(Array(sessionKeys.enumerated()), id: \.offset) { index, _ in
+                if showsLeadingOverflow {
+                    Circle()
+                        .fill(Color.primary.opacity(0.35))
+                        .frame(width: 4, height: 4)
+                }
+                ForEach(visibleDotIndices, id: \.self) { index in
                     Circle()
                         .fill(index == activeIndex ? Color.primary : Color.primary.opacity(0.25))
                         .frame(width: 7, height: 7)
+                }
+                if showsTrailingOverflow {
+                    Circle()
+                        .fill(Color.primary.opacity(0.35))
+                        .frame(width: 4, height: 4)
                 }
             }
             .padding(.horizontal, 12)
@@ -31,6 +61,7 @@ struct StreamPageDotsView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Manage streams")
+        .accessibilityValue("Stream \(activeIndex + 1) of \(sessionKeys.count)")
         .accessibilityHint("Opens stream manager")
     }
 }

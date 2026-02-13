@@ -27,9 +27,7 @@ struct ScrollToBottomButton: View {
     }
 
     private var visionOSBorderColor: Color {
-        resolvedScheme == .light
-            ? ChatFlowTheme.ink(.light).opacity(0.95)
-            : Color.white.opacity(0.5)
+        Color.white.opacity(0.9)
     }
 
     private var badgeText: String {
@@ -43,25 +41,11 @@ struct ScrollToBottomButton: View {
 
     var body: some View {
         Button(action: onTap) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.primary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Circle())
-
-                if unreadCount > 0 {
-                    Text(badgeText)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.white)
-                        .padding(.horizontal, unreadCount > 9 ? 7 : 6)
-                        .padding(.vertical, 3)
-                        .background(badgeBackground, in: Capsule())
-                        .overlay(Capsule().stroke(ChatFlowTheme.ink(resolvedScheme).opacity(0.15), lineWidth: 1))
-                        .offset(x: 10, y: -10)
-                        .accessibilityHidden(true)
-                }
-            }
+            Image(systemName: "chevron.down")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.primary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .frame(width: 44, height: 44)
@@ -71,6 +55,21 @@ struct ScrollToBottomButton: View {
 #else
         .glassEffect(.regular.interactive(), in: Circle())
 #endif
+        .overlay(alignment: .topTrailing) {
+            if unreadCount > 0 {
+                Text(badgeText)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, unreadCount > 9 ? 7 : 6)
+                    .padding(.vertical, 3)
+                    .background(badgeBackground, in: Capsule())
+                    .overlay(Capsule().stroke(ChatFlowTheme.ink(resolvedScheme).opacity(0.15), lineWidth: 1))
+                    .offset(x: 6, y: -6)
+                    .zIndex(2)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
         .scaleEffect(bounceScale)
         .shadow(color: Color.black.opacity(resolvedScheme == .dark ? 0.35 : 0.18), radius: 6, y: 2)
         .opacity(isVisible ? 1 : 0)

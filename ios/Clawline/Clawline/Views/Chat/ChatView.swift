@@ -105,6 +105,12 @@ struct ChatView: View {
     @State private var focusRequestID = 0
     @State private var shouldRestoreFocusAfterPicker = false
     @State private var scrollButtonStateBySessionKey: [String: ScrollButtonState] = [:]
+    @State private var scrollButtonDragTranslation: CGFloat = 0
+    @State private var scrollButtonSuppressNextTap = false
+    @State private var scrollButtonIsDetentSettling = false
+    @State private var scrollButtonSettleTask: Task<Void, Never>?
+    @State private var scrollButtonTapSuppressionTask: Task<Void, Never>?
+    @AppStorage("chat.scrollButton.horizontalDetent") private var scrollButtonDetentRawValue = ScrollButtonHorizontalDetent.center.rawValue
 
     init(viewModel: ChatViewModel, toastManager: ToastManager) {
         self._viewModel = Bindable(wrappedValue: viewModel)
@@ -147,6 +153,36 @@ struct ChatView: View {
         var unreadCount: Int = 0
         var firstUnreadMessageId: String?
         var bounceToken: Int = 0
+    }
+
+    private enum ScrollButtonHorizontalDetent: String, CaseIterable {
+        case left
+        case center
+        case right
+
+        var unitOffset: CGFloat {
+            switch self {
+            case .left:
+                return -1
+            case .center:
+                return 0
+            case .right:
+                return 1
+            }
+        }
+    }
+
+    private let floatingPageDotsBottomGap: CGFloat = 12
+    private let floatingScrollButtonBottomGap: CGFloat = 58
+    private let scrollButtonHorizontalSideInset: CGFloat = 28
+    private let scrollButtonFlickThreshold: CGFloat = 28
+    private let scrollButtonSettleDuration: Duration = .milliseconds(420)
+    private let scrollButtonTapSuppressionDuration: Duration = .milliseconds(220)
+    private let scrollButtonDragTapSuppressionThreshold: CGFloat = 6
+
+    private var scrollButtonDetent: ScrollButtonHorizontalDetent {
+        get { ScrollButtonHorizontalDetent(rawValue: scrollButtonDetentRawValue) ?? .center }
+        nonmutating set { scrollButtonDetentRawValue = newValue.rawValue }
     }
 
     private func scrollButtonState(for sessionKey: String) -> ScrollButtonState {
@@ -192,6 +228,180 @@ struct ChatView: View {
         }
     }
 
+    private func scrollButtonMaxHorizontalOffset(containerWidth: CGFloat) -> CGFloat {
+        // Keep the floating button comfortably inboard from the edge.
+        let buttonRadius: CGFloat = 22
+        return max(0, (containerWidth / 2) - scrollButtonHorizontalSideInset - buttonRadius)
+    }
+
+    private func scrollButtonHorizontalOffset(
+        for detent: ScrollButtonHorizontalDetent,
+        containerWidth: CGFloat
+    ) -> CGFloat {
+        scrollButtonMaxHorizontalOffset(containerWidth: containerWidth) * detent.unitOffset
+    }
+
+    private func activeScrollButtonHorizontalOffset(containerWidth: CGFloat) -> CGFloat {
+        let maxOffset = scrollButtonMaxHorizontalOffset(containerWidth: containerWidth)
+        let base = scrollButtonHorizontalOffset(for: scrollButtonDetent, containerWidth: containerWidth)
+        return min(max(base + scrollButtonDragTranslation, -maxOffset), maxOffset)
+    }
+
+    private func armScrollButtonTapSuppression() {
+        scrollButtonSuppressNextTap = true
+        scrollButtonTapSuppressionTask?.cancel()
+        scrollButtonTapSuppressionTask = Task { @MainActor in
+            try? await Task.sleep(for: scrollButtonTapSuppressionDuration)
+            scrollButtonSuppressNextTap = false
+        }
+    }
+
+    private func resetScrollButtonInteractionState() {
+        scrollButtonSettleTask?.cancel()
+        scrollButtonTapSuppressionTask?.cancel()
+        scrollButtonSettleTask = nil
+        scrollButtonTapSuppressionTask = nil
+        scrollButtonDragTranslation = 0
+        scrollButtonSuppressNextTap = false
+        scrollButtonIsDetentSettling = false
+    }
+
+    private func handleScrollButtonDragChanged(_ value: DragGesture.Value, containerWidth: CGFloat) {
+        guard !scrollButtonIsDetentSettling else { return }
+        let maxOffset = scrollButtonMaxHorizontalOffset(containerWidth: containerWidth)
+        let base = scrollButtonHorizontalOffset(for: scrollButtonDetent, containerWidth: containerWidth)
+        let clamped = min(max(base + value.translation.width, -maxOffset), maxOffset)
+        scrollButtonDragTranslation = clamped - base
+    }
+
+    private func handleScrollButtonDragEnded(_ value: DragGesture.Value, containerWidth: CGFloat) {
+        guard !scrollButtonIsDetentSettling else { return }
+        if abs(value.translation.width) >= scrollButtonDragTapSuppressionThreshold {
+            armScrollButtonTapSuppression()
+        }
+        let maxOffset = scrollButtonMaxHorizontalOffset(containerWidth: containerWidth)
+        guard maxOffset > 0.5 else {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) {
+                scrollButtonDetent = .center
+                scrollButtonDragTranslation = 0
+            }
+            return
+        }
+
+        let base = scrollButtonHorizontalOffset(for: scrollButtonDetent, containerWidth: containerWidth)
+        let endOffset = min(max(base + value.translation.width, -maxOffset), maxOffset)
+        let predictedOffset = min(max(base + value.predictedEndTranslation.width, -maxOffset), maxOffset)
+        let flickDelta = predictedOffset - endOffset
+        let targetDetent = targetScrollButtonDetent(
+            near: endOffset,
+            flickDelta: flickDelta,
+            containerWidth: containerWidth
+        )
+        let shouldRunSettleWindow = targetDetent != scrollButtonDetent || abs(endOffset - base) > 0.5
+
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) {
+            scrollButtonDetent = targetDetent
+            scrollButtonDragTranslation = 0
+        }
+        if shouldRunSettleWindow {
+            scrollButtonIsDetentSettling = true
+            scrollButtonSettleTask?.cancel()
+            scrollButtonSettleTask = Task { @MainActor in
+                try? await Task.sleep(for: scrollButtonSettleDuration)
+                scrollButtonIsDetentSettling = false
+            }
+        }
+    }
+
+    private func targetScrollButtonDetent(
+        near endOffset: CGFloat,
+        flickDelta: CGFloat,
+        containerWidth: CGFloat
+    ) -> ScrollButtonHorizontalDetent {
+        let detents = ScrollButtonHorizontalDetent.allCases.map {
+            ($0, scrollButtonHorizontalOffset(for: $0, containerWidth: containerWidth))
+        }
+
+        if abs(flickDelta) >= scrollButtonFlickThreshold {
+            if flickDelta > 0 {
+                if let nearestToRight = detents.filter({ $0.1 > endOffset + 0.5 }).min(by: { $0.1 < $1.1 }) {
+                    return nearestToRight.0
+                }
+                return .right
+            } else {
+                if let nearestToLeft = detents.filter({ $0.1 < endOffset - 0.5 }).max(by: { $0.1 < $1.1 }) {
+                    return nearestToLeft.0
+                }
+                return .left
+            }
+        }
+
+        return detents.min(by: { abs($0.1 - endOffset) < abs($1.1 - endOffset) })?.0 ?? .center
+    }
+
+    private func handleScrollButtonTap(sessionKey: String, viewModel: ChatViewModel) {
+        guard !scrollButtonIsDetentSettling else { return }
+        if scrollButtonSuppressNextTap {
+            scrollButtonSuppressNextTap = false
+            return
+        }
+        let current = scrollButtonState(for: sessionKey)
+        if current.unreadCount > 0 {
+            if let firstUnread = current.firstUnreadMessageId {
+                let hasTarget = viewModel.messages(for: sessionKey).contains(where: { $0.id == firstUnread })
+                if hasTarget {
+                    layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, sessionKey: sessionKey, animated: true)
+                    layoutCoordinator.flashMessage(messageId: firstUnread, sessionKey: sessionKey, isUnreadTap: true)
+                } else {
+                    layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
+                }
+            } else {
+                layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
+            }
+            mutateScrollButtonState(for: sessionKey) { s in
+                s.unreadCount = 0
+                s.firstUnreadMessageId = nil
+            }
+            return
+        }
+        layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
+    }
+
+    private func scrollButtonControl(
+        state: ScrollButtonState,
+        containerWidth: CGFloat,
+        onTap: @escaping () -> Void
+    ) -> some View {
+        ScrollToBottomButton(
+            isVisible: state.isVisible,
+            unreadCount: state.unreadCount,
+            bounceToken: state.bounceToken,
+            onTap: onTap
+        )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 2)
+                .onChanged { value in
+                    handleScrollButtonDragChanged(value, containerWidth: containerWidth)
+                }
+                .onEnded { value in
+                    handleScrollButtonDragEnded(value, containerWidth: containerWidth)
+                }
+        )
+    }
+
+    @ViewBuilder
+    private func floatingPageDotsView(viewModel: ChatViewModel, inputBarTopFromScreenBottom: CGFloat) -> some View {
+        if !viewModel.orderedSessionKeys.isEmpty {
+            StreamPageDotsView(
+                sessionKeys: viewModel.orderedSessionKeys,
+                activeSessionKey: viewModel.activeSessionKey,
+                onTap: { activeSheet = .streamManager }
+            )
+            .padding(.bottom, inputBarTopFromScreenBottom + floatingPageDotsBottomGap)
+            .ignoresSafeArea(.container, edges: .bottom)
+        }
+    }
+
 
     var body: some View {
         chatBody
@@ -217,7 +427,10 @@ struct ChatView: View {
 #endif
         }
         .task { await viewModel.onAppear() }
-        .onDisappear { viewModel.onDisappear() }
+        .onDisappear {
+            viewModel.onDisappear()
+            resetScrollButtonInteractionState()
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             viewModel.handleSceneDidBecomeActive()
@@ -291,6 +504,15 @@ struct ChatView: View {
         let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
         // Gap below input bar: version label area (keyboard hidden) or minimal gap (keyboard up)
         let belowBarGap: CGFloat = isKeyboardVisible ? 12 : 24
+        let inputBarTopFromScreenBottom: CGFloat = {
+#if os(visionOS)
+            // On visionOS the input bar is pinned directly to container bottom + belowBarGap,
+            // so keyboardHeight can overestimate and incorrectly push floating overlays upward.
+            return belowBarGap + resolvedInputHeight
+#else
+            return keyboardInset + belowBarGap + resolvedInputHeight
+#endif
+        }()
         let effectiveFlowGap: CGFloat = {
 #if os(visionOS)
             // #49: visionOS needs more breathing room between the message flow and the input bar.
@@ -353,15 +575,6 @@ struct ChatView: View {
                 .compositingGroup()
                 .mask(statusBarFadeMask(topInset: topInset))
 
-            if !viewModel.orderedSessionKeys.isEmpty {
-                StreamPageDotsView(
-                    sessionKeys: viewModel.orderedSessionKeys,
-                    activeSessionKey: viewModel.activeSessionKey,
-                    onTap: { activeSheet = .streamManager }
-                )
-                .padding(.top, topInset + 10)
-            }
-
             streamToastView(
                 geometry: geometry,
                 belowBarGap: belowBarGap,
@@ -396,6 +609,12 @@ struct ChatView: View {
         .onChange(of: geometry.safeAreaInsets.bottom) { _, _ in layoutRevision &+= 1 }
         .onChange(of: horizontalSizeClass) { _, _ in layoutRevision &+= 1 }
         .overlay(alignment: .bottom) {
+            floatingPageDotsView(
+                viewModel: viewModel,
+                inputBarTopFromScreenBottom: inputBarTopFromScreenBottom
+            )
+        }
+        .overlay(alignment: .bottom) {
             inputBarOverlay(
                 geometry: geometry,
                 viewModel: viewModel,
@@ -410,31 +629,13 @@ struct ChatView: View {
             // iOS/iPadOS: we pin it to the UIKit keyboardLayoutGuide via KeyboardPinnedContainerView.
             let sessionKey = viewModel.activeSessionKey
             let state = scrollButtonState(for: sessionKey)
-            let keyboardInset: CGFloat = isKeyboardVisible ? keyboardHeight : 0
-            let inputBarTopFromScreenBottom = keyboardInset + belowBarGap + resolvedInputHeight
-            ScrollToBottomButton(
-                isVisible: state.isVisible,
-                unreadCount: state.unreadCount,
-                bounceToken: state.bounceToken,
-                onTap: {
-                    let current = scrollButtonState(for: sessionKey)
-                    if current.unreadCount > 0 {
-                        if let firstUnread = current.firstUnreadMessageId {
-                            layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, sessionKey: sessionKey, animated: true)
-                            layoutCoordinator.flashMessage(messageId: firstUnread, sessionKey: sessionKey, isUnreadTap: true)
-                        } else {
-                            layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
-                        }
-                        mutateScrollButtonState(for: sessionKey) { s in
-                            s.unreadCount = 0
-                            s.firstUnreadMessageId = nil
-                        }
-                        return
-                    }
-                    layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
-                }
+            scrollButtonControl(
+                state: state,
+                containerWidth: geometry.size.width,
+                onTap: { handleScrollButtonTap(sessionKey: sessionKey, viewModel: viewModel) }
             )
-            .padding(.bottom, inputBarTopFromScreenBottom + 12)
+            .offset(x: activeScrollButtonHorizontalOffset(containerWidth: geometry.size.width))
+            .padding(.bottom, inputBarTopFromScreenBottom + floatingScrollButtonBottomGap)
             .frame(maxWidth: .infinity, alignment: .center)
 #else
             EmptyView()
@@ -508,33 +709,12 @@ struct ChatView: View {
                                  layoutKey: ChatLayoutKey) -> some View {
         let sessionKey = viewModel.activeSessionKey
         let state = scrollButtonState(for: sessionKey)
-        let scrollButtonGap: CGFloat = isKeyboardVisible ? belowBarGap : 12
         let scrollButtonView: AnyView = AnyView(
-            ScrollToBottomButton(
-                isVisible: state.isVisible,
-                unreadCount: state.unreadCount,
-                bounceToken: state.bounceToken,
+            scrollButtonControl(
+                state: state,
+                containerWidth: geometry.size.width,
                 onTap: {
-                    let current = scrollButtonState(for: sessionKey)
-                    if current.unreadCount > 0 {
-                        if let firstUnread = current.firstUnreadMessageId {
-                            let hasTarget = viewModel.messages(for: sessionKey).contains(where: { $0.id == firstUnread })
-                            if hasTarget {
-                                layoutCoordinator.scrollToMessageCentered(messageId: firstUnread, sessionKey: sessionKey, animated: true)
-                                layoutCoordinator.flashMessage(messageId: firstUnread, sessionKey: sessionKey, isUnreadTap: true)
-                            } else {
-                                layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
-                            }
-                        } else {
-                            layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
-                        }
-                        mutateScrollButtonState(for: sessionKey) { s in
-                            s.unreadCount = 0
-                            s.firstUnreadMessageId = nil
-                        }
-                        return
-                    }
-                    layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
+                    handleScrollButtonTap(sessionKey: sessionKey, viewModel: viewModel)
                 }
             )
         )
@@ -542,9 +722,11 @@ struct ChatView: View {
 #if os(visionOS)
         let pinnedScrollButtonView: AnyView? = nil
         let pinnedScrollButtonGap: CGFloat = 0
+        let pinnedScrollButtonHorizontalOffset: CGFloat = 0
 #else
         let pinnedScrollButtonView: AnyView? = scrollButtonView
-        let pinnedScrollButtonGap: CGFloat = scrollButtonGap
+        let pinnedScrollButtonGap: CGFloat = floatingScrollButtonBottomGap
+        let pinnedScrollButtonHorizontalOffset = activeScrollButtonHorizontalOffset(containerWidth: geometry.size.width)
 #endif
 
         return KeyboardPinnedContainer(
@@ -556,7 +738,8 @@ struct ChatView: View {
             layoutKey: layoutKey
             ,
             scrollButtonView: pinnedScrollButtonView,
-            scrollButtonGap: pinnedScrollButtonGap
+            scrollButtonGap: pinnedScrollButtonGap,
+            scrollButtonHorizontalOffset: pinnedScrollButtonHorizontalOffset
         ) {
             MessageInputBar(
                 content: $viewModel.inputContent,
@@ -1223,6 +1406,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     let layoutKey: ChatLayoutKey
     let scrollButtonView: AnyView?
     let scrollButtonGap: CGFloat
+    let scrollButtonHorizontalOffset: CGFloat
     let content: Content
 
     init(
@@ -1234,6 +1418,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         layoutKey: ChatLayoutKey,
         scrollButtonView: AnyView? = nil,
         scrollButtonGap: CGFloat = 0,
+        scrollButtonHorizontalOffset: CGFloat = 0,
         @ViewBuilder content: () -> Content
     ) {
         self.desiredBottomGap = desiredBottomGap
@@ -1244,6 +1429,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         self.layoutKey = layoutKey
         self.scrollButtonView = scrollButtonView
         self.scrollButtonGap = scrollButtonGap
+        self.scrollButtonHorizontalOffset = scrollButtonHorizontalOffset
         self.content = content()
     }
 
@@ -1256,7 +1442,11 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         let t0 = CFAbsoluteTimeGetCurrent()
         uiView.hostingController.rootView = content
         uiView.updateVersionText(versionText)
-        uiView.updateScrollButton(scrollButtonView, gap: scrollButtonGap)
+        uiView.updateScrollButton(
+            scrollButtonView,
+            gap: scrollButtonGap,
+            horizontalOffset: scrollButtonHorizontalOffset
+        )
         uiView.setOnBarHeightChange { [weak layoutCoordinator] height in
             // Break potential SwiftUI layout cycles by only propagating meaningful bar height changes.
             // (On some iOS 26.2 devices we observed AttributeGraph "cycle detected" during launch.)
@@ -1283,6 +1473,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     let versionLabel: UILabel
     private var scrollButtonHost: UIHostingController<AnyView>?
     private var scrollButtonBottomToBarTop: NSLayoutConstraint?
+    private var scrollButtonCenterX: NSLayoutConstraint?
     private var minHeightConstraint: NSLayoutConstraint?
     private var hostingBottomToKeyboard: NSLayoutConstraint?
     private var versionLabelBottomToKeyboard: NSLayoutConstraint?
@@ -1344,10 +1535,11 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         }
     }
 
-    func updateScrollButton(_ view: AnyView?, gap: CGFloat) {
+    func updateScrollButton(_ view: AnyView?, gap: CGFloat, horizontalOffset: CGFloat) {
 #if os(visionOS)
         _ = view
         _ = gap
+        _ = horizontalOffset
         return
 #else
         // Ensure the bar view is mounted so we can anchor the scroll button above it.
@@ -1363,9 +1555,11 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             scrollButtonHost = host
 
             let bottom = host.view.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -gap)
+            let centerX = host.view.centerXAnchor.constraint(equalTo: centerXAnchor, constant: horizontalOffset)
             scrollButtonBottomToBarTop = bottom
+            scrollButtonCenterX = centerX
             NSLayoutConstraint.activate([
-                host.view.centerXAnchor.constraint(equalTo: centerXAnchor),
+                centerX,
                 bottom,
             ])
         }
@@ -1374,6 +1568,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         scrollButtonHost?.view.isHidden = (view == nil)
         scrollButtonHost?.view.isUserInteractionEnabled = (view != nil)
         scrollButtonBottomToBarTop?.constant = -gap
+        scrollButtonCenterX?.constant = horizontalOffset
 #endif
     }
 
