@@ -73,14 +73,16 @@ struct StreamManagerSheet: View {
             Button {
                 Task { await addStreamDirectly() }
             } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: functionBarHeight)
-                    .contentShape(Rectangle())
+                ZStack {
+                    Image(systemName: "plus")
+                        .font(.system(size: 26, weight: .medium))
+                        .foregroundStyle(.primary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .frame(height: functionBarHeight)
             .disabled(isWorking)
             .accessibilityLabel("Add stream")
             .accessibilityHint("Creates a new stream")
