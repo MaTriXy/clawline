@@ -10,7 +10,8 @@ import SwiftUI
 /// A Liquid Glass toast that displays the current channel name.
 /// Designed for debounced display during swipe-to-switch gestures.
 struct StreamToast: View {
-    let channelName: String
+    let displayName: String
+    let sessionKey: String
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.settingsManager) private var settings
@@ -38,23 +39,34 @@ struct StreamToast: View {
 #endif
 
     var body: some View {
-        Text(channelName)
-            .font(.system(size: 32, weight: .semibold, design: .rounded))
-            .foregroundStyle(toastTextColor)
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-            .truncationMode(.middle)
-            .padding(.horizontal, 32)
-            .padding(.vertical, 20)
+        VStack(spacing: 8) {
+            Text(displayName)
+                .font(.system(size: 32, weight: .semibold, design: .rounded))
+                .foregroundStyle(toastTextColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.center)
+
+            Text(sessionKey)
+                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .foregroundStyle(toastTextColor.opacity(0.7))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .truncationMode(.middle)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, 32)
+        .padding(.vertical, 20)
 #if os(visionOS)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(toastBackgroundColor)
-            )
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(toastBackgroundColor)
+        )
 #else
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 #endif
-            .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
+        .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
     }
 }
 
@@ -64,20 +76,22 @@ struct StreamToast: View {
 @MainActor
 final class StreamToastManager {
     private(set) var isVisible = false
-    private(set) var channelName: String = ""
+    private(set) var displayName: String = ""
+    private(set) var sessionKey: String = ""
 
     private var dismissTask: Task<Void, Never>?
     private let dismissDelay: Duration = .seconds(2)
 
-    /// Shows or updates the toast with the given session key.
+    /// Shows or updates the toast with stream display metadata.
     /// If already visible, just updates the name without dismissing.
-    func show(sessionKey: String) {
+    func show(displayName: String, sessionKey: String) {
         // Cancel any pending dismiss
         dismissTask?.cancel()
         dismissTask = nil
 
-        // Update channel name and show
-        channelName = sessionKey
+        // Update displayed metadata and show
+        self.displayName = displayName
+        self.sessionKey = sessionKey
         isVisible = true
 
         // Schedule new dismiss
@@ -101,6 +115,6 @@ final class StreamToastManager {
         Color.gray.opacity(0.3)
             .ignoresSafeArea()
 
-        StreamToast(channelName: "sessionKey:personal:123")
+        StreamToast(displayName: "Main", sessionKey: "agent:main:clawline:preview:main")
     }
 }

@@ -705,7 +705,10 @@ struct ChatView: View {
         if streamToastManager.isVisible {
             let inputBarTopFromScreenBottom = max(keyboardHeight, geometry.safeAreaInsets.bottom)
                 + belowBarGap + resolvedInputHeight
-            StreamToast(channelName: streamToastManager.channelName)
+            StreamToast(
+                displayName: streamToastManager.displayName,
+                sessionKey: streamToastManager.sessionKey
+            )
                 .padding(.bottom, inputBarTopFromScreenBottom + 50)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .ignoresSafeArea(.container, edges: .bottom)
@@ -1016,8 +1019,9 @@ struct ChatView: View {
         #endif
 
         viewModel.setActiveSessionKey(sessionKey)
+        let streamDisplayName = viewModel.stream(for: sessionKey)?.displayName ?? viewModel.activeSessionDisplayName
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            streamToastManager.show(sessionKey: sessionKey)
+            streamToastManager.show(displayName: streamDisplayName, sessionKey: sessionKey)
         }
     }
 

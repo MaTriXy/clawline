@@ -26,6 +26,7 @@ struct StreamManagerSheet: View {
     private let functionBarHeight: CGFloat = 58
     private let listOuterVerticalPadding: CGFloat = 16
     private let minimumPopoverHeight: CGFloat = 140
+    private let popupCornerRadius: CGFloat = 20
 
     private var cappedContainerHeight: CGFloat {
         StreamSelectorLayout.containerHeight(
@@ -45,6 +46,7 @@ struct StreamManagerSheet: View {
                 ForEach(viewModel.orderedStreams) { stream in
                     rowContent(for: stream)
                         .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button {
                                 beginRenaming(stream)
@@ -65,6 +67,8 @@ struct StreamManagerSheet: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
             .padding(.vertical, listOuterVerticalPadding)
             .disabled(isWorking)
 
@@ -89,6 +93,27 @@ struct StreamManagerSheet: View {
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .frame(height: cappedContainerHeight)
+#if !os(visionOS)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
+#endif
+        .background(
+            RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.35),
+                            Color.white.opacity(0.12)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.8
+                )
+        )
         .onChange(of: isPresented) { _, presented in
             if !presented {
                 resetInlineEditing()

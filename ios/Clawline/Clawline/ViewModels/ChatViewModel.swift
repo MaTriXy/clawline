@@ -487,7 +487,9 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func canRenameStream(sessionKey: String) -> Bool {
         guard let stream = streamsBySessionKey[sessionKey] else { return false }
-        return !stream.isBuiltIn && !syntheticSessionKeys.contains(sessionKey)
+        guard !syntheticSessionKeys.contains(sessionKey) else { return false }
+        if stream.kind == "main" { return true }
+        return !stream.isBuiltIn
     }
 
     func canDeleteStream(sessionKey: String) -> Bool {
@@ -1704,12 +1706,28 @@ final class ChatViewModel: ChatViewModelHosting {
     private func recalculateOrderedSessionKeys() {
         orderedSessionKeys = streamsBySessionKey.values
             .sorted { lhs, rhs in
+                let lhsPriority = streamOrderingPriority(lhs)
+                let rhsPriority = streamOrderingPriority(rhs)
+                if lhsPriority != rhsPriority {
+                    return lhsPriority < rhsPriority
+                }
                 if lhs.orderIndex == rhs.orderIndex {
                     return lhs.sessionKey < rhs.sessionKey
                 }
                 return lhs.orderIndex < rhs.orderIndex
             }
             .map(\.sessionKey)
+    }
+
+    private func streamOrderingPriority(_ stream: StreamSession) -> Int {
+        switch stream.kind {
+        case "dm", "global_dm":
+            return 0
+        case "main":
+            return 1
+        default:
+            return 2
+        }
     }
 
     private func nextSyntheticOrderIndex(from streams: Dictionary<String, StreamSession>.Values? = nil) -> Int {
