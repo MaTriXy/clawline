@@ -185,8 +185,20 @@ struct ChatView: View {
         nonmutating set { scrollButtonDetentRawValue = newValue.rawValue }
     }
 
+    private var isDebugForcingScrollButtonVisible: Bool {
+#if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--debug-force-scroll-button")
+#else
+        false
+#endif
+    }
+
     private func scrollButtonState(for sessionKey: String) -> ScrollButtonState {
-        scrollButtonStateBySessionKey[sessionKey] ?? ScrollButtonState()
+        var state = scrollButtonStateBySessionKey[sessionKey] ?? ScrollButtonState()
+        if isDebugForcingScrollButtonVisible {
+            state.isVisible = true
+        }
+        return state
     }
 
     private func mutateScrollButtonState(for sessionKey: String, _ mutate: (inout ScrollButtonState) -> Void) {
@@ -378,7 +390,8 @@ struct ChatView: View {
             bounceToken: state.bounceToken,
             onTap: onTap
         )
-        .simultaneousGesture(
+        .contentShape(Rectangle())
+        .highPriorityGesture(
             DragGesture(minimumDistance: 2)
                 .onChanged { value in
                     handleScrollButtonDragChanged(value, containerWidth: containerWidth)

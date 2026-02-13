@@ -75,6 +75,7 @@ struct ScrollToBottomButton: View {
         .opacity(isVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.2), value: isVisible)
         .allowsHitTesting(isVisible)
+        .accessibilityIdentifier("scroll_to_bottom_button")
         .accessibilityLabel(unreadCount > 0 ? "Scroll to first unread message" : "Scroll to bottom")
         .accessibilityValue(unreadCount > 0 ? "\(unreadCount) unread" : "")
         .onChange(of: bounceToken) { _, _ in
