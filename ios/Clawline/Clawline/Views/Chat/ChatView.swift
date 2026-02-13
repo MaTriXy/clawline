@@ -409,9 +409,16 @@ struct ChatView: View {
     }
 
     @ViewBuilder
-    private func floatingPageDotsView(viewModel: ChatViewModel, inputBarTopFromScreenBottom: CGFloat) -> some View {
+    private func floatingPageDotsView(
+        viewModel: ChatViewModel,
+        inputBarTopFromScreenBottom: CGFloat,
+        streamSelectorMaxHeight: CGFloat
+    ) -> some View {
         if !viewModel.orderedSessionKeys.isEmpty {
-            streamPageDotsControl(viewModel: viewModel)
+            streamPageDotsControl(
+                viewModel: viewModel,
+                streamSelectorMaxHeight: streamSelectorMaxHeight
+            )
             .padding(.bottom, inputBarTopFromScreenBottom + floatingPageDotsBottomGap)
             .ignoresSafeArea(.container, edges: .bottom)
         }
@@ -577,6 +584,14 @@ struct ChatView: View {
             flowGap: effectiveFlowGap,
             containerPadding: metrics.containerPadding
         )
+        let streamSelectorSpacingFromMessageBarTop: CGFloat = 8
+        let streamSelectorMaxHeight = max(
+            0,
+            geometry.size.height
+                - inputBarTopFromScreenBottom
+                - geometry.safeAreaInsets.top
+                - streamSelectorSpacingFromMessageBarTop
+        )
 
         let messageLayer: AnyView = AnyView(
             pagedStreamView(topInset: topInset, truncationBottomInset: truncationBottomInset)
@@ -627,7 +642,8 @@ struct ChatView: View {
 #if os(visionOS)
             floatingPageDotsView(
                 viewModel: viewModel,
-                inputBarTopFromScreenBottom: inputBarTopFromScreenBottom
+                inputBarTopFromScreenBottom: inputBarTopFromScreenBottom,
+                streamSelectorMaxHeight: streamSelectorMaxHeight
             )
 #else
             EmptyView()
@@ -639,7 +655,8 @@ struct ChatView: View {
                 viewModel: viewModel,
                 belowBarGap: belowBarGap,
                 isKeyboardVisible: isKeyboardVisible,
-                layoutKey: layoutKey
+                layoutKey: layoutKey,
+                streamSelectorMaxHeight: streamSelectorMaxHeight
             )
         }
         .overlay(alignment: .bottom) {
@@ -725,7 +742,8 @@ struct ChatView: View {
                                  viewModel: ChatViewModel,
                                  belowBarGap: CGFloat,
                                  isKeyboardVisible: Bool,
-                                 layoutKey: ChatLayoutKey) -> some View {
+                                 layoutKey: ChatLayoutKey,
+                                 streamSelectorMaxHeight: CGFloat) -> some View {
         let sessionKey = viewModel.activeSessionKey
         let state = scrollButtonState(for: sessionKey)
         let scrollButtonView: AnyView = AnyView(
@@ -740,7 +758,10 @@ struct ChatView: View {
         let pageDotsView: AnyView? = viewModel.orderedSessionKeys.isEmpty
             ? nil
             : AnyView(
-                streamPageDotsControl(viewModel: viewModel)
+                streamPageDotsControl(
+                    viewModel: viewModel,
+                    streamSelectorMaxHeight: streamSelectorMaxHeight
+                )
             )
 
 #if os(visionOS)
@@ -961,7 +982,10 @@ struct ChatView: View {
         )
     }
 
-    private func streamPageDotsControl(viewModel: ChatViewModel) -> some View {
+    private func streamPageDotsControl(
+        viewModel: ChatViewModel,
+        streamSelectorMaxHeight: CGFloat
+    ) -> some View {
         StreamPageDotsView(
             sessionKeys: viewModel.orderedSessionKeys,
             activeSessionKey: viewModel.activeSessionKey,
@@ -970,11 +994,12 @@ struct ChatView: View {
         .popover(
             isPresented: $isStreamManagerPopoverPresented,
             attachmentAnchor: .rect(.bounds),
-            arrowEdge: .top
+            arrowEdge: .bottom
         ) {
             StreamManagerSheet(
                 viewModel: viewModel,
                 isPresented: $isStreamManagerPopoverPresented,
+                maxAvailableHeight: streamSelectorMaxHeight,
                 onSelectStream: selectStream
             )
             .presentationCompactAdaptation(.popover)

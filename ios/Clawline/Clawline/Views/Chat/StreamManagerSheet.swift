@@ -10,6 +10,7 @@ import SwiftUI
 struct StreamManagerSheet: View {
     @Bindable var viewModel: ChatViewModel
     @Binding var isPresented: Bool
+    let maxAvailableHeight: CGFloat
     let onSelectStream: (String) -> Void
 
     @State private var draftName = ""
@@ -21,6 +22,28 @@ struct StreamManagerSheet: View {
     private enum EditorMode: Hashable {
         case creating(UUID)
         case renaming(String)
+    }
+
+    private let listRowHeight: CGFloat = 44
+    private let functionBarHeight: CGFloat = 52
+    private let minimumPopoverHeight: CGFloat = 140
+
+    private var showsCreateInlineRow: Bool {
+        if case .creating = activeEditor {
+            return true
+        }
+        return false
+    }
+
+    private var cappedContainerHeight: CGFloat {
+        StreamSelectorLayout.containerHeight(
+            itemCount: viewModel.orderedStreams.count,
+            showsCreateInlineRow: showsCreateInlineRow,
+            rowHeight: listRowHeight,
+            functionBarHeight: functionBarHeight,
+            maxAvailableHeight: maxAvailableHeight,
+            minimumPopoverHeight: minimumPopoverHeight
+        )
     }
 
     var body: some View {
@@ -95,9 +118,10 @@ struct StreamManagerSheet: View {
                 }
                 Spacer()
             }
-            .padding(.vertical, 10)
+            .frame(height: functionBarHeight)
         }
-        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360, minHeight: 260, maxHeight: 420)
+        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
+        .frame(height: cappedContainerHeight)
         .onChange(of: isPresented) { _, presented in
             if !presented {
                 resetInlineEditing()
@@ -183,5 +207,21 @@ struct StreamManagerSheet: View {
         if activeEditor == .renaming(stream.sessionKey) {
             resetInlineEditing()
         }
+    }
+}
+
+enum StreamSelectorLayout {
+    static func containerHeight(
+        itemCount: Int,
+        showsCreateInlineRow: Bool,
+        rowHeight: CGFloat,
+        functionBarHeight: CGFloat,
+        maxAvailableHeight: CGFloat,
+        minimumPopoverHeight: CGFloat
+    ) -> CGFloat {
+        let rows = max(1, itemCount + (showsCreateInlineRow ? 1 : 0))
+        let desired = CGFloat(rows) * rowHeight + functionBarHeight
+        let cap = max(minimumPopoverHeight, maxAvailableHeight)
+        return min(desired, cap)
     }
 }
