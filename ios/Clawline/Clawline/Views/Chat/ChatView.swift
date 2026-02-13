@@ -108,6 +108,8 @@ struct ChatView: View {
     @State private var scrollButtonDragTranslation: CGFloat = 0
     @State private var scrollButtonSuppressNextTap = false
     @State private var scrollButtonIsDetentSettling = false
+    @State private var scrollButtonSettleStartOffset: CGFloat?
+    @State private var scrollButtonSettleAnimationToken: Int = 0
     @State private var scrollButtonSettleTask: Task<Void, Never>?
     @State private var scrollButtonTapSuppressionTask: Task<Void, Never>?
     @AppStorage("chat.scrollButton.horizontalDetent") private var scrollButtonDetentRawValue = ScrollButtonHorizontalDetent.center.rawValue
@@ -276,6 +278,7 @@ struct ChatView: View {
         scrollButtonDragTranslation = 0
         scrollButtonSuppressNextTap = false
         scrollButtonIsDetentSettling = false
+        scrollButtonSettleStartOffset = nil
     }
 
     private func handleScrollButtonDragChanged(_ value: DragGesture.Value, containerWidth: CGFloat) {
@@ -316,12 +319,17 @@ struct ChatView: View {
             scrollButtonDragTranslation = 0
         }
         if shouldRunSettleWindow {
+            scrollButtonSettleStartOffset = endOffset
+            scrollButtonSettleAnimationToken &+= 1
             scrollButtonIsDetentSettling = true
             scrollButtonSettleTask?.cancel()
             scrollButtonSettleTask = Task { @MainActor in
                 try? await Task.sleep(for: scrollButtonSettleDuration)
                 scrollButtonIsDetentSettling = false
+                scrollButtonSettleStartOffset = nil
             }
+        } else {
+            scrollButtonSettleStartOffset = nil
         }
     }
 
@@ -749,12 +757,16 @@ struct ChatView: View {
         let pinnedScrollButtonView: AnyView? = nil
         let pinnedScrollButtonGap: CGFloat = 0
         let pinnedScrollButtonHorizontalOffset: CGFloat = 0
+        let pinnedScrollButtonSettleStartOffset: CGFloat? = nil
+        let pinnedScrollButtonHorizontalAnimationToken: Int = 0
         let pinnedPageDotsView: AnyView? = nil
         let pinnedPageDotsGap: CGFloat = 0
 #else
         let pinnedScrollButtonView: AnyView? = scrollButtonView
         let pinnedScrollButtonGap: CGFloat = floatingScrollButtonBottomGap
         let pinnedScrollButtonHorizontalOffset = activeScrollButtonHorizontalOffset(containerWidth: geometry.size.width)
+        let pinnedScrollButtonSettleStartOffset = scrollButtonSettleStartOffset
+        let pinnedScrollButtonHorizontalAnimationToken = scrollButtonSettleAnimationToken
         let pinnedPageDotsView: AnyView? = pageDotsView
         let pinnedPageDotsGap: CGFloat = floatingPageDotsBottomGap
 #endif
@@ -770,6 +782,8 @@ struct ChatView: View {
             scrollButtonView: pinnedScrollButtonView,
             scrollButtonGap: pinnedScrollButtonGap,
             scrollButtonHorizontalOffset: pinnedScrollButtonHorizontalOffset,
+            scrollButtonHorizontalSettleStartOffset: pinnedScrollButtonSettleStartOffset,
+            scrollButtonHorizontalAnimationToken: pinnedScrollButtonHorizontalAnimationToken,
             pageDotsView: pinnedPageDotsView,
             pageDotsGap: pinnedPageDotsGap
         ) {
@@ -1439,6 +1453,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     let scrollButtonView: AnyView?
     let scrollButtonGap: CGFloat
     let scrollButtonHorizontalOffset: CGFloat
+    let scrollButtonHorizontalSettleStartOffset: CGFloat?
+    let scrollButtonHorizontalAnimationToken: Int
     let pageDotsView: AnyView?
     let pageDotsGap: CGFloat
     let content: Content
@@ -1453,6 +1469,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         scrollButtonView: AnyView? = nil,
         scrollButtonGap: CGFloat = 0,
         scrollButtonHorizontalOffset: CGFloat = 0,
+        scrollButtonHorizontalSettleStartOffset: CGFloat? = nil,
+        scrollButtonHorizontalAnimationToken: Int = 0,
         pageDotsView: AnyView? = nil,
         pageDotsGap: CGFloat = 0,
         @ViewBuilder content: () -> Content
@@ -1466,6 +1484,8 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         self.scrollButtonView = scrollButtonView
         self.scrollButtonGap = scrollButtonGap
         self.scrollButtonHorizontalOffset = scrollButtonHorizontalOffset
+        self.scrollButtonHorizontalSettleStartOffset = scrollButtonHorizontalSettleStartOffset
+        self.scrollButtonHorizontalAnimationToken = scrollButtonHorizontalAnimationToken
         self.pageDotsView = pageDotsView
         self.pageDotsGap = pageDotsGap
         self.content = content()
@@ -1483,7 +1503,9 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         uiView.updateScrollButton(
             scrollButtonView,
             gap: scrollButtonGap,
-            horizontalOffset: scrollButtonHorizontalOffset
+            horizontalOffset: scrollButtonHorizontalOffset,
+            horizontalSettleStartOffset: scrollButtonHorizontalSettleStartOffset,
+            horizontalAnimationToken: scrollButtonHorizontalAnimationToken
         )
         uiView.updatePageDots(pageDotsView, gap: pageDotsGap)
         uiView.setOnBarHeightChange { [weak layoutCoordinator] height in
@@ -1513,6 +1535,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private var scrollButtonHost: UIHostingController<AnyView>?
     private var scrollButtonBottomToBarTop: NSLayoutConstraint?
     private var scrollButtonCenterX: NSLayoutConstraint?
+    private var lastScrollButtonHorizontalAnimationToken: Int = 0
     private var pageDotsHost: UIHostingController<AnyView>?
     private var pageDotsBottomToBarTop: NSLayoutConstraint?
     private var minHeightConstraint: NSLayoutConstraint?
@@ -1576,11 +1599,19 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         }
     }
 
-    func updateScrollButton(_ view: AnyView?, gap: CGFloat, horizontalOffset: CGFloat) {
+    func updateScrollButton(
+        _ view: AnyView?,
+        gap: CGFloat,
+        horizontalOffset: CGFloat,
+        horizontalSettleStartOffset: CGFloat?,
+        horizontalAnimationToken: Int
+    ) {
 #if os(visionOS)
         _ = view
         _ = gap
         _ = horizontalOffset
+        _ = horizontalSettleStartOffset
+        _ = horizontalAnimationToken
         return
 #else
         // Ensure the bar view is mounted so we can anchor the scroll button above it.
@@ -1609,7 +1640,29 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         scrollButtonHost?.view.isHidden = (view == nil)
         scrollButtonHost?.view.isUserInteractionEnabled = (view != nil)
         scrollButtonBottomToBarTop?.constant = -gap
-        scrollButtonCenterX?.constant = horizontalOffset
+        let shouldAnimateOffset = horizontalAnimationToken != lastScrollButtonHorizontalAnimationToken
+        lastScrollButtonHorizontalAnimationToken = horizontalAnimationToken
+
+        if shouldAnimateOffset {
+            if let horizontalSettleStartOffset {
+                scrollButtonCenterX?.constant = horizontalSettleStartOffset
+                // Force the spring to start from the drag-release position.
+                layoutIfNeeded()
+            }
+            scrollButtonCenterX?.constant = horizontalOffset
+            UIView.animate(
+                withDuration: 0.46,
+                delay: 0,
+                usingSpringWithDamping: 0.68,
+                initialSpringVelocity: 0.78,
+                options: [.beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.layoutIfNeeded()
+            }
+        } else {
+            scrollButtonCenterX?.constant = horizontalOffset
+            layoutIfNeeded()
+        }
 #endif
     }
 
