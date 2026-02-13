@@ -804,6 +804,47 @@ struct ChatFlowOrganicComplianceTests {
         ).isTextual)
     }
 
+    @Test("Bug #69: Table remains chromeless above 5 rows")
+    func chromelessTableAllowsMoreThanFiveRows() {
+        let table = makeTableModel(rowCount: 6)
+        let presentation = MessagePresentation(
+            parts: [.table(table)],
+            wordCount: 0,
+            hasTextualContent: true,
+            isEmojiOnly: false,
+            hasMediaOnly: false,
+            detectedURLs: [],
+            detectedURLCount: 0,
+            hasSingleURL: false
+        )
+
+        #expect(presentation.chromelessStyle == .table)
+        #expect(presentation.isChromeless)
+    }
+
+    @Test("Bug #69: Chromeless table ignores whitespace-only text parts")
+    func chromelessTableIgnoresWhitespaceFragments() {
+        let table = makeTableModel(rowCount: 2)
+        let presentation = MessagePresentation(
+            parts: [
+                .text(" \n\t"),
+                .markdown("\u{200B}\u{200C}"),
+                .table(table),
+                .text("\n")
+            ],
+            wordCount: 0,
+            hasTextualContent: true,
+            isEmojiOnly: false,
+            hasMediaOnly: false,
+            detectedURLs: [],
+            detectedURLCount: 0,
+            hasSingleURL: false
+        )
+
+        #expect(presentation.chromelessStyle == .table)
+        #expect(presentation.isChromeless)
+    }
+
     // MARK: Input bar & accessibility (§9/§10)
 
     @Test("Doc §10: Accessibility announcements")
@@ -905,5 +946,41 @@ struct ChatFlowOrganicComplianceTests {
 
     private func sampleAttachment(id: String) -> Clawline.Attachment {
         Clawline.Attachment(id: id, type: .image, mimeType: "image/png", data: nil, assetId: nil)
+    }
+
+    private func makeTableModel(rowCount: Int) -> TableModel {
+        let columns = [
+            TableModel.Column(alignment: .leading),
+            TableModel.Column(alignment: .trailing)
+        ]
+        let header = [
+            makeTableCell("Name"),
+            makeTableCell("Count")
+        ]
+        let rows = (0..<rowCount).map { index in
+            TableModel.Row(
+                id: UUID(),
+                cells: [
+                    makeTableCell("Item \(index + 1)"),
+                    makeTableCell("\(index + 1)")
+                ]
+            )
+        }
+        return TableModel(
+            columns: columns,
+            header: header,
+            rows: rows,
+            messageID: "table_chromeless_test",
+            rowOffset: 0
+        )
+    }
+
+    private func makeTableCell(_ value: String) -> TableModel.Cell {
+        TableModel.Cell(
+            attributed: AttributedString(value),
+            intrinsicWidth: 80,
+            plainText: value,
+            isEmpty: value.isEmpty
+        )
     }
 }

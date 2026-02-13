@@ -2408,7 +2408,6 @@ final class TableUIKitWrapperView: UIView {
             role: role,
             metrics: metrics,
             maxLineWidth: maxLineWidth,
-            colorScheme: traitCollection.userInterfaceStyle == .dark ? .dark : .light,
             isExpanded: false,
             onExpand: onExpand,
             onCollapse: { }
@@ -2432,21 +2431,6 @@ final class TableUIKitWrapperView: UIView {
 
         // Force layout to get accurate size
         hostingController.view.layoutIfNeeded()
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        guard traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle else { return }
-        guard let model = currentModel,
-              let metrics = currentMetrics,
-              let onExpand = onExpandAction else { return }
-        configure(
-            model: model,
-            role: currentRole,
-            metrics: metrics,
-            maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-            onExpand: onExpand
-        )
     }
 
     override var intrinsicContentSize: CGSize {

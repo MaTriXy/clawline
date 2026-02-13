@@ -7,7 +7,6 @@ struct MarkdownTableView: View {
     let role: Message.Role
     let metrics: ChatFlowTheme.Metrics
     let maxLineWidth: CGFloat
-    let colorScheme: ColorScheme
     let isExpanded: Bool
     let onExpand: () -> Void
     let onCollapse: () -> Void
@@ -28,49 +27,65 @@ struct MarkdownTableView: View {
     @State private var scrollProxy: ScrollViewProxy?
     @State private var headerHeight: CGFloat = 0
 
-    private var headerFill: Color {
-        switch role {
-        case .user:
-            return ChatFlowTheme.terracotta(colorScheme).opacity(colorScheme == .dark ? 0.24 : 0.30)
-        case .assistant:
-            return ChatFlowTheme.warmBrown(colorScheme).opacity(colorScheme == .dark ? 0.22 : 0.30)
-        }
-    }
-
-    private var backgroundFill: Color {
-        switch role {
-        case .user:
-            return ChatFlowTheme.sage(colorScheme).opacity(colorScheme == .dark ? 0.24 : 0.12)
-        case .assistant:
-            return colorScheme == .dark
-                ? ChatFlowTheme.warmBrown(colorScheme).opacity(0.08)
-                : ChatFlowTheme.cream(colorScheme).opacity(0.12)
-        }
-    }
-
-    private var borderColor: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.34)
-            : ChatFlowTheme.stone(colorScheme).opacity(0.40)
-    }
-
-    private var headerDividerOpacity: Double {
-        colorScheme == .dark ? 0.72 : 0.30
-    }
-
-    private var cellDividerOpacity: Double {
-        colorScheme == .dark ? 0.45 : 0.20
-    }
-
-    private var tableTextColor: UIColor {
+    private var headerFill: Color { Color(uiColor: headerFillColor) }
+    private var backgroundFill: Color { Color(uiColor: backgroundFillColor) }
+    private var borderColor: Color { Color(uiColor: borderColorValue) }
+    private var headerDividerColor: Color { Color(uiColor: headerDividerColorValue) }
+    private var cellDividerColor: Color { Color(uiColor: cellDividerColorValue) }
+    private var tableTextColor: UIColor { dynamicColor { colorScheme in
         if colorScheme == .dark {
             return UIColor(red: 0.941, green: 0.918, blue: 0.894, alpha: 1.0)
         }
         return UIColor(ChatFlowTheme.ink(colorScheme))
+    } }
+    private var emptyCellTextColor: UIColor { dynamicColor { colorScheme in
+        UIColor(ChatFlowTheme.ink(colorScheme)).withAlphaComponent(colorScheme == .dark ? 0.82 : 0.60)
+    } }
+
+    private var headerFillColor: UIColor {
+        dynamicColor { colorScheme in
+            switch role {
+            case .user:
+                return UIColor(ChatFlowTheme.terracotta(colorScheme)).withAlphaComponent(colorScheme == .dark ? 0.24 : 0.30)
+            case .assistant:
+                return UIColor(ChatFlowTheme.warmBrown(colorScheme)).withAlphaComponent(colorScheme == .dark ? 0.22 : 0.30)
+            }
+        }
     }
 
-    private var emptyCellTextOpacity: Double {
-        colorScheme == .dark ? 0.82 : 0.60
+    private var backgroundFillColor: UIColor {
+        dynamicColor { colorScheme in
+            switch role {
+            case .user:
+                return UIColor(ChatFlowTheme.sage(colorScheme)).withAlphaComponent(colorScheme == .dark ? 0.24 : 0.12)
+            case .assistant:
+                if colorScheme == .dark {
+                    return UIColor(ChatFlowTheme.warmBrown(colorScheme)).withAlphaComponent(0.08)
+                }
+                return UIColor(ChatFlowTheme.cream(colorScheme)).withAlphaComponent(0.12)
+            }
+        }
+    }
+
+    private var borderColorValue: UIColor {
+        dynamicColor { colorScheme in
+            if colorScheme == .dark {
+                return UIColor.white.withAlphaComponent(0.34)
+            }
+            return UIColor(ChatFlowTheme.stone(colorScheme)).withAlphaComponent(0.40)
+        }
+    }
+
+    private var headerDividerColorValue: UIColor {
+        dynamicColor { colorScheme in
+            borderBaseColor(colorScheme).withAlphaComponent(colorScheme == .dark ? 0.72 : 0.30)
+        }
+    }
+
+    private var cellDividerColorValue: UIColor {
+        dynamicColor { colorScheme in
+            borderBaseColor(colorScheme).withAlphaComponent(colorScheme == .dark ? 0.45 : 0.20)
+        }
     }
 
     private var visibleRows: [(index: Int, row: TableModel.Row)] {
@@ -220,7 +235,7 @@ struct MarkdownTableView: View {
                 .background(headerFill)
                 .overlay(alignment: .bottom) {
                     Rectangle()
-                        .fill(borderColor.opacity(headerDividerOpacity))
+                        .fill(headerDividerColor)
                         .frame(maxWidth: .infinity)
                         .frame(height: 1)
                 }
@@ -240,7 +255,7 @@ struct MarkdownTableView: View {
                         .overlay(alignment: .trailing) {
                             if model.columns.count > 1 && column < model.columns.count - 1 {
                                 Rectangle()
-                                    .fill(borderColor.opacity(cellDividerOpacity))
+                                    .fill(cellDividerColor)
                                     .frame(width: 1)
                             }
                         }
@@ -250,7 +265,7 @@ struct MarkdownTableView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(alignment: .bottom) {
                     Rectangle()
-                        .fill(borderColor.opacity(cellDividerOpacity))
+                        .fill(cellDividerColor)
                         .frame(maxWidth: .infinity)
                         .frame(height: 1)
                 }
@@ -353,7 +368,7 @@ struct MarkdownTableView: View {
             if cell.isEmpty {
                 Text("—")
                     .font(.system(size: metrics.bodyFontSize, weight: isHeader ? .semibold : .regular))
-                    .foregroundColor(ChatFlowTheme.ink(colorScheme).opacity(emptyCellTextOpacity))
+                    .foregroundColor(Color(uiColor: emptyCellTextColor))
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 SelectableAttributedText(
@@ -431,8 +446,24 @@ struct MarkdownTableView: View {
     }
 
     private func inlineCodeBackgroundColor() -> UIColor {
-        let color: Color = colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
-        return UIColor(color)
+        dynamicColor { colorScheme in
+            colorScheme == .dark
+                ? UIColor.white.withAlphaComponent(0.12)
+                : UIColor.black.withAlphaComponent(0.08)
+        }
+    }
+
+    private func dynamicColor(_ makeColor: @escaping (ColorScheme) -> UIColor) -> UIColor {
+        UIColor { traitCollection in
+            makeColor(traitCollection.userInterfaceStyle == .dark ? .dark : .light)
+        }
+    }
+
+    private func borderBaseColor(_ colorScheme: ColorScheme) -> UIColor {
+        if colorScheme == .dark {
+            return UIColor.white
+        }
+        return UIColor(ChatFlowTheme.stone(colorScheme))
     }
 
     private func handleTapGesture() {

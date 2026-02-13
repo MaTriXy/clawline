@@ -141,6 +141,12 @@ enum ChromelessStyle: Equatable {
 }
 
 extension MessagePart {
+    private static let chromelessIgnorableCharacters: CharacterSet = {
+        var set = CharacterSet.whitespacesAndNewlines
+        set.insert(charactersIn: "\u{200B}\u{200C}\u{200D}\u{2060}\u{FEFF}")
+        return set
+    }()
+
     var isTextual: Bool {
         switch self {
         case .text, .markdown, .table, .inlineEmoji, .code:
@@ -151,22 +157,31 @@ extension MessagePart {
             return false
         }
     }
+
+    var isChromelessIgnorable: Bool {
+        switch self {
+        case .text(let text), .markdown(let text):
+            return text.trimmingCharacters(in: Self.chromelessIgnorableCharacters).isEmpty
+        default:
+            return false
+        }
+    }
 }
 
 extension MessagePresentation {
     /// Returns the chromeless style if this message qualifies for chromeless rendering.
-    /// A message qualifies when it contains exactly one element of a supported type
-    /// and that element doesn't require truncation.
+    /// A message qualifies when it contains exactly one visible element of a supported type.
     var chromelessStyle: ChromelessStyle? {
-        guard parts.count == 1 else { return nil }
-        switch parts[0] {
+        let chromelessCandidates = parts.filter { !$0.isChromelessIgnorable }
+        guard chromelessCandidates.count == 1, let candidate = chromelessCandidates.first else { return nil }
+
+        switch candidate {
         case .image:
             return .image
         case .gallery:
             return .image
-        case .table(let model):
-            // Only chromeless if ≤5 rows (tables truncate at 5 rows)
-            return model.rows.count <= 5 ? .table : nil
+        case .table:
+            return .table
         case .code:
             return .codeBlock
         case .inlineEmoji(let value):

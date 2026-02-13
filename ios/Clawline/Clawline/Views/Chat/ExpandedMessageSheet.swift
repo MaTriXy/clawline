@@ -119,7 +119,6 @@ struct ExpandedMessageSheet: View {
                     role: message.role,
                     metrics: metrics,
                     maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-                    colorScheme: effectiveColorScheme,
                     isExpanded: true,
                     onExpand: {},
                     onCollapse: { dismiss() }
