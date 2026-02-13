@@ -16,29 +16,20 @@ struct StreamManagerSheet: View {
     @State private var draftName = ""
     @State private var activeEditor: EditorMode?
     @State private var isWorking = false
-    @State private var isAddButtonPopoverPresented = false
     @FocusState private var focusedEditor: EditorMode?
 
     private enum EditorMode: Hashable {
-        case creating(UUID)
         case renaming(String)
     }
 
-    private let listRowHeight: CGFloat = 44
-    private let functionBarHeight: CGFloat = 52
+    private let listRowHeight: CGFloat = 52
+    private let functionBarHeight: CGFloat = 58
     private let minimumPopoverHeight: CGFloat = 140
-
-    private var showsCreateInlineRow: Bool {
-        if case .creating = activeEditor {
-            return true
-        }
-        return false
-    }
 
     private var cappedContainerHeight: CGFloat {
         StreamSelectorLayout.containerHeight(
             itemCount: viewModel.orderedStreams.count,
-            showsCreateInlineRow: showsCreateInlineRow,
+            showsCreateInlineRow: false,
             rowHeight: listRowHeight,
             functionBarHeight: functionBarHeight,
             maxAvailableHeight: maxAvailableHeight,
@@ -51,6 +42,7 @@ struct StreamManagerSheet: View {
             List {
                 ForEach(viewModel.orderedStreams) { stream in
                     rowContent(for: stream)
+                        .listRowSeparator(.hidden)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if activeEditor != .renaming(stream.sessionKey) {
                                 if viewModel.canRenameStream(sessionKey: stream.sessionKey) {
@@ -70,55 +62,25 @@ struct StreamManagerSheet: View {
                             }
                         }
                 }
-                if case .creating(let id) = activeEditor {
-                    TextField("Stream name", text: $draftName)
-                        .textInputAutocapitalization(.words)
-                        .autocorrectionDisabled(false)
-                        .submitLabel(.done)
-                        .focused($focusedEditor, equals: .creating(id))
-                        .onSubmit {
-                            Task { await createStream() }
-                        }
-                }
             }
             .listStyle(.plain)
             .disabled(isWorking)
 
-            Divider()
-
-            HStack {
-                Spacer()
-                Button {
-                    beginCreatingStream()
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 15, weight: .semibold))
-                        Image(systemName: "arrowtriangle.down.fill")
-                            .font(.system(size: 8, weight: .bold))
-                            .offset(y: 1)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .glassEffect(.regular.interactive(), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(isWorking)
-                .accessibilityLabel("Add stream")
-                .accessibilityHint("Opens stream creation")
-                .popover(
-                    isPresented: $isAddButtonPopoverPresented,
-                    attachmentAnchor: .rect(.bounds),
-                    arrowEdge: .top
-                ) {
-                    Image(systemName: "plus")
-                        .font(.title2.weight(.semibold))
-                        .padding(12)
-                        .presentationCompactAdaptation(.popover)
-                }
-                Spacer()
+            // One-tap add button - directly creates a stream with auto-generated name
+            Button {
+                Task { await addStreamDirectly() }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: functionBarHeight)
+                    .contentShape(Rectangle())
             }
-            .frame(height: functionBarHeight)
+            .buttonStyle(.plain)
+            .disabled(isWorking)
+            .accessibilityLabel("Add stream")
+            .accessibilityHint("Creates a new stream")
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .frame(height: cappedContainerHeight)
@@ -133,6 +95,7 @@ struct StreamManagerSheet: View {
     private func rowContent(for stream: StreamSession) -> some View {
         if activeEditor == .renaming(stream.sessionKey) {
             TextField("Stream name", text: $draftName)
+                .font(.system(size: 18))
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled(false)
                 .submitLabel(.done)
@@ -145,29 +108,23 @@ struct StreamManagerSheet: View {
                 onSelectStream(stream.sessionKey)
                 isPresented = false
             } label: {
-                Text(stream.displayName)
-                    .fontWeight(stream.sessionKey == viewModel.activeSessionKey ? .semibold : .regular)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(stream.sessionKey == viewModel.activeSessionKey ? Color.accentColor : Color.primary.opacity(0.25))
+                        .frame(width: 8, height: 8)
+                    Text(stream.displayName)
+                        .font(.system(size: 18, weight: stream.sessionKey == viewModel.activeSessionKey ? .semibold : .regular))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .buttonStyle(.plain)
             .contentShape(Rectangle())
         }
     }
 
-    private func beginCreatingStream() {
-        let token = UUID()
-        activeEditor = .creating(token)
-        draftName = ""
-        isAddButtonPopoverPresented = true
-        Task { @MainActor in
-            focusedEditor = .creating(token)
-        }
-    }
-
     private func beginRenaming(_ stream: StreamSession) {
         activeEditor = .renaming(stream.sessionKey)
         draftName = stream.displayName
-        isAddButtonPopoverPresented = false
         Task { @MainActor in
             focusedEditor = .renaming(stream.sessionKey)
         }
@@ -177,17 +134,20 @@ struct StreamManagerSheet: View {
         activeEditor = nil
         draftName = ""
         focusedEditor = nil
-        isAddButtonPopoverPresented = false
     }
 
-    private func createStream() async {
-        let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+    private func addStreamDirectly() async {
+        let existingCount = viewModel.orderedStreams.count
+        let name = "Stream \(existingCount + 1)"
         isWorking = true
-        let succeeded = await viewModel.createStream(displayName: trimmed)
+        let succeeded = await viewModel.createStream(displayName: name)
         isWorking = false
         guard succeeded else { return }
-        resetInlineEditing()
+        // Switch to the new stream and dismiss
+        if let newStream = viewModel.orderedStreams.last {
+            onSelectStream(newStream.sessionKey)
+        }
+        isPresented = false
     }
 
     private func renameStream(_ stream: StreamSession) async {
