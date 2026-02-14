@@ -876,6 +876,7 @@ struct ChatView: View {
             viewModel: viewModel,
             topInset: topInset,
             isCompact: horizontalSizeClass == .compact,
+            isActiveSession: sessionKey == viewModel.activeSessionKey,
             truncationBottomInset: truncationBottomInset,
             firstUnreadMessageId: state.firstUnreadMessageId,
             unreadCount: state.unreadCount,
