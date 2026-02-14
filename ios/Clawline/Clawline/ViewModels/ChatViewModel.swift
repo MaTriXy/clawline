@@ -496,11 +496,15 @@ final class ChatViewModel: ChatViewModelHosting {
         guard let stream = streamsBySessionKey[sessionKey] else { return false }
         guard !syntheticSessionKeys.contains(sessionKey) else { return false }
         if stream.kind == "main" { return true }
+        if SessionKey.isClawlinePersonalDM(stream.sessionKey) { return true }
         return !stream.isBuiltIn
     }
 
     func canDeleteStream(sessionKey: String) -> Bool {
         guard let stream = streamsBySessionKey[sessionKey] else { return false }
+        if stream.sessionKey == SessionKey.admin { return false }
+        if stream.kind == "main" { return true }
+        if SessionKey.isClawlinePersonalDM(stream.sessionKey) { return true }
         guard !stream.isBuiltIn else { return false }
         return !isProtectedNonDeletableStream(stream)
     }
