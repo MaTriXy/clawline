@@ -38,6 +38,10 @@ struct StreamManagerSheet: View {
     private let listOuterVerticalPadding: CGFloat = 20
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
+    private let toolbarBorderOpacity: CGFloat = 0.22
+    private let toolbarBorderWidth: CGFloat = 0.8
+    private let plusBorderOpacity: CGFloat = 0.34
+    private let plusBorderWidth: CGFloat = 1
 
     private var listItemCount: Int {
         streams.count + pendingCreateRows.count
@@ -162,6 +166,10 @@ struct StreamManagerSheet: View {
                     .font(.system(size: 27, weight: .regular))
                     .foregroundStyle(.primary)
                     .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.white.opacity(plusBorderOpacity), lineWidth: plusBorderWidth)
+                    }
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -171,6 +179,10 @@ struct StreamManagerSheet: View {
             .frame(maxHeight: .infinity, alignment: .center)
             .frame(maxWidth: .infinity, alignment: .center)
             .frame(height: functionBarHeight, alignment: .center)
+            .overlay {
+                Rectangle()
+                    .stroke(Color.white.opacity(toolbarBorderOpacity), lineWidth: toolbarBorderWidth)
+            }
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .frame(height: cappedContainerHeight)
