@@ -32,10 +32,10 @@ struct StreamManagerSheet: View {
     }
 
     private let listRowHeight: CGFloat = 52
-    private let listRowSpacing: CGFloat = 4
-    private let listRowHorizontalInset: CGFloat = 14
-    private let functionBarHeight: CGFloat = 46
-    private let listOuterVerticalPadding: CGFloat = 16
+    private let listRowSpacing: CGFloat = 2
+    private let listRowHorizontalInset: CGFloat = 12
+    private let functionBarHeight: CGFloat = 40
+    private let listOuterVerticalPadding: CGFloat = 10
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
 
@@ -154,23 +154,21 @@ struct StreamManagerSheet: View {
             .padding(.vertical, listOuterVerticalPadding)
             .disabled(isWorking)
 
-            // Keep add affordance vertically centered regardless of keyboard/layout changes.
-            ZStack {
-                Button {
-                    addStreamDirectly()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 26, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .frame(width: 36, height: 36, alignment: .center)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(activeEditor != nil)
-                .accessibilityLabel("Add stream")
-                .accessibilityHint("Creates a new stream")
+            // Keep add affordance optically centered in a fixed-height toolbar regardless of keyboard changes.
+            Button {
+                addStreamDirectly()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 27, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
+                    .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.plain)
+            .disabled(activeEditor != nil)
+            .accessibilityLabel("Add stream")
+            .accessibilityHint("Creates a new stream")
+            .frame(maxWidth: .infinity, alignment: .center)
             .frame(height: functionBarHeight, alignment: .center)
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
@@ -180,7 +178,7 @@ struct StreamManagerSheet: View {
 #endif
         .overlay(
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 0.6)
+                .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
         )
         .background(
             GeometryReader { proxy in
