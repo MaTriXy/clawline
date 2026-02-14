@@ -563,7 +563,6 @@ struct ChatView: View {
             fallbackBarHeight: resolvedInputHeight
         )
         let inputBarTopFromScreenBottom = insetLayout.inputBarTopFromScreenBottom
-        let listBottomInset = insetLayout.listBottomInset
         let cachedKeyboardHeight = max(layoutInputs.effectiveKeyboardInset, lastNonZeroKeyboardHeight)
         let isLandscape = geometry.size.width > geometry.size.height
         let estimatedKeyboardHeight: CGFloat = {
@@ -610,7 +609,6 @@ struct ChatView: View {
             streamToastView(
                 inputBarTopFromScreenBottom: inputBarTopFromScreenBottom
             )
-            errorBannerView(viewModel: viewModel, listBottomInset: listBottomInset)
             toastBannerView(geometry: geometry, toastManager: toastManager)
         }
         .ignoresSafeArea(.keyboard)
@@ -710,19 +708,6 @@ struct ChatView: View {
     }
 
     @ViewBuilder
-    private func errorBannerView(viewModel: ChatViewModel,
-                                 listBottomInset: CGFloat) -> some View {
-        if let error = viewModel.error {
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                errorBanner(error)
-            }
-            .padding(.bottom, listBottomInset)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
-
-    @ViewBuilder
     private func toastBannerView(geometry: GeometryProxy,
                                  toastManager: ToastManager) -> some View {
         if let toast = toastManager.toast {
@@ -803,7 +788,7 @@ struct ChatView: View {
                 resetToken: viewModel.inputResetToken,
                 canSend: viewModel.canSend,
                 isSending: viewModel.isSending,
-                connectionAlert: viewModel.connectionAlert,
+                connectionState: viewModel.sendButtonConnectionState,
                 focusTrigger: focusRequestID,
                 bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
                 isKeyboardVisible: isKeyboardVisible,
@@ -811,6 +796,7 @@ struct ChatView: View {
                     viewModel.send()
                 },
                 onCancel: { viewModel.cancelSend() },
+                onReconnect: { viewModel.reconnect() },
                 onAdd: {
                     activeSheet = .attachmentMenu
                 },
@@ -1016,18 +1002,6 @@ struct ChatView: View {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             streamToastManager.show(displayName: streamDisplayName, sessionKey: sessionKey)
         }
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack {
-            Text(message)
-                .foregroundColor(.white)
-            Spacer()
-            Button("Dismiss") { viewModel.clearError() }
-                .foregroundColor(.white)
-        }
-        .padding()
-        .background(Color.red)
     }
 
     private func deviceCornerRadius() -> CGFloat {

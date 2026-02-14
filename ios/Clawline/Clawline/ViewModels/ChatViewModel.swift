@@ -10,9 +10,10 @@ import Observation
 import OSLog
 import UIKit
 
-enum ConnectionAlertSeverity: Equatable {
-    case caution
-    case critical
+enum SendButtonConnectionState: Equatable {
+    case connected
+    case reconnecting
+    case disconnected
 }
 
 protocol ChatViewModelHosting: AnyObject {
@@ -66,7 +67,7 @@ final class ChatViewModel: ChatViewModelHosting {
     var inputContent: NSAttributedString = NSAttributedString() {
         didSet {
             pruneAttachmentData()
-            logger.info("[trace] inputContent len=\(self.inputContent.length) empty=\(self.inputContent.isEffectivelyEmpty) canSend=\(self.canSend) alert=\(String(describing: self.connectionAlert))")
+            logger.info("[trace] inputContent len=\(self.inputContent.length) empty=\(self.inputContent.isEffectivelyEmpty) canSend=\(self.canSend) state=\(String(describing: self.connectionState))")
         }
     }
     var attachmentData: [UUID: PendingAttachment] = [:]
@@ -74,19 +75,24 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var isAssistantTyping: Bool = false
     private(set) var typingSessionKey: String?
     private(set) var connectionState: ConnectionState = .disconnected
-    private(set) var connectionAlert: ConnectionAlertSeverity? {
-        didSet {
-            logger.info("[trace] connectionAlert changed to \(String(describing: self.connectionAlert)) canSend=\(self.canSend)")
-        }
-    }
     private(set) var inputResetToken: Int = 0
-    private(set) var error: String?
     private(set) var sendTask: Task<Void, Never>?
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
     private(set) var shouldMorphTypingIndicator: Bool = false
 
     var canSend: Bool {
-        connectionAlert == nil && !inputContent.isEffectivelyEmpty
+        sendButtonConnectionState == .connected && !inputContent.isEffectivelyEmpty
+    }
+
+    var sendButtonConnectionState: SendButtonConnectionState {
+        switch connectionState {
+        case .connected:
+            return .connected
+        case .connecting, .reconnecting:
+            return .reconnecting
+        case .disconnected, .failed:
+            return reconnectTask == nil ? .disconnected : .reconnecting
+        }
     }
 
     let toastManager: ToastManager
@@ -113,9 +119,6 @@ final class ChatViewModel: ChatViewModelHosting {
     private var connectionStableTask: Task<Void, Never>?
     private let stableConnectionInterval: Duration = .seconds(5)
     private var activeClientMessageId: String?
-    private let connectionAlertGracePeriod: Duration
-    private var connectionAlertTask: Task<Void, Never>?
-    private var pendingConnectionErrorMessage: String?
     private var messageFailures: [String: MessageFailure] = [:]
     private var presentationCache: [PresentationCacheKey: PresentationCacheEntry] = [:]
     private var tableParseStates: [String: StreamingTableParseState] = [:]
@@ -166,7 +169,7 @@ final class ChatViewModel: ChatViewModelHosting {
         self.uploadService = uploadService
         self.toastManager = toastManager
         self.salientHighlightService = salientHighlightService
-        self.connectionAlertGracePeriod = connectionAlertGracePeriod
+        _ = connectionAlertGracePeriod
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleMemoryWarningNotification),
@@ -206,6 +209,13 @@ final class ChatViewModel: ChatViewModelHosting {
         connectionStableTask = nil
         cancelSend()
         chatService.disconnect()
+    }
+
+    func reconnect() {
+        guard auth.token != nil else { return }
+        guard sendButtonConnectionState == .disconnected else { return }
+        connectionState = .reconnecting
+        scheduleReconnect(immediate: true, reason: .manualReconnect)
     }
 
     @objc private func handleAuthStateChangeNotification() {
@@ -309,6 +319,10 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func send() {
         guard !isSending else { return }
+        guard sendButtonConnectionState == .connected else {
+            toastManager.show("Could not send; not connected.")
+            return
+        }
         pruneAttachmentData()
         let (text, pendingIds) = inputContent.contentForSending()
         let pendingAttachments = pendingIds.compactMap { attachmentData[$0] }
@@ -363,8 +377,6 @@ final class ChatViewModel: ChatViewModelHosting {
         appendMessage(placeholder)
         pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
 
-        error = nil
-
         sendTask = Task { [weak self] in
             await self?.performSend(
                 clientId: clientId,
@@ -393,12 +405,12 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    func retryMessage(messageId: String) {
+    func resendFailedMessage(messageId: String) {
         guard !isSending else { return }
         guard let (message, sessionKey, index) = findMessage(id: messageId) else { return }
 
         let clientId = "c_\(UUID().uuidString)"
-        let retryMessage = Message(
+        let resentMessage = Message(
             id: clientId,
             role: message.role,
             content: message.content,
@@ -410,7 +422,8 @@ final class ChatViewModel: ChatViewModelHosting {
         )
 
         var messageList = sessionMessages[sessionKey] ?? []
-        messageList[index] = retryMessage
+        messageList.remove(at: index)
+        messageList.append(resentMessage)
         setMessages(messageList, for: sessionKey)
 
         pendingLocalMessages.removeAll { $0.id == messageId }
@@ -423,8 +436,8 @@ final class ChatViewModel: ChatViewModelHosting {
         sendTask = Task { [weak self] in
             await self?.performRetrySend(
                 clientId: clientId,
-                content: retryMessage.content,
-                attachments: retryMessage.attachments,
+                content: resentMessage.content,
+                attachments: resentMessage.attachments,
                 sessionKey: sessionKey
             )
         }
@@ -458,9 +471,7 @@ final class ChatViewModel: ChatViewModelHosting {
         lastServerMessageId = nil
         lastServerMessageIdBySession.removeAll()
         auth.clearCredentials()
-        clearConnectionAlert()
         messageFailures.removeAll()
-        error = nil
         clearInput()
         sessionMessages = [:]
         messages = []
@@ -479,10 +490,6 @@ final class ChatViewModel: ChatViewModelHosting {
         resetSessionProvisioningState(clearPendingSend: true)
         clearMessageCache()
         clearStreamMetadataCache()
-    }
-
-    func clearError() {
-        error = nil
     }
 
     func canRenameStream(sessionKey: String) -> Bool {
@@ -810,8 +817,6 @@ final class ChatViewModel: ChatViewModelHosting {
             }
             reconnectTask?.cancel()
             reconnectTask = nil
-            clearConnectionAlert()
-            error = nil
             lastForegroundReconnectTrigger = nil
             isAssistantTyping = false
             typingSessionKey = nil
@@ -819,7 +824,7 @@ final class ChatViewModel: ChatViewModelHosting {
             connectionStableTask?.cancel()
             connectionStableTask = nil
             resetSessionProvisioningState(clearPendingSend: true)
-            beginConnectionAlert(message: "Not connected to provider.")
+            markPendingMessagesAsFailedForConnectionLoss()
             scheduleReconnect(reason: .connectionStateDisconnected)
             isAssistantTyping = false
             typingSessionKey = nil
@@ -827,13 +832,13 @@ final class ChatViewModel: ChatViewModelHosting {
             connectionStableTask?.cancel()
             connectionStableTask = nil
             resetSessionProvisioningState(clearPendingSend: true)
+            markPendingMessagesAsFailedForConnectionLoss()
             handleConnectionFailure(err)
             scheduleReconnect(reason: .connectionStateFailed)
             isAssistantTyping = false
             typingSessionKey = nil
         case .connecting, .reconnecting:
             resetSessionProvisioningState(clearPendingSend: true)
-            beginConnectionAlert(message: "Reconnecting…", shouldAnnounce: false)
             isAssistantTyping = false
             typingSessionKey = nil
         }
@@ -845,6 +850,7 @@ final class ChatViewModel: ChatViewModelHosting {
         case connectionStateDisconnected
         case connectionStateFailed
         case authStateChange
+        case manualReconnect
     }
 
     private func scheduleReconnect(immediate: Bool = false, reason: ReconnectTrigger = .connectionStateFailed) {
@@ -883,26 +889,18 @@ final class ChatViewModel: ChatViewModelHosting {
                 await MainActor.run {
                     self.reconnectBackoff = .seconds(1)
                     self.reconnectTask = nil
-                    self.error = nil
                 }
             } catch {
                 await MainActor.run {
                     if let providerError = error as? ProviderChatService.Error {
                         switch providerError {
                         case .authFailed:
-                            self.enterCriticalConnectionAlert(message: providerError.errorDescription ?? "Authentication failed.")
                             self.reconnectTask = nil
                             self.logout()
                             return
-                        case .missingBaseURL:
-                            self.enterCriticalConnectionAlert(message: providerError.errorDescription ?? "No provider configured.")
-                        case .policyViolation:
-                            self.beginConnectionAlert(message: providerError.errorDescription ?? "Connection rejected.")
                         default:
-                            self.beginConnectionAlert(message: providerError.errorDescription ?? "Connection interrupted.")
+                            break
                         }
-                    } else {
-                        self.beginConnectionAlert(message: "Failed to connect: \(error.localizedDescription)")
                     }
                     if let providerError = error as? ProviderChatService.Error,
                        shouldUseAuthRejectionBackoff(providerError) {
@@ -925,63 +923,20 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func handleConnectionFailure(_ error: Swift.Error) {
-        if shouldDebounceConnectionError(error) {
-            beginConnectionAlert(message: error.localizedDescription)
-        } else {
-            enterCriticalConnectionAlert(message: error.localizedDescription)
-        }
+        logger.info("connection failure handled silently: \(error.localizedDescription, privacy: .public)")
     }
 
-    private func shouldDebounceConnectionError(_ error: Swift.Error) -> Bool {
-        guard let providerError = error as? ProviderChatService.Error else {
-            return true
+    private func markPendingMessagesAsFailedForConnectionLoss() {
+        guard !pendingLocalMessages.isEmpty else { return }
+        let pendingIds = Set(pendingLocalMessages.map(\.id))
+        for id in pendingIds {
+            messageFailures[id] = MessageFailure(code: "connection_lost", message: nil)
         }
-        switch providerError {
-        case .authFailed, .missingBaseURL:
-            return false
-        default:
-            return true
+        pendingLocalMessages.removeAll()
+        if let activeClientMessageId, pendingIds.contains(activeClientMessageId) {
+            self.activeClientMessageId = nil
+            self.isSending = false
         }
-    }
-
-    private func beginConnectionAlert(message: String, shouldAnnounce: Bool = true) {
-        let resolvedMessage = message.isEmpty ? "Connection interrupted." : message
-        pendingConnectionErrorMessage = resolvedMessage
-        if connectionAlert != .critical {
-            connectionAlert = .caution
-            error = nil
-        }
-        if shouldAnnounce {
-            toastManager.show(resolvedMessage)
-        }
-        connectionAlertTask?.cancel()
-        connectionAlertTask = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(forDuration: self.connectionAlertGracePeriod)
-            await MainActor.run {
-                guard self.connectionAlert == .caution else { return }
-                self.connectionAlert = .critical
-                self.error = self.pendingConnectionErrorMessage
-                self.toastManager.show(self.pendingConnectionErrorMessage ?? resolvedMessage)
-            }
-        }
-    }
-
-    private func enterCriticalConnectionAlert(message: String) {
-        let resolvedMessage = message.isEmpty ? "Connection interrupted." : message
-        connectionAlertTask?.cancel()
-        connectionAlertTask = nil
-        pendingConnectionErrorMessage = resolvedMessage
-        connectionAlert = .critical
-        error = resolvedMessage
-        toastManager.show(resolvedMessage)
-    }
-
-    private func clearConnectionAlert() {
-        connectionAlertTask?.cancel()
-        connectionAlertTask = nil
-        pendingConnectionErrorMessage = nil
-        connectionAlert = nil
     }
 
     private func performSend(clientId: String,
@@ -1278,7 +1233,12 @@ final class ChatViewModel: ChatViewModelHosting {
         case .messageAcked:
             break
         case .connectionInterrupted(let reason):
-            beginConnectionAlert(message: reason ?? "Connection interrupted.")
+            logger.info("connection interrupted reason=\(reason ?? "unknown", privacy: .public)")
+            if sendButtonConnectionState == .connected {
+                connectionState = .reconnecting
+            }
+            markPendingMessagesAsFailedForConnectionLoss()
+            scheduleReconnect(reason: .connectionStateDisconnected)
         case .userInfo(let info):
             auth.updateAdminStatus(info.isAdmin)
         case .typingStateChanged(let isTyping, let sessionKey):
@@ -1977,10 +1937,6 @@ final class ChatViewModel: ChatViewModelHosting {
 #if DEBUG
     func debugConnectionSnapshot() -> (token: String?, lastMessageId: String?) {
         connectionSnapshot()
-    }
-
-    func debugConnectionAlert() -> ConnectionAlertSeverity? {
-        connectionAlert
     }
 
     func debugPresentationCacheSize() -> Int {
