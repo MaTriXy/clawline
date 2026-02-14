@@ -39,5 +39,14 @@ When working on GitHub issues, follow these rules:
 
 ## iOS Git Workflow (Flynn Rule)
 
-- Do NOT create git worktrees or new branches for iOS work unless Flynn explicitly instructs you to.
-- Work directly on `main` and keep the working tree clean.
+- Use a dedicated git worktree for each agent workspace, with each worktree on its own branch.
+- `~/src/clawline/` stays the canonical deployer baseline; create worktrees from it.
+- Tear down with `git worktree remove <path>` (not `rm -rf`).
+- YOLO on `main` is still allowed; agents can push to `origin/main` from their branch context when directed.
+
+## Legacy Workspace Note (Before 2026-02-14)
+
+- Legacy `cp -r` workspaces may still exist on eezo (for example `~/src/clawline-{name}/`) and are full repo copies rather than worktrees.
+- Do not panic if you encounter one.
+- If a legacy `cp -r` workspace has unstaged changes, commit and push that work first, then proceed.
+- New workspaces are always created with `git worktree add`.
