@@ -390,10 +390,9 @@ struct MessageInputBar: View {
                     (isDisconnected ? "Disconnected. Tap to reconnect." : "Send message")
             )
             .id("send-button")
-            .transaction { $0.animation = nil }
             .animation(nil, value: isSending)
             .animation(nil, value: canSend)
-            .animation(nil, value: connectionState)
+            .animation(.spring(response: 0.30, dampingFraction: 0.82), value: connectionState)
         }
         .padding(.horizontal, containerPadding)
         .padding(.bottom, metrics.bottomPadding)

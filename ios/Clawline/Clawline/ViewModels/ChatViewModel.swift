@@ -91,7 +91,7 @@ final class ChatViewModel: ChatViewModelHosting {
         case .connecting, .reconnecting:
             return .reconnecting
         case .disconnected, .failed:
-            return reconnectTask == nil ? .disconnected : .reconnecting
+            return .disconnected
         }
     }
 
