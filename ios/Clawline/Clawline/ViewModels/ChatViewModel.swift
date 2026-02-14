@@ -215,6 +215,8 @@ final class ChatViewModel: ChatViewModelHosting {
         guard auth.token != nil else { return }
         guard sendButtonConnectionState == .disconnected else { return }
         connectionState = .reconnecting
+        reconnectTask?.cancel()
+        reconnectTask = nil
         scheduleReconnect(immediate: true, reason: .manualReconnect)
     }
 
@@ -351,7 +353,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 attachments: pendingAttachments,
                 sessionKey: outboundSessionKey
             )
-            toastManager.show("Connecting to stream…")
         case .unavailable:
             toastManager.show("This stream is unavailable. Switch streams and try again.")
         }
@@ -860,6 +861,10 @@ final class ChatViewModel: ChatViewModelHosting {
     private func scheduleReconnect(immediate: Bool = false, reason: ReconnectTrigger = .connectionStateFailed) {
         let now = Date()
         lastReconnectRequestAt = now
+        if immediate, reconnectTask != nil {
+            reconnectTask?.cancel()
+            reconnectTask = nil
+        }
         guard reconnectTask == nil, auth.token != nil else {
             logger.info("reconnect suppressed reason=\(reason.rawValue, privacy: .public) reconnectTask=\(self.reconnectTask != nil, privacy: .public) hasToken=\(self.auth.token != nil, privacy: .public)")
             return
@@ -971,14 +976,22 @@ final class ChatViewModel: ChatViewModelHosting {
         } catch let attachmentError as AttachmentError {
             await MainActor.run {
                 toastManager.show(error: attachmentError)
-                removePlaceholder(withId: clientId)
+                markLocalMessageFailed(
+                    id: clientId,
+                    code: "upload_failed_retryable",
+                    message: nil
+                )
                 isSending = false
                 activeClientMessageId = nil
             }
         } catch {
             await MainActor.run {
                 toastManager.show(error.localizedDescription)
-                removePlaceholder(withId: clientId)
+                markLocalMessageFailed(
+                    id: clientId,
+                    code: "queue_failed",
+                    message: error.localizedDescription
+                )
                 isSending = false
                 activeClientMessageId = nil
             }
@@ -1012,14 +1025,22 @@ final class ChatViewModel: ChatViewModelHosting {
         } catch let attachmentError as AttachmentError {
             await MainActor.run {
                 toastManager.show(error: attachmentError)
-                removePlaceholder(withId: clientId)
+                markLocalMessageFailed(
+                    id: clientId,
+                    code: "upload_failed_retryable",
+                    message: nil
+                )
                 isSending = false
                 activeClientMessageId = nil
             }
         } catch {
             await MainActor.run {
                 toastManager.show(error.localizedDescription)
-                removePlaceholder(withId: clientId)
+                markLocalMessageFailed(
+                    id: clientId,
+                    code: "queue_failed",
+                    message: error.localizedDescription
+                )
                 isSending = false
                 activeClientMessageId = nil
             }
@@ -1223,8 +1244,10 @@ final class ChatViewModel: ChatViewModelHosting {
                 handleNoReplyAck(messageId: messageId)
                 return
             }
-            let resolved = userFacingMessage(for: code, fallback: message)
-            toastManager.show(resolved)
+            if shouldShowMessageErrorToast(code: code) {
+                let resolved = userFacingMessage(for: code, fallback: message)
+                toastManager.show(resolved)
+            }
             guard let messageId else { return }
             messageFailures[messageId] = MessageFailure(code: code, message: message)
             if let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == messageId }) {
@@ -1813,6 +1836,19 @@ final class ChatViewModel: ChatViewModelHosting {
             return "Cannot send to this channel."
         default:
             return "Message failed (\(code))."
+        }
+    }
+
+    private func shouldShowMessageErrorToast(code: String) -> Bool {
+        let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Passive transport loss must remain silent; failed-message badge is the indicator.
+        return normalized != "connection_lost"
+    }
+
+    private func markLocalMessageFailed(id: String, code: String, message: String?) {
+        messageFailures[id] = MessageFailure(code: code, message: message)
+        if let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == id }) {
+            pendingLocalMessages.remove(at: pendingIndex)
         }
     }
 

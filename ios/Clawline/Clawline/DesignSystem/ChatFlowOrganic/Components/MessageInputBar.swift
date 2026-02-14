@@ -113,6 +113,10 @@ struct MessageInputBar: View {
         metrics.inputBarHeight
     }
 
+    private var reconnectDotSize: CGFloat {
+        min(12, sendButtonWidth * 0.4)
+    }
+
     private var containerPadding: CGFloat {
         ChatFlowTheme.Metrics(isCompact: isCompact).inputBarPaddingHorizontal
     }
@@ -337,24 +341,23 @@ struct MessageInputBar: View {
                 }
             }) {
                 ZStack {
-                    if isReconnecting {
-                        Circle()
-                            .fill(sendBackgroundColor)
-                            .frame(
-                                width: min(12, sendButtonWidth * 0.4),
-                                height: min(12, sendButtonWidth * 0.4)
-                            )
-                            .opacity(reconnectPulseOn ? 1.0 : 0.4)
-                    } else {
-                        Image(systemName: "stop.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(sendIconColor)
-                            .opacity(isSending ? 1 : 0)
-                        Image(systemName: isDisconnected ? "arrow.clockwise" : "paperplane.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(sendIconColor)
-                            .opacity(isSending ? 0 : 1)
-                    }
+                    Circle()
+                        .fill(sendBackgroundColor)
+                        .frame(width: reconnectDotSize, height: reconnectDotSize)
+                        .opacity(isReconnecting ? (reconnectPulseOn ? 1.0 : 0.4) : 0)
+                        .scaleEffect(isReconnecting ? 1 : 0.45)
+
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(sendIconColor)
+                        .opacity(isSending && !isReconnecting ? 1 : 0)
+                        .scaleEffect(isSending && !isReconnecting ? 1 : 0.7)
+
+                    Image(systemName: isDisconnected ? "arrow.clockwise" : "paperplane.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(sendIconColor)
+                        .opacity(!isSending && !isReconnecting ? 1 : 0)
+                        .scaleEffect(!isSending && !isReconnecting ? 1 : 0.7)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -390,8 +393,8 @@ struct MessageInputBar: View {
                     (isDisconnected ? "Disconnected. Tap to reconnect." : "Send message")
             )
             .id("send-button")
-            .animation(nil, value: isSending)
-            .animation(nil, value: canSend)
+            .animation(.spring(response: 0.30, dampingFraction: 0.82), value: isSending)
+            .animation(.spring(response: 0.30, dampingFraction: 0.82), value: canSend)
             .animation(.spring(response: 0.30, dampingFraction: 0.82), value: connectionState)
         }
         .padding(.horizontal, containerPadding)
