@@ -48,5 +48,6 @@ When working on GitHub issues, follow these rules:
 
 - Legacy `cp -r` workspaces may still exist on eezo (for example `~/src/clawline-{name}/`) and are full repo copies rather than worktrees.
 - Do not panic if you encounter one.
-- If a legacy `cp -r` workspace has unstaged changes, commit and push that work first, then proceed.
+- If unstaged changes are yours, commit and push that work first, then proceed.
+- If unstaged changes were inherited from a different agent, do not commit them; flag it so the owning agent can resolve it.
 - New workspaces are always created with `git worktree add ~/src/worktrees/clawline-{agent-name} -b {agent-name}`.
