@@ -43,7 +43,6 @@ struct MessageInputBar: View {
     @Binding var content: NSAttributedString
     @Binding var selectionRange: NSRange
     @Binding var pendingInsertions: [PendingAttachment]
-    var placeholderText: String = "Message"
     var resetToken: Int
     let canSend: Bool
     let isSending: Bool
@@ -188,16 +187,6 @@ struct MessageInputBar: View {
         }
     }
 
-    private var placeholderColor: Color {
-#if os(visionOS)
-        return isLightModeForInputBar
-            ? ChatFlowTheme.ink(.light).opacity(0.6)
-            : ChatFlowTheme.ink(.dark).opacity(0.6)
-#else
-        return .secondary
-#endif
-    }
-
     private var inputTintColor: Color {
 #if os(visionOS)
         return isLightModeForInputBar ? ChatFlowTheme.ink(.light) : ChatFlowTheme.ink(.dark)
@@ -296,26 +285,13 @@ struct MessageInputBar: View {
                 )
                 .opacity(isSending ? 0.5 : 1)
 
-                if content.length == 0 {
-                    Text(placeholderText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .minimumScaleFactor(0.7)
-                        .foregroundColor(placeholderColor)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                        .frame(maxHeight: .infinity, alignment: .center)
-                        .padding(.leading, 20)
-                        .padding(.trailing, 20)
-                }
-
             }
-            .tint(inputTintColor)
             .frame(height: inputHeight)
             .frame(maxWidth: .infinity, alignment: .bottom)
 #if os(visionOS)
             .background(.regularMaterial, in: inputShape)
 #else
-            .glassEffect(.regular, in: inputShape)
+            .background(.ultraThinMaterial, in: inputShape)
 #endif
             .overlay {
 #if os(visionOS)
