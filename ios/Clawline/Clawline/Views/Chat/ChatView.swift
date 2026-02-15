@@ -530,13 +530,18 @@ struct ChatView: View {
         let effectiveStreams = viewModel.orderedStreams
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
         let showsStreamPager = !effectiveSessionKeys.isEmpty
-        let stackTopInsetFromInputBarTop: CGFloat = (!isCompactLayout && showsStreamPager)
-            ? (floatingPageDotsBottomGap + StreamPageDotsView.controlHeight)
-            : 0
+        let pageIndicatorClearance: CGFloat = {
+#if os(visionOS)
+            return 0
+#else
+            guard showsStreamPager else { return 0 }
+            return floatingPageDotsBottomGap + StreamPageDotsView.controlHeight
+#endif
+        }()
         let bottomFlowGap: CGFloat = isCompactLayout
             ? metrics.flowGap
             : ChatFlowTheme.Metrics(isCompact: false).flowGap
-        let bottomInsetFlowGap = stackTopInsetFromInputBarTop + bottomFlowGap
+        let bottomInsetFlowGap = bottomFlowGap
         // Gap below input bar: version label area (keyboard hidden) or minimal gap (keyboard up)
         let belowBarGap: CGFloat = isKeyboardVisible ? 12 : 24
         let usesExternalKeyboardInsets: Bool = {
@@ -560,7 +565,8 @@ struct ChatView: View {
         let layoutMetrics = ChatLayoutMetrics(
             belowBarGap: belowBarGap,
             flowGap: bottomInsetFlowGap,
-            containerPadding: metrics.containerPadding
+            containerPadding: metrics.containerPadding,
+            pageIndicatorClearance: pageIndicatorClearance
         )
         let insetLayout = layoutCoordinator.runtimeInsetLayoutState(
             inputs: layoutInputs,
@@ -578,7 +584,7 @@ struct ChatView: View {
         }()
         let truncationKeyboardHeight = cachedKeyboardHeight > 0.5 ? cachedKeyboardHeight : estimatedKeyboardHeight
         let truncationBottomInset = truncationKeyboardHeight + 12 + resolvedInputHeight
-            + bottomInsetFlowGap - metrics.containerPadding
+            + pageIndicatorClearance + bottomInsetFlowGap - metrics.containerPadding
         let layoutKey = ChatLayoutKey(
             revision: layoutRevision,
             keyboardHeight: keyboardHeight,
@@ -588,7 +594,8 @@ struct ChatView: View {
             keyboardVisible: isKeyboardVisible,
             belowBarGap: belowBarGap,
             flowGap: bottomInsetFlowGap,
-            containerPadding: metrics.containerPadding
+            containerPadding: metrics.containerPadding,
+            pageIndicatorClearance: pageIndicatorClearance
         )
         let streamSelectorSpacingFromMessageBarTop: CGFloat = 8
         let streamSelectorMaxHeight = max(
