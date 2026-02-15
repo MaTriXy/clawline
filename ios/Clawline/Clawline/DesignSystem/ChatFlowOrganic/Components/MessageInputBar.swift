@@ -60,7 +60,6 @@ struct MessageInputBar: View {
     var onPasteImages: (([UIImage]) -> Void)?
 
     @State private var editorHeight: CGFloat = 44
-    @State private var reconnectPulseOn: Bool = false
     let isCompact: Bool
 
     private var metrics: MessageInputBarMetrics {
@@ -100,22 +99,6 @@ struct MessageInputBar: View {
         }
     }
 
-    private var isReconnecting: Bool {
-        connectionState == .reconnecting
-    }
-
-    private var isDisconnected: Bool {
-        connectionState == .disconnected
-    }
-
-    private var sendButtonWidth: CGFloat {
-        metrics.inputBarHeight
-    }
-
-    private var reconnectDotSize: CGFloat {
-        min(12, sendButtonWidth * 0.4)
-    }
-
     private var containerPadding: CGFloat {
         ChatFlowTheme.Metrics(isCompact: isCompact).inputBarPaddingHorizontal
     }
@@ -125,7 +108,7 @@ struct MessageInputBar: View {
         let themeMetrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let textWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: themeMetrics.bodyFontSize)
         let chromeWidth = (themeMetrics.inputBarPaddingHorizontal * 2)
-            + sendButtonWidth
+            + metrics.inputBarHeight
             + metrics.inputBarHeight
             + (MessageInputBarMetrics.elementSpacing * 2)
         return textWidth + chromeWidth
@@ -167,36 +150,6 @@ struct MessageInputBar: View {
         isLightModeForInputBar
             ? ChatFlowTheme.ink(.light).opacity(0.95)
             : Color.white.opacity(0.5)
-    }
-
-    private var sendIconColor: Color { .white }
-
-    private var sendBackgroundColor: Color {
-        let scheme = inputBarColorScheme
-        switch connectionState {
-        case .connected:
-#if os(visionOS)
-            return ChatFlowTheme.sage(scheme)
-#else
-            return ChatFlowTheme.sage(colorScheme)
-#endif
-        case .reconnecting:
-            return ChatFlowTheme.connectionReconnecting(scheme)
-        case .disconnected:
-            return ChatFlowTheme.connectionDisconnected(scheme)
-        }
-    }
-
-    private var inputTintColor: Color {
-#if os(visionOS)
-        return isLightModeForInputBar ? ChatFlowTheme.ink(.light) : ChatFlowTheme.ink(.dark)
-#else
-        return .primary
-#endif
-    }
-
-    private var inputTintUIColor: UIColor {
-        UIColor(inputTintColor)
     }
 
     var body: some View {
@@ -256,122 +209,36 @@ struct MessageInputBar: View {
             .accessibilityLabel("Add attachment")
             .disabled(isSending)
 
-            // Text field - glass capsule/rounded rect
-            ZStack(alignment: .leading) {
-                RichTextEditor(
-                    attributedText: $content,
-                    calculatedHeight: $editorHeight,
-                    selectionRange: $selectionRange,
-                    pendingInsertions: $pendingInsertions,
-                    resetToken: resetToken,
-                    focusTrigger: focusTrigger,
-                    isEditable: true,
-                    tintColor: inputTintUIColor,
-                    textColor: {
-#if os(visionOS)
-                        // #61: Input bar is forced dark on visionOS; ensure typed text is visible.
-                        return .white
-#else
-                        return .label
-#endif
-                    }(),
-                    onFocusChange: onFocusChange,
-                    onSubmit: {
-                        guard !isSending, canSend else { return }
-                        onSend()
-                    },
-                    onPasteImages: onPasteImages,
-                    trailingPadding: 20
-                )
-                .opacity(isSending ? 0.5 : 1)
-
-            }
-            .frame(height: inputHeight)
-            .frame(maxWidth: .infinity, alignment: .bottom)
-#if os(visionOS)
-            .background(.regularMaterial, in: inputShape)
-#else
-            .background(.ultraThinMaterial, in: inputShape)
-#endif
-            .overlay {
-#if os(visionOS)
-                inputShape
-                    .stroke(visionOSBorderColor, lineWidth: 1)
-#endif
-            }
-
-            // Send button - morphs with connection state, keeps frame/anchor stable.
-            let sendActionEnabled = isSending || canSend || isDisconnected
-            Button(action: {
-                if isSending {
-                    onCancel()
-                    return
-                }
-                switch connectionState {
-                case .connected:
-                    onSend()
-                case .disconnected:
-                    onReconnect()
-                case .reconnecting:
-                    break
-                }
-            }) {
-                ZStack {
-                    Circle()
-                        .fill(sendBackgroundColor)
-                        .frame(width: reconnectDotSize, height: reconnectDotSize)
-                        .opacity(isReconnecting ? (reconnectPulseOn ? 1.0 : 0.4) : 0)
-                        .scaleEffect(isReconnecting ? 1 : 0.45)
-
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(sendIconColor)
-                        .opacity(isSending && !isReconnecting ? 1 : 0)
-                        .scaleEffect(isSending && !isReconnecting ? 1 : 0.7)
-
-                    Image(systemName: isDisconnected ? "arrow.clockwise" : "paperplane.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(sendIconColor)
-                        .opacity(!isSending && !isReconnecting ? 1 : 0)
-                        .scaleEffect(!isSending && !isReconnecting ? 1 : 0.7)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
-            }
-            .frame(width: sendButtonWidth, height: metrics.inputBarHeight)
-#if os(visionOS)
-            .background(
-                Circle().fill(
-                    isReconnecting
-                        ? .clear
-                        : sendBackgroundColor.opacity(sendActionEnabled ? 1 : 0.35)
-                )
+            MessageEditorChrome(
+                content: $content,
+                selectionRange: $selectionRange,
+                pendingInsertions: $pendingInsertions,
+                editorHeight: $editorHeight,
+                resetToken: resetToken,
+                focusTrigger: focusTrigger,
+                canSend: canSend,
+                isSending: isSending,
+                inputHeight: inputHeight,
+                inputShape: inputShape,
+                onSend: onSend,
+                onFocusChange: onFocusChange,
+                onPasteImages: onPasteImages,
+                isLightModeForInputBar: isLightModeForInputBar,
+                visionOSBorderColor: visionOSBorderColor
             )
-            .overlay(Circle().stroke(visionOSBorderColor, lineWidth: 1))
-#else
-            .background(
-                Capsule().fill(
-                    isReconnecting
-                        ? .clear
-                        : sendBackgroundColor.opacity(sendActionEnabled ? 1 : 0.35)
-                )
+
+            MessageSendControl(
+                isSending: isSending,
+                canSend: canSend,
+                connectionState: connectionState,
+                sendButtonSize: metrics.inputBarHeight,
+                inputBarColorScheme: inputBarColorScheme,
+                uiColorScheme: colorScheme,
+                visionOSBorderColor: visionOSBorderColor,
+                onSend: onSend,
+                onCancel: onCancel,
+                onReconnect: onReconnect
             )
-#endif
-            .buttonStyle(.plain)
-#if os(visionOS)
-            .tint(sendIconColor)
-            .foregroundStyle(sendIconColor)
-#endif
-            .allowsHitTesting(sendActionEnabled && !isReconnecting)
-            .opacity(sendActionEnabled || isReconnecting ? 1 : 0.4)
-            .accessibilityLabel(
-                isReconnecting ? "Reconnecting" :
-                    (isDisconnected ? "Disconnected. Tap to reconnect." : "Send message")
-            )
-            .id("send-button")
-            .animation(.spring(response: 0.30, dampingFraction: 0.82), value: isSending)
-            .animation(.spring(response: 0.30, dampingFraction: 0.82), value: canSend)
-            .animation(.spring(response: 0.30, dampingFraction: 0.82), value: connectionState)
         }
         .padding(.horizontal, containerPadding)
         .padding(.bottom, metrics.bottomPadding)
@@ -385,6 +252,180 @@ struct MessageInputBar: View {
             guard newValue == 0 else { return }
             editorHeight = metrics.inputBarHeight
         }
+    }
+}
+
+private struct MessageEditorChrome: View {
+    @Binding var content: NSAttributedString
+    @Binding var selectionRange: NSRange
+    @Binding var pendingInsertions: [PendingAttachment]
+    @Binding var editorHeight: CGFloat
+    let resetToken: Int
+    let focusTrigger: Int
+    let canSend: Bool
+    let isSending: Bool
+    let inputHeight: CGFloat
+    let inputShape: AnyShape
+    let onSend: () -> Void
+    let onFocusChange: (Bool) -> Void
+    var onPasteImages: (([UIImage]) -> Void)?
+    let isLightModeForInputBar: Bool
+    let visionOSBorderColor: Color
+
+    // Local single source of truth for editor chrome without introducing a new formal type yet.
+    private var chrome: (tintColor: UIColor, textColor: UIColor, editorOpacity: Double) {
+#if os(visionOS)
+        let tint = isLightModeForInputBar ? ChatFlowTheme.ink(.light) : ChatFlowTheme.ink(.dark)
+        return (UIColor(tint), .white, isSending ? 0.5 : 1)
+#else
+        return (UIColor(.primary), .label, isSending ? 0.5 : 1)
+#endif
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            RichTextEditor(
+                attributedText: $content,
+                calculatedHeight: $editorHeight,
+                selectionRange: $selectionRange,
+                pendingInsertions: $pendingInsertions,
+                resetToken: resetToken,
+                focusTrigger: focusTrigger,
+                isEditable: true,
+                tintColor: chrome.tintColor,
+                textColor: chrome.textColor,
+                onFocusChange: onFocusChange,
+                onSubmit: {
+                    guard !isSending, canSend else { return }
+                    onSend()
+                },
+                onPasteImages: onPasteImages,
+                trailingPadding: 20
+            )
+            .opacity(chrome.editorOpacity)
+        }
+        .frame(height: inputHeight)
+        .frame(maxWidth: .infinity, alignment: .bottom)
+#if os(visionOS)
+        .background(.regularMaterial, in: inputShape)
+#else
+        .background(.ultraThinMaterial, in: inputShape)
+#endif
+        .overlay {
+#if os(visionOS)
+            inputShape
+                .stroke(visionOSBorderColor, lineWidth: 1)
+#endif
+        }
+    }
+}
+
+private struct MessageSendControl: View {
+    let isSending: Bool
+    let canSend: Bool
+    let connectionState: SendButtonConnectionState
+    let sendButtonSize: CGFloat
+    let inputBarColorScheme: ColorScheme
+    let uiColorScheme: ColorScheme
+    let visionOSBorderColor: Color
+    let onSend: () -> Void
+    let onCancel: () -> Void
+    let onReconnect: () -> Void
+
+    @State private var reconnectPulseOn: Bool = false
+
+    private var isReconnecting: Bool { connectionState == .reconnecting }
+    private var isDisconnected: Bool { connectionState == .disconnected }
+    private var sendActionEnabled: Bool { isSending || canSend || isDisconnected }
+    private var reconnectDotSize: CGFloat { min(12, sendButtonSize * 0.4) }
+    private var sendIconColor: Color { .white }
+
+    private var sendBackgroundColor: Color {
+        switch connectionState {
+        case .connected:
+#if os(visionOS)
+            return ChatFlowTheme.sage(inputBarColorScheme)
+#else
+            return ChatFlowTheme.sage(uiColorScheme)
+#endif
+        case .reconnecting:
+            return ChatFlowTheme.connectionReconnecting(inputBarColorScheme)
+        case .disconnected:
+            return ChatFlowTheme.connectionDisconnected(inputBarColorScheme)
+        }
+    }
+
+    var body: some View {
+        Button(action: {
+            if isSending {
+                onCancel()
+                return
+            }
+            switch connectionState {
+            case .connected:
+                onSend()
+            case .disconnected:
+                onReconnect()
+            case .reconnecting:
+                break
+            }
+        }) {
+            ZStack {
+                Circle()
+                    .fill(sendBackgroundColor)
+                    .frame(width: reconnectDotSize, height: reconnectDotSize)
+                    .opacity(isReconnecting ? (reconnectPulseOn ? 1.0 : 0.4) : 0)
+                    .scaleEffect(isReconnecting ? 1 : 0.45)
+
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(sendIconColor)
+                    .opacity(isSending && !isReconnecting ? 1 : 0)
+                    .scaleEffect(isSending && !isReconnecting ? 1 : 0.7)
+
+                Image(systemName: isDisconnected ? "arrow.clockwise" : "paperplane.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(sendIconColor)
+                    .opacity(!isSending && !isReconnecting ? 1 : 0)
+                    .scaleEffect(!isSending && !isReconnecting ? 1 : 0.7)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .frame(width: sendButtonSize, height: sendButtonSize)
+#if os(visionOS)
+        .background(
+            Circle().fill(
+                isReconnecting
+                    ? .clear
+                    : sendBackgroundColor.opacity(sendActionEnabled ? 1 : 0.35)
+            )
+        )
+        .overlay(Circle().stroke(visionOSBorderColor, lineWidth: 1))
+#else
+        .background(
+            Capsule().fill(
+                isReconnecting
+                    ? .clear
+                    : sendBackgroundColor.opacity(sendActionEnabled ? 1 : 0.35)
+            )
+        )
+#endif
+        .buttonStyle(.plain)
+#if os(visionOS)
+        .tint(sendIconColor)
+        .foregroundStyle(sendIconColor)
+#endif
+        .allowsHitTesting(sendActionEnabled && !isReconnecting)
+        .opacity(sendActionEnabled || isReconnecting ? 1 : 0.4)
+        .accessibilityLabel(
+            isReconnecting ? "Reconnecting" :
+                (isDisconnected ? "Disconnected. Tap to reconnect." : "Send message")
+        )
+        .id("send-button")
+        .animation(.spring(response: 0.30, dampingFraction: 0.82), value: isSending)
+        .animation(.spring(response: 0.30, dampingFraction: 0.82), value: canSend)
+        .animation(.spring(response: 0.30, dampingFraction: 0.82), value: connectionState)
         .onAppear {
             reconnectPulseOn = false
             guard isReconnecting else { return }

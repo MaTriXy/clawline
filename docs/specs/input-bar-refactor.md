@@ -1,204 +1,101 @@
-# MessageInputBar Refactor Spec
+# MessageInputBar Refactor Spec (Lightweight)
 
 ## Goal
-Refactor chat input UI architecture so that:
+Refactor the input bar to establish a durable pattern with minimal architecture overhead:
 
-1. Input field chrome (background, border, tint, placeholder behavior) has a single source of truth.
-2. Connection state can only affect the send button UI, and cannot affect input chrome by construction.
-3. The current behavior and visual intent from T069 remain intact for send-button state affordances and animations.
+1. Keep connection-state UI strictly in send control.
+2. Keep editor chrome (text field visuals) connection-state agnostic.
+3. Make this separation obvious in code shape so future changes follow it.
 
 ## Current Problems
-Observed from recent regressions and fixes:
+1. `MessageInputBar` still concentrates too many concerns in one body (editor chrome, send-state UI, platform branches, layout).
+2. This monolithic pattern is easy for future edits to copy, which risks reconnecting connection state to input chrome.
+3. We need a stronger pattern signal than comments alone, but less ceremony than a new formal style type hierarchy.
 
-1. Styling responsibility is split across concerns inside `MessageInputBar` (platform conditionals, appearance queries, send/editor composition), which makes side effects hard to track. `ChatView` wiring is mostly clean pass-through.
-2. Conditional modifiers and platform branches (`#if os(...)`) are interleaved in one large view body, making it easy to accidentally reintroduce off-spec behavior.
-3. Connection-related behavior and input editor rendering are composed in the same component, increasing coupling risk.
-4. Input placeholder/text surface and chrome behavior were historically not isolated, allowing regressions against spec non-goals.
-5. Keyboard/input hosting has already migrated toward overlay+container composition (`KeyboardPinnedContainer` path). Some historical `.safeAreaInset` warnings in component comments are stale, which can mislead future edits.
+## Proposed Architecture (Minimum Viable Pattern)
 
-Summary: this is not unsalvageable logic, but it is high-friction UI composition with too many style decision points. As of T069, input chrome is already mostly decoupled from connection state; the risk now is coupling reintroduction.
-
-## Non-Goals
-1. No behavior change to message send pipeline, retries, reconnect scheduling, or toast policy.
-2. No redesign of theme tokens outside input bar scope.
-3. No broad chat-screen architectural rewrite.
-4. No branch/worktree/process changes; this is a code-structure refactor only.
-
-## Proposed Architecture
-
-### 1) `MessageInputChromeStyle` (single source of truth)
-Create a dedicated style model/provider for editor chrome only.
-
-Responsibilities:
-1. Input container fill/material.
-2. Optional border/stroke definition.
-3. Editor text color/tint color.
-4. Opacity treatment when sending.
-5. Platform-specific style implementation hidden behind a small API.
-
-Inputs allowed:
-1. Platform (`iOS` / `visionOS`).
-2. Appearance mode.
-3. Is sending / interactive state.
-4. Density/size traits as needed.
-
-Inputs explicitly forbidden:
-1. Connection state (`SendButtonConnectionState` or transport state).
-2. Error code/message strings.
-
-Enforcement:
-1. API should not accept connection-state parameters.
-2. `MessageEditorChrome` should not import or reference connection state.
-3. Ownership boundary with existing metrics must be explicit:
-   - `MessageInputBarMetrics` keeps sizing/layout math.
-   - `MessageInputChromeStyle` owns only visual chrome (materials, colors, stroke, opacity).
-
-### 2) Split `MessageInputBar` into composable subviews
+### 1) Two extracted subviews + thin shell
 
 #### `MessageEditorChrome`
 Owns only:
-1. Rich text editor content binding.
-2. Editor container shape/layout.
-3. Chrome style application via `MessageInputChromeStyle`.
-4. Focus callbacks and editor sizing.
+1. Rich text editor bindings.
+2. Editor shape/height rendering.
+3. Editor chrome visuals (tint/text/background/stroke) and sending opacity.
+4. Focus and submit wiring.
 
-Must not own:
-1. Send/reconnect icon state.
-2. Connection-state branching.
+Must not accept:
+1. `SendButtonConnectionState`
+2. Connection/error status strings.
 
 #### `MessageSendControl`
 Owns only:
-1. Send/cancel/reconnect tap behavior.
-2. Icon-dot morph transitions and required animations.
+1. Send/cancel/reconnect behavior.
+2. Dot/icon morph and pulse animation lifecycle.
 3. Connection-state accessibility labels.
-4. Reconnect pulse animation lifecycle (`reconnectPulseOn` equivalent).
 
 May depend on:
 1. `SendButtonConnectionState`
 2. `isSending`, `canSend`
 
-Must not mutate:
-1. Editor tint/border/background/placeholder behavior.
-
-State note:
-1. Avoid fragile local state that can reset during hierarchy recreation; if reconnect pulse continuity is unstable in device validation, lift pulse-driving state to the parent owner.
-
-#### `MessageInputBar` (container)
+#### `MessageInputBar` (shell)
 Owns composition only:
-1. Layout of add button + editor chrome + send control.
-2. Pass-through callback wiring from parent.
-3. No business logic beyond composition-level guards.
+1. Appearance/add utility controls.
+2. `MessageEditorChrome` + `MessageSendControl` layout.
+3. Shared sizing/layout pass-through.
 
-### 3) Type Boundary Enforcement
-1. Keep connection state as a dependency of `MessageSendControl` only.
-2. Keep editor style dependencies in `MessageInputChromeStyle` only.
-3. Introduce lightweight assertions/tests to ensure editor style has no connection-state path.
-4. Remove placeholder API surface from `MessageInputBar` if not needed by spec.
+### 2) Editor chrome style shape (no formal type yet)
+Inside `MessageEditorChrome`, define chrome as a private computed tuple (not a standalone `MessageInputChromeStyle` type) containing the small set of visual values needed now.
 
-### 4) Platform Conditional Consolidation
-1. Move platform-specific style branching into style provider methods, not inline in view body.
-2. Keep `#if os(...)` near style construction, not scattered through render tree.
-3. Preserve existing intentional visionOS differences (if any) while keeping connection-state isolation invariant.
-4. Branch mapping for extraction:
-   - Editor chrome branches -> `MessageInputChromeStyle`/`MessageEditorChrome` (editor text color, editor background, editor border/stroke).
-   - Send control branches -> `MessageSendControl` (send background/fill, send tint/foreground).
-   - Utility controls (appearance toggle/add button materials) -> container-level helper views.
+Rationale:
+1. Provides a local single source of truth for editor chrome.
+2. Avoids premature abstraction ceremony.
+3. Keeps a clear upgrade path to formal type only if second call site or variant pressure appears.
 
-## Migration Path
+### 3) Narrow platform-branch rule
+1. Editor platform branches stay in `MessageEditorChrome`.
+2. Send platform branches stay in `MessageSendControl`.
+3. Utility control branches remain in shell or utility helpers.
 
-### Phase 1: Structural extraction (no behavior changes intended)
-1. Introduce `MessageInputChromeStyle`.
-2. Extract `MessageEditorChrome` with existing editor behavior.
-3. Extract `MessageSendControl` with current send-button behavior and animations.
-4. Keep `MessageInputBar` API stable where possible to minimize call-site churn.
+No broad platform refactor beyond this boundary.
 
-### Phase 2: Boundary hardening
-1. Remove any editor-related params that allow non-user text/status injection in input region.
-2. Ensure connection state is passed only to `MessageSendControl`.
-3. Remove leftover connection/error style helpers from editor path.
-4. Confirm no placeholder API surface exists in `MessageInputBar`; if absent, keep it absent (no reintroduction).
+## Migration Path (Two Phases Max)
 
-### Phase 3: Verification and cleanup
-1. Add/adjust tests described below.
-2. Remove dead code and now-unused style helpers.
-3. Confirm no off-spec surfaces remain (input border tint, inline error text, banner fallback).
+### Phase 1: Extraction and boundary setup
+1. Extract `MessageEditorChrome` and `MessageSendControl` from `MessageInputBar`.
+2. Keep behavior and visuals parity with current implementation.
+3. Keep public call-site API stable.
+
+### Phase 2: Boundary hardening + regression checks
+1. Ensure connection state is only passed to `MessageSendControl`.
+2. Ensure `MessageEditorChrome` has no connection-state input path.
+3. Add regression checks for input chrome invariance across connection states.
 
 ## What Changes
-1. Internal structure of `MessageInputBar` into smaller components.
-2. Dedicated style object for editor chrome.
-3. Centralized platform-specific style logic.
-4. Explicit type boundaries preventing connection state from influencing editor chrome.
+1. `MessageInputBar` becomes a thin composition shell.
+2. Editor and send concerns are split into separate subviews.
+3. Editor chrome values are centralized as a private tuple in `MessageEditorChrome`.
 
 ## What Does Not Change
-1. Send-button connection state behavior/semantics from T069.
-2. Reconnect/send/cancel action contract exposed to parent.
-3. `ChatViewModel` transport/reconnect logic.
-4. Input content model and send pipeline.
+1. Chat transport/reconnect pipeline in `ChatViewModel`.
+2. T069 send-button state semantics and animations.
+3. Parent-level focus ownership contract in `ChatView`.
 
-## Invariants (Must Hold)
-1. Connection state UI is represented only in send button affordance.
-2. Input chrome does not change for disconnected/failed/reconnecting states.
-3. No inline warning/error text appears inside input editor due to connection state.
-4. No connection-state-driven border tinting in input field.
-5. Send-button animations (dot/icon morph + pulse where specified) continue to run per spec.
-6. Editor remains functional across keyboard/focus recreation constraints documented in `MessageInputBar`.
+## Invariants (High-Signal)
+1. Connection state cannot enter `MessageEditorChrome` API.
+2. Input chrome remains identical across connection states.
 
 ## Test Strategy
+1. Regression UI test/snapshot: input chrome is identical for connected/reconnecting/disconnected/failed.
+2. Interaction test: send control still shows correct state transitions (send/reconnect/reconnecting pulse) and actions.
+3. Device check: no input border tint or inline error text appears during connection failures.
 
-### Unit/Logic tests
-1. Verify `MessageInputChromeStyle` output does not require or consume connection state.
-2. Optional: verify `sendButtonConnectionState` mapping in `ChatViewModel` for completeness.
-
-### View-level tests (snapshot or deterministic rendering checks)
-1. Input chrome snapshot is identical across connection states (connected/reconnecting/disconnected/failed).
-2. Send control snapshots differ appropriately by connection state.
-3. No placeholder/error status text in input region when connection changes.
-
-### Interaction tests
-1. Disconnected send control tap triggers reconnect callback immediately.
-2. Reconnecting state disables hit testing as specified.
-3. Cancel action available only in sending state.
-4. Focus/keyboard resilience: extraction must not introduce keyboard dismissal or focus loss across orientation/size-class transitions.
-
-### Regression tests
-1. Explicit test for GitHub #86 condition: no input border color shift on connection error.
-2. Explicit test for T069 non-goals: no inline error text in input.
-
-## Adversarial Self-Review
-
-### Attempted breakpoints and risks
-1. Hidden style coupling through environment:
-   - Risk: `ColorScheme`/global tint could still indirectly change editor chrome.
-   - Mitigation: style provider outputs explicit colors/materials for editor chrome.
-2. Platform branches drift:
-   - Risk: iOS and visionOS style paths diverge and regress differently.
-   - Mitigation: single style provider interface with platform-specific constructors and paired tests.
-3. Callback wiring regressions during extraction:
-   - Risk: focus/send/paste callbacks break due to subview split.
-   - Mitigation: keep callback signatures unchanged in phase 1; add interaction tests.
-4. Animation regressions:
-   - Risk: moving send control breaks smooth icon/dot morph timing.
-   - Mitigation: preserve animation modifiers and state variables inside `MessageSendControl`; add animation-state assertions where feasible.
-5. Keyboard recreation behavior:
-   - Risk: moving state around reintroduces reset/focus bugs in safe-area inset context.
-   - Mitigation: keep parent-owned focus/keyboard state contract; avoid new local persistence state in subviews.
-6. False sense of safety from type boundaries:
-   - Risk: future dev adds connection state to chrome style “just for one case.”
-   - Mitigation: codify invariant in comments + tests; reject PRs violating boundary.
-
-### What could still go wrong
-1. Visual parity drift if style constants are copied incorrectly during extraction.
-2. Accessibility labels/hints may regress if send-control logic is moved without parity checks.
-3. Test coverage might miss runtime-only animation smoothness seen on device.
-
-### What this proposal may still miss
-1. It does not simplify all of `ChatView` composition complexity; only input bar boundaries.
-2. It does not solve broader chat-screen state ownership issues unrelated to input chrome.
-3. It assumes existing `RichTextEditor` behavior is stable; if editor internals inject placeholder/status text, that requires separate enforcement in editor layer.
+## Risks / Adversarial Notes
+1. Extraction can still regress focus/keyboard behavior if view identity changes unexpectedly.
+2. Animation continuity can regress if pulse state ownership moves incorrectly.
+3. Mitigation: keep parent-owned focus plumbing unchanged, preserve send-control animation behavior, and verify on device.
 
 ## Acceptance Criteria
-1. `MessageInputBar` is split into editor and send-control subcomponents.
-2. Editor style is driven by `MessageInputChromeStyle` and has no connection-state dependency.
-3. Device verification: disconnect/reconnect/failure never changes input border/tint/placeholder/status text.
-4. Device verification: send button shows required T069 states and animations.
-5. Regression tests added and passing for #86/T069 input non-goals.
+1. `MessageEditorChrome` and `MessageSendControl` exist and are used by `MessageInputBar`.
+2. `MessageEditorChrome` takes no connection-state input.
+3. Input chrome does not change across connection states.
+4. Send control preserves T069 behavior and animations.
