@@ -63,6 +63,7 @@ enum BubbleSizingV2 {
     struct CacheKey: Hashable {
         let messageId: String
         let presentationFingerprint: Int
+        let layoutFingerprint: Int
         let env: Environment
         let linkPreviewStateVersion: Int
     }

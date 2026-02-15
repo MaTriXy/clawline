@@ -456,7 +456,31 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         // InsetsChanged: pinned intent means we keep the indicator hidden in AT_BOTTOM* states.
         emitHideIndicatorIfChanged()
+        handleBottomInsetHeightCapChange(previousBottomInset: previousBottomInset, newBottomInset: totalBottomInset)
         NSLog("[KBTIMING] setBottomInset total=%.1f anim=%.2f", totalBottomInset, animatedDuration ?? 0)
+    }
+
+    private func handleBottomInsetHeightCapChange(previousBottomInset: CGFloat, newBottomInset: CGFloat) {
+        guard abs(newBottomInset - previousBottomInset) > 0.5 else { return }
+        guard let viewModel else { return }
+        let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+        let affectedIds = messagesById.values.compactMap { message -> String? in
+            let presentation = viewModel.presentation(for: message, metrics: metrics)
+            return isSingleLinkPreviewBubble(presentation: presentation) ? message.id : nil
+        }
+        guard !affectedIds.isEmpty else { return }
+
+        if bubbleSizingV2Enabled {
+            affectedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
+        } else {
+            affectedIds.forEach { sizeCache.removeValue(forKey: $0) }
+            affectedIds.forEach { lastMeasuredSizes.removeValue(forKey: $0) }
+        }
+
+        // Item heights depend on bottom inset for single-link bubbles; force both size recompute and
+        // live-cell reconfigure so initial and relayout paths cannot diverge.
+        affectedIds.forEach { scheduleReconfigure(for: $0) }
+        flowLayout.invalidateLayout()
     }
 
     func scheduleScrollToBottom(animated: Bool, attempts: Int = 2) {
@@ -1758,9 +1782,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                           failureReason: String?,
                                           showsHeader: Bool) -> BubbleSizingV2.LayoutState {
         let initialLinkVersion: Int = bubbleSizingV2LinkPreviewStateVersionByMessageId[message.id] ?? 0
+        let layoutFingerprint = bubbleSizingV2LayoutFingerprint(
+            plan: plan,
+            showsHeader: showsHeader,
+            hasFailureBadge: failureReason != nil
+        )
         let key = BubbleSizingV2.CacheKey(
             messageId: message.id,
             presentationFingerprint: plan.presentationFingerprint,
+            layoutFingerprint: layoutFingerprint,
             env: env,
             linkPreviewStateVersion: initialLinkVersion
         )
@@ -1787,6 +1817,24 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         bubbleSizingV2MeasurementCache.setValue(measured.measurement, forKey: key)
         bubbleSizingV2KeysByMessageId[message.id, default: []].insert(key)
         return measured
+    }
+
+    private func bubbleSizingV2LayoutFingerprint(plan: BubbleSizingV2.Plan,
+                                                 showsHeader: Bool,
+                                                 hasFailureBadge: Bool) -> Int {
+        var hasher = Hasher()
+        hasher.combine(plan.sizeClass)
+        hasher.combine(plan.isSingleLinkPreview)
+        hasher.combine(plan.isWide)
+        hasher.combine(plan.maxWidth)
+        hasher.combine(plan.minWidth)
+        hasher.combine(plan.heightCapMode)
+        hasher.combine(plan.heightCap)
+        hasher.combine(plan.allowsOuterScroll)
+        hasher.combine(plan.linkPreviewURL?.absoluteString ?? "")
+        hasher.combine(showsHeader)
+        hasher.combine(hasFailureBadge)
+        return hasher.finalize()
     }
 
     private func bubbleSizingV2MakeLayoutState(message: Message,
