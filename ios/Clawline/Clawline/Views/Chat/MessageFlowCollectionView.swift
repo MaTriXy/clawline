@@ -101,10 +101,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var bubbleSizingV2LinkPreviewStateVersionByMessageId: [String: Int] = [:]
     private var bubbleSizingV2PendingRemeasureIds: Set<String> = []
     private var bubbleSizingV2RemeasureDebounceTimer: Timer?
+    private var bubbleSizingV2DeferredFlushTimer: Timer?
     private var bubbleSizingV2RemeasureBatchStartTime: CFAbsoluteTime?
     private var bubbleSizingV2RemeasureDeferredUntilNearBottom: Bool = false
+    private var bubbleSizingV2LastScrollActivityTime: CFAbsoluteTime = 0
     private static let bubbleSizingV2RemeasureDebounceSeconds: TimeInterval = 0.45
     private static let bubbleSizingV2RemeasureMaxWaitSeconds: TimeInterval = 2.5
+    private static let bubbleSizingV2RestSettleDelaySeconds: TimeInterval = 0.12
 
     private var messagesById: [String: Message] = [:]
     private var fingerprints: [String: Int] = [:]
@@ -315,6 +318,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #endif
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        bubbleSizingV2LastScrollActivityTime = CFAbsoluteTimeGetCurrent()
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
@@ -2384,8 +2388,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             bubbleSizingV2RemeasureDeferredUntilNearBottom = true
             bubbleSizingV2RemeasureDebounceTimer?.invalidate()
             bubbleSizingV2RemeasureDebounceTimer = nil
+            scheduleBubbleSizingV2DeferredFlushAfterRest()
             return
         }
+        bubbleSizingV2DeferredFlushTimer?.invalidate()
+        bubbleSizingV2DeferredFlushTimer = nil
         if bubbleSizingV2RemeasureBatchStartTime == nil {
             bubbleSizingV2RemeasureBatchStartTime = CFAbsoluteTimeGetCurrent()
         }
@@ -2406,9 +2413,38 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         RunLoop.main.add(timer, forMode: .common)
     }
 
+    private func isBubbleSizingV2ScrollAtRest() -> Bool {
+        if collectionView.isDragging || collectionView.isTracking || collectionView.isDecelerating {
+            return false
+        }
+        let elapsedSinceLastScroll = CFAbsoluteTimeGetCurrent() - bubbleSizingV2LastScrollActivityTime
+        return elapsedSinceLastScroll >= Self.bubbleSizingV2RestSettleDelaySeconds
+    }
+
     private func canApplyBubbleSizingV2RemeasureNow() -> Bool {
         // If the user scrolled up to read, don't reflow under their finger/eyes.
-        isNearBottom(extraMargin: 240) && !isUserInteracting
+        // Also require scroll-at-rest so finger-lift + deceleration can't trigger mid-motion reflow.
+        isNearBottom(extraMargin: 240) && isBubbleSizingV2ScrollAtRest()
+    }
+
+    private func scheduleBubbleSizingV2DeferredFlushAfterRest() {
+        guard bubbleSizingV2Enabled else { return }
+        guard bubbleSizingV2RemeasureDeferredUntilNearBottom else { return }
+        guard isNearBottom(extraMargin: 240) else { return }
+        guard bubbleSizingV2DeferredFlushTimer == nil else { return }
+
+        let elapsedSinceLastScroll = CFAbsoluteTimeGetCurrent() - bubbleSizingV2LastScrollActivityTime
+        let delay = max(0.02, Self.bubbleSizingV2RestSettleDelaySeconds - elapsedSinceLastScroll)
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.bubbleSizingV2DeferredFlushTimer = nil
+            self.flushDeferredBubbleSizingV2RemeasureIfNeeded()
+            if self.bubbleSizingV2RemeasureDeferredUntilNearBottom {
+                self.scheduleBubbleSizingV2DeferredFlushAfterRest()
+            }
+        }
+        bubbleSizingV2DeferredFlushTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func flushDeferredBubbleSizingV2RemeasureIfNeeded() {
@@ -2422,18 +2458,24 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func flushBubbleSizingV2RemeasureIfPossible() {
         guard canApplyBubbleSizingV2RemeasureNow() else {
             bubbleSizingV2RemeasureDeferredUntilNearBottom = true
+            scheduleBubbleSizingV2DeferredFlushAfterRest()
             return
         }
+        bubbleSizingV2DeferredFlushTimer?.invalidate()
+        bubbleSizingV2DeferredFlushTimer = nil
 
         let ids = Array(bubbleSizingV2PendingRemeasureIds)
         bubbleSizingV2PendingRemeasureIds.removeAll()
         bubbleSizingV2RemeasureBatchStartTime = nil
+        guard !ids.isEmpty else { return }
+        let viewportAnchor = captureBubbleSizingV2ViewportAnchor()
 
         for id in ids {
             invalidateBubbleSizingV2Cache(for: id)
             invalidateLayout(for: id)
             scheduleReconfigure(for: id)
         }
+        scheduleBubbleSizingV2ViewportAnchorCompensation(viewportAnchor)
 
         // If more height updates arrived while we were flushing, schedule another debounced pass.
         if !bubbleSizingV2PendingRemeasureIds.isEmpty {
@@ -2445,6 +2487,61 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard let keys = bubbleSizingV2KeysByMessageId.removeValue(forKey: messageId) else { return }
         for key in keys {
             bubbleSizingV2MeasurementCache.removeValue(forKey: key)
+        }
+    }
+
+    private struct BubbleSizingV2ViewportAnchor {
+        let messageId: String
+        let contentOffsetY: CGFloat
+        let frameMinY: CGFloat
+    }
+
+    private func captureBubbleSizingV2ViewportAnchor() -> BubbleSizingV2ViewportAnchor? {
+        let visibleRect = CGRect(
+            origin: collectionView.contentOffset,
+            size: collectionView.bounds.size
+        )
+        let epsilon: CGFloat = 0.5
+        let candidates = collectionView.visibleCells.compactMap { cell -> (String, CGRect)? in
+            guard let indexPath = collectionView.indexPath(for: cell),
+                  let id = dataSource.itemIdentifier(for: indexPath),
+                  id != TypingIndicatorCell.itemId else {
+                return nil
+            }
+            let frame = cell.frame
+            guard frame.minY >= visibleRect.minY + epsilon,
+                  frame.maxY <= visibleRect.maxY - epsilon else {
+                return nil
+            }
+            return (id, frame)
+        }
+        guard let anchor = candidates.min(by: { $0.1.minY < $1.1.minY }) else {
+            return nil
+        }
+        return BubbleSizingV2ViewportAnchor(
+            messageId: anchor.0,
+            contentOffsetY: collectionView.contentOffset.y,
+            frameMinY: anchor.1.minY
+        )
+    }
+
+    private func scheduleBubbleSizingV2ViewportAnchorCompensation(_ anchor: BubbleSizingV2ViewportAnchor?) {
+        guard let anchor else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.collectionView.layoutIfNeeded()
+            guard let indexPath = self.dataSource.indexPath(for: anchor.messageId),
+                  let attrs = self.collectionView.layoutAttributesForItem(at: indexPath) else {
+                return
+            }
+            let delta = attrs.frame.minY - anchor.frameMinY
+            guard abs(delta) > 0.5 else { return }
+            let inset = self.collectionView.contentInset
+            let minY = -inset.top
+            let maxY = max(minY, self.collectionView.contentSize.height - self.collectionView.bounds.height + inset.bottom)
+            let targetY = max(minY, min(anchor.contentOffsetY + delta, maxY))
+            guard targetY.isFinite else { return }
+            self.collectionView.setContentOffset(CGPoint(x: self.collectionView.contentOffset.x, y: targetY), animated: false)
         }
     }
 
