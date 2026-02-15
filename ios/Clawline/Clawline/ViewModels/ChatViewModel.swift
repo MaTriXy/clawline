@@ -51,6 +51,10 @@ final class ChatViewModel: ChatViewModelHosting {
     func setActiveSessionKey(_ sessionKey: String) {
         guard orderedSessionKeys.contains(sessionKey) else { return }
         guard activeSessionKey != sessionKey else { return }
+        applyActiveSessionKey(sessionKey)
+    }
+
+    private func applyActiveSessionKey(_ sessionKey: String) {
         activeSessionKey = sessionKey
         restoreLastServerMessageIdIfNeeded(for: sessionKey)
         restoreCachedMessagesIfNeeded(for: sessionKey)
@@ -58,6 +62,13 @@ final class ChatViewModel: ChatViewModelHosting {
         messages = sessionMessages[sessionKey] ?? []
         lastServerMessageId = lastServerMessageIdBySession[sessionKey]
         persistActiveSessionKey(sessionKey)
+    }
+
+    private func clearActiveSession() {
+        activeSessionKey = ""
+        messages = []
+        lastServerMessageId = nil
+        streamDefaults.removeObject(forKey: activeSessionDefaultsKey())
     }
 
     var activeSessionDisplayName: String {
@@ -475,8 +486,7 @@ final class ChatViewModel: ChatViewModelHosting {
         messageFailures.removeAll()
         clearInput()
         sessionMessages = [:]
-        messages = []
-        activeSessionKey = ""
+        clearActiveSession()
         streamsBySessionKey = [:]
         orderedSessionKeys = []
         syntheticSessionKeys = []
@@ -1579,14 +1589,9 @@ final class ChatViewModel: ChatViewModelHosting {
         if activeSessionKey.isEmpty {
             if let main = streamMainSessionKey() {
                 ensureStreamEntry(for: main)
-                activeSessionKey = main
+                setActiveSessionKey(main)
             } else if let first = orderedSessionKeys.first {
-                activeSessionKey = first
-            }
-            if !activeSessionKey.isEmpty {
-                ensureSessionStorage(for: activeSessionKey)
-                messages = sessionMessages[activeSessionKey] ?? []
-                lastServerMessageId = lastServerMessageIdBySession[activeSessionKey]
+                setActiveSessionKey(first)
             }
         }
     }
@@ -1679,9 +1684,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 ensureStreamEntry(for: fallback)
                 setActiveSessionKey(fallback)
             } else {
-                activeSessionKey = ""
-                messages = []
-                lastServerMessageId = nil
+                clearActiveSession()
             }
         } else if !activeSessionKey.isEmpty {
             messages = sessionMessages[activeSessionKey] ?? []
