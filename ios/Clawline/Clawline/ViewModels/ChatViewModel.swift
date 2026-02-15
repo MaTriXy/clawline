@@ -25,6 +25,10 @@ protocol ChatViewModelHosting: AnyObject {
 final class ChatViewModel: ChatViewModelHosting {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
     private let instanceId = UUID().uuidString
+    private static let richDocumentMimeTypesNeedingPayload: Set<String> = [
+        InteractiveHTMLDescriptor.mimeType,
+        TerminalSessionDescriptor.mimeType
+    ]
     private(set) var messages: [Message] = []
     private(set) var activeSessionKey: String = ""
     private(set) var streamsBySessionKey: [String: StreamSession] = [:]
@@ -634,6 +638,7 @@ final class ChatViewModel: ChatViewModelHosting {
             if downloadedAssetData[assetId] != nil { return true }
             if attachment.type == .image { return true }
             if attachment.type == .asset { return true }
+            if Self.needsPayloadHydration(for: attachment) { return true }
             return attachment.mimeType?.lowercased().hasPrefix("image/") == true
         }
         guard needsDownload else { return }
@@ -665,9 +670,16 @@ final class ChatViewModel: ChatViewModelHosting {
                     logger.info("attachment download start id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public)")
                     let data = try await uploadService.download(assetId: assetId)
                     guard !data.isEmpty else { continue }
-                    // Only attach data if it decodes as an image to avoid corrupt assets.
-                    guard UIImage(data: data) != nil else {
-                        logger.error("attachment download non-image id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(data.count, privacy: .public)")
+                    let isImageAttachment = attachment.type == .image
+                        || attachment.type == .asset
+                        || attachment.mimeType?.lowercased().hasPrefix("image/") == true
+                    if isImageAttachment {
+                        // Image attachments remain guarded to avoid corrupt image payloads.
+                        guard UIImage(data: data) != nil else {
+                            logger.error("attachment download non-image id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(data.count, privacy: .public)")
+                            continue
+                        }
+                    } else if !Self.needsPayloadHydration(for: attachment) {
                         continue
                     }
                     downloadedAssetData[assetId] = data
@@ -710,6 +722,19 @@ final class ChatViewModel: ChatViewModelHosting {
                 self.setMessages(messageList, for: updatedMessage.sessionKey)
             }
         }
+    }
+
+    private static func needsPayloadHydration(for attachment: Attachment) -> Bool {
+        guard attachment.type == .document else { return false }
+        guard let mime = normalizedMimeType(attachment.mimeType) else { return false }
+        return richDocumentMimeTypesNeedingPayload.contains(mime)
+    }
+
+    private static func normalizedMimeType(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let base = raw.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true).first
+        let trimmed = base?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func replacePendingMessageIfNeeded(with message: Message) -> Bool {
