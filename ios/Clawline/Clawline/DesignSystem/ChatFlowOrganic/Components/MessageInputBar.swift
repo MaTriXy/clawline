@@ -170,6 +170,14 @@ struct MessageInputBar: View {
             : Color.white.opacity(0.5)
     }
 
+    private var inputBorderColor: Color {
+#if os(visionOS)
+        return visionOSBorderColor
+#else
+        return ChatFlowTheme.ink(colorScheme).opacity(0.16)
+#endif
+    }
+
     private var sendIconColor: Color { .white }
 
     private var sendBackgroundColor: Color {
@@ -318,10 +326,8 @@ struct MessageInputBar: View {
             .glassEffect(.regular, in: inputShape)
 #endif
             .overlay {
-#if os(visionOS)
                 inputShape
-                    .stroke(visionOSBorderColor, lineWidth: 1)
-#endif
+                    .stroke(inputBorderColor, lineWidth: 1)
             }
 
             // Send button - morphs with connection state, keeps frame/anchor stable.
