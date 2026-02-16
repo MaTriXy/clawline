@@ -93,37 +93,38 @@ struct ExpandedMessageSheet: View {
             if let emojiOnlyText {
                 Text(emojiOnlyText)
                     .font(.system(size: 32))
-            } else if let attributedText {
-                SelectableAttributedText(
-                    attributedString: attributedText,
-                    alignment: .left,
-                    colorScheme: effectiveColorScheme,
-                    onSelectionChange: { _ in },
-                    onLinkTap: { url in
-                        UIApplication.shared.open(url)
+            } else {
+                ForEach(Array(renderedMarkdownBlocks.enumerated()), id: \.offset) { item in
+                    switch item.element {
+                    case .attributedText(let attributed):
+                        SelectableAttributedText(
+                            attributedString: attributed,
+                            alignment: .left,
+                            colorScheme: effectiveColorScheme,
+                            onSelectionChange: { _ in },
+                            onLinkTap: { url in
+                                UIApplication.shared.open(url)
+                            }
+                        )
+                    case .code(let language, let code):
+                        CodeBlockView(language: language, code: code)
+                    case .table(let model):
+                        MarkdownTableView(
+                            model: model,
+                            role: message.role,
+                            metrics: metrics,
+                            maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                            isExpanded: true,
+                            onExpand: {},
+                            onCollapse: { dismiss() }
+                        )
                     }
-                )
+                }
             }
 
             ForEach(Array(linkPreviewURLs.enumerated()), id: \.offset) { item in
                 LinkPreviewRepresentable(url: item.element)
                     .frame(maxWidth: .infinity)
-            }
-
-            ForEach(Array(codeBlocks.enumerated()), id: \.offset) { item in
-                CodeBlockView(language: item.element.language, code: item.element.code)
-            }
-
-            ForEach(Array(tables.enumerated()), id: \.offset) { item in
-                MarkdownTableView(
-                    model: item.element,
-                    role: message.role,
-                    metrics: metrics,
-                    maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-                    isExpanded: true,
-                    onExpand: {},
-                    onCollapse: { dismiss() }
-                )
             }
 
             ForEach(Array(terminalSessions.enumerated()), id: \.offset) { item in
@@ -149,19 +150,20 @@ struct ExpandedMessageSheet: View {
         .lineSpacing(4)
     }
 
-    private var attributedText: NSAttributedString? {
-        let ink = UIColor(ChatFlowTheme.ink(effectiveColorScheme))
-        let attributed = MessageTextPartRenderer.attributedText(
-            from: presentation,
-            sizeClass: .long,
-            metrics: metrics,
-            inkColor: ink,
+    private var renderedMarkdownBlocks: [RenderedMarkdownBlock] {
+        let options = MarkdownRenderOptions(
+            baseFont: UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular),
+            inkColor: UIColor(ChatFlowTheme.ink(effectiveColorScheme)),
+            lineSpacing: 4,
             stripDetectedURLs: false,
-            isDarkMode: effectiveColorScheme == .dark,
-            enableMarkdownHighlights: message.role == .assistant
+            markHighlightColor: message.role == .assistant
+                ? SalientHighlightApplier.highlightColor(isDark: effectiveColorScheme == .dark)
+                : nil
         )
-        let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : attributed
+        return UnifiedMarkdownRenderer.render(
+            plan: presentation.markdownRenderPlan,
+            options: options
+        )
     }
 
     private var emojiOnlyText: String? {
@@ -184,22 +186,6 @@ struct ExpandedMessageSheet: View {
     private var linkPreviewURLs: [URL] {
         presentation.parts.compactMap { part in
             if case .linkPreview(let url) = part { return url }
-            return nil
-        }
-    }
-
-    private var codeBlocks: [(language: String?, code: String)] {
-        presentation.parts.compactMap { part in
-            if case .code(let language, let code) = part {
-                return (language: language, code: code)
-            }
-            return nil
-        }
-    }
-
-    private var tables: [TableModel] {
-        presentation.parts.compactMap { part in
-            if case .table(let model) = part { return model }
             return nil
         }
     }

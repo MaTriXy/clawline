@@ -103,6 +103,7 @@ struct StreamingTableParseState {
 
 struct MessagePresentation: Equatable {
     let parts: [MessagePart]
+    let markdownRenderPlan: MarkdownRenderPlan
     let wordCount: Int
     let hasTextualContent: Bool
     let isEmojiOnly: Bool
@@ -115,6 +116,28 @@ struct MessagePresentation: Equatable {
     /// True when the message contains exactly one URL occurrence (http/https) in its text content.
     /// This is used for sizing/routing decisions even if we don't render a preview card.
     let hasSingleURL: Bool
+
+    init(
+        parts: [MessagePart],
+        markdownRenderPlan: MarkdownRenderPlan = .empty,
+        wordCount: Int,
+        hasTextualContent: Bool,
+        isEmojiOnly: Bool,
+        hasMediaOnly: Bool,
+        detectedURLs: [URL],
+        detectedURLCount: Int,
+        hasSingleURL: Bool
+    ) {
+        self.parts = parts
+        self.markdownRenderPlan = markdownRenderPlan
+        self.wordCount = wordCount
+        self.hasTextualContent = hasTextualContent
+        self.isEmojiOnly = isEmojiOnly
+        self.hasMediaOnly = hasMediaOnly
+        self.detectedURLs = detectedURLs
+        self.detectedURLCount = detectedURLCount
+        self.hasSingleURL = hasSingleURL
+    }
 }
 
 enum MessagePart: Equatable {
@@ -129,6 +152,40 @@ enum MessagePart: Equatable {
     case terminalSession(TerminalSessionDescriptor)
     case interactiveHTML(InteractiveHTMLDescriptor)
     case inlineEmoji(String)
+}
+
+enum MarkdownRenderBlock: Equatable {
+    case richText(markdownSource: String)
+    case code(language: String?, code: String)
+    case table(TableModel)
+}
+
+struct MarkdownRenderPlan: Equatable {
+    let blocks: [MarkdownRenderBlock]
+    let plainTextForMetrics: String
+    let containsTextualContent: Bool
+    let isEmojiOnly: Bool
+
+    static let empty = MarkdownRenderPlan(
+        blocks: [],
+        plainTextForMetrics: "",
+        containsTextualContent: false,
+        isEmojiOnly: false
+    )
+}
+
+struct MarkdownRenderOptions: Equatable {
+    let baseFont: UIFont
+    let inkColor: UIColor
+    let lineSpacing: CGFloat
+    let stripDetectedURLs: Bool
+    let markHighlightColor: UIColor?
+}
+
+enum RenderedMarkdownBlock: Equatable {
+    case attributedText(NSAttributedString)
+    case code(language: String?, code: String)
+    case table(TableModel)
 }
 
 /// Content types that can render without bubble chrome when they are the only element.
@@ -231,7 +288,11 @@ enum MessagePresentationBuilder {
         metrics: ChatFlowTheme.Metrics,
         streamingState: inout StreamingTableParseState
     ) -> MessagePresentation {
-        let segments = Segmenter.split(message.content)
+        let markdownPlan = UnifiedMarkdownParser.parse(
+            markdown: message.content,
+            messageID: message.id,
+            metrics: metrics
+        )
         let terminalAllowed = SessionKey.isClawlinePersonalDM(message.sessionKey)
         let attachmentBuckets = partitionAttachments(
             from: message.attachments,
@@ -241,10 +302,9 @@ enum MessagePresentationBuilder {
         let fileAttachments = attachmentBuckets.fileAttachments
         let hasAttachments = !attachmentBuckets.richParts.isEmpty || !imageAttachments.isEmpty || !fileAttachments.isEmpty
         var parts: [MessagePart] = []
-        var collectedPlainText: [String] = []
-        var hasTextual = false
-        var emojiOnly = true
-        var totalTableCells = 0
+        var markdownParts: [MessagePart] = []
+        var hasTextual = markdownPlan.containsTextualContent
+        var emojiOnly = markdownPlan.isEmojiOnly
         var hasBlockedParts = hasAttachments
         var detectedURLOccurrences: [URL] = []
         let suppressTextForFiles = shouldSuppressTextForFileAttachments(
@@ -258,34 +318,33 @@ enum MessagePresentationBuilder {
             hasBlockedParts = true
         }
 
-        if message.streaming {
-            streamingState.markStreamingUpdate()
-        }
-
-        for segment in segments {
-            if suppressTextForFiles { break }
-            switch segment.kind {
-            case .code(let language):
-                parts.append(.code(language: language, code: segment.content))
-                hasBlockedParts = true
-                emojiOnly = false
-            case .text:
-                detectedURLOccurrences.append(contentsOf: extractURLs(from: segment.content))
-                processTextSegment(
-                    segment.content,
-                    message: message,
-                    metrics: metrics,
-                    hasAttachments: hasAttachments,
-                    parts: &parts,
-                    collectedPlainText: &collectedPlainText,
-                    hasTextual: &hasTextual,
-                    emojiOnly: &emojiOnly,
-                    totalTableCells: &totalTableCells,
-                    hasBlockedParts: &hasBlockedParts,
-                    streamingState: &streamingState
-                )
+        if !suppressTextForFiles {
+            for block in markdownPlan.blocks {
+                switch block {
+                case .richText(let source):
+                    detectedURLOccurrences.append(contentsOf: extractURLs(from: source))
+                    let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { continue }
+                    if hasAttachments, isAttachmentSummaryLine(trimmed) {
+                        continue
+                    }
+                    if isEmojiOnly(trimmed) {
+                        markdownParts.append(.inlineEmoji(trimmed))
+                    } else {
+                        markdownParts.append(.markdown(trimmed))
+                    }
+                case .code(let language, let code):
+                    markdownParts.append(.code(language: language, code: code))
+                    hasBlockedParts = true
+                    emojiOnly = false
+                case .table(let model):
+                    markdownParts.append(.table(model))
+                    hasBlockedParts = true
+                    emojiOnly = false
+                }
             }
         }
+        parts.append(contentsOf: markdownParts)
 
         // Preserve first-seen order for UI, but provide a stable unique list for sizing/cards.
         var uniqueURLs: [URL] = []
@@ -322,14 +381,14 @@ enum MessagePresentationBuilder {
         }
         let hasTerminal = parts.contains(where: { if case .terminalSession = $0 { return true }; return false })
 
-        let plainWordCount = stripMarkdownMarkers(from: collectedPlainText
-            .joined(separator: " "))
+        let plainWordCount = stripMarkdownMarkers(from: markdownPlan.plainTextForMetrics)
             .components(separatedBy: CharacterSet.whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .count
 
         return MessagePresentation(
             parts: parts,
+            markdownRenderPlan: suppressTextForFiles ? .empty : markdownPlan,
             wordCount: plainWordCount,
             hasTextualContent: hasTextual,
             isEmojiOnly: emojiOnly && hasTextual,
@@ -1171,7 +1230,7 @@ private extension Character {
     }
 }
 
-private extension TableModel {
+extension TableModel {
     static func makeRowIdentifier(
         messageID: String,
         rowIndex: Int,

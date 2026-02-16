@@ -1,47 +1,55 @@
-//
-//  ChatMarkdownRenderer.swift
-//  Clawline
-//
-//  Shared markdown rendering for chat bubbles and expanded message sheet.
-//
-
 import Foundation
 import UIKit
 
-enum ChatMarkdownRenderer {
+enum UnifiedMarkdownRenderer {
     private static let markOpenSentinel = "\u{F0000}"
     private static let markCloseSentinel = "\u{F0001}"
 
-    static func renderAttributedString(markdown: String,
-                                       baseFont: UIFont,
-                                       inkColor: UIColor,
-                                       lineSpacing: CGFloat,
-                                       markHighlightColor: UIColor? = nil) -> AttributedString? {
-        guard let ns = renderNSAttributedString(
-            markdown: markdown,
-            baseFont: baseFont,
-            inkColor: inkColor,
-            lineSpacing: lineSpacing,
-            markHighlightColor: markHighlightColor
-        ) else {
-            return nil
+    static func render(
+        plan: MarkdownRenderPlan,
+        options: MarkdownRenderOptions
+    ) -> [RenderedMarkdownBlock] {
+        plan.blocks.compactMap { block in
+            switch block {
+            case .richText(let markdownSource):
+                let attributed = renderNSAttributedString(
+                    markdown: markdownSource,
+                    baseFont: options.baseFont,
+                    inkColor: options.inkColor,
+                    lineSpacing: options.lineSpacing,
+                    markHighlightColor: options.markHighlightColor
+                ) ?? NSAttributedString(
+                    string: markdownSource,
+                    attributes: baseAttributes(
+                        baseFont: options.baseFont,
+                        inkColor: options.inkColor,
+                        lineSpacing: options.lineSpacing
+                    )
+                )
+
+                let cleaned = options.stripDetectedURLs
+                    ? stripDetectedLinks(from: attributed)
+                    : attributed
+                return .attributedText(cleaned)
+            case .code(let language, let code):
+                return .code(language: language, code: code)
+            case .table(let model):
+                return .table(model)
+            }
         }
-        return AttributedString(ns)
     }
 
-    static func renderNSAttributedString(markdown: String,
-                                         baseFont: UIFont,
-                                         inkColor: UIColor,
-                                         lineSpacing: CGFloat,
-                                         markHighlightColor: UIColor? = nil) -> NSAttributedString? {
-        let parsedMarkdown: String
-        if markHighlightColor != nil {
-            parsedMarkdown = preprocessMarkHighlightSyntax(markdown)
-        } else {
-            parsedMarkdown = markdown
-        }
+    static func renderNSAttributedString(
+        markdown: String,
+        baseFont: UIFont,
+        inkColor: UIColor,
+        lineSpacing: CGFloat,
+        markHighlightColor: UIColor? = nil
+    ) -> NSAttributedString? {
+        let parsedMarkdown = (markHighlightColor != nil)
+            ? preprocessMarkHighlightSyntax(markdown)
+            : markdown
 
-        // Prefer full parsing (block syntax like headings), but fall back to inline-only.
         let attributed: AttributedString
         if let full = try? AttributedString(markdown: parsedMarkdown, options: .init(interpretedSyntax: .full)) {
             attributed = full
@@ -60,7 +68,6 @@ enum ChatMarkdownRenderer {
         nsAttributed.addAttribute(.foregroundColor, value: inkColor, range: fullRange)
         nsAttributed.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
 
-        // Preserve bold/italic/monospace traits while using the chat base font family.
         nsAttributed.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
             guard let existingFont = value as? UIFont else {
                 nsAttributed.addAttribute(.font, value: baseFont, range: range)
@@ -82,7 +89,6 @@ enum ChatMarkdownRenderer {
                     newFont = UIFont(descriptor: descriptor, size: size)
                 }
             } else if traits.contains(.traitMonoSpace) {
-                // Inline code runs: keep slightly smaller and add background fill.
                 newFont = UIFont.monospacedSystemFont(ofSize: max(9, size - 1), weight: .medium)
                 nsAttributed.addAttribute(.backgroundColor, value: UIColor.tertiarySystemFill, range: range)
             }
@@ -90,13 +96,58 @@ enum ChatMarkdownRenderer {
             nsAttributed.addAttribute(.font, value: newFont, range: range)
         }
 
-        // Ensure ATX heading levels (#..######) render visibly.
         applyHeadingStyles(markdown: parsedMarkdown, nsAttributed: nsAttributed, baseFont: baseFont)
         if let markHighlightColor {
             applyMarkHighlights(nsAttributed: nsAttributed, color: markHighlightColor)
         }
 
         return nsAttributed
+    }
+
+    private static func baseAttributes(baseFont: UIFont, inkColor: UIColor, lineSpacing: CGFloat) -> [NSAttributedString.Key: Any] {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = lineSpacing
+        paragraph.alignment = .left
+        return [
+            .font: baseFont,
+            .foregroundColor: inkColor,
+            .paragraphStyle: paragraph
+        ]
+    }
+
+    private static let detectedLinkStripper: NSDataDetector? = {
+        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    }()
+
+    private static func stripDetectedLinks(from attributed: NSAttributedString) -> NSAttributedString {
+        guard let detector = detectedLinkStripper else { return attributed }
+        let mutable = NSMutableAttributedString(attributedString: attributed)
+        let fullRange = NSRange(location: 0, length: mutable.string.utf16.count)
+        let matches = detector.matches(in: mutable.string, options: [], range: fullRange)
+        for match in matches.reversed() {
+            guard match.resultType == .link else { continue }
+            mutable.replaceCharacters(in: match.range, with: "")
+        }
+
+        func isTrimmable(_ scalar: Unicode.Scalar) -> Bool {
+            CharacterSet.whitespacesAndNewlines.contains(scalar)
+        }
+        while let first = mutable.string.unicodeScalars.first, isTrimmable(first) {
+            mutable.replaceCharacters(in: NSRange(location: 0, length: 1), with: "")
+        }
+        while let last = mutable.string.unicodeScalars.last, isTrimmable(last) {
+            let len = mutable.string.utf16.count
+            guard len > 0 else { break }
+            mutable.replaceCharacters(in: NSRange(location: len - 1, length: 1), with: "")
+        }
+
+        if mutable.string.contains("\n\n\n") {
+            let regex = try? NSRegularExpression(pattern: "\n{3,}", options: [])
+            let range = NSRange(location: 0, length: mutable.string.utf16.count)
+            regex?.replaceMatches(in: mutable.mutableString, options: [], range: range, withTemplate: "\n\n")
+        }
+
+        return mutable
     }
 
     private static func applyMarkHighlights(nsAttributed: NSMutableAttributedString, color: UIColor) {
@@ -251,8 +302,8 @@ enum ChatMarkdownRenderer {
     }
 
     private static func applyHeadingStyles(markdown: String,
-                                          nsAttributed: NSMutableAttributedString,
-                                          baseFont: UIFont) {
+                                           nsAttributed: NSMutableAttributedString,
+                                           baseFont: UIFont) {
         let headings = extractMarkdownHeadings(markdown)
         guard !headings.isEmpty else { return }
 
@@ -263,7 +314,6 @@ enum ChatMarkdownRenderer {
             let target = heading.text
             guard !target.isEmpty else { continue }
 
-            // Find the heading text at the start of a line to reduce false matches.
             var foundRange: NSRange?
             while searchStart < fullText.length {
                 let searchRange = NSRange(location: searchStart, length: fullText.length - searchStart)
@@ -280,62 +330,68 @@ enum ChatMarkdownRenderer {
 
             guard let range = foundRange else { continue }
 
-            let level = max(1, min(6, heading.level))
-            let delta: CGFloat
-            switch level {
-            case 1: delta = 8
-            case 2: delta = 6
-            case 3: delta = 4
-            case 4: delta = 2
-            case 5: delta = 1
-            default: delta = 0
+            let sizeMultiplier: CGFloat
+            let weight: UIFont.Weight
+            switch heading.level {
+            case 1:
+                sizeMultiplier = 1.55
+                weight = .bold
+            case 2:
+                sizeMultiplier = 1.42
+                weight = .semibold
+            case 3:
+                sizeMultiplier = 1.30
+                weight = .semibold
+            case 4:
+                sizeMultiplier = 1.20
+                weight = .semibold
+            case 5:
+                sizeMultiplier = 1.12
+                weight = .medium
+            default:
+                sizeMultiplier = 1.05
+                weight = .medium
             }
 
-            let size = min(32, baseFont.pointSize + delta)
-            let weight: UIFont.Weight = (level <= 2) ? .bold : .semibold
-            nsAttributed.addAttribute(.font, value: UIFont.systemFont(ofSize: size, weight: weight), range: range)
-
+            let headingFont = UIFont.systemFont(ofSize: baseFont.pointSize * sizeMultiplier, weight: weight)
+            nsAttributed.addAttribute(.font, value: headingFont, range: range)
             searchStart = range.location + range.length
         }
     }
 
-    private static func extractMarkdownHeadings(_ markdown: String) -> [(level: Int, text: String)] {
-        var results: [(level: Int, text: String)] = []
-        var inFence = false
+    private struct HeadingInfo {
+        let level: Int
+        let text: String
+    }
 
-        for rawLine in markdown.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+    private static func extractMarkdownHeadings(_ markdown: String) -> [HeadingInfo] {
+        markdown
+            .components(separatedBy: .newlines)
+            .compactMap { line -> HeadingInfo? in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { return nil }
 
-            if line.hasPrefix("```") {
-                inFence.toggle()
-                continue
-            }
-            if inFence { continue }
-
-            // ATX headings: #..###### <text> (optionally closing with trailing #'s)
-            guard line.hasPrefix("#") else { continue }
-
-            var level = 0
-            for ch in line {
-                if ch == "#" { level += 1 } else { break }
-            }
-            guard level >= 1 && level <= 6 else { continue }
-
-            let afterHashes = line.dropFirst(level)
-            guard afterHashes.first == " " || afterHashes.first == "\t" else { continue }
-            var text = afterHashes.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // Strip optional closing #'s: "### Title ###"
-            if let hashIndex = text.firstIndex(of: "#") {
-                let suffix = text[hashIndex...]
-                if suffix.allSatisfy({ $0 == "#" || $0 == " " || $0 == "\t" }) {
-                    text = text[..<hashIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                var level = 0
+                for char in trimmed {
+                    if char == "#" {
+                        level += 1
+                    } else {
+                        break
+                    }
                 }
+
+                guard level > 0, level <= 6 else { return nil }
+                let hashEndIndex = trimmed.index(trimmed.startIndex, offsetBy: level)
+                guard hashEndIndex < trimmed.endIndex,
+                      trimmed[hashEndIndex] == " " else {
+                    return nil
+                }
+
+                let textStart = trimmed.index(after: hashEndIndex)
+                let text = String(trimmed[textStart...]).trimmingCharacters(in: .whitespaces)
+                guard !text.isEmpty else { return nil }
+
+                return HeadingInfo(level: level, text: text)
             }
-
-            results.append((level: level, text: String(text)))
-        }
-
-        return results
     }
 }

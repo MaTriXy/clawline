@@ -605,12 +605,26 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentViews.removeAll()
         fileTapHandlers.removeAll()
 
+        let markdownStyle = Self.markdownStyle(for: sizeClass, metrics: metrics)
+        let markdownOptions = MarkdownRenderOptions(
+            baseFont: markdownStyle.baseFont,
+            inkColor: palette.ink,
+            lineSpacing: markdownStyle.lineSpacing,
+            stripDetectedURLs: true,
+            markHighlightColor: message.role == .assistant
+                ? SalientHighlightApplier.highlightColor(isDark: effectiveIsDark)
+                : nil
+        )
+        let renderedMarkdownBlocks = UnifiedMarkdownRenderer.render(
+            plan: presentation.markdownRenderPlan,
+            options: markdownOptions
+        )
+
         // Check for chromeless emoji mode (1-3 emojis only, centered with double font)
         let isChromelessEmoji = presentation.chromelessStyle == .emoji
 
-        // Set up bodyLabel with text content (excluding code blocks)
+        // Set up a baseline body label for salient highlighting flows.
         if isChromelessEmoji, case .inlineEmoji(let value) = presentation.parts.first {
-            // Chromeless emoji: double font size, centered
             let emojiFont = UIFont.systemFont(ofSize: (metrics.shortFontSize + 8) * 2)
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
@@ -622,14 +636,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 ]
             )
         } else {
-            bodyLabel.attributedText = MessageTextPartRenderer.attributedText(
-                from: presentation,
-                sizeClass: sizeClass,
-                metrics: metrics,
-                inkColor: palette.ink,
-                isDarkMode: effectiveIsDark,
-                enableMarkdownHighlights: message.role == .assistant
-            )
+            bodyLabel.attributedText = Self.combinedMarkdownText(
+                from: renderedMarkdownBlocks
+            ) ?? NSAttributedString(string: "")
         }
 
         // Cache the base attributed text (pre-highlights) so async application is idempotent.
@@ -641,7 +650,12 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             salientHighlightService: salientHighlightService
         )
 
-        let hasTextContent = !(bodyLabel.attributedText?.string.isEmpty ?? true)
+        let hasTextContent = renderedMarkdownBlocks.contains { block in
+            if case .attributedText(let attributed) = block {
+                return !attributed.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return false
+        }
 
         // File attachments first so previews stay visible even with long text
         let fileParts = presentation.parts.compactMap { part -> Attachment? in
@@ -665,9 +679,16 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
         }
 
-        if hasTextContent {
-            dynamicContentStack.addArrangedSubview(bodyTextContainer)
-            dynamicContentViews.append(bodyTextContainer)
+        if hasTextContent || renderedMarkdownBlocks.contains(where: {
+            if case .code = $0 { return true }
+            if case .table = $0 { return true }
+            return false
+        }) {
+            addRenderedMarkdownBlocks(
+                renderedMarkdownBlocks,
+                role: message.role,
+                metrics: metrics
+            )
         }
 
         let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
@@ -815,36 +836,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
             dynamicContentStack.addArrangedSubview(previewView)
             dynamicContentViews.append(previewView)
-        }
-
-        // Add code block views to dynamicContentStack
-        let codeBlocks = presentation.parts.compactMap { part -> (String?, String)? in
-            if case .code(let lang, let code) = part { return (lang, code) }
-            return nil
-        }
-        for (lang, code) in codeBlocks {
-            let codeView = CodeBlockUIKitView()
-            codeView.configure(language: lang, code: code)
-            dynamicContentStack.addArrangedSubview(codeView)
-            dynamicContentViews.append(codeView)
-        }
-
-        // Add table views to dynamicContentStack
-        let tables = presentation.parts.compactMap { part -> TableModel? in
-            if case .table(let model) = part { return model }
-            return nil
-        }
-        for tableModel in tables {
-            let tableView = TableUIKitWrapperView()
-            tableView.configure(
-                model: tableModel,
-                role: message.role,
-                metrics: metrics,
-                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-                onExpand: { [weak self] in self?.onRequestExpand?() }
-            )
-            dynamicContentStack.addArrangedSubview(tableView)
-            dynamicContentViews.append(tableView)
         }
 
         let hasTerminalSessions = presentation.parts.contains(where: { if case .terminalSession = $0 { return true }; return false })
@@ -1355,6 +1346,108 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             return nil
         }
         return defaultAction
+    }
+
+    private static func markdownStyle(
+        for sizeClass: MessageSizeClass,
+        metrics: ChatFlowTheme.Metrics
+    ) -> (baseFont: UIFont, lineSpacing: CGFloat) {
+        switch sizeClass {
+        case .short:
+            return (UIFont.systemFont(ofSize: metrics.shortFontSize, weight: .semibold), 0)
+        case .medium:
+            return (UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium), 4)
+        case .long:
+            return (UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular), 4)
+        }
+    }
+
+    private static func combinedMarkdownText(from blocks: [RenderedMarkdownBlock]) -> NSAttributedString? {
+        let result = NSMutableAttributedString()
+        var didAppend = false
+        for block in blocks {
+            guard case .attributedText(let attributed) = block else { continue }
+            let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if didAppend {
+                result.append(NSAttributedString(string: "\n\n"))
+            }
+            result.append(attributed)
+            didAppend = true
+        }
+        return didAppend ? result : nil
+    }
+
+    private func addRenderedMarkdownBlocks(
+        _ blocks: [RenderedMarkdownBlock],
+        role: Message.Role,
+        metrics: ChatFlowTheme.Metrics
+    ) {
+        var usedPrimaryTextContainer = false
+
+        for block in blocks {
+            switch block {
+            case .attributedText(let attributed):
+                let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+
+                if !usedPrimaryTextContainer {
+                    bodyLabel.attributedText = attributed
+                    dynamicContentStack.addArrangedSubview(bodyTextContainer)
+                    dynamicContentViews.append(bodyTextContainer)
+                    usedPrimaryTextContainer = true
+                } else {
+                    let supplemental = makeSupplementalTextContainer(attributed: attributed)
+                    dynamicContentStack.addArrangedSubview(supplemental)
+                    dynamicContentViews.append(supplemental)
+                }
+            case .code(let language, let code):
+                let codeView = CodeBlockUIKitView()
+                codeView.configure(language: language, code: code)
+                dynamicContentStack.addArrangedSubview(codeView)
+                dynamicContentViews.append(codeView)
+            case .table(let model):
+                let tableView = TableUIKitWrapperView()
+                tableView.configure(
+                    model: model,
+                    role: role,
+                    metrics: metrics,
+                    maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                    onExpand: { [weak self] in self?.onRequestExpand?() }
+                )
+                dynamicContentStack.addArrangedSubview(tableView)
+                dynamicContentViews.append(tableView)
+            }
+        }
+    }
+
+    private func makeSupplementalTextContainer(attributed: NSAttributedString) -> UIView {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.backgroundColor = .clear
+
+        let textView = UITextView()
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.backgroundColor = .clear
+        textView.isUserInteractionEnabled = true
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = false
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.dataDetectorTypes = [.link]
+        textView.delegate = self
+        textView.linkTextAttributes = bodyLabel.linkTextAttributes
+        textView.attributedText = attributed
+
+        container.addSubview(textView)
+        NSLayoutConstraint.activate([
+            textView.topAnchor.constraint(equalTo: container.topAnchor),
+            textView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            textView.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+            textView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        return container
     }
 
     private static func textContent(from presentation: MessagePresentation) -> String {
