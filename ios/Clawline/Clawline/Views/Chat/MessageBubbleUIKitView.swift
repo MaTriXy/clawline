@@ -841,6 +841,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 role: message.role,
                 metrics: metrics,
                 maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                isDark: effectiveIsDark,
                 onExpand: { [weak self] in self?.onRequestExpand?() }
             )
             dynamicContentStack.addArrangedSubview(tableView)
@@ -2401,6 +2402,7 @@ final class TableUIKitWrapperView: UIView {
         role: Message.Role,
         metrics: ChatFlowTheme.Metrics,
         maxLineWidth: CGFloat,
+        isDark: Bool,
         onExpand: @escaping () -> Void
     ) {
         currentModel = model
@@ -2425,7 +2427,10 @@ final class TableUIKitWrapperView: UIView {
         )
 
         let hostingController = UIHostingController(rootView: AnyView(tableView))
+        let style: UIUserInterfaceStyle = isDark ? .dark : .light
+        hostingController.overrideUserInterfaceStyle = style
         hostingController.view.backgroundColor = .clear
+        hostingController.view.overrideUserInterfaceStyle = style
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         // Disable safe area insets to prevent layout issues
         hostingController.safeAreaRegions = []
