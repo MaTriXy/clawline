@@ -44,6 +44,7 @@ struct MessageInputBar: View {
     @Binding var content: NSAttributedString
     @Binding var selectionRange: NSRange
     @Binding var pendingInsertions: [PendingAttachment]
+    var placeholderText: String = "Message"
     var resetToken: Int
     let canSend: Bool
     let isSending: Bool
@@ -153,6 +154,16 @@ struct MessageInputBar: View {
             : Color.white.opacity(0.5)
     }
 
+    private var placeholderColor: Color {
+#if os(visionOS)
+        return isLightModeForInputBar
+            ? ChatFlowTheme.ink(.light).opacity(0.6)
+            : ChatFlowTheme.ink(.dark).opacity(0.6)
+#else
+        return .secondary
+#endif
+    }
+
     var body: some View {
         HStack(alignment: .bottom, spacing: MessageInputBarMetrics.elementSpacing) {
 #if os(visionOS)
@@ -224,6 +235,8 @@ struct MessageInputBar: View {
                 onSend: onSend,
                 onFocusChange: onFocusChange,
                 onPasteImages: onPasteImages,
+                placeholderText: placeholderText,
+                placeholderColor: placeholderColor,
                 isLightModeForInputBar: isLightModeForInputBar,
                 visionOSBorderColor: visionOSBorderColor
             )
@@ -270,6 +283,8 @@ private struct MessageEditorChrome: View {
     let onSend: () -> Void
     let onFocusChange: (Bool) -> Void
     var onPasteImages: (([UIImage]) -> Void)?
+    let placeholderText: String
+    let placeholderColor: Color
     let isLightModeForInputBar: Bool
     let visionOSBorderColor: Color
 
@@ -304,13 +319,26 @@ private struct MessageEditorChrome: View {
                 trailingPadding: 20
             )
             .opacity(chrome.editorOpacity)
+
+            if content.length == 0 {
+                Text(placeholderText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .minimumScaleFactor(0.7)
+                    .foregroundColor(placeholderColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .frame(maxHeight: .infinity, alignment: .center)
+                    .padding(.leading, 20)
+                    .padding(.trailing, 20)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(height: inputHeight)
         .frame(maxWidth: .infinity, alignment: .bottom)
 #if os(visionOS)
         .background(.regularMaterial, in: inputShape)
 #else
-        .background(.ultraThinMaterial, in: inputShape)
+        .glassEffect(.regular, in: inputShape)
 #endif
         .overlay {
 #if os(visionOS)
@@ -420,6 +448,7 @@ private struct MessageSendControl: View {
                     : sendBackgroundColor.opacity(sendActionEnabled ? 1 : 0.35)
             )
         )
+        .glassEffect(.regular.interactive(), in: Capsule())
 #endif
         .buttonStyle(.plain)
 #if os(visionOS)
