@@ -20,6 +20,186 @@ protocol ChatViewModelHosting: AnyObject {
     func handleSceneDidBecomeActive()
 }
 
+// MARK: - Stream Switch Coordinator
+// This token's initializer is file-scoped by design.
+// Only code in this file can construct authority to mutate active-session state
+// through the stream-switch commit seam.
+fileprivate struct StreamSwitchMutationToken {
+    fileprivate init() {}
+}
+
+fileprivate let streamSwitchMutationToken = StreamSwitchMutationToken()
+
+@Observable
+@MainActor
+final class StreamSwitchTransitionCoordinator {
+    enum SwitchSource: Equatable {
+        case pager
+        case programmatic
+    }
+
+    enum Phase: Equatable {
+        case idle(active: String)
+        case animating(from: String, target: String)
+        case settling(from: String, target: String)
+        case committing(from: String, target: String)
+    }
+
+    enum RenderPolicy: Equatable {
+        case active(sessionKey: String)
+        case frozen(sessionKey: String)
+    }
+
+    private let settleDelay: Duration
+    private var settleTask: Task<Void, Never>?
+    private weak var viewModel: ChatViewModel?
+    private var isBound = false
+
+    // Single source of truth for switch lifecycle visibility.
+    private(set) var phase: Phase = .idle(active: "")
+    // This drives TabView selection during drag/deceleration before commit.
+    private(set) var selectedSessionKey: String = ""
+    // This gates expensive list updates while pager is moving.
+    private(set) var renderPolicy: RenderPolicy = .active(sessionKey: "")
+    // Pending target is intentionally separate from active; mutation only happens in commit.
+    private(set) var pendingTargetSessionKey: String?
+    // Commit pulse for UI side effects (haptic/toast) at commit boundary.
+    private(set) var commitSequence: Int = 0
+    private(set) var lastCommittedSessionKey: String?
+
+    init(settleDelay: Duration = .milliseconds(500)) {
+        self.settleDelay = settleDelay
+    }
+
+    // Bind once from ChatView lifecycle.
+    // Keeping this explicit avoids hidden global ownership and makes the seam easy to audit.
+    func bind(viewModel: ChatViewModel, initialActiveSessionKey: String) {
+        guard !isBound else { return }
+        isBound = true
+        self.viewModel = viewModel
+        let key = initialActiveSessionKey
+        selectedSessionKey = key
+        renderPolicy = .active(sessionKey: key)
+        phase = .idle(active: key)
+    }
+
+    // External sync path for non-stream-switch mutations (bootstrap, stream deletion fallback, etc.).
+    // We only sync while idle to avoid clobbering an in-flight transition state machine.
+    func syncActiveSessionIfIdle(_ sessionKey: String) {
+        guard case .idle = phase else { return }
+        selectedSessionKey = sessionKey
+        renderPolicy = .active(sessionKey: sessionKey)
+        phase = .idle(active: sessionKey)
+    }
+
+    var renderSessionKey: String {
+        switch renderPolicy {
+        case .active(let sessionKey), .frozen(let sessionKey):
+            return sessionKey
+        }
+    }
+
+    func requestSwitch(to sessionKey: String, source: SwitchSource) {
+        guard let viewModel else { return }
+        guard viewModel.orderedSessionKeys.contains(sessionKey) else { return }
+
+        // Keep pager visual state in sync with latest user intent immediately.
+        // This is UI-only state; active-session mutation still waits for commit.
+        selectedSessionKey = sessionKey
+        pendingTargetSessionKey = sessionKey
+
+        switch source {
+        case .programmatic:
+            // Programmatic switches are not tied to pager drag/deceleration.
+            // Commit immediately through the same coordinator seam.
+            settleTask?.cancel()
+            settleTask = nil
+            commitPendingSwitch()
+        case .pager:
+            // First pager intent anchors render policy to the currently active stream.
+            // This prevents expensive outgoing/incoming list work while swipe animation is running.
+            let active = viewModel.activeSessionKey
+            switch phase {
+            case .idle:
+                phase = .animating(from: active, target: sessionKey)
+                renderPolicy = .frozen(sessionKey: active)
+            case .animating(let from, _):
+                phase = .animating(from: from, target: sessionKey)
+            case .settling(let from, _):
+                phase = .animating(from: from, target: sessionKey)
+                settleTask?.cancel()
+                settleTask = nil
+            case .committing:
+                // If commit is already executing, new pager target becomes the next pending intent.
+                // We intentionally do not interrupt commit; next intent will be handled after idle sync.
+                break
+            }
+        }
+    }
+
+    func pagerDidBeginInteraction() {
+        switch phase {
+        case .settling(let from, let target):
+            // Re-drag during settling cancels delayed commit and returns to animating.
+            settleTask?.cancel()
+            settleTask = nil
+            phase = .animating(from: from, target: target)
+        default:
+            break
+        }
+    }
+
+    func pagerDidSettleAtRest() {
+        guard let target = pendingTargetSessionKey else { return }
+        switch phase {
+        case .animating(let from, _):
+            // Enter explicit settling window. Commit is delayed until this window completes.
+            phase = .settling(from: from, target: target)
+            settleTask?.cancel()
+            settleTask = Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(for: self.settleDelay)
+                guard !Task.isCancelled else { return }
+                self.commitPendingSwitch()
+            }
+        case .settling:
+            break
+        case .idle, .committing:
+            break
+        }
+    }
+
+    private func commitPendingSwitch() {
+        guard let viewModel, let target = pendingTargetSessionKey else { return }
+        guard viewModel.orderedSessionKeys.contains(target) else {
+            pendingTargetSessionKey = nil
+            syncActiveSessionIfIdle(viewModel.activeSessionKey)
+            return
+        }
+        guard target != viewModel.activeSessionKey else {
+            pendingTargetSessionKey = nil
+            phase = .idle(active: target)
+            renderPolicy = .active(sessionKey: target)
+            selectedSessionKey = target
+            return
+        }
+
+        let from = viewModel.activeSessionKey
+        // Commit boundary:
+        // 1) flip render policy to new session so list activation is intentional and centralized.
+        // 2) mutate model through token-gated seam.
+        // 3) publish one commit pulse for UI side effects.
+        phase = .committing(from: from, target: target)
+        renderPolicy = .active(sessionKey: target)
+        selectedSessionKey = target
+        viewModel.commitActiveSessionFromStreamSwitch(target, token: streamSwitchMutationToken)
+        pendingTargetSessionKey = nil
+        lastCommittedSessionKey = target
+        commitSequence &+= 1
+        phase = .idle(active: target)
+    }
+}
+
 @Observable
 @MainActor
 final class ChatViewModel: ChatViewModelHosting {
@@ -35,6 +215,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var orderedSessionKeys: [String] = []
     private var syntheticSessionKeys: Set<String> = []
     private var didRestoreActiveSessionKey = false
+    let streamSwitchCoordinator = StreamSwitchTransitionCoordinator()
 
     func messages(for sessionKey: String) -> [Message] {
         sessionMessages[sessionKey] ?? []
@@ -52,11 +233,51 @@ final class ChatViewModel: ChatViewModelHosting {
         SessionRegistry.shared.stream(for: activeSessionKey)
     }
 
-    func setActiveSessionKey(_ sessionKey: String) {
+    // MARK: Stream Switch Coordination API
+    // ChatView drives these events; this keeps stream-switch lifecycle explicit and centralized.
+
+    func bindStreamSwitchCoordinatorIfNeeded() {
+        streamSwitchCoordinator.bind(viewModel: self, initialActiveSessionKey: activeSessionKey)
+    }
+
+    func requestStreamSwitch(to sessionKey: String, source: StreamSwitchTransitionCoordinator.SwitchSource) {
+        bindStreamSwitchCoordinatorIfNeeded()
+        streamSwitchCoordinator.requestSwitch(to: sessionKey, source: source)
+    }
+
+    func streamPagerDidBeginInteraction() {
+        streamSwitchCoordinator.pagerDidBeginInteraction()
+    }
+
+    func streamPagerDidSettleAtRest() {
+        streamSwitchCoordinator.pagerDidSettleAtRest()
+    }
+
+    func syncStreamSwitchCoordinatorIfIdle() {
+        streamSwitchCoordinator.syncActiveSessionIfIdle(activeSessionKey)
+    }
+
+    // NOTE: keep this private.
+    // All external stream-switch writes must go through the coordinator seam.
+    private func setActiveSessionKey(_ sessionKey: String) {
         guard orderedSessionKeys.contains(sessionKey) else { return }
         guard activeSessionKey != sessionKey else { return }
         applyActiveSessionKey(sessionKey)
     }
+
+    // Token-gated commit seam used exclusively by StreamSwitchTransitionCoordinator.
+    // This blocks direct active-session mutation from view code.
+    fileprivate func commitActiveSessionFromStreamSwitch(_ sessionKey: String, token: StreamSwitchMutationToken) {
+        _ = token
+        setActiveSessionKey(sessionKey)
+    }
+
+#if DEBUG
+    // Explicit test-only bypass. Production code must use coordinator mutation seam.
+    func setActiveSessionKeyForTesting(_ sessionKey: String) {
+        setActiveSessionKey(sessionKey)
+    }
+#endif
 
     private func applyActiveSessionKey(_ sessionKey: String) {
         activeSessionKey = sessionKey

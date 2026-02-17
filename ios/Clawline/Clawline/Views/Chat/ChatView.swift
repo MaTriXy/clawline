@@ -126,11 +126,7 @@ struct ChatView: View {
 
     @State private var inputBarHeight: CGFloat = 0
     @State private var streamToastManager = StreamToastManager()
-    @State private var streamSwitchReflowTask: Task<Void, Never>?
-    @State private var settledActiveSessionKey: String = ""
-
-    private let streamSwitchReflowDebounce: Duration = .milliseconds(500)
-    private let streamSwitchSpinnerHold: Duration = .milliseconds(450)
+    @State private var streamSwitchBusyClearTask: Task<Void, Never>?
 
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0.5
@@ -643,13 +639,38 @@ struct ChatView: View {
         }
         .onChange(of: viewModel.activeSessionKey) { _, newValue in
             layoutCoordinator.setActiveSessionKey(newValue)
-            scheduleStreamSwitchReflow(for: newValue)
+            // Keep coordinator in sync for non-stream-switch mutations (bootstrap, deletion fallback).
+            // During active pager transitions, coordinator ignores this sync to preserve state machine integrity.
+            viewModel.syncStreamSwitchCoordinatorIfIdle()
         }
         .onAppear {
-            settledActiveSessionKey = viewModel.activeSessionKey
+            viewModel.bindStreamSwitchCoordinatorIfNeeded()
             layoutCoordinator.setActiveSessionKey(viewModel.activeSessionKey)
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
+        }
+        .onChange(of: viewModel.streamSwitchCoordinator.commitSequence) { _, _ in
+            guard let committedSessionKey = viewModel.streamSwitchCoordinator.lastCommittedSessionKey else { return }
+            let streamDisplayName = viewModel.stream(for: committedSessionKey)?.displayName ?? viewModel.activeSessionDisplayName
+            #if !os(visionOS)
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            #endif
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                // Busy indicator starts at commit boundary to make deferred work visible to users.
+                streamToastManager.show(displayName: streamDisplayName, sessionKey: committedSessionKey, isBusy: true)
+            }
+            // Keep spinner visible briefly so commit/reflow feedback is perceptible.
+            streamSwitchBusyClearTask?.cancel()
+            streamSwitchBusyClearTask = Task {
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        streamToastManager.setBusy(false)
+                    }
+                }
+            }
         }
         .onChange(of: keyboardHeight) { _, _ in layoutRevision &+= 1 }
         .onChange(of: keyboardAnimationDuration) { _, _ in layoutRevision &+= 1 }
@@ -891,7 +912,7 @@ struct ChatView: View {
             viewModel: viewModel,
             topInset: topInset,
             isCompact: horizontalSizeClass == .compact,
-            isActiveSession: sessionKey == reflowActiveSessionKey,
+            isActiveSession: sessionKey == renderPolicySessionKey,
             isInputActive: isInputFocused,
             truncationBottomInset: truncationBottomInset,
             firstUnreadMessageId: state.firstUnreadMessageId,
@@ -984,9 +1005,31 @@ struct ChatView: View {
                     .tag(sessionKey)
             }
         }
+        .background {
+            // This bridge feeds explicit pager motion/settle events into the coordinator state machine.
+            // We avoid speculative timing guesses in ChatView itself.
+            StreamPagerScrollObserver(
+                onInteractionBegan: {
+                    viewModel.streamPagerDidBeginInteraction()
+                },
+                onSettledAtRest: {
+                    viewModel.streamPagerDidSettleAtRest()
+                }
+            )
+            .allowsHitTesting(false)
+        }
         .tabViewStyle(.page(indexDisplayMode: .never))
         .scrollContentBackground(.hidden)
         .background(Color.clear)
+    }
+
+    private var renderPolicySessionKey: String {
+        let validKeys = Set(viewModel.orderedStreams.map(\.sessionKey))
+        let key = viewModel.streamSwitchCoordinator.renderSessionKey
+        if validKeys.contains(key), !key.isEmpty {
+            return key
+        }
+        return viewModel.activeSessionKey
     }
 
     /// Binding that syncs TabView selection with viewModel.activeSessionKey.
@@ -994,13 +1037,14 @@ struct ChatView: View {
         Binding(
             get: {
                 let effectiveSessionKeys = viewModel.orderedStreams.map(\.sessionKey)
-                if effectiveSessionKeys.contains(viewModel.activeSessionKey) {
-                    return viewModel.activeSessionKey
+                let selected = viewModel.streamSwitchCoordinator.selectedSessionKey
+                if effectiveSessionKeys.contains(selected), !selected.isEmpty {
+                    return selected
                 }
                 return effectiveSessionKeys.first ?? viewModel.activeSessionKey
             },
             set: { newSessionKey in
-                selectStream(newSessionKey)
+                selectStream(newSessionKey, source: .pager)
             }
         )
     }
@@ -1026,55 +1070,16 @@ struct ChatView: View {
                 streams: effectiveStreams,
                 isPresented: $isStreamManagerPopoverPresented,
                 maxAvailableHeight: streamSelectorMaxHeight,
-                onSelectStream: selectStream
+                onSelectStream: { sessionKey in
+                    selectStream(sessionKey, source: .programmatic)
+                }
             )
             .presentationCompactAdaptation(.popover)
         }
     }
 
-    private func selectStream(_ sessionKey: String) {
-        guard sessionKey != viewModel.activeSessionKey else { return }
-
-        #if !os(visionOS)
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
-        #endif
-
-        viewModel.setActiveSessionKey(sessionKey)
-        let streamDisplayName = viewModel.stream(for: sessionKey)?.displayName ?? viewModel.activeSessionDisplayName
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            streamToastManager.show(displayName: streamDisplayName, sessionKey: sessionKey, isBusy: false)
-        }
-    }
-
-    private var reflowActiveSessionKey: String {
-        let validKeys = Set(viewModel.orderedStreams.map(\.sessionKey))
-        if validKeys.contains(settledActiveSessionKey), !settledActiveSessionKey.isEmpty {
-            return settledActiveSessionKey
-        }
-        return viewModel.activeSessionKey
-    }
-
-    @MainActor
-    private func scheduleStreamSwitchReflow(for sessionKey: String) {
-        guard sessionKey != settledActiveSessionKey else { return }
-        streamSwitchReflowTask?.cancel()
-        streamToastManager.setBusy(false)
-        streamSwitchReflowTask = Task {
-            try? await Task.sleep(for: streamSwitchReflowDebounce)
-            guard !Task.isCancelled else { return }
-            let displayName = viewModel.stream(for: sessionKey)?.displayName ?? viewModel.activeSessionDisplayName
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                streamToastManager.show(displayName: displayName, sessionKey: sessionKey, isBusy: true)
-            }
-            await Task.yield()
-            settledActiveSessionKey = sessionKey
-            try? await Task.sleep(for: streamSwitchSpinnerHold)
-            guard !Task.isCancelled else { return }
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                streamToastManager.setBusy(false)
-            }
-        }
+    private func selectStream(_ sessionKey: String, source: StreamSwitchTransitionCoordinator.SwitchSource) {
+        viewModel.requestStreamSwitch(to: sessionKey, source: source)
     }
 
     private func deviceCornerRadius() -> CGFloat {
@@ -1897,6 +1902,132 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             versionLabelBottomToContainer = versionToContainer
         }
 #endif
+    }
+}
+
+// MARK: - Pager Scroll Observer
+// We use a tiny UIKit bridge to detect when the TabView pager is actively moving vs truly settled.
+// SwiftUI's page-style TabView does not expose explicit "deceleration ended" hooks.
+// This observer emits two high-signal lifecycle events:
+// - interaction began
+// - scroll settled at rest (not dragging/tracking/decelerating)
+private struct StreamPagerScrollObserver: UIViewRepresentable {
+    let onInteractionBegan: @MainActor () -> Void
+    let onSettledAtRest: @MainActor () -> Void
+
+    func makeUIView(context: Context) -> StreamPagerProbeView {
+        let view = StreamPagerProbeView()
+        view.onInteractionBegan = onInteractionBegan
+        view.onSettledAtRest = onSettledAtRest
+        return view
+    }
+
+    func updateUIView(_ uiView: StreamPagerProbeView, context: Context) {
+        uiView.onInteractionBegan = onInteractionBegan
+        uiView.onSettledAtRest = onSettledAtRest
+        uiView.attachIfNeeded()
+    }
+}
+
+private final class StreamPagerProbeView: UIView {
+    var onInteractionBegan: (@MainActor () -> Void)?
+    var onSettledAtRest: (@MainActor () -> Void)?
+
+    private weak var observedPagerScrollView: UIScrollView?
+    private var settlePollTimer: Timer?
+    private var didEmitInteractionForCurrentGesture = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        settlePollTimer?.invalidate()
+        if let pan = observedPagerScrollView?.panGestureRecognizer {
+            pan.removeTarget(self, action: #selector(handlePagerPan(_:)))
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        attachIfNeeded()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        attachIfNeeded()
+    }
+
+    func attachIfNeeded() {
+        guard let root = superview else { return }
+        guard let pagerScrollView = findPagerScrollView(in: root) else { return }
+        guard observedPagerScrollView !== pagerScrollView else { return }
+
+        // If SwiftUI re-parents/recreates the page stack, detach old observer before reattaching.
+        if let oldPan = observedPagerScrollView?.panGestureRecognizer {
+            oldPan.removeTarget(self, action: #selector(handlePagerPan(_:)))
+        }
+        observedPagerScrollView = pagerScrollView
+        pagerScrollView.panGestureRecognizer.addTarget(self, action: #selector(handlePagerPan(_:)))
+    }
+
+    @objc
+    private func handlePagerPan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began, .changed:
+            // Emit once per gesture to avoid noisy state churn while finger moves.
+            if !didEmitInteractionForCurrentGesture {
+                didEmitInteractionForCurrentGesture = true
+                onInteractionBegan?()
+            }
+            settlePollTimer?.invalidate()
+            settlePollTimer = nil
+        case .ended, .cancelled, .failed:
+            didEmitInteractionForCurrentGesture = false
+            startSettlePolling()
+        default:
+            break
+        }
+    }
+
+    private func startSettlePolling() {
+        settlePollTimer?.invalidate()
+        // Polling is intentionally scoped to the post-gesture window.
+        // We are not doing continuous per-frame work outside gesture completion.
+        let timer = Timer(timeInterval: 0.02, repeats: true) { [weak self] timer in
+            guard let self, let scrollView = self.observedPagerScrollView else {
+                timer.invalidate()
+                return
+            }
+            let isAtRest = !scrollView.isTracking && !scrollView.isDragging && !scrollView.isDecelerating
+            guard isAtRest else { return }
+            timer.invalidate()
+            self.settlePollTimer = nil
+            self.onSettledAtRest?()
+        }
+        settlePollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    // The pager scroll view is the paging-enabled ancestor/descendant around TabView(.page).
+    // Message lists are UICollectionViews and are not paging-enabled, so this selector is precise enough.
+    private func findPagerScrollView(in root: UIView) -> UIScrollView? {
+        if let scrollView = root as? UIScrollView,
+           scrollView.isPagingEnabled {
+            return scrollView
+        }
+        for child in root.subviews {
+            if let match = findPagerScrollView(in: child) {
+                return match
+            }
+        }
+        return nil
     }
 }
 
