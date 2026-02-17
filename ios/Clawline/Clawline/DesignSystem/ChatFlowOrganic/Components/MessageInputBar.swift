@@ -8,6 +8,7 @@
 import SwiftUI
 import UIKit
 import OSLog
+import Foundation
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessageInputBar")
 
@@ -332,13 +333,12 @@ private struct MessageSendControl: View {
     let onCancel: () -> Void
     let onReconnect: () -> Void
 
-    @State private var reconnectPulseOn: Bool = false
-
     private var isReconnecting: Bool { connectionState == .reconnecting }
     private var isDisconnected: Bool { connectionState == .disconnected }
     private var sendActionEnabled: Bool { isSending || canSend || isDisconnected }
     private var reconnectDotSize: CGFloat { min(12, sendButtonSize * 0.4) }
     private var sendIconColor: Color { .white }
+    private let reconnectPulseDuration: TimeInterval = 0.8
 
     private var sendBackgroundColor: Color {
         switch connectionState {
@@ -353,6 +353,13 @@ private struct MessageSendControl: View {
         case .disconnected:
             return ChatFlowTheme.connectionDisconnected(inputBarColorScheme)
         }
+    }
+
+    private func reconnectDotOpacity(at date: Date) -> Double {
+        let phase = date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: reconnectPulseDuration) / reconnectPulseDuration
+        let eased = 0.5 - 0.5 * cos(phase * 2 * .pi)
+        return 0.4 + (0.6 * eased)
     }
 
     var body: some View {
@@ -371,11 +378,14 @@ private struct MessageSendControl: View {
             }
         }) {
             ZStack {
-                Circle()
-                    .fill(sendBackgroundColor)
-                    .frame(width: reconnectDotSize, height: reconnectDotSize)
-                    .opacity(isReconnecting ? (reconnectPulseOn ? 1.0 : 0.4) : 0)
-                    .scaleEffect(isReconnecting ? 1 : 0.45)
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isReconnecting)) { context in
+                    Circle()
+                        .fill(sendBackgroundColor)
+                        .frame(width: reconnectDotSize, height: reconnectDotSize)
+                        .opacity(isReconnecting ? reconnectDotOpacity(at: context.date) : 0)
+                        .scaleEffect(isReconnecting ? 1 : 0.45)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 Image(systemName: "stop.fill")
                     .font(.system(size: 16, weight: .semibold))
@@ -426,23 +436,6 @@ private struct MessageSendControl: View {
         .animation(.spring(response: 0.30, dampingFraction: 0.82), value: isSending)
         .animation(.spring(response: 0.30, dampingFraction: 0.82), value: canSend)
         .animation(.spring(response: 0.30, dampingFraction: 0.82), value: connectionState)
-        .onAppear {
-            reconnectPulseOn = false
-            guard isReconnecting else { return }
-            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                reconnectPulseOn = true
-            }
-        }
-        .onChange(of: connectionState) { _, newValue in
-            if newValue == .reconnecting {
-                reconnectPulseOn = false
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                    reconnectPulseOn = true
-                }
-            } else {
-                reconnectPulseOn = false
-            }
-        }
     }
 }
 
