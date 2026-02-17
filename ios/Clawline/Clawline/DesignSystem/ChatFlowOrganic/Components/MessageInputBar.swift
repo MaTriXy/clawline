@@ -310,7 +310,7 @@ private struct MessageEditorChrome: View {
 #if os(visionOS)
         .background(.regularMaterial, in: inputShape)
 #else
-        .background(.ultraThinMaterial, in: inputShape)
+        .glassEffect(.regular, in: inputShape)
 #endif
         .overlay {
 #if os(visionOS)
@@ -420,6 +420,7 @@ private struct MessageSendControl: View {
                     : sendBackgroundColor.opacity(sendActionEnabled ? 1 : 0.35)
             )
         )
+        .glassEffect(.regular.interactive(), in: Capsule())
 #endif
         .buttonStyle(.plain)
 #if os(visionOS)
