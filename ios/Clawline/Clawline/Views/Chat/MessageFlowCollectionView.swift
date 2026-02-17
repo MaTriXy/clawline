@@ -307,8 +307,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             break
         case .reconfigureItems(let ids):
             ids.forEach { scheduleReconfigure(for: $0) }
-        case .remeasureAndShift:
-            scheduleLayoutInvalidation()
+        case .remeasureAndShift(let changes):
+            guard changes.count == 1,
+                  let change = changes.first,
+                  abs(change.delta) > 0.5,
+                  let indexPath = dataSource.indexPath(for: change.id) else {
+                scheduleLayoutInvalidation()
+                return
+            }
+            flowLayout.invalidateLayout(mode: .itemHeightChange(index: indexPath.item, delta: change.delta))
         case .fullRebuild:
             scheduleLayoutInvalidation()
         }
@@ -2730,8 +2737,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             let widthDelta = abs(previous.width - snapped.width)
             guard heightDelta > 8 || widthDelta > 4 else { return }
         }
-        _ = writeMeasuredSize(messageId: messageId, measurement: snapped)
-        scheduleLayoutInvalidation()
+        if let delta = writeMeasuredSize(messageId: messageId, measurement: snapped) {
+            executeInvalidationPlan(.remeasureAndShift([(id: messageId, delta: delta)]))
+        } else {
+            scheduleLayoutInvalidation()
+        }
         if messageId == lastMessageId {
             scheduleScrollToBottom(animated: false, attempts: 1)
         }
@@ -2771,10 +2781,22 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 }
 
 private final class MessageFlowLayout: UICollectionViewFlowLayout {
+    enum InvalidationMode {
+        case fullRebuild
+        case itemHeightChange(index: Int, delta: CGFloat)
+    }
+
+    private enum PendingInvalidation: Equatable {
+        case none
+        case fullRebuild
+        case itemHeightChange(index: Int, delta: CGFloat)
+    }
+
     private var cachedAttributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]
     private var cachedContentSize: CGSize = .zero
     private var needsRebuild = true
     private var cachedLayoutSignature: LayoutSignature?
+    private var pendingInvalidation: PendingInvalidation = .fullRebuild
 
     private struct LayoutSignature: Equatable {
         let itemCount: Int
@@ -2798,7 +2820,26 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
             minimumInteritemSpacing: minimumInteritemSpacing,
             minimumLineSpacing: minimumLineSpacing
         )
+        if case let .itemHeightChange(index, delta) = pendingInvalidation,
+           !needsRebuild,
+           cachedLayoutSignature == signature,
+           applyItemHeightChange(index: index, delta: delta) {
+            pendingInvalidation = .none
+            cachedLayoutSignature = signature
+            return
+        }
+
+        if !needsRebuild,
+           let previous = cachedLayoutSignature,
+           canAppendIncrementally(from: previous, to: signature),
+           appendLastItem(collectionView: collectionView, signature: signature) {
+            pendingInvalidation = .none
+            cachedLayoutSignature = signature
+            return
+        }
+
         if !needsRebuild, cachedLayoutSignature == signature {
+            pendingInvalidation = .none
             return
         }
 
@@ -2838,7 +2879,81 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         cachedContentSize = CGSize(width: contentWidth, height: y + rowHeight + sectionInset.bottom)
         cachedLayoutSignature = signature
         needsRebuild = false
+        pendingInvalidation = .none
         NSLog("[KBTIMING] FlowLayout.prepare items=%d dt=%.4f", itemCount, CFAbsoluteTimeGetCurrent() - t0)
+    }
+
+    private func canAppendIncrementally(from previous: LayoutSignature, to current: LayoutSignature) -> Bool {
+        guard current.itemCount == previous.itemCount + 1 else { return false }
+        guard current.contentWidth == previous.contentWidth else { return false }
+        guard current.sectionInset == previous.sectionInset else { return false }
+        guard current.minimumInteritemSpacing == previous.minimumInteritemSpacing else { return false }
+        guard current.minimumLineSpacing == previous.minimumLineSpacing else { return false }
+        guard pendingInvalidation == .none else { return false }
+        return !cachedAttributes.isEmpty
+    }
+
+    private func appendLastItem(collectionView: UICollectionView, signature: LayoutSignature) -> Bool {
+        let newItemIndex = signature.itemCount - 1
+        guard newItemIndex > 0 else { return false }
+        let previousIndexPath = IndexPath(item: newItemIndex - 1, section: 0)
+        guard let previousAttributes = cachedAttributes[previousIndexPath] else { return false }
+
+        let newIndexPath = IndexPath(item: newItemIndex, section: 0)
+        let size = (collectionView.delegate as? UICollectionViewDelegateFlowLayout)?
+            .collectionView?(collectionView, layout: self, sizeForItemAt: newIndexPath) ?? itemSize
+        let maxX = signature.contentWidth - sectionInset.right
+        let rowMinY = previousAttributes.frame.minY
+        let rowHeight = cachedAttributes.values
+            .filter { abs($0.frame.minY - rowMinY) <= 0.5 }
+            .map { $0.frame.height }
+            .max() ?? previousAttributes.frame.height
+
+        var x = previousAttributes.frame.maxX + minimumInteritemSpacing
+        var y = rowMinY
+        var currentRowHeight = rowHeight
+        if x + size.width > maxX, x > sectionInset.left {
+            x = sectionInset.left
+            y = rowMinY + rowHeight + minimumLineSpacing
+            currentRowHeight = 0
+        }
+
+        let frame = CGRect(x: x, y: y, width: size.width, height: size.height)
+        let attributes = UICollectionViewLayoutAttributes(forCellWith: newIndexPath)
+        attributes.frame = frame
+        cachedAttributes[newIndexPath] = attributes
+
+        currentRowHeight = max(currentRowHeight, size.height)
+        cachedContentSize = CGSize(
+            width: signature.contentWidth,
+            height: y + currentRowHeight + sectionInset.bottom
+        )
+        return true
+    }
+
+    private func applyItemHeightChange(index: Int, delta: CGFloat) -> Bool {
+        guard abs(delta) > 0.5 else { return true }
+        let indexPath = IndexPath(item: index, section: 0)
+        guard let attributes = cachedAttributes[indexPath] else { return false }
+
+        let oldFrame = attributes.frame
+        let newHeight = max(1, oldFrame.height + delta)
+        attributes.frame = CGRect(x: oldFrame.minX, y: oldFrame.minY, width: oldFrame.width, height: newHeight)
+
+        let rowMinY = oldFrame.minY
+        let rowAttributes = cachedAttributes.values.filter { abs($0.frame.minY - rowMinY) <= 0.5 }
+        let oldRowHeight = rowAttributes.map(\.frame.height).max() ?? oldFrame.height
+        let newRowHeight = rowAttributes.map(\.frame.height).max() ?? newHeight
+        let rowDelta = newRowHeight - oldRowHeight
+        guard abs(rowDelta) > 0.5 else { return true }
+
+        for entry in cachedAttributes where entry.key != indexPath && entry.value.frame.minY > rowMinY + 0.5 {
+            var frame = entry.value.frame
+            frame.origin.y += rowDelta
+            entry.value.frame = frame
+        }
+        cachedContentSize.height += rowDelta
+        return true
     }
 
     override var collectionViewContentSize: CGSize {
@@ -2853,12 +2968,24 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         cachedAttributes[indexPath]
     }
 
+    func invalidateLayout(mode: InvalidationMode) {
+        switch mode {
+        case .fullRebuild:
+            pendingInvalidation = .fullRebuild
+            needsRebuild = true
+            super.invalidateLayout()
+        case .itemHeightChange(let index, let delta):
+            pendingInvalidation = .itemHeightChange(index: index, delta: delta)
+            super.invalidateLayout()
+        }
+    }
+
     override func invalidateLayout() {
-        needsRebuild = true
-        super.invalidateLayout()
+        invalidateLayout(mode: .fullRebuild)
     }
 
     override func invalidateLayout(with context: UICollectionViewLayoutInvalidationContext) {
+        pendingInvalidation = .fullRebuild
         needsRebuild = true
         super.invalidateLayout(with: context)
     }
