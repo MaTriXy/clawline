@@ -168,6 +168,12 @@ final class ChatViewModel: ChatViewModelHosting {
         case unavailable
     }
 
+    private enum ConnectionStateMutationSource: String {
+        case stateStream
+        case manualReconnect
+        case serviceInterruption
+    }
+
     init(auth: any AuthManaging,
          chatService: any ChatServicing,
          settings: SettingsManager,
@@ -229,7 +235,7 @@ final class ChatViewModel: ChatViewModelHosting {
     func reconnect() {
         guard auth.token != nil else { return }
         guard sendButtonConnectionState == .disconnected else { return }
-        connectionState = .reconnecting
+        transitionConnectionState(.reconnecting, source: .manualReconnect)
         reconnectTask?.cancel()
         reconnectTask = nil
         scheduleReconnect(immediate: true, reason: .manualReconnect)
@@ -322,8 +328,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func observeConnectionState() async {
         for await state in chatService.connectionState {
             logger.info("ChatViewModel stateStream id=\(self.instanceId, privacy: .public) state=\(String(describing: state), privacy: .public)")
-            connectionState = state
-            handleConnectionState(state)
+            transitionConnectionState(state, source: .stateStream)
         }
     }
 
@@ -1025,7 +1030,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 markLocalMessageFailed(
                     id: clientId,
                     code: "queue_failed",
-                    message: error.localizedDescription
+                    message: nil
                 )
                 isSending = false
                 activeClientMessageId = nil
@@ -1074,7 +1079,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 markLocalMessageFailed(
                     id: clientId,
                     code: "queue_failed",
-                    message: error.localizedDescription
+                    message: nil
                 )
                 isSending = false
                 activeClientMessageId = nil
@@ -1297,7 +1302,7 @@ final class ChatViewModel: ChatViewModelHosting {
         case .connectionInterrupted(let reason):
             logger.info("connection interrupted reason=\(reason ?? "unknown", privacy: .public)")
             if sendButtonConnectionState == .connected {
-                connectionState = .reconnecting
+                transitionConnectionState(.reconnecting, source: .serviceInterruption)
             }
             markPendingMessagesAsFailedForConnectionLoss()
             scheduleReconnect(reason: .connectionStateDisconnected)
@@ -1378,6 +1383,13 @@ final class ChatViewModel: ChatViewModelHosting {
             pendingProvisionedSend = nil
             toastManager.show("This stream is unavailable. Switch streams and try again.")
         }
+    }
+
+    private func transitionConnectionState(_ state: ConnectionState,
+                                           source: ConnectionStateMutationSource) {
+        connectionState = state
+        logger.info("connectionState transition id=\(self.instanceId, privacy: .public) source=\(source.rawValue, privacy: .public) state=\(String(describing: state), privacy: .public)")
+        handleConnectionState(state)
     }
 
     private func resetSessionProvisioningState(clearPendingSend: Bool) {
