@@ -126,6 +126,11 @@ struct ChatView: View {
 
     @State private var inputBarHeight: CGFloat = 0
     @State private var streamToastManager = StreamToastManager()
+    @State private var streamSwitchReflowTask: Task<Void, Never>?
+    @State private var settledActiveSessionKey: String = ""
+
+    private let streamSwitchReflowDebounce: Duration = .milliseconds(500)
+    private let streamSwitchSpinnerHold: Duration = .milliseconds(450)
 
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0.5
@@ -638,8 +643,10 @@ struct ChatView: View {
         }
         .onChange(of: viewModel.activeSessionKey) { _, newValue in
             layoutCoordinator.setActiveSessionKey(newValue)
+            scheduleStreamSwitchReflow(for: newValue)
         }
         .onAppear {
+            settledActiveSessionKey = viewModel.activeSessionKey
             layoutCoordinator.setActiveSessionKey(viewModel.activeSessionKey)
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
@@ -715,7 +722,8 @@ struct ChatView: View {
         if streamToastManager.isVisible {
             StreamToast(
                 displayName: streamToastManager.displayName,
-                sessionKey: streamToastManager.sessionKey
+                sessionKey: streamToastManager.sessionKey,
+                isBusy: streamToastManager.isBusy
             )
                 .padding(.bottom, inputBarTopFromScreenBottom + 50)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -882,7 +890,7 @@ struct ChatView: View {
             viewModel: viewModel,
             topInset: topInset,
             isCompact: horizontalSizeClass == .compact,
-            isActiveSession: sessionKey == viewModel.activeSessionKey,
+            isActiveSession: sessionKey == reflowActiveSessionKey,
             isInputActive: isInputFocused,
             truncationBottomInset: truncationBottomInset,
             firstUnreadMessageId: state.firstUnreadMessageId,
@@ -1034,7 +1042,37 @@ struct ChatView: View {
         viewModel.setActiveSessionKey(sessionKey)
         let streamDisplayName = viewModel.stream(for: sessionKey)?.displayName ?? viewModel.activeSessionDisplayName
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            streamToastManager.show(displayName: streamDisplayName, sessionKey: sessionKey)
+            streamToastManager.show(displayName: streamDisplayName, sessionKey: sessionKey, isBusy: false)
+        }
+    }
+
+    private var reflowActiveSessionKey: String {
+        let validKeys = Set(viewModel.orderedStreams.map(\.sessionKey))
+        if validKeys.contains(settledActiveSessionKey), !settledActiveSessionKey.isEmpty {
+            return settledActiveSessionKey
+        }
+        return viewModel.activeSessionKey
+    }
+
+    @MainActor
+    private func scheduleStreamSwitchReflow(for sessionKey: String) {
+        guard sessionKey != settledActiveSessionKey else { return }
+        streamSwitchReflowTask?.cancel()
+        streamToastManager.setBusy(false)
+        streamSwitchReflowTask = Task {
+            try? await Task.sleep(for: streamSwitchReflowDebounce)
+            guard !Task.isCancelled else { return }
+            let displayName = viewModel.stream(for: sessionKey)?.displayName ?? viewModel.activeSessionDisplayName
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                streamToastManager.show(displayName: displayName, sessionKey: sessionKey, isBusy: true)
+            }
+            await Task.yield()
+            settledActiveSessionKey = sessionKey
+            try? await Task.sleep(for: streamSwitchSpinnerHold)
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                streamToastManager.setBusy(false)
+            }
         }
     }
 
