@@ -95,10 +95,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private let uiKitBubbleSizer = MessageBubbleUIKitView()
     private var currentIsDark: Bool = false
     private let bubbleSizingV2Enabled = BubbleSizingV2.isEnabled
-    private let bubbleSizingV2MeasurementCache = BubbleSizingV2.LRUCache<BubbleSizingV2.CacheKey, BubbleSizingV2.Measurement>(maxEntries: 800)
-    private let bubbleSizingV2LinkPreviewHeightCache = BubbleSizingV2.LinkPreviewHeightCache()
-    private var bubbleSizingV2KeysByMessageId: [String: Set<BubbleSizingV2.CacheKey>] = [:]
-    private var bubbleSizingV2LinkPreviewStateVersionByMessageId: [String: Int] = [:]
+    private let bubbleV2Measurements = BubbleSizingV2.LRUCache<BubbleSizingV2.CacheKey, BubbleSizingV2.Measurement>(maxEntries: 800)
+    private let bubbleV2PreviewHeights = BubbleSizingV2.LinkPreviewHeightCache()
+    private var bubbleV2KeysById: [String: Set<BubbleSizingV2.CacheKey>] = [:]
+    private var bubbleV2PreviewVersionById: [String: Int] = [:]
     private var bubbleSizingV2PendingRemeasureIds: Set<String> = []
     private var bubbleSizingV2RemeasureDebounceTimer: Timer?
     private var bubbleSizingV2DeferredFlushTimer: Timer?
@@ -111,10 +111,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private var messagesById: [String: Message] = [:]
     private var fingerprints: [String: Int] = [:]
-    private var lastMeasuredSizes: [String: CGSize] = [:]
-    private var sizeCache: [String: CGSize] = [:]
+    private var measuredSizesById: [String: CGSize] = [:]
+    private var cachedSizesById: [String: CGSize] = [:]
     private var pendingReconfigureIds: Set<String> = []
-    private var dirtySizeIds: Set<String> = []
+    private var pendingInvalidatedSizeIds: Set<String> = []
     private var invalidationScheduled = false
     private var lastMessageId: String?
     private var viewModel: ChatViewModel?
@@ -224,6 +224,133 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     deinit {
         NotificationCenter.default.removeObserver(self, name: UIApplication.willResignActiveNotification, object: nil)
+    }
+
+    // MARK: - Cache Mutation Seam
+    // Invariant: All bubble cache mutations go through this seam.
+
+    private struct CachedMeasurement {
+        let size: CGSize
+    }
+
+    private typealias HeightDelta = CGFloat
+
+    private enum InvalidationReason {
+        case messageChanged(id: String)
+        case messagesRemoved(ids: [String])
+        case envChanged
+        case compactnessChanged
+        case containerSizeChanged
+    }
+
+    private enum InvalidationPlan {
+        case none
+        case reconfigureItems([String])
+        case remeasureAndShift([(id: String, delta: HeightDelta)])
+        case fullRebuild
+    }
+
+    @discardableResult
+    private func readSizeState(messageId: String, env: BubbleSizingV2.Environment) -> CachedMeasurement? {
+        _ = env
+        guard let cached = cachedSizesById[messageId] else { return nil }
+        measuredSizesById[messageId] = cached
+        return CachedMeasurement(size: cached)
+    }
+
+    @discardableResult
+    private func writeMeasuredSize(messageId: String, measurement: CGSize) -> HeightDelta? {
+        let previous = measuredSizesById[messageId]
+        measuredSizesById[messageId] = measurement
+        cachedSizesById[messageId] = measurement
+        guard let previous else { return nil }
+        return measurement.height - previous.height
+    }
+
+    @discardableResult
+    private func recordAsyncPreview(messageId: String, key: String, height: CGFloat) -> HeightDelta? {
+        let oldHeight = bubbleV2PreviewHeights.get(cacheKey: key)
+        bubbleV2PreviewHeights.set(height: height, cacheKey: key)
+        let epsilon: CGFloat = 4
+        guard oldHeight == nil || abs((oldHeight ?? 0) - height) > epsilon else {
+            return nil
+        }
+        bubbleV2PreviewVersionById[messageId, default: 0] += 1
+        return height - (oldHeight ?? height)
+    }
+
+    @discardableResult
+    private func invalidateFor(reason: InvalidationReason) -> InvalidationPlan {
+        switch reason {
+        case .messageChanged(let id):
+            pendingInvalidatedSizeIds.insert(id)
+            scheduleLayoutInvalidation()
+            return .fullRebuild
+        case .messagesRemoved(let ids):
+            clearSizeState(for: ids)
+            ids.forEach { invalidateBubbleSizingV2Cache(for: $0) }
+            removeBubbleV2PreviewVersions(for: ids)
+            return .none
+        case .envChanged, .compactnessChanged, .containerSizeChanged:
+            clearAllSizeState()
+            clearAllBubbleV2State()
+            flowLayout.invalidateLayout()
+            return .fullRebuild
+        }
+    }
+
+    private func clearSizeState(for ids: [String]) {
+        ids.forEach { id in
+            measuredSizesById.removeValue(forKey: id)
+            cachedSizesById.removeValue(forKey: id)
+        }
+    }
+
+    private func clearAllSizeState() {
+        measuredSizesById.removeAll()
+        cachedSizesById.removeAll()
+    }
+
+    private func clearAllBubbleV2State() {
+        bubbleV2Measurements.removeAll()
+        bubbleV2KeysById.removeAll()
+        bubbleV2PreviewVersionById.removeAll()
+    }
+
+    private func removeBubbleV2PreviewVersions(for ids: [String]) {
+        ids.forEach { bubbleV2PreviewVersionById.removeValue(forKey: $0) }
+    }
+
+    private func cachedWidth(for messageId: String) -> CGFloat? {
+        cachedSizesById[messageId]?.width
+    }
+
+    private func bubbleV2PreviewVersion(for messageId: String) -> Int {
+        bubbleV2PreviewVersionById[messageId] ?? 0
+    }
+
+    private func bubbleV2Measurement(for key: BubbleSizingV2.CacheKey) -> BubbleSizingV2.Measurement? {
+        bubbleV2Measurements.value(forKey: key)
+    }
+
+    private func recordBubbleV2Measurement(_ measurement: BubbleSizingV2.Measurement,
+                                           key: BubbleSizingV2.CacheKey,
+                                           messageId: String) {
+        bubbleV2Measurements.setValue(measurement, forKey: key)
+        bubbleV2KeysById[messageId, default: []].insert(key)
+    }
+
+    private func removeBubbleV2Measurements(for messageId: String) {
+        guard let keys = bubbleV2KeysById.removeValue(forKey: messageId) else { return }
+        for key in keys {
+            bubbleV2Measurements.removeValue(forKey: key)
+        }
+    }
+
+    private func consumePendingInvalidatedSizeIds() -> [String] {
+        let ids = Array(pendingInvalidatedSizeIds)
+        pendingInvalidatedSizeIds.removeAll()
+        return ids
     }
 
     override func viewDidLayoutSubviews() {
@@ -477,8 +604,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if bubbleSizingV2Enabled {
             affectedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
         } else {
-            affectedIds.forEach { sizeCache.removeValue(forKey: $0) }
-            affectedIds.forEach { lastMeasuredSizes.removeValue(forKey: $0) }
+            clearSizeState(for: affectedIds)
         }
 
         // Item heights depend on bottom inset for single-link bubbles; force both size recompute and
@@ -546,8 +672,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if let isDark = isDark, currentIsDark != isDark {
             logger.info("update: appearance changed isDark=\(isDark, privacy: .public)")
             currentIsDark = isDark
-            sizeCache.removeAll()
-            lastMeasuredSizes.removeAll()
+            clearAllSizeState()
             forceReconfigureAll = true
         }
 #if os(visionOS)
@@ -590,10 +715,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         messagesById = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
         let newFingerprints = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, fingerprint(for: $0)) })
         let removedIds = Set(fingerprints.keys).subtracting(newFingerprints.keys)
-        removedIds.forEach { lastMeasuredSizes.removeValue(forKey: $0) }
-        removedIds.forEach { sizeCache.removeValue(forKey: $0) }
-        removedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
-        removedIds.forEach { bubbleSizingV2LinkPreviewStateVersionByMessageId.removeValue(forKey: $0) }
+        _ = invalidateFor(reason: .messagesRemoved(ids: Array(removedIds)))
 
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
@@ -636,10 +758,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if !changedIds.isEmpty {
             snapshot.reconfigureItems(changedIds)
             flowLayout.invalidateLayout()
-            changedIds.forEach { sizeCache.removeValue(forKey: $0) }
-            changedIds.forEach { lastMeasuredSizes.removeValue(forKey: $0) }
+            clearSizeState(for: changedIds)
             changedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
-            changedIds.forEach { bubbleSizingV2LinkPreviewStateVersionByMessageId.removeValue(forKey: $0) }
+            removeBubbleV2PreviewVersions(for: changedIds)
         }
         forceReconfigureAll = false
 
@@ -1151,7 +1272,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             } else {
                 layoutStateV2 = nil
                 // Use cached size width for consistent sizing with measurement
-                configureWidth = self.sizeCache[id]?.width ?? maxWidth
+                configureWidth = self.cachedWidth(for: id) ?? maxWidth
                 truncationHeightOverrideV1 = fallbackHeightPolicy.v1TruncationHeightOverride
                 bubbleHeightPolicyForConfigure = fallbackHeightPolicy
             }
@@ -1290,12 +1411,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.contentInset.top = topInset
         collectionView.verticalScrollIndicatorInsets.top = topInset
         setBottomInset(currentBottomInset)
-        lastMeasuredSizes.removeAll()
-        sizeCache.removeAll()
-        bubbleSizingV2MeasurementCache.removeAll()
-        bubbleSizingV2KeysByMessageId.removeAll()
-        bubbleSizingV2LinkPreviewStateVersionByMessageId.removeAll()
-        flowLayout.invalidateLayout()
+        _ = invalidateFor(reason: .envChanged)
         NSLog("[KBTIMING] updateLayout cacheCleared invalidated dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
     }
 
@@ -1488,10 +1604,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard let id = dataSource.itemIdentifier(for: indexPath), let viewModel else {
             return .zero
         }
+        let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+        let env = bubbleSizingV2Environment(metrics: metrics)
 
         // Handle typing indicator size
         if id == TypingIndicatorCell.itemId {
-            let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
             let storageKey = viewModel.typingSessionKey ?? viewModel.activeSessionKey
             let message = TypingIndicatorCell.makeMessage(sessionKey: storageKey)
             let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
@@ -1521,11 +1638,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return .zero
         }
         if bubbleSizingV2Enabled {
-            let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
             let presentation = viewModel.presentation(for: message, metrics: metrics)
             let hideHeader = shouldHideHeader(for: message, presentation: presentation)
             let failureReason = viewModel.failureMessage(for: message.id)
-            let env = bubbleSizingV2Environment(metrics: metrics)
             let plan = bubbleSizingV2Plan(
                 message: message,
                 presentation: presentation,
@@ -1544,11 +1659,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             )
             return layoutState.measurement.measuredCellSize
         }
-        if let cached = sizeCache[id] {
-            lastMeasuredSizes[id] = cached
-            return cached
+        if let cached = readSizeState(messageId: id, env: env) {
+            return cached.size
         }
-        let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let presentation = viewModel.presentation(for: message, metrics: metrics)
         let hideHeader = shouldHideHeader(for: message, presentation: presentation)
         let sizeClass = MessageFlowRules.sizeClass(for: presentation)
@@ -1561,7 +1674,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             containerWidth: availableWidth
         )
         let failureReason = viewModel.failureMessage(for: message.id)
-        let env = bubbleSizingV2Environment(metrics: metrics)
         let bubbleHeightPolicy = bubbleHeightPolicyForPresentation(
             presentation: presentation,
             metrics: metrics,
@@ -1576,8 +1688,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             bubbleHeightPolicy: bubbleHeightPolicy,
             showsHeader: !hideHeader
         )
-        sizeCache[id] = measuredSize
-        lastMeasuredSizes[id] = measuredSize
+        _ = writeMeasuredSize(messageId: id, measurement: measuredSize)
         return measuredSize
     }
 
@@ -1768,7 +1879,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                           plan: BubbleSizingV2.Plan,
                                           failureReason: String?,
                                           showsHeader: Bool) -> BubbleSizingV2.LayoutState {
-        let initialLinkVersion: Int = bubbleSizingV2LinkPreviewStateVersionByMessageId[message.id] ?? 0
+        let initialLinkVersion: Int = bubbleV2PreviewVersion(for: message.id)
         let layoutFingerprintSeed = bubbleSizingV2LayoutFingerprintSeed(
             plan: plan,
             showsHeader: showsHeader,
@@ -1781,7 +1892,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             env: env,
             linkPreviewStateVersion: initialLinkVersion
         )
-        if let cached = bubbleSizingV2MeasurementCache.value(forKey: key) {
+        if let cached = bubbleV2Measurement(for: key) {
             return bubbleSizingV2MakeLayoutState(
                 message: message,
                 presentation: presentation,
@@ -1801,8 +1912,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             failureReason: failureReason,
             showsHeader: showsHeader
         )
-        bubbleSizingV2MeasurementCache.setValue(measured.measurement, forKey: key)
-        bubbleSizingV2KeysByMessageId[message.id, default: []].insert(key)
+        recordBubbleV2Measurement(measured.measurement, key: key, messageId: message.id)
         return measured
     }
 
@@ -1845,7 +1955,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let previewMaxHeight = linkPreviewViewportMaxHeight(plan: plan)
         let fixedPreviewHeight: CGFloat? = plan.isSingleLinkPreview ? previewMaxHeight : nil
         let estimated = fixedPreviewHeight
-            ?? bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: cacheKey)
+            ?? bubbleV2PreviewHeights.get(cacheKey: cacheKey)
             ?? 120
         let previewMinHeight = fixedPreviewHeight ?? 40
         return BubbleSizingV2.LayoutState(
@@ -1898,7 +2008,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let linkPreviewMaxHeight = linkPreviewViewportMaxHeight(plan: plan)
         let fixedPreviewHeight: CGFloat? = plan.isSingleLinkPreview ? linkPreviewMaxHeight : nil
         let linkPreviewEstimatedHeight: CGFloat? = fixedPreviewHeight
-            ?? linkPreviewCacheKey.flatMap { bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: $0) }
+            ?? linkPreviewCacheKey.flatMap { bubbleV2PreviewHeights.get(cacheKey: $0) }
         let previewInitialHeight = linkPreviewEstimatedHeight ?? 120
         let previewMinHeight = fixedPreviewHeight ?? 40
 
@@ -2245,8 +2355,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func invalidateLayout(for messageId: String) {
-        dirtySizeIds.insert(messageId)
-        scheduleLayoutInvalidation()
+        _ = invalidateFor(reason: .messageChanged(id: messageId))
     }
 
     private func handleCellRequestedLayout(messageId: String) {
@@ -2353,13 +2462,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return
         }
         let newHeight = previewView.reportedHeight
-        let oldHeight = bubbleSizingV2LinkPreviewHeightCache.get(cacheKey: cacheKey)
-        bubbleSizingV2LinkPreviewHeightCache.set(height: newHeight, cacheKey: cacheKey)
-
-        let epsilon: CGFloat = 4
-        if oldHeight == nil || abs((oldHeight ?? 0) - newHeight) > epsilon {
-            bubbleSizingV2LinkPreviewStateVersionByMessageId[messageId, default: 0] += 1
-        }
+        _ = recordAsyncPreview(messageId: messageId, key: cacheKey, height: newHeight)
 
         bubbleSizingV2PendingRemeasureIds.insert(messageId)
         scheduleBubbleSizingV2Remeasure()
@@ -2469,10 +2572,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func invalidateBubbleSizingV2Cache(for messageId: String) {
-        guard let keys = bubbleSizingV2KeysByMessageId.removeValue(forKey: messageId) else { return }
-        for key in keys {
-            bubbleSizingV2MeasurementCache.removeValue(forKey: key)
-        }
+        removeBubbleV2Measurements(for: messageId)
     }
 
     private struct BubbleSizingV2ViewportAnchor {
@@ -2593,13 +2693,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             // Cap height to the truncation max.
             snapped.height = min(snapped.height, cap)
         }
-        if let previous = lastMeasuredSizes[messageId] {
+        let previous = readSizeState(messageId: messageId, env: env)?.size
+        if let previous {
             let heightDelta = abs(previous.height - snapped.height)
             let widthDelta = abs(previous.width - snapped.width)
             guard heightDelta > 8 || widthDelta > 4 else { return }
         }
-        lastMeasuredSizes[messageId] = snapped
-        sizeCache[messageId] = snapped
+        _ = writeMeasuredSize(messageId: messageId, measurement: snapped)
         scheduleLayoutInvalidation()
         if messageId == lastMessageId {
             scheduleScrollToBottom(animated: false, attempts: 1)
@@ -2624,13 +2724,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.invalidationScheduled = false
-            if !self.dirtySizeIds.isEmpty {
-                let ids = self.dirtySizeIds
-                self.dirtySizeIds.removeAll()
-                ids.forEach { id in
-                    self.sizeCache.removeValue(forKey: id)
-                    self.lastMeasuredSizes.removeValue(forKey: id)
-                }
+            if !self.pendingInvalidatedSizeIds.isEmpty {
+                let ids = self.consumePendingInvalidatedSizeIds()
+                self.clearSizeState(for: ids)
             }
             self.flowLayout.invalidateLayout()
         }
