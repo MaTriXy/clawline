@@ -104,6 +104,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var bubbleSizingV2DeferredFlushTimer: Timer?
     private var bubbleSizingV2RemeasureBatchStartTime: CFAbsoluteTime?
     private var bubbleSizingV2RemeasureDeferredUntilNearBottom: Bool = false
+    private var deferredBottomInsetRemeasureIds: Set<String> = []
+    private var bottomInsetRemeasureTimer: Timer?
     private var bubbleSizingV2LastScrollActivityTime: CFAbsoluteTime = 0
     private static let bubbleSizingV2RemeasureDebounceSeconds: TimeInterval = 0.45
     private static let bubbleSizingV2RemeasureMaxWaitSeconds: TimeInterval = 2.5
@@ -315,7 +317,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 scheduleLayoutInvalidation()
                 return
             }
+            let viewportAnchor = captureBubbleSizingV2ViewportAnchor()
             flowLayout.invalidateLayout(mode: .itemHeightChange(index: indexPath.item, delta: change.delta))
+            scheduleBubbleSizingV2ViewportAnchorCompensation(viewportAnchor)
         case .fullRebuild:
             scheduleLayoutInvalidation()
         }
@@ -483,6 +487,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         checkFirstUnreadCrossingIfNeeded()
         schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
+        scheduleDeferredBottomInsetRemeasure()
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -501,6 +506,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             performPendingDeferredScrollToBottomIfNeeded()
             schedulePersistScrollState()
             flushDeferredBubbleSizingV2RemeasureIfNeeded()
+            scheduleDeferredBottomInsetRemeasure()
         }
     }
 
@@ -515,6 +521,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         performPendingDeferredScrollToBottomIfNeeded()
         schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
+        scheduleDeferredBottomInsetRemeasure()
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
@@ -524,6 +531,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         performPendingDeferredScrollToBottomIfNeeded()
         schedulePersistScrollState()
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
+        scheduleDeferredBottomInsetRemeasure()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -578,6 +586,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             cell.transform = .identity
         }
 #endif
+        scheduleDeferredBottomInsetRemeasure()
     }
 
     var currentBottomInset: CGFloat = 0
@@ -630,20 +639,48 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return isSingleLinkPreviewBubble(presentation: presentation) ? message.id : nil
         }
         guard !affectedIds.isEmpty else { return }
+        deferredBottomInsetRemeasureIds.formUnion(affectedIds)
+        scheduleDeferredBottomInsetRemeasure()
+    }
+
+    private func scheduleDeferredBottomInsetRemeasure() {
+        guard !deferredBottomInsetRemeasureIds.isEmpty else { return }
+        bottomInsetRemeasureTimer?.invalidate()
+        let delay: TimeInterval = isBubbleSizingV2ScrollAtRest() ? 0.02 : Self.bubbleSizingV2RestSettleDelaySeconds
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.bottomInsetRemeasureTimer = nil
+            self.flushDeferredBottomInsetRemeasureIfNeeded()
+        }
+        bottomInsetRemeasureTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func flushDeferredBottomInsetRemeasureIfNeeded() {
+        guard !deferredBottomInsetRemeasureIds.isEmpty else { return }
+        guard isBubbleSizingV2ScrollAtRest() else { return }
+
+        let visibleIds: Set<String> = Set(collectionView.indexPathsForVisibleItems.compactMap { indexPath in
+            guard let id = dataSource.itemIdentifier(for: indexPath), id != TypingIndicatorCell.itemId else {
+                return nil
+            }
+            return id
+        })
+        let idsToRemeasure = Array(deferredBottomInsetRemeasureIds.intersection(visibleIds))
+        guard !idsToRemeasure.isEmpty else { return }
 
         if bubbleSizingV2Enabled {
-            affectedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
+            idsToRemeasure.forEach { invalidateBubbleSizingV2Cache(for: $0) }
         } else {
-            clearSizeState(for: affectedIds)
+            clearSizeState(for: idsToRemeasure)
         }
 
-        // Item heights depend on bottom inset for single-link bubbles; force both size recompute and
-        // live-cell reconfigure so initial and relayout paths cannot diverge.
-        affectedIds.forEach { id in
+        idsToRemeasure.forEach { id in
             scheduleReconfigure(for: id)
             let plan = invalidateFor(reason: .messageChanged(id: id))
             executeInvalidationPlan(plan)
         }
+        deferredBottomInsetRemeasureIds.subtract(idsToRemeasure)
     }
 
     func scheduleScrollToBottom(animated: Bool, attempts: Int = 2) {
@@ -2937,12 +2974,11 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         guard let attributes = cachedAttributes[indexPath] else { return false }
 
         let oldFrame = attributes.frame
-        let newHeight = max(1, oldFrame.height + delta)
-        attributes.frame = CGRect(x: oldFrame.minX, y: oldFrame.minY, width: oldFrame.width, height: newHeight)
-
         let rowMinY = oldFrame.minY
         let rowAttributes = cachedAttributes.values.filter { abs($0.frame.minY - rowMinY) <= 0.5 }
         let oldRowHeight = rowAttributes.map(\.frame.height).max() ?? oldFrame.height
+        let newHeight = max(1, oldFrame.height + delta)
+        attributes.frame = CGRect(x: oldFrame.minX, y: oldFrame.minY, width: oldFrame.width, height: newHeight)
         let newRowHeight = rowAttributes.map(\.frame.height).max() ?? newHeight
         let rowDelta = newRowHeight - oldRowHeight
         guard abs(rowDelta) > 0.5 else { return true }
