@@ -23,6 +23,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var topInset: CGFloat
     var isCompact: Bool
     var isActiveSession: Bool
+    var isInputActive: Bool
     var truncationBottomInset: CGFloat
     var firstUnreadMessageId: String?
     var unreadCount: Int
@@ -46,6 +47,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             viewModel: viewModel,
             isCompact: isCompact,
             isActiveSession: isActiveSession,
+            isInputActive: isInputActive,
             topInset: topInset,
             truncationBottomInset: truncationBottomInset,
             firstUnreadMessageId: firstUnreadMessageId,
@@ -71,6 +73,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             viewModel: viewModel,
             isCompact: isCompact,
             isActiveSession: isActiveSession,
+            isInputActive: isInputActive,
             topInset: topInset,
             truncationBottomInset: truncationBottomInset,
             firstUnreadMessageId: firstUnreadMessageId,
@@ -122,6 +125,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var viewModel: ChatViewModel?
     private var isCompact: Bool = true
     private var isActiveSession: Bool = true
+    private var isInputActive: Bool = false
     private var topInset: CGFloat = 0
     private var truncationBottomInset: CGFloat = 0
     private var lastBoundsSize: CGSize = .zero
@@ -436,6 +440,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 viewModel: viewModel,
                 isCompact: isCompact,
                 isActiveSession: isActiveSession,
+                isInputActive: isInputActive,
                 topInset: topInset,
                 truncationBottomInset: truncationBottomInset,
                 firstUnreadMessageId: self.firstUnreadMessageId,
@@ -659,6 +664,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func flushDeferredBottomInsetRemeasureIfNeeded() {
         guard !deferredBottomInsetRemeasureIds.isEmpty else { return }
         guard isBubbleSizingV2ScrollAtRest() else { return }
+        guard !isInputActive else { return }
+        guard viewModel?.inputContent.isEffectivelyEmpty != false else { return }
 
         let visibleIds: Set<String> = Set(collectionView.indexPathsForVisibleItems.compactMap { indexPath in
             guard let id = dataSource.itemIdentifier(for: indexPath), id != TypingIndicatorCell.itemId else {
@@ -710,6 +717,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         viewModel: ChatViewModel,
         isCompact: Bool,
         isActiveSession: Bool,
+        isInputActive: Bool,
         topInset: CGFloat,
         truncationBottomInset: CGFloat,
         firstUnreadMessageId: String?,
@@ -728,6 +736,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.viewModel = viewModel
         self.channelOverride = sessionKey
         self.isActiveSession = isActiveSession
+        self.isInputActive = isInputActive
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
         self.onScrollEvent = onScrollEvent

@@ -883,6 +883,7 @@ struct ChatView: View {
             topInset: topInset,
             isCompact: horizontalSizeClass == .compact,
             isActiveSession: sessionKey == viewModel.activeSessionKey,
+            isInputActive: isInputFocused,
             truncationBottomInset: truncationBottomInset,
             firstUnreadMessageId: state.firstUnreadMessageId,
             unreadCount: state.unreadCount,
