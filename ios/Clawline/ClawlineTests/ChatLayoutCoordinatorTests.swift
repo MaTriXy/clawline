@@ -174,7 +174,8 @@ struct ChatLayoutCoordinatorTests {
         let metrics = ChatLayoutMetrics(
             belowBarGap: 24,
             flowGap: 10,
-            containerPadding: 12
+            containerPadding: 12,
+            pageIndicatorClearance: 0
         )
         let inputs = ChatLayoutInputs(
             keyboardHeight: 0,
@@ -209,7 +210,8 @@ struct ChatLayoutCoordinatorTests {
         let metrics = ChatLayoutMetrics(
             belowBarGap: 24,
             flowGap: 10,
-            containerPadding: 12
+            containerPadding: 12,
+            pageIndicatorClearance: 0
         )
 
         let state = ChatLayoutCoordinator.insetLayoutState(inputs: inputs, metrics: metrics, barHeight: 88)
@@ -224,7 +226,8 @@ struct ChatLayoutCoordinatorTests {
         let metrics = ChatLayoutMetrics(
             belowBarGap: 24,
             flowGap: 10,
-            containerPadding: 12
+            containerPadding: 12,
+            pageIndicatorClearance: 0
         )
         let inputs = ChatLayoutInputs(
             keyboardHeight: 0,
