@@ -237,7 +237,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private enum InvalidationReason {
         case messageChanged(id: String)
-        case messagesRemoved(ids: [String])
+        case messagesRemoved([String])
         case envChanged
         case compactnessChanged
         case containerSizeChanged
@@ -288,7 +288,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         switch reason {
         case .messageChanged(let id):
             dirtySizeIds.insert(id)
-            scheduleLayoutInvalidation()
             return .fullRebuild
         case .messagesRemoved(let ids):
             clearSizeState(for: ids)
@@ -298,8 +297,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         case .envChanged, .compactnessChanged, .containerSizeChanged:
             clearAllSizeState()
             clearAllBubbleV2State()
-            flowLayout.invalidateLayout()
             return .fullRebuild
+        }
+    }
+
+    private func executeInvalidationPlan(_ plan: InvalidationPlan) {
+        switch plan {
+        case .none:
+            break
+        case .reconfigureItems(let ids):
+            ids.forEach { scheduleReconfigure(for: $0) }
+        case .remeasureAndShift:
+            scheduleLayoutInvalidation()
+        case .fullRebuild:
+            scheduleLayoutInvalidation()
         }
     }
 
@@ -621,8 +632,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Item heights depend on bottom inset for single-link bubbles; force both size recompute and
         // live-cell reconfigure so initial and relayout paths cannot diverge.
-        affectedIds.forEach { scheduleReconfigure(for: $0) }
-        flowLayout.invalidateLayout()
+        affectedIds.forEach { id in
+            scheduleReconfigure(for: id)
+            let plan = invalidateFor(reason: .messageChanged(id: id))
+            executeInvalidationPlan(plan)
+        }
     }
 
     func scheduleScrollToBottom(animated: Bool, attempts: Int = 2) {
@@ -727,7 +741,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         messagesById = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
         let newFingerprints = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, fingerprint(for: $0)) })
         let removedIds = Set(fingerprints.keys).subtracting(newFingerprints.keys)
-        _ = invalidateFor(reason: .messagesRemoved(ids: Array(removedIds)))
+        let removedPlan = invalidateFor(reason: .messagesRemoved(Array(removedIds)))
+        executeInvalidationPlan(removedPlan)
 
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
@@ -769,8 +784,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             }
         if !changedIds.isEmpty {
             snapshot.reconfigureItems(changedIds)
-            flowLayout.invalidateLayout()
-            clearSizeState(for: changedIds)
+            changedIds.forEach { id in
+                let plan = invalidateFor(reason: .messageChanged(id: id))
+                executeInvalidationPlan(plan)
+            }
             changedIds.forEach { invalidateBubbleSizingV2Cache(for: $0) }
             removeBubbleV2PreviewVersions(for: changedIds)
         }
@@ -1423,7 +1440,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.contentInset.top = topInset
         collectionView.verticalScrollIndicatorInsets.top = topInset
         setBottomInset(currentBottomInset)
-        _ = invalidateFor(reason: .envChanged)
+        let envInvalidationPlan = invalidateFor(reason: .envChanged)
+        executeInvalidationPlan(envInvalidationPlan)
         NSLog("[KBTIMING] updateLayout cacheCleared invalidated dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
     }
 
@@ -2367,7 +2385,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func invalidateLayout(for messageId: String) {
-        _ = invalidateFor(reason: .messageChanged(id: messageId))
+        let plan = invalidateFor(reason: .messageChanged(id: messageId))
+        executeInvalidationPlan(plan)
     }
 
     private func handleCellRequestedLayout(messageId: String) {
