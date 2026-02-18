@@ -145,9 +145,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var pendingEntranceAnimationIds: Set<String> = []
     private var pendingScrollToBottomAfterInteractionEnd: Bool = false
     // Staged stream materialization (approved spec: tail window -> full history).
+    // WHY N=50: device measurements showed 500-item first apply taking 1.4-2.7s.
+    // A 50-item first paint targets ~10% of that cost while still showing meaningful recent context.
     private static let stagedMaterializationTailWindowCount = 50
 
     private enum MaterializationStage: String {
+        // WHY only two stages: spec intentionally limits complexity to one fast first paint
+        // followed by one full-history expansion. No intermediate windows.
         case tail
         case full
     }
@@ -839,6 +843,18 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             )
     }
 
+    private func pruneMaterializationState(validSessionKeys: Set<String>) {
+        let staleStateKeys = materializationStateBySessionKey.keys.filter { !validSessionKeys.contains($0) }
+        for key in staleStateKeys {
+            materializationStateBySessionKey.removeValue(forKey: key)
+        }
+        let stalePlanKeys = lastMaterializationPlanBySessionKey.keys.filter { !validSessionKeys.contains($0) }
+        for key in stalePlanKeys {
+            lastMaterializationPlanBySessionKey.removeValue(forKey: key)
+        }
+        materializationEventQueue.removeAll { !validSessionKeys.contains($0.sessionKey) }
+    }
+
     private func processMaterializationEventQueue() {
         guard !isMaterializationQueueProcessing else { return }
         isMaterializationQueueProcessing = true
@@ -888,6 +904,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
 
         if totalCount <= Self.stagedMaterializationTailWindowCount {
+            // WHY bypass staging for small streams: adding tail->full churn would be overhead
+            // without meaningful latency reduction when full history is already short.
             let fullBounds = WindowBounds(lowerBound: 0, upperBound: totalCount)
             materializationStateBySessionKey[sessionKey] = MaterializationState(
                 stage: .full,
@@ -929,6 +947,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             }
         }
         guard var state else {
+            // Defensive fallback to satisfy control-flow analysis.
+            // In practice, state is always initialized by the branch above.
             let fullBounds = WindowBounds(lowerBound: 0, upperBound: totalCount)
             return MaterializationPlan(
                 stage: .full,
@@ -951,7 +971,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 )
                 let shouldSchedule = state.expansionState == .pendingFull
                 if shouldSchedule {
-                    // Gate scheduling so only one tail->full promotion is issued per cold activation.
+                    // WHY only one promotion trigger: tail->full is a single transition.
+                    // Reissuing promotions would queue redundant expansion work and add jitter.
                     state.expansionState = .idle
                 }
                 materializationStateBySessionKey[sessionKey] = state
@@ -1034,21 +1055,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         return messages[lower..<upper].map(\.id)
     }
 
-    private func scheduleTailToFullPromotionIfNeeded(sessionKey: String,
-                                                     totalCount: Int,
-                                                     firstUnreadMessageId: String?,
-                                                     fullMessageIds: [String]) {
+    private func scheduleTailToFullPromotionIfNeeded(sessionKey: String) {
         // Promotion is queued on next runloop turn so tail stage can render first.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let sessionMatches = (self.channelOverride ?? self.viewModel?.engineActiveSessionKey) == sessionKey
             guard self.isActiveSession, sessionMatches else { return }
+            let fullMessages = self.viewModel?.messages(for: sessionKey) ?? []
+            let fullMessageIds = fullMessages.map(\.id)
 
             let plan = self.enqueueMaterializationEvent(
                 sessionKey: sessionKey,
                 event: .tailRendered(
-                    totalCount: totalCount,
-                    firstUnreadMessageId: firstUnreadMessageId,
+                    totalCount: fullMessages.count,
+                    firstUnreadMessageId: self.firstUnreadMessageId,
                     fullMessageIds: fullMessageIds
                 )
             )
@@ -1129,6 +1149,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let effectiveSessionKey = sessionKey ?? viewModel.engineActiveSessionKey
         collectionView.accessibilityIdentifier = effectiveSessionKey
         StreamSwitchTiming.log("messageFlow_update_enter", sessionKey: effectiveSessionKey)
+        pruneMaterializationState(validSessionKeys: Set(viewModel.orderedSessionKeys))
         let isOffscreenSession = sessionKey != nil && !isActiveSession
         let needsFullLayout = forceReconfigureAll
             || self.isCompact != isCompact
@@ -1163,6 +1184,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         executeInvalidationPlan(removedPlan)
 
         StreamSwitchTiming.log("snapshot_build_start", sessionKey: effectiveSessionKey)
+        // WHY revisits skip tail stage: first-visit latency is the bottleneck.
+        // Returning to a visited stream should avoid staged complexity and show full history directly.
         let isFirstActivationForSession = materializationStateBySessionKey[effectiveSessionKey] == nil
         let materializationPlan = enqueueMaterializationEvent(
             sessionKey: effectiveSessionKey,
@@ -1247,12 +1270,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             guard let self else { return }
             self.attemptRestoreScrollIfNeeded()
             if materializationPlan.scheduleTailToFullPromotion {
-                self.scheduleTailToFullPromotionIfNeeded(
-                    sessionKey: effectiveSessionKey,
-                    totalCount: messageCount,
-                    firstUnreadMessageId: firstUnreadMessageId,
-                    fullMessageIds: fullMessageIds
-                )
+                self.scheduleTailToFullPromotionIfNeeded(sessionKey: effectiveSessionKey)
             }
             if shouldAutoScrollToBottomAfterApply {
                 // Race-sensitive: the contentSize can change again after diffable applies.
@@ -1266,6 +1284,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 viewModel.markEngineActivationRenderedIfNeeded(for: effectiveSessionKey)
             }
         }
+        // Spec requires explicit contentOffset compensation for tail->full prepend.
+        // This anchor path captures (messageId, oldFrameMinY, oldContentOffsetY), then applies:
+        // contentOffset.y += (newFrameMinY - oldFrameMinY), clamped to bounds, with no animated scroll.
         let expansionAnchor = materializationPlan.isTailToFullExpansionApply
             ? captureBubbleSizingV2ViewportAnchor()
             : nil
