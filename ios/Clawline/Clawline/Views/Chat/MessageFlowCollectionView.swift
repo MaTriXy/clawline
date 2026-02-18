@@ -144,6 +144,60 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var pendingFlashIsUnreadTap: Bool = false
     private var pendingEntranceAnimationIds: Set<String> = []
     private var pendingScrollToBottomAfterInteractionEnd: Bool = false
+    // Staged stream materialization (approved spec: tail window -> full history).
+    private static let stagedMaterializationTailWindowCount = 50
+
+    private enum MaterializationStage: String {
+        case tail
+        case full
+    }
+
+    private enum ExpansionState: String {
+        case idle
+        case pendingFull
+    }
+
+    private struct WindowBounds {
+        var lowerBound: Int
+        var upperBound: Int
+
+        static let empty = WindowBounds(lowerBound: 0, upperBound: 0)
+    }
+
+    private struct MaterializationState {
+        var stage: MaterializationStage
+        var windowBounds: WindowBounds
+        var expansionState: ExpansionState
+        var unreadOutsideTailWindow: Bool
+    }
+
+    private enum MaterializationEvent {
+        case messagesUpdated(totalCount: Int,
+                             firstUnreadMessageId: String?,
+                             fullMessageIds: [String],
+                             allowTailStage: Bool)
+        case tailRendered(totalCount: Int,
+                          firstUnreadMessageId: String?,
+                          fullMessageIds: [String])
+    }
+
+    private struct MaterializationEventEnvelope {
+        let sessionKey: String
+        let event: MaterializationEvent
+    }
+
+    private struct MaterializationPlan {
+        var stage: MaterializationStage
+        var windowBounds: WindowBounds
+        var unreadOutsideTailWindow: Bool
+        var scheduleTailToFullPromotion: Bool
+        var isTailToFullExpansionApply: Bool
+    }
+
+    private var materializationStateBySessionKey: [String: MaterializationState] = [:]
+    private var materializationEventQueue: [MaterializationEventEnvelope] = []
+    private var isMaterializationQueueProcessing = false
+    private var lastMaterializationPlanBySessionKey: [String: MaterializationPlan] = [:]
     // Typing indicator morph is a bespoke overlay animation. During the morph we must prevent
     // normal lifecycle behaviors from fighting it:
     // - `willDisplay` resets (alpha/transform) can overwrite our fade-in target cell state.
@@ -768,6 +822,259 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
+    // MARK: - Staged Materialization Seam
+    // Invariant: stage/window/expansion mutations flow through advanceMaterialization(sessionKey:event:).
+
+    private func enqueueMaterializationEvent(sessionKey: String,
+                                             event: MaterializationEvent) -> MaterializationPlan {
+        materializationEventQueue.append(MaterializationEventEnvelope(sessionKey: sessionKey, event: event))
+        processMaterializationEventQueue()
+        return lastMaterializationPlanBySessionKey[sessionKey]
+            ?? MaterializationPlan(
+                stage: .full,
+                windowBounds: .empty,
+                unreadOutsideTailWindow: false,
+                scheduleTailToFullPromotion: false,
+                isTailToFullExpansionApply: false
+            )
+    }
+
+    private func processMaterializationEventQueue() {
+        guard !isMaterializationQueueProcessing else { return }
+        isMaterializationQueueProcessing = true
+        defer { isMaterializationQueueProcessing = false }
+
+        // FIFO command processing keeps expansion and append events deterministic.
+        while !materializationEventQueue.isEmpty {
+            let envelope = materializationEventQueue.removeFirst()
+            let plan = advanceMaterialization(sessionKey: envelope.sessionKey, event: envelope.event)
+            lastMaterializationPlanBySessionKey[envelope.sessionKey] = plan
+        }
+    }
+
+    private func advanceMaterialization(sessionKey: String,
+                                        event: MaterializationEvent) -> MaterializationPlan {
+        let totalCount: Int
+        let firstUnreadId: String?
+        let fullMessageIds: [String]
+        let allowTailStage: Bool
+        switch event {
+        case .messagesUpdated(let count, let unreadId, let ids, let allowTail):
+            totalCount = count
+            firstUnreadId = unreadId
+            fullMessageIds = ids
+            allowTailStage = allowTail
+        case .tailRendered(let count, let unreadId, let ids):
+            totalCount = count
+            firstUnreadId = unreadId
+            fullMessageIds = ids
+            allowTailStage = false
+        }
+
+        if totalCount <= 0 {
+            materializationStateBySessionKey[sessionKey] = MaterializationState(
+                stage: .full,
+                windowBounds: .empty,
+                expansionState: .idle,
+                unreadOutsideTailWindow: false
+            )
+            return MaterializationPlan(
+                stage: .full,
+                windowBounds: .empty,
+                unreadOutsideTailWindow: false,
+                scheduleTailToFullPromotion: false,
+                isTailToFullExpansionApply: false
+            )
+        }
+
+        if totalCount <= Self.stagedMaterializationTailWindowCount {
+            let fullBounds = WindowBounds(lowerBound: 0, upperBound: totalCount)
+            materializationStateBySessionKey[sessionKey] = MaterializationState(
+                stage: .full,
+                windowBounds: fullBounds,
+                expansionState: .idle,
+                unreadOutsideTailWindow: false
+            )
+            return MaterializationPlan(
+                stage: .full,
+                windowBounds: fullBounds,
+                unreadOutsideTailWindow: false,
+                scheduleTailToFullPromotion: false,
+                isTailToFullExpansionApply: false
+            )
+        }
+
+        var state = materializationStateBySessionKey[sessionKey]
+        if state == nil {
+            if allowTailStage {
+                let tailBounds = tailWindowBounds(totalCount: totalCount)
+                state = MaterializationState(
+                    stage: .tail,
+                    windowBounds: tailBounds,
+                    expansionState: .pendingFull,
+                    unreadOutsideTailWindow: isUnreadOutsideTailWindow(
+                        firstUnreadMessageId: firstUnreadId,
+                        bounds: tailBounds,
+                        fullMessageIds: fullMessageIds
+                    )
+                )
+            } else {
+                let fullBounds = WindowBounds(lowerBound: 0, upperBound: totalCount)
+                state = MaterializationState(
+                    stage: .full,
+                    windowBounds: fullBounds,
+                    expansionState: .idle,
+                    unreadOutsideTailWindow: false
+                )
+            }
+        }
+        guard var state else {
+            let fullBounds = WindowBounds(lowerBound: 0, upperBound: totalCount)
+            return MaterializationPlan(
+                stage: .full,
+                windowBounds: fullBounds,
+                unreadOutsideTailWindow: false,
+                scheduleTailToFullPromotion: false,
+                isTailToFullExpansionApply: false
+            )
+        }
+
+        switch event {
+        case .messagesUpdated:
+            if state.stage == .tail {
+                let tailBounds = tailWindowBounds(totalCount: totalCount)
+                state.windowBounds = tailBounds
+                state.unreadOutsideTailWindow = isUnreadOutsideTailWindow(
+                    firstUnreadMessageId: firstUnreadId,
+                    bounds: tailBounds,
+                    fullMessageIds: fullMessageIds
+                )
+                let shouldSchedule = state.expansionState == .pendingFull
+                if shouldSchedule {
+                    // Gate scheduling so only one tail->full promotion is issued per cold activation.
+                    state.expansionState = .idle
+                }
+                materializationStateBySessionKey[sessionKey] = state
+                return MaterializationPlan(
+                    stage: .tail,
+                    windowBounds: tailBounds,
+                    unreadOutsideTailWindow: state.unreadOutsideTailWindow,
+                    scheduleTailToFullPromotion: shouldSchedule,
+                    isTailToFullExpansionApply: false
+                )
+            }
+
+            let fullBounds = WindowBounds(lowerBound: 0, upperBound: totalCount)
+            state.stage = .full
+            state.windowBounds = fullBounds
+            state.expansionState = .idle
+            state.unreadOutsideTailWindow = false
+            materializationStateBySessionKey[sessionKey] = state
+            return MaterializationPlan(
+                stage: .full,
+                windowBounds: fullBounds,
+                unreadOutsideTailWindow: false,
+                scheduleTailToFullPromotion: false,
+                isTailToFullExpansionApply: false
+            )
+
+        case .tailRendered:
+            if state.stage == .tail {
+                let fullBounds = WindowBounds(lowerBound: 0, upperBound: totalCount)
+                state.stage = .full
+                state.windowBounds = fullBounds
+                state.expansionState = .idle
+                state.unreadOutsideTailWindow = false
+                materializationStateBySessionKey[sessionKey] = state
+                return MaterializationPlan(
+                    stage: .full,
+                    windowBounds: fullBounds,
+                    unreadOutsideTailWindow: false,
+                    scheduleTailToFullPromotion: false,
+                    isTailToFullExpansionApply: true
+                )
+            }
+
+            let fullBounds = WindowBounds(lowerBound: 0, upperBound: totalCount)
+            state.stage = .full
+            state.windowBounds = fullBounds
+            state.expansionState = .idle
+            state.unreadOutsideTailWindow = false
+            materializationStateBySessionKey[sessionKey] = state
+            return MaterializationPlan(
+                stage: .full,
+                windowBounds: fullBounds,
+                unreadOutsideTailWindow: false,
+                scheduleTailToFullPromotion: false,
+                isTailToFullExpansionApply: false
+            )
+        }
+    }
+
+    private func tailWindowBounds(totalCount: Int) -> WindowBounds {
+        let lower = max(0, totalCount - Self.stagedMaterializationTailWindowCount)
+        return WindowBounds(lowerBound: lower, upperBound: totalCount)
+    }
+
+    private func isUnreadOutsideTailWindow(firstUnreadMessageId: String?,
+                                           bounds: WindowBounds,
+                                           fullMessageIds: [String]) -> Bool {
+        guard let firstUnreadMessageId else { return false }
+        guard let index = fullMessageIds.firstIndex(of: firstUnreadMessageId) else {
+            return true
+        }
+        return index < bounds.lowerBound || index >= bounds.upperBound
+    }
+
+    private func stagedMessageIDs(messages: [Message], bounds: WindowBounds) -> [String] {
+        guard !messages.isEmpty else { return [] }
+        let lower = max(0, min(bounds.lowerBound, messages.count))
+        let upper = max(lower, min(bounds.upperBound, messages.count))
+        guard lower < upper else { return [] }
+        return messages[lower..<upper].map(\.id)
+    }
+
+    private func scheduleTailToFullPromotionIfNeeded(sessionKey: String,
+                                                     totalCount: Int,
+                                                     firstUnreadMessageId: String?,
+                                                     fullMessageIds: [String]) {
+        // Promotion is queued on next runloop turn so tail stage can render first.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let sessionMatches = (self.channelOverride ?? self.viewModel?.engineActiveSessionKey) == sessionKey
+            guard self.isActiveSession, sessionMatches else { return }
+
+            let plan = self.enqueueMaterializationEvent(
+                sessionKey: sessionKey,
+                event: .tailRendered(
+                    totalCount: totalCount,
+                    firstUnreadMessageId: firstUnreadMessageId,
+                    fullMessageIds: fullMessageIds
+                )
+            )
+            guard plan.isTailToFullExpansionApply else { return }
+            self.runMaterializationRefreshPass()
+        }
+    }
+
+    private func runMaterializationRefreshPass() {
+        guard let viewModel else { return }
+        update(
+            viewModel: viewModel,
+            isCompact: isCompact,
+            isActiveSession: isActiveSession,
+            isInputActive: isInputActive,
+            topInset: topInset,
+            truncationBottomInset: truncationBottomInset,
+            firstUnreadMessageId: firstUnreadMessageId,
+            unreadCount: unreadCount,
+            onExpand: onExpand,
+            sessionKey: channelOverride,
+            onScrollEvent: onScrollEvent,
+            isDark: currentIsDark
+        )
+    }
+
     func update(
         viewModel: ChatViewModel,
         isCompact: Bool,
@@ -843,9 +1150,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Use session override if provided, otherwise use active session messages.
         let messages = sessionKey.map { viewModel.messages(for: $0) } ?? viewModel.messages
-        let appendedMessageIDs = Self.appendedMessageIDs(previousLastMessageId: previousLastMessageId, messageIDs: messages.map(\.id))
+        let fullMessageIds = messages.map(\.id)
+        let appendedMessageIDs = Self.appendedMessageIDs(previousLastMessageId: previousLastMessageId, messageIDs: fullMessageIds)
         let messageCount = messages.count
-        if Set(messages.map(\.id)).count != messageCount {
+        if Set(fullMessageIds).count != messageCount {
             logger.info("diffing duplicate ids in viewModel.messages count=\(messageCount, privacy: .public)")
         }
         messagesById = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
@@ -855,9 +1163,30 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         executeInvalidationPlan(removedPlan)
 
         StreamSwitchTiming.log("snapshot_build_start", sessionKey: effectiveSessionKey)
+        let isFirstActivationForSession = materializationStateBySessionKey[effectiveSessionKey] == nil
+        let materializationPlan = enqueueMaterializationEvent(
+            sessionKey: effectiveSessionKey,
+            event: .messagesUpdated(
+                totalCount: messageCount,
+                firstUnreadMessageId: firstUnreadMessageId,
+                fullMessageIds: fullMessageIds,
+                allowTailStage: isFirstActivationForSession
+            )
+        )
+        let snapshotMessageIds: [String]
+        switch materializationPlan.stage {
+        case .tail:
+            snapshotMessageIds = stagedMessageIDs(messages: messages, bounds: materializationPlan.windowBounds)
+        case .full:
+            snapshotMessageIds = fullMessageIds
+        }
+        StreamSwitchTiming.log(
+            "materialization_plan stage=\(materializationPlan.stage.rawValue) items=\(snapshotMessageIds.count) total=\(messageCount)",
+            sessionKey: effectiveSessionKey
+        )
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
-        snapshot.appendItems(messages.map(\.id))
+        snapshot.appendItems(snapshotMessageIds)
         let oldItemIds = Set(dataSource.snapshot().itemIdentifiers)
 
         // Add typing indicator when assistant is typing (server-controlled)
@@ -889,11 +1218,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             pendingEntranceAnimationIds.insert(newestMessageId)
         }
 
-        let changedIds = needsFullLayout
-            ? messages.map(\.id)
+        let materializedIdSet = Set(snapshotMessageIds)
+        let changedIds = (needsFullLayout
+            ? fullMessageIds
             : newFingerprints.compactMap { id, fingerprint in
                 fingerprints[id] == fingerprint ? nil : id
-            }
+            }).filter { materializedIdSet.contains($0) }
         if !changedIds.isEmpty {
             snapshot.reconfigureItems(changedIds)
             changedIds.forEach { id in
@@ -916,6 +1246,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let afterSnapshotApplied: (() -> Void) = { [weak self] in
             guard let self else { return }
             self.attemptRestoreScrollIfNeeded()
+            if materializationPlan.scheduleTailToFullPromotion {
+                self.scheduleTailToFullPromotionIfNeeded(
+                    sessionKey: effectiveSessionKey,
+                    totalCount: messageCount,
+                    firstUnreadMessageId: firstUnreadMessageId,
+                    fullMessageIds: fullMessageIds
+                )
+            }
             if shouldAutoScrollToBottomAfterApply {
                 // Race-sensitive: the contentSize can change again after diffable applies.
                 // A few post-apply attempts preserves the historical “always end up at the bottom” behavior.
@@ -928,12 +1266,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 viewModel.markEngineActivationRenderedIfNeeded(for: effectiveSessionKey)
             }
         }
+        let expansionAnchor = materializationPlan.isTailToFullExpansionApply
+            ? captureBubbleSizingV2ViewportAnchor()
+            : nil
 
         if shouldMorph {
 #if os(visionOS)
             StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
                 afterSnapshotApplied()
+                self?.scheduleBubbleSizingV2ViewportAnchorCompensation(expansionAnchor)
                 self?.updateVisibleCellOpacity()
                 StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
             }
@@ -941,6 +1283,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
                 afterSnapshotApplied()
+                self?.scheduleBubbleSizingV2ViewportAnchorCompensation(expansionAnchor)
                 StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
             }
 #endif
@@ -949,6 +1292,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
                 afterSnapshotApplied()
+                self?.scheduleBubbleSizingV2ViewportAnchorCompensation(expansionAnchor)
                 self?.updateVisibleCellOpacity()
                 StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
             }
@@ -956,6 +1300,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
                 afterSnapshotApplied()
+                self?.scheduleBubbleSizingV2ViewportAnchorCompensation(expansionAnchor)
                 StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
             }
 #endif
@@ -1151,6 +1496,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard let messageId = firstUnreadMessageId else { return }
         if didCrossAndClearFirstUnreadId == messageId { return }
         guard let indexPath = dataSource.indexPath(for: messageId) else {
+            let materializationState = materializationStateBySessionKey[resolvedSessionKey()]
+            if materializationState?.stage == .tail,
+               materializationState?.unreadOutsideTailWindow == true {
+                // Tail stage intentionally does not materialize the full history yet.
+                // Missing unread marker here is expected and must not clear unread state.
+                return
+            }
             // Spec: if the unread anchor disappears from the dataset, clear unread immediately.
             unreadCount = 0
             firstUnreadWasBelowViewportCenter = nil
