@@ -64,6 +64,9 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var lastEngineActivationSessionKey: String?
 
     private let pagerSettleDebounce: Duration = .milliseconds(500)
+    // Keep first heavy snapshot materialization away from the final pager animation frames.
+    // This intentionally leaves the page blank briefly while the toast spinner communicates loading.
+    private let pagerPostSettleApplyDelay: Duration = .milliseconds(40)
     private var pendingEngineActivationTask: Task<Void, Never>?
     private var pendingEngineActivationTarget: String?
     private var pendingEngineActivationEpoch: Int?
@@ -192,6 +195,12 @@ final class ChatViewModel: ChatViewModelHosting {
             try? await Task.sleep(for: self.pagerSettleDebounce)
             guard !Task.isCancelled else { return }
             StreamSwitchTiming.log("debounce_delay_end", sessionKey: target)
+            // Additional guard band after settle+debounce so `engineActiveSessionKey` commit
+            // (which triggers snapshot/apply work) starts after pager motion is fully at rest.
+            StreamSwitchTiming.log("post_settle_apply_delay_start", sessionKey: target)
+            try? await Task.sleep(for: self.pagerPostSettleApplyDelay)
+            guard !Task.isCancelled else { return }
+            StreamSwitchTiming.log("post_settle_apply_delay_end", sessionKey: target)
             self.commitPendingEngineActivationIfCurrent(target: target, epoch: epoch)
         }
     }
