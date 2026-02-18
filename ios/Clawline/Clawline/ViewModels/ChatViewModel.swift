@@ -20,185 +20,14 @@ protocol ChatViewModelHosting: AnyObject {
     func handleSceneDidBecomeActive()
 }
 
-// MARK: - Stream Switch Coordinator
-// This token's initializer is file-scoped by design.
-// Only code in this file can construct authority to mutate active-session state
-// through the stream-switch commit seam.
-fileprivate struct StreamSwitchMutationToken {
-    fileprivate init() {}
-}
-
-fileprivate let streamSwitchMutationToken = StreamSwitchMutationToken()
-
-@Observable
-@MainActor
-final class StreamSwitchTransitionCoordinator {
-    enum SwitchSource: Equatable {
-        case pager
-        case programmatic
-    }
-
-    enum Phase: Equatable {
-        case idle(active: String)
-        case animating(from: String, target: String)
-        case settling(from: String, target: String)
-        case committing(from: String, target: String)
-    }
-
-    enum RenderPolicy: Equatable {
-        case active(sessionKey: String)
-        case frozen(sessionKey: String)
-    }
-
-    private let settleDelay: Duration
-    private var settleTask: Task<Void, Never>?
-    private weak var viewModel: ChatViewModel?
-    private var isBound = false
-
-    // Single source of truth for switch lifecycle visibility.
-    private(set) var phase: Phase = .idle(active: "")
-    // This drives TabView selection during drag/deceleration before commit.
-    private(set) var selectedSessionKey: String = ""
-    // This gates expensive list updates while pager is moving.
-    private(set) var renderPolicy: RenderPolicy = .active(sessionKey: "")
-    // Pending target is intentionally separate from active; mutation only happens in commit.
-    private(set) var pendingTargetSessionKey: String?
-    // Commit pulse for UI side effects (haptic/toast) at commit boundary.
-    private(set) var commitSequence: Int = 0
-    private(set) var lastCommittedSessionKey: String?
-
-    init(settleDelay: Duration = .milliseconds(500)) {
-        self.settleDelay = settleDelay
-    }
-
-    // Bind once from ChatView lifecycle.
-    // Keeping this explicit avoids hidden global ownership and makes the seam easy to audit.
-    func bind(viewModel: ChatViewModel, initialActiveSessionKey: String) {
-        guard !isBound else { return }
-        isBound = true
-        self.viewModel = viewModel
-        let key = initialActiveSessionKey
-        selectedSessionKey = key
-        renderPolicy = .active(sessionKey: key)
-        phase = .idle(active: key)
-    }
-
-    // External sync path for non-stream-switch mutations (bootstrap, stream deletion fallback, etc.).
-    // We only sync while idle to avoid clobbering an in-flight transition state machine.
-    func syncActiveSessionIfIdle(_ sessionKey: String) {
-        guard case .idle = phase else { return }
-        selectedSessionKey = sessionKey
-        renderPolicy = .active(sessionKey: sessionKey)
-        phase = .idle(active: sessionKey)
-    }
-
-    var renderSessionKey: String {
-        switch renderPolicy {
-        case .active(let sessionKey), .frozen(let sessionKey):
-            return sessionKey
-        }
-    }
-
-    func requestSwitch(to sessionKey: String, source: SwitchSource) {
-        guard let viewModel else { return }
-        guard viewModel.orderedSessionKeys.contains(sessionKey) else { return }
-
-        // Keep pager visual state in sync with latest user intent immediately.
-        // This is UI-only state; active-session mutation still waits for commit.
-        selectedSessionKey = sessionKey
-        pendingTargetSessionKey = sessionKey
-
-        switch source {
-        case .programmatic:
-            // Programmatic switches are not tied to pager drag/deceleration.
-            // Commit immediately through the same coordinator seam.
-            settleTask?.cancel()
-            settleTask = nil
-            commitPendingSwitch()
-        case .pager:
-            // First pager intent anchors render policy to the currently active stream.
-            // This prevents expensive outgoing/incoming list work while swipe animation is running.
-            let active = viewModel.activeSessionKey
-            switch phase {
-            case .idle:
-                phase = .animating(from: active, target: sessionKey)
-                renderPolicy = .frozen(sessionKey: active)
-            case .animating(let from, _):
-                phase = .animating(from: from, target: sessionKey)
-            case .settling(let from, _):
-                phase = .animating(from: from, target: sessionKey)
-                settleTask?.cancel()
-                settleTask = nil
-            case .committing:
-                // If commit is already executing, new pager target becomes the next pending intent.
-                // We intentionally do not interrupt commit; next intent will be handled after idle sync.
-                break
-            }
-        }
-    }
-
-    func pagerDidBeginInteraction() {
-        switch phase {
-        case .settling(let from, let target):
-            // Re-drag during settling cancels delayed commit and returns to animating.
-            settleTask?.cancel()
-            settleTask = nil
-            phase = .animating(from: from, target: target)
-        default:
-            break
-        }
-    }
-
-    func pagerDidSettleAtRest() {
-        guard let target = pendingTargetSessionKey else { return }
-        switch phase {
-        case .animating(let from, _):
-            // Enter explicit settling window. Commit is delayed until this window completes.
-            phase = .settling(from: from, target: target)
-            settleTask?.cancel()
-            settleTask = Task { [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(for: self.settleDelay)
-                guard !Task.isCancelled else { return }
-                self.commitPendingSwitch()
-            }
-        case .settling:
-            break
-        case .idle, .committing:
-            break
-        }
-    }
-
-    private func commitPendingSwitch() {
-        guard let viewModel, let target = pendingTargetSessionKey else { return }
-        guard viewModel.orderedSessionKeys.contains(target) else {
-            pendingTargetSessionKey = nil
-            syncActiveSessionIfIdle(viewModel.activeSessionKey)
-            return
-        }
-        guard target != viewModel.activeSessionKey else {
-            pendingTargetSessionKey = nil
-            phase = .idle(active: target)
-            renderPolicy = .active(sessionKey: target)
-            selectedSessionKey = target
-            return
-        }
-
-        let from = viewModel.activeSessionKey
-        // Commit boundary:
-        // 1) flip render policy to new session so list activation is intentional and centralized.
-        // 2) mutate model through token-gated seam.
-        // 3) publish one commit pulse for UI side effects.
-        phase = .committing(from: from, target: target)
-        renderPolicy = .active(sessionKey: target)
-        selectedSessionKey = target
-        viewModel.commitActiveSessionFromStreamSwitch(target, token: streamSwitchMutationToken)
-        pendingTargetSessionKey = nil
-        lastCommittedSessionKey = target
-        commitSequence &+= 1
-        phase = .idle(active: target)
-    }
-}
+// MARK: - Stream Switch State
+// Stream switching now uses two explicit state paths:
+// - uiSelectedSessionKey: immediate, lightweight UI intent.
+// - engineActiveSessionKey: debounced heavy engine activation.
+//
+// Both are MainActor-owned and each has one write seam:
+// - uiSelectedSessionKey mutates only inside setUISelectedSessionKey(_:)
+// - engineActiveSessionKey mutates only inside setEngineActiveSessionKey(_:)
 
 @Observable
 @MainActor
@@ -210,12 +39,39 @@ final class ChatViewModel: ChatViewModelHosting {
         TerminalSessionDescriptor.mimeType
     ]
     private(set) var messages: [Message] = []
-    private(set) var activeSessionKey: String = ""
     private(set) var streamsBySessionKey: [String: StreamSession] = [:]
     private(set) var orderedSessionKeys: [String] = []
     private var syntheticSessionKeys: Set<String> = []
     private var didRestoreActiveSessionKey = false
-    let streamSwitchCoordinator = StreamSwitchTransitionCoordinator()
+
+    enum StreamSwitchSource: Equatable {
+        case pager
+        case programmatic
+    }
+
+    // UI-intent key: updates immediately on stream-switch intent.
+    private(set) var uiSelectedSessionKey: String = ""
+    // Engine-active key: drives expensive restore/snapshot/layout work.
+    private(set) var engineActiveSessionKey: String = ""
+    // Monotonic epoch used to cancel stale delayed engine activations.
+    private(set) var uiSwitchEpoch: Int = 0
+    // Pulse emitted synchronously with UI intent changes so ChatView can show toast/haptic.
+    private(set) var uiSelectionSequence: Int = 0
+    private(set) var lastUISelectedSessionKey: String?
+    // Pulses for spinner lifecycle: activation start and activation completion.
+    private(set) var engineActivationStartedSequence: Int = 0
+    private(set) var engineActivationCompletedSequence: Int = 0
+    private(set) var lastEngineActivationSessionKey: String?
+
+    private let pagerSettleDebounce: Duration = .milliseconds(500)
+    private var pendingEngineActivationTask: Task<Void, Never>?
+    private var pendingEngineActivationTarget: String?
+    private var pendingEngineActivationEpoch: Int?
+    private var engineActivationInFlightSessionKey: String?
+    private var isPagerInteracting: Bool = false
+
+    // Back-compat read-only alias while call sites migrate to explicit split keys.
+    var activeSessionKey: String { engineActiveSessionKey }
 
     func messages(for sessionKey: String) -> [Message] {
         sessionMessages[sessionKey] ?? []
@@ -230,57 +86,128 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     var activeStream: ChatStream {
-        SessionRegistry.shared.stream(for: activeSessionKey)
+        SessionRegistry.shared.stream(for: engineActiveSessionKey)
     }
 
-    // MARK: Stream Switch Coordination API
-    // ChatView drives these events; this keeps stream-switch lifecycle explicit and centralized.
+    // MARK: Stream Switch API
+    // All switch mutations are MainActor-only by class annotation.
+    // Steps 1-5 are intentionally synchronous (no suspension points) to keep epoch capture atomic.
 
     func bindStreamSwitchCoordinatorIfNeeded() {
-        streamSwitchCoordinator.bind(viewModel: self, initialActiveSessionKey: activeSessionKey)
+        if uiSelectedSessionKey.isEmpty {
+            setUISelectedSessionKey(engineActiveSessionKey)
+        }
     }
 
-    func requestStreamSwitch(to sessionKey: String, source: StreamSwitchTransitionCoordinator.SwitchSource) {
-        bindStreamSwitchCoordinatorIfNeeded()
-        streamSwitchCoordinator.requestSwitch(to: sessionKey, source: source)
+    func requestStreamSwitch(to sessionKey: String, source: StreamSwitchSource) {
+        guard orderedSessionKeys.contains(sessionKey) else { return }
+
+        // Step 1-2: stream-switch intent + epoch bump.
+        uiSwitchEpoch &+= 1
+        let epoch = uiSwitchEpoch
+
+        // Step 3-4: UI path mutates immediately and emits instant feedback pulse.
+        setUISelectedSessionKey(sessionKey)
+        lastUISelectedSessionKey = sessionKey
+        uiSelectionSequence &+= 1
+
+        // Step 5: schedule candidate activation keyed by (target, epoch).
+        pendingEngineActivationTarget = sessionKey
+        pendingEngineActivationEpoch = epoch
+        pendingEngineActivationTask?.cancel()
+        pendingEngineActivationTask = nil
+
+        switch source {
+        case .programmatic:
+            // Programmatic selection is intentional: commit engine immediately (no debounce).
+            commitPendingEngineActivationIfCurrent(target: sessionKey, epoch: epoch)
+        case .pager:
+            // Pager path waits for scroll-settle signal before debounce starts.
+            if !isPagerInteracting {
+                scheduleDebouncedEngineActivation(target: sessionKey, epoch: epoch)
+            }
+        }
     }
 
     func streamPagerDidBeginInteraction() {
-        streamSwitchCoordinator.pagerDidBeginInteraction()
+        isPagerInteracting = true
+        pendingEngineActivationTask?.cancel()
+        pendingEngineActivationTask = nil
     }
 
     func streamPagerDidSettleAtRest() {
-        streamSwitchCoordinator.pagerDidSettleAtRest()
+        isPagerInteracting = false
+        guard let target = pendingEngineActivationTarget, let epoch = pendingEngineActivationEpoch else { return }
+        scheduleDebouncedEngineActivation(target: target, epoch: epoch)
     }
 
-    func syncStreamSwitchCoordinatorIfIdle() {
-        streamSwitchCoordinator.syncActiveSessionIfIdle(activeSessionKey)
+    // MessageFlow calls this after first active-page materialization so the toast spinner can clear.
+    func markEngineActivationRenderedIfNeeded(for sessionKey: String) {
+        guard engineActivationInFlightSessionKey == sessionKey else { return }
+        engineActivationInFlightSessionKey = nil
+        engineActivationCompletedSequence &+= 1
     }
 
     // NOTE: keep this private.
-    // All external stream-switch writes must go through the coordinator seam.
-    private func setActiveSessionKey(_ sessionKey: String) {
+    // Engine-active key mutation seam: all writes go through this method.
+    private func setEngineActiveSessionKey(_ sessionKey: String) {
         guard orderedSessionKeys.contains(sessionKey) else { return }
-        guard activeSessionKey != sessionKey else { return }
+        guard engineActiveSessionKey != sessionKey else { return }
         applyActiveSessionKey(sessionKey)
+        // Keep intent selection coherent for non-switch engine mutations (bootstrap/deletion fallback).
+        // Stream-switch path still writes uiSelectedSessionKey explicitly before this runs.
+        if uiSelectedSessionKey != sessionKey {
+            setUISelectedSessionKey(sessionKey)
+        }
     }
 
-    // Token-gated commit seam used exclusively by StreamSwitchTransitionCoordinator.
-    // This blocks direct active-session mutation from view code.
-    fileprivate func commitActiveSessionFromStreamSwitch(_ sessionKey: String, token: StreamSwitchMutationToken) {
-        _ = token
-        setActiveSessionKey(sessionKey)
+    // UI-intent key mutation seam: all UI selection writes go through this method.
+    private func setUISelectedSessionKey(_ sessionKey: String) {
+        uiSelectedSessionKey = sessionKey
     }
 
 #if DEBUG
-    // Explicit test-only bypass. Production code must use coordinator mutation seam.
+    // Explicit test-only bypass.
     func setActiveSessionKeyForTesting(_ sessionKey: String) {
-        setActiveSessionKey(sessionKey)
+        setEngineActiveSessionKey(sessionKey)
     }
 #endif
 
+    private func scheduleDebouncedEngineActivation(target: String, epoch: Int) {
+        pendingEngineActivationTask?.cancel()
+        pendingEngineActivationTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: self.pagerSettleDebounce)
+            guard !Task.isCancelled else { return }
+            self.commitPendingEngineActivationIfCurrent(target: target, epoch: epoch)
+        }
+    }
+
+    private func commitPendingEngineActivationIfCurrent(target: String, epoch: Int) {
+        guard epoch == uiSwitchEpoch else { return }
+        guard pendingEngineActivationTarget == target else { return }
+        guard orderedSessionKeys.contains(target) else {
+            pendingEngineActivationTarget = nil
+            pendingEngineActivationEpoch = nil
+            return
+        }
+        pendingEngineActivationTarget = nil
+        pendingEngineActivationEpoch = nil
+        pendingEngineActivationTask?.cancel()
+        pendingEngineActivationTask = nil
+
+        guard target != engineActiveSessionKey else { return }
+
+        // Engine activation start pulse keeps toast spinner visible until active page finishes materializing.
+        engineActivationInFlightSessionKey = target
+        lastEngineActivationSessionKey = target
+        engineActivationStartedSequence &+= 1
+
+        setEngineActiveSessionKey(target)
+    }
+
     private func applyActiveSessionKey(_ sessionKey: String) {
-        activeSessionKey = sessionKey
+        engineActiveSessionKey = sessionKey
         restoreLastServerMessageIdIfNeeded(for: sessionKey)
         restoreCachedMessagesIfNeeded(for: sessionKey)
         ensureSessionStorage(for: sessionKey)
@@ -290,14 +217,20 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func clearActiveSession() {
-        activeSessionKey = ""
+        engineActiveSessionKey = ""
+        setUISelectedSessionKey("")
+        pendingEngineActivationTarget = nil
+        pendingEngineActivationEpoch = nil
+        pendingEngineActivationTask?.cancel()
+        pendingEngineActivationTask = nil
+        engineActivationInFlightSessionKey = nil
         messages = []
         lastServerMessageId = nil
         streamDefaults.removeObject(forKey: activeSessionDefaultsKey())
     }
 
     var activeSessionDisplayName: String {
-        streamsBySessionKey[activeSessionKey]?.displayName ?? fallbackDisplayName(for: activeSessionKey)
+        streamsBySessionKey[uiSelectedSessionKey]?.displayName ?? fallbackDisplayName(for: uiSelectedSessionKey)
     }
     private(set) var lastServerMessageId: String?
     var inputContent: NSAttributedString = NSAttributedString() {
@@ -475,11 +408,11 @@ final class ChatViewModel: ChatViewModelHosting {
             ensureDefaultActiveSessionIfNeeded()
             restoreLastServerMessageIdIfNeeded()
             restoreActiveSessionKeyIfNeeded()
-            if !activeSessionKey.isEmpty {
-                restoreLastServerMessageIdIfNeeded(for: activeSessionKey)
-                restoreCachedMessagesIfNeeded(for: activeSessionKey)
+            if !engineActiveSessionKey.isEmpty {
+                restoreLastServerMessageIdIfNeeded(for: engineActiveSessionKey)
+                restoreCachedMessagesIfNeeded(for: engineActiveSessionKey)
             }
-            for sessionKey in orderedSessionKeys where sessionKey != activeSessionKey {
+            for sessionKey in orderedSessionKeys where sessionKey != engineActiveSessionKey {
                 restoreLastServerMessageIdIfNeeded(for: sessionKey)
                 restoreCachedMessagesIfNeeded(for: sessionKey)
             }
@@ -579,7 +512,7 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         ensureDefaultActiveSessionIfNeeded()
-        let outboundSessionKey = activeSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let outboundSessionKey = engineActiveSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !outboundSessionKey.isEmpty else {
             toastManager.show("No stream selected.")
             return
@@ -759,7 +692,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 idempotencyKey: Self.makeIdempotencyKey()
             )
             applyStreamUpsert(stream)
-            setActiveSessionKey(stream.sessionKey)
+            setEngineActiveSessionKey(stream.sessionKey)
             return true
         } catch {
             toastManager.show(error.localizedDescription)
@@ -1025,7 +958,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func setMessages(_ newMessages: [Message], for sessionKey: String) {
         sessionMessages[sessionKey] = newMessages
         persistMessages(newMessages, for: sessionKey)
-        if sessionKey == activeSessionKey {
+        if sessionKey == engineActiveSessionKey {
             messages = newMessages
             let total = newMessages.count
             let uniqueCount = Set(newMessages.map(\.id)).count
@@ -1044,7 +977,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func updateLastServerMessageIdIfNeeded(with message: Message) {
         guard message.id.hasPrefix("s_") else { return }
         lastServerMessageIdBySession[message.sessionKey] = message.id
-        if message.sessionKey == activeSessionKey {
+        if message.sessionKey == engineActiveSessionKey {
             lastServerMessageId = message.id
         }
         persistLastServerMessageId(message.id, for: message.sessionKey)
@@ -1173,7 +1106,7 @@ final class ChatViewModel: ChatViewModelHosting {
                         }
                     }
                     if let providerError = error as? ProviderChatService.Error,
-                       shouldUseAuthRejectionBackoff(providerError) {
+                       self.shouldUseAuthRejectionBackoff(providerError) {
                         let current = max(self.reconnectBackoff, self.authRejectionInitialBackoff)
                         self.reconnectBackoff = min(current * 2, self.authRejectionMaxBackoff)
                     } else {
@@ -1530,7 +1463,9 @@ final class ChatViewModel: ChatViewModelHosting {
         case .userInfo(let info):
             auth.updateAdminStatus(info.isAdmin)
         case .typingStateChanged(let isTyping, let sessionKey):
-            logger.info("typingStateChanged isTyping=\(isTyping, privacy: .public) sessionKey=\(sessionKey, privacy: .public) activeSessionKey=\(self.activeSessionKey, privacy: .public)")
+            logger.info(
+                "typingStateChanged isTyping=\(isTyping, privacy: .public) sessionKey=\(sessionKey, privacy: .public) engineActiveSessionKey=\(self.engineActiveSessionKey, privacy: .public) uiSelectedSessionKey=\(self.uiSelectedSessionKey, privacy: .public)"
+            )
             ensureStreamEntry(for: sessionKey)
             if isTyping {
                 self.isAssistantTyping = true
@@ -1651,9 +1586,9 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func restoreLastServerMessageIdIfNeeded() {
         guard lastServerMessageId == nil else { return }
-        guard !activeSessionKey.isEmpty else { return }
-        restoreLastServerMessageIdIfNeeded(for: activeSessionKey)
-        lastServerMessageId = lastServerMessageIdBySession[activeSessionKey]
+        guard !engineActiveSessionKey.isEmpty else { return }
+        restoreLastServerMessageIdIfNeeded(for: engineActiveSessionKey)
+        lastServerMessageId = lastServerMessageIdBySession[engineActiveSessionKey]
     }
 
     private func restoreLastServerMessageIdIfNeeded(for sessionKey: String) {
@@ -1721,7 +1656,7 @@ final class ChatViewModel: ChatViewModelHosting {
                     self.setMessages(filtered, for: sessionKey)
                     let cachedLast = self.lastServerMessageId(from: filtered)
                     self.lastServerMessageIdBySession[sessionKey] = cachedLast
-                    if self.activeSessionKey == sessionKey {
+                    if self.engineActiveSessionKey == sessionKey {
                         self.lastServerMessageId = cachedLast
                     }
                     self.persistLastServerMessageId(cachedLast, for: sessionKey)
@@ -1735,7 +1670,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func clearCursor(for sessionKey: String) {
-        if self.activeSessionKey == sessionKey {
+        if self.engineActiveSessionKey == sessionKey {
             self.lastServerMessageId = nil
         }
         self.lastServerMessageIdBySession.removeValue(forKey: sessionKey)
@@ -1813,7 +1748,7 @@ final class ChatViewModel: ChatViewModelHosting {
         didRestoreActiveSessionKey = true
         guard let stored = persistedActiveSessionKey() else { return }
         if orderedSessionKeys.contains(stored) {
-            setActiveSessionKey(stored)
+            setEngineActiveSessionKey(stored)
         }
     }
 
@@ -1829,7 +1764,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func setActiveStream(_ stream: ChatStream) {
         guard let sessionKey = preferredSessionKey(for: stream) else { return }
-        setActiveSessionKey(sessionKey)
+        setEngineActiveSessionKey(sessionKey)
     }
 
     private func streamMainSessionKey() -> String? {
@@ -1844,12 +1779,12 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func ensureDefaultActiveSessionIfNeeded() {
-        if activeSessionKey.isEmpty {
+        if engineActiveSessionKey.isEmpty {
             if let main = streamMainSessionKey() {
                 ensureStreamEntry(for: main)
-                setActiveSessionKey(main)
+                setEngineActiveSessionKey(main)
             } else if let first = orderedSessionKeys.first {
-                setActiveSessionKey(first)
+                setEngineActiveSessionKey(first)
             }
         }
     }
@@ -1898,11 +1833,11 @@ final class ChatViewModel: ChatViewModelHosting {
         }
         restoreActiveSessionKeyIfNeeded()
         ensureDefaultActiveSessionIfNeeded()
-        if !orderedSessionKeys.contains(activeSessionKey) {
-            applyStreamDeletion(sessionKey: activeSessionKey)
+        if !orderedSessionKeys.contains(engineActiveSessionKey) {
+            applyStreamDeletion(sessionKey: engineActiveSessionKey)
         } else {
-            messages = sessionMessages[activeSessionKey] ?? []
-            lastServerMessageId = lastServerMessageIdBySession[activeSessionKey]
+            messages = sessionMessages[engineActiveSessionKey] ?? []
+            lastServerMessageId = lastServerMessageIdBySession[engineActiveSessionKey]
         }
         SessionRegistry.shared.replace(with: orderedStreams)
         persistStreamMetadata()
@@ -1934,19 +1869,19 @@ final class ChatViewModel: ChatViewModelHosting {
             isAssistantTyping = false
         }
 
-        if activeSessionKey == sessionKey {
+        if engineActiveSessionKey == sessionKey {
             let fallback = streamMainSessionKey().flatMap { orderedSessionKeys.contains($0) ? $0 : nil }
                 ?? orderedSessionKeys.first
                 ?? streamMainSessionKey()
             if let fallback {
                 ensureStreamEntry(for: fallback)
-                setActiveSessionKey(fallback)
+                setEngineActiveSessionKey(fallback)
             } else {
                 clearActiveSession()
             }
-        } else if !activeSessionKey.isEmpty {
-            messages = sessionMessages[activeSessionKey] ?? []
-            lastServerMessageId = lastServerMessageIdBySession[activeSessionKey]
+        } else if !engineActiveSessionKey.isEmpty {
+            messages = sessionMessages[engineActiveSessionKey] ?? []
+            lastServerMessageId = lastServerMessageIdBySession[engineActiveSessionKey]
         }
         SessionRegistry.shared.remove(sessionKey: sessionKey)
         persistStreamMetadata()
@@ -2151,7 +2086,7 @@ final class ChatViewModel: ChatViewModelHosting {
         isSending = false
 
         ensureDefaultActiveSessionIfNeeded()
-        let sessionKey = resolvedSessionKey ?? activeSessionKey
+        let sessionKey = resolvedSessionKey ?? engineActiveSessionKey
         let ack = Message(
             id: "s_no_reply_\(UUID().uuidString)",
             role: .assistant,
@@ -2230,7 +2165,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     @MainActor
     private func connectionSnapshot() -> (token: String?, lastMessageId: String?) {
-        let activeKey = activeSessionKey
+        let activeKey = engineActiveSessionKey
         let cursor = lastServerMessageIdBySession[activeKey] ?? lastServerMessageId
         return (auth.token, cursor)
     }

@@ -792,7 +792,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
 #endif
 
-        let effectiveSessionKey = sessionKey ?? viewModel.activeSessionKey
+        let effectiveSessionKey = sessionKey ?? viewModel.engineActiveSessionKey
         let isOffscreenSession = sessionKey != nil && !isActiveSession
         let needsFullLayout = forceReconfigureAll
             || self.isCompact != isCompact
@@ -890,6 +890,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 // A few post-apply attempts preserves the historical “always end up at the bottom” behavior.
                 self.scheduleScrollToBottom(animated: true, attempts: 3)
             }
+            // Stream-switch engine activation completion is defined as:
+            // first active-page snapshot materialization after engineActiveSessionKey commit.
+            // This is the point where ChatView can safely clear the spinner gate.
+            if self.isActiveSession {
+                viewModel.markEngineActivationRenderedIfNeeded(for: effectiveSessionKey)
+            }
         }
 
         if shouldMorph {
@@ -974,7 +980,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func resolvedSessionKey() -> String {
-        channelOverride ?? viewModel?.activeSessionKey ?? ""
+        channelOverride ?? viewModel?.engineActiveSessionKey ?? ""
     }
 
     private func emit(_ event: MessageFlowScrollEvent) {
@@ -1305,7 +1311,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     for: indexPath
                 ) as? TypingIndicatorCell
                 let metrics = ChatFlowTheme.Metrics(isCompact: self.isCompact)
-                let storageKey = viewModel.typingSessionKey ?? viewModel.activeSessionKey
+                let storageKey = viewModel.typingSessionKey ?? viewModel.engineActiveSessionKey
                 let message = TypingIndicatorCell.makeMessage(sessionKey: storageKey)
                 let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
                 let sizeClass = MessageFlowRules.sizeClass(for: presentation)
@@ -1720,7 +1726,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Handle typing indicator size
         if id == TypingIndicatorCell.itemId {
-            let storageKey = viewModel.typingSessionKey ?? viewModel.activeSessionKey
+            let storageKey = viewModel.typingSessionKey ?? viewModel.engineActiveSessionKey
             let message = TypingIndicatorCell.makeMessage(sessionKey: storageKey)
             let presentation = TypingIndicatorCell.makePresentation(metrics: metrics)
             let sizeClass = MessageFlowRules.sizeClass(for: presentation)

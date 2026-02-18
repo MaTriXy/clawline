@@ -126,7 +126,10 @@ struct ChatView: View {
 
     @State private var inputBarHeight: CGFloat = 0
     @State private var streamToastManager = StreamToastManager()
-    @State private var streamSwitchBusyClearTask: Task<Void, Never>?
+    @State private var streamToastBusySince: Date?
+    @State private var streamToastBusyClearTask: Task<Void, Never>?
+
+    private let streamToastMinimumBusySeconds: TimeInterval = 0.45
 
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0.5
@@ -637,40 +640,34 @@ struct ChatView: View {
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
         }
-        .onChange(of: viewModel.activeSessionKey) { _, newValue in
+        .onChange(of: viewModel.engineActiveSessionKey) { _, newValue in
             layoutCoordinator.setActiveSessionKey(newValue)
-            // Keep coordinator in sync for non-stream-switch mutations (bootstrap, deletion fallback).
-            // During active pager transitions, coordinator ignores this sync to preserve state machine integrity.
-            viewModel.syncStreamSwitchCoordinatorIfIdle()
         }
         .onAppear {
             viewModel.bindStreamSwitchCoordinatorIfNeeded()
-            layoutCoordinator.setActiveSessionKey(viewModel.activeSessionKey)
+            layoutCoordinator.setActiveSessionKey(viewModel.engineActiveSessionKey)
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
         }
-        .onChange(of: viewModel.streamSwitchCoordinator.commitSequence) { _, _ in
-            guard let committedSessionKey = viewModel.streamSwitchCoordinator.lastCommittedSessionKey else { return }
-            let streamDisplayName = viewModel.stream(for: committedSessionKey)?.displayName ?? viewModel.activeSessionDisplayName
+        .onChange(of: viewModel.uiSelectionSequence) { _, _ in
+            guard let selectedSessionKey = viewModel.lastUISelectedSessionKey else { return }
+            let streamDisplayName = viewModel.stream(for: selectedSessionKey)?.displayName ?? viewModel.activeSessionDisplayName
             #if !os(visionOS)
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
             #endif
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                // Busy indicator starts at commit boundary to make deferred work visible to users.
-                streamToastManager.show(displayName: streamDisplayName, sessionKey: committedSessionKey, isBusy: true)
+                // UI-intent path is immediate; spinner stays up through debounce + engine activation.
+                streamToastManager.show(displayName: streamDisplayName, sessionKey: selectedSessionKey, isBusy: true)
             }
-            // Keep spinner visible briefly so commit/reflow feedback is perceptible.
-            streamSwitchBusyClearTask?.cancel()
-            streamSwitchBusyClearTask = Task {
-                try? await Task.sleep(for: .milliseconds(450))
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        streamToastManager.setBusy(false)
-                    }
-                }
-            }
+            streamToastBusySince = Date()
+            streamToastBusyClearTask?.cancel()
+            streamToastBusyClearTask = nil
+        }
+        .onChange(of: viewModel.engineActivationCompletedSequence) { _, _ in
+            guard let completedSessionKey = viewModel.lastEngineActivationSessionKey else { return }
+            guard streamToastManager.isVisible, streamToastManager.sessionKey == completedSessionKey else { return }
+            scheduleStreamToastBusyClear()
         }
         .onChange(of: keyboardHeight) { _, _ in layoutRevision &+= 1 }
         .onChange(of: keyboardAnimationDuration) { _, _ in layoutRevision &+= 1 }
@@ -705,7 +702,7 @@ struct ChatView: View {
 #if os(visionOS)
             // visionOS: keep the scroll-to-bottom button in the main SwiftUI overlay.
             // iOS/iPadOS: we pin it to the UIKit keyboardLayoutGuide via KeyboardPinnedContainerView.
-            let sessionKey = viewModel.activeSessionKey
+            let sessionKey = viewModel.uiSelectedSessionKey
             let state = scrollButtonState(for: sessionKey)
             scrollButtonControl(
                 state: state,
@@ -773,7 +770,7 @@ struct ChatView: View {
                                  isKeyboardVisible: Bool,
                                  layoutKey: ChatLayoutKey,
                                  streamSelectorMaxHeight: CGFloat) -> some View {
-        let sessionKey = viewModel.activeSessionKey
+        let sessionKey = viewModel.uiSelectedSessionKey
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
         let state = scrollButtonState(for: sessionKey)
         let scrollButtonView: AnyView = AnyView(
@@ -1025,23 +1022,23 @@ struct ChatView: View {
 
     private var renderPolicySessionKey: String {
         let validKeys = Set(viewModel.orderedStreams.map(\.sessionKey))
-        let key = viewModel.streamSwitchCoordinator.renderSessionKey
+        let key = viewModel.engineActiveSessionKey
         if validKeys.contains(key), !key.isEmpty {
             return key
         }
-        return viewModel.activeSessionKey
+        return viewModel.uiSelectedSessionKey
     }
 
-    /// Binding that syncs TabView selection with viewModel.activeSessionKey.
+    /// Binding that syncs TabView selection with uiSelectedSessionKey (intent path).
     private var streamBinding: Binding<String> {
         Binding(
             get: {
                 let effectiveSessionKeys = viewModel.orderedStreams.map(\.sessionKey)
-                let selected = viewModel.streamSwitchCoordinator.selectedSessionKey
+                let selected = viewModel.uiSelectedSessionKey
                 if effectiveSessionKeys.contains(selected), !selected.isEmpty {
                     return selected
                 }
-                return effectiveSessionKeys.first ?? viewModel.activeSessionKey
+                return effectiveSessionKeys.first ?? viewModel.engineActiveSessionKey
             },
             set: { newSessionKey in
                 selectStream(newSessionKey, source: .pager)
@@ -1057,7 +1054,7 @@ struct ChatView: View {
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
         return StreamPageDotsView(
             sessionKeys: effectiveSessionKeys,
-            activeSessionKey: viewModel.activeSessionKey,
+            activeSessionKey: viewModel.uiSelectedSessionKey,
             onTap: { isStreamManagerPopoverPresented = true }
         )
         .popover(
@@ -1078,8 +1075,26 @@ struct ChatView: View {
         }
     }
 
-    private func selectStream(_ sessionKey: String, source: StreamSwitchTransitionCoordinator.SwitchSource) {
+    private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {
         viewModel.requestStreamSwitch(to: sessionKey, source: source)
+    }
+
+    private func scheduleStreamToastBusyClear() {
+        streamToastBusyClearTask?.cancel()
+        let now = Date()
+        let elapsed = streamToastBusySince.map { now.timeIntervalSince($0) } ?? 0
+        let remaining = max(0, streamToastMinimumBusySeconds - elapsed)
+        streamToastBusyClearTask = Task {
+            if remaining > 0 {
+                try? await Task.sleep(for: .seconds(remaining))
+            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    streamToastManager.setBusy(false)
+                }
+            }
+        }
     }
 
     private func deviceCornerRadius() -> CGFloat {
