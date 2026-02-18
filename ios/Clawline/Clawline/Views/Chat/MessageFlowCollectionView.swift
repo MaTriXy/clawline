@@ -641,14 +641,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func handleBottomInsetHeightCapChange(previousBottomInset: CGFloat, newBottomInset: CGFloat) {
         guard abs(newBottomInset - previousBottomInset) > 0.5 else { return }
-        scheduleBottomInsetHeightCapInvalidation()
+        scheduleBottomInsetHeightCapInvalidation(
+            previousBottomInset: previousBottomInset,
+            newBottomInset: newBottomInset
+        )
     }
 
-    private func scheduleBottomInsetHeightCapInvalidation() {
+    private func scheduleBottomInsetHeightCapInvalidation(previousBottomInset: CGFloat, newBottomInset: CGFloat) {
         pendingBottomInsetHeightCapInvalidation?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             self?.pendingBottomInsetHeightCapInvalidation = nil
-            self?.applyBottomInsetHeightCapInvalidation()
+            self?.applyBottomInsetHeightCapInvalidation(
+                previousBottomInset: previousBottomInset,
+                newBottomInset: newBottomInset
+            )
         }
         pendingBottomInsetHeightCapInvalidation = workItem
         DispatchQueue.main.asyncAfter(
@@ -657,7 +663,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         )
     }
 
-    private func applyBottomInsetHeightCapInvalidation() {
+    private func applyBottomInsetHeightCapInvalidation(previousBottomInset: CGFloat, newBottomInset: CGFloat) {
         guard let viewModel else { return }
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let affectedIds = messagesById.values.compactMap { message -> String? in
