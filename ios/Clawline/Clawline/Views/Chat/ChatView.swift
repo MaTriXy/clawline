@@ -652,17 +652,25 @@ struct ChatView: View {
         .onChange(of: viewModel.uiSelectionSequence) { _, _ in
             guard let selectedSessionKey = viewModel.lastUISelectedSessionKey else { return }
             let streamDisplayName = viewModel.stream(for: selectedSessionKey)?.displayName ?? viewModel.activeSessionDisplayName
+            let shouldShowBusy = selectedSessionKey != viewModel.engineActiveSessionKey
             #if !os(visionOS)
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
             #endif
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                 // UI-intent path is immediate; spinner stays up through debounce + engine activation.
-                streamToastManager.show(displayName: streamDisplayName, sessionKey: selectedSessionKey, isBusy: true)
+                streamToastManager.show(displayName: streamDisplayName, sessionKey: selectedSessionKey, isBusy: shouldShowBusy)
             }
-            streamToastBusySince = Date()
-            streamToastBusyClearTask?.cancel()
-            streamToastBusyClearTask = nil
+            if shouldShowBusy {
+                streamToastBusySince = Date()
+                streamToastBusyClearTask?.cancel()
+                streamToastBusyClearTask = nil
+            } else {
+                // Same-stream intent has no engine activation phase, so never enter busy state.
+                streamToastBusySince = nil
+                streamToastBusyClearTask?.cancel()
+                streamToastBusyClearTask = nil
+            }
         }
         .onChange(of: viewModel.engineActivationCompletedSequence) { _, _ in
             guard let completedSessionKey = viewModel.lastEngineActivationSessionKey else { return }

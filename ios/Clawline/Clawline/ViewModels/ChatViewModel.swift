@@ -151,6 +151,10 @@ final class ChatViewModel: ChatViewModelHosting {
     // NOTE: keep this private.
     // Engine-active key mutation seam: all writes go through this method.
     private func setEngineActiveSessionKey(_ sessionKey: String) {
+        if sessionKey.isEmpty {
+            engineActiveSessionKey = ""
+            return
+        }
         guard orderedSessionKeys.contains(sessionKey) else { return }
         guard engineActiveSessionKey != sessionKey else { return }
         applyActiveSessionKey(sessionKey)
@@ -217,7 +221,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func clearActiveSession() {
-        engineActiveSessionKey = ""
+        setEngineActiveSessionKey("")
         setUISelectedSessionKey("")
         pendingEngineActivationTarget = nil
         pendingEngineActivationEpoch = nil
