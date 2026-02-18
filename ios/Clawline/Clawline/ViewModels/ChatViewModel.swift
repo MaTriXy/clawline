@@ -72,6 +72,10 @@ final class ChatViewModel: ChatViewModelHosting {
     private var pendingEngineActivationEpoch: Int?
     private var engineActivationInFlightSessionKey: String?
     private var isPagerInteracting: Bool = false
+    // Render policy seam:
+    // `.frozen` while pager is physically moving; suppresses new heavy snapshot/layout work on all pages.
+    // `.active` once pager is settled; heavy work may start again.
+    var isRenderPolicyFrozen: Bool { isPagerInteracting }
 
     // Back-compat read-only alias while call sites migrate to explicit split keys.
     var activeSessionKey: String { engineActiveSessionKey }

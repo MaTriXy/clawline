@@ -23,6 +23,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var topInset: CGFloat
     var isCompact: Bool
     var isActiveSession: Bool
+    var isRenderPolicyFrozen: Bool
     var isInputActive: Bool
     var truncationBottomInset: CGFloat
     var firstUnreadMessageId: String?
@@ -48,6 +49,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             viewModel: viewModel,
             isCompact: isCompact,
             isActiveSession: isActiveSession,
+            isRenderPolicyFrozen: isRenderPolicyFrozen,
             isInputActive: isInputActive,
             topInset: topInset,
             truncationBottomInset: truncationBottomInset,
@@ -74,6 +76,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             viewModel: viewModel,
             isCompact: isCompact,
             isActiveSession: isActiveSession,
+            isRenderPolicyFrozen: isRenderPolicyFrozen,
             isInputActive: isInputActive,
             topInset: topInset,
             truncationBottomInset: truncationBottomInset,
@@ -128,6 +131,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var viewModel: ChatViewModel?
     private var isCompact: Bool = true
     private var isActiveSession: Bool = true
+    private var isRenderPolicyFrozen: Bool = false
     private var isInputActive: Bool = false
     private var topInset: CGFloat = 0
     private var truncationBottomInset: CGFloat = 0
@@ -503,6 +507,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 viewModel: viewModel,
                 isCompact: isCompact,
                 isActiveSession: isActiveSession,
+                isRenderPolicyFrozen: isRenderPolicyFrozen,
                 isInputActive: isInputActive,
                 topInset: topInset,
                 truncationBottomInset: truncationBottomInset,
@@ -1083,6 +1088,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             viewModel: viewModel,
             isCompact: isCompact,
             isActiveSession: isActiveSession,
+            isRenderPolicyFrozen: isRenderPolicyFrozen,
             isInputActive: isInputActive,
             topInset: topInset,
             truncationBottomInset: truncationBottomInset,
@@ -1099,6 +1105,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         viewModel: ChatViewModel,
         isCompact: Bool,
         isActiveSession: Bool,
+        isRenderPolicyFrozen: Bool,
         isInputActive: Bool,
         topInset: CGFloat,
         truncationBottomInset: CGFloat,
@@ -1118,6 +1125,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.viewModel = viewModel
         self.channelOverride = sessionKey
         self.isActiveSession = isActiveSession
+        self.isRenderPolicyFrozen = isRenderPolicyFrozen
         self.isInputActive = isInputActive
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
@@ -1151,6 +1159,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         StreamSwitchTiming.log("messageFlow_update_enter", sessionKey: effectiveSessionKey)
         pruneMaterializationState(validSessionKeys: Set(viewModel.orderedSessionKeys))
         let isOffscreenSession = sessionKey != nil && !isActiveSession
+        if isRenderPolicyFrozen {
+            // Render policy `.frozen` applies to ALL pages, including the outgoing engine-active page.
+            // We suppress starting new snapshot/apply/layout work during pager animation.
+            // Any apply already in flight is allowed to finish normally.
+            StreamSwitchTiming.log("messageFlow_update_skipped_frozen", sessionKey: effectiveSessionKey)
+            return
+        }
         let needsFullLayout = forceReconfigureAll
             || self.isCompact != isCompact
             || self.topInset != topInset
