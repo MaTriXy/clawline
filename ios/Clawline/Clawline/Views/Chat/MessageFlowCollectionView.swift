@@ -109,6 +109,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var bubbleSizingV2RemeasureDeferredUntilNearBottom: Bool = false
     private var deferredBottomInsetRemeasureIds: Set<String> = []
     private var bottomInsetRemeasureTimer: Timer?
+    private var bottomInsetRemeasureBypassInputGates = false
     private var bubbleSizingV2LastScrollActivityTime: CFAbsoluteTime = 0
     private static let bubbleSizingV2RemeasureDebounceSeconds: TimeInterval = 0.45
     private static let bubbleSizingV2RemeasureMaxWaitSeconds: TimeInterval = 2.5
@@ -645,7 +646,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         guard !affectedIds.isEmpty else { return }
         deferredBottomInsetRemeasureIds.formUnion(affectedIds)
+        // Keyboard dismiss is a discrete geometry transition, not active typing churn.
+        // When inset collapses significantly, visible capped bubbles must remeasure promptly
+        // even if focus/content gates still report "active input".
+        if isLikelyKeyboardDismissInsetChange(previousBottomInset: previousBottomInset, newBottomInset: newBottomInset) {
+            bottomInsetRemeasureBypassInputGates = true
+        }
         scheduleDeferredBottomInsetRemeasure()
+    }
+
+    private func isLikelyKeyboardDismissInsetChange(previousBottomInset: CGFloat, newBottomInset: CGFloat) -> Bool {
+        let collapsedBy = previousBottomInset - newBottomInset
+        // Keyboard transitions are large inset drops (hundreds of points), unlike line-wrap
+        // or small chrome adjustments. Keep this threshold conservative to avoid broadening scope.
+        return collapsedBy > 80
     }
 
     private func scheduleDeferredBottomInsetRemeasure() {
@@ -663,9 +677,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func flushDeferredBottomInsetRemeasureIfNeeded() {
         guard !deferredBottomInsetRemeasureIds.isEmpty else { return }
-        guard isBubbleSizingV2ScrollAtRest() else { return }
-        guard !isInputActive else { return }
-        guard viewModel?.inputContent.isEffectivelyEmpty != false else { return }
+        guard isBubbleSizingV2ScrollAtRest() else {
+            // If we intentionally bypass input gates for keyboard-dismiss, keep trying until rest.
+            if bottomInsetRemeasureBypassInputGates {
+                scheduleDeferredBottomInsetRemeasure()
+            }
+            return
+        }
+        if !bottomInsetRemeasureBypassInputGates {
+            guard !isInputActive else { return }
+            guard viewModel?.inputContent.isEffectivelyEmpty != false else { return }
+        }
 
         let visibleIds: Set<String> = Set(collectionView.indexPathsForVisibleItems.compactMap { indexPath in
             guard let id = dataSource.itemIdentifier(for: indexPath), id != TypingIndicatorCell.itemId else {
@@ -674,7 +696,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return id
         })
         let idsToRemeasure = Array(deferredBottomInsetRemeasureIds.intersection(visibleIds))
-        guard !idsToRemeasure.isEmpty else { return }
+        guard !idsToRemeasure.isEmpty else {
+            // Bypass applies to currently visible bubbles only.
+            // Keep non-visible ids queued for normal scroll-into-view handling.
+            bottomInsetRemeasureBypassInputGates = false
+            return
+        }
 
         if bubbleSizingV2Enabled {
             idsToRemeasure.forEach { invalidateBubbleSizingV2Cache(for: $0) }
@@ -688,6 +715,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             executeInvalidationPlan(plan)
         }
         deferredBottomInsetRemeasureIds.subtract(idsToRemeasure)
+        bottomInsetRemeasureBypassInputGates = false
     }
 
     func scheduleScrollToBottom(animated: Bool, attempts: Int = 2) {
