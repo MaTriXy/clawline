@@ -73,6 +73,12 @@ final class ChatViewModel: ChatViewModelHosting {
     private var engineActivationInFlightSessionKey: String?
     private var isPagerInteracting: Bool = false
 
+    // Global page-freeze gate for stream switching:
+    // while pager is in motion OR a debounced activation is pending, no page should materialize snapshots.
+    var isStreamSwitchFreezeActive: Bool {
+        isPagerInteracting || pendingEngineActivationTarget != nil
+    }
+
     // Back-compat read-only alias while call sites migrate to explicit split keys.
     var activeSessionKey: String { engineActiveSessionKey }
 

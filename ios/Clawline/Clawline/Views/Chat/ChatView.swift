@@ -921,6 +921,7 @@ struct ChatView: View {
             topInset: topInset,
             isCompact: horizontalSizeClass == .compact,
             isActiveSession: sessionKey == renderPolicySessionKey,
+            shouldFreezeUpdates: viewModel.isStreamSwitchFreezeActive,
             isInputActive: isInputFocused,
             truncationBottomInset: truncationBottomInset,
             firstUnreadMessageId: state.firstUnreadMessageId,
@@ -1063,6 +1064,7 @@ struct ChatView: View {
                 isCompact: horizontalSizeClass == .compact,
                 // Keep prewarm pages explicitly offscreen so data/snapshot/layout work stays deferred.
                 isActiveSession: false,
+                shouldFreezeUpdates: viewModel.isStreamSwitchFreezeActive,
                 isInputActive: isInputFocused,
                 truncationBottomInset: truncationBottomInset,
                 firstUnreadMessageId: nil,

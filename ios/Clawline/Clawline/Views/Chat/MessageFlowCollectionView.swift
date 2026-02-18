@@ -23,6 +23,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var topInset: CGFloat
     var isCompact: Bool
     var isActiveSession: Bool
+    var shouldFreezeUpdates: Bool
     var isInputActive: Bool
     var truncationBottomInset: CGFloat
     var firstUnreadMessageId: String?
@@ -48,6 +49,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             viewModel: viewModel,
             isCompact: isCompact,
             isActiveSession: isActiveSession,
+            shouldFreezeUpdates: shouldFreezeUpdates,
             isInputActive: isInputActive,
             topInset: topInset,
             truncationBottomInset: truncationBottomInset,
@@ -74,6 +76,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             viewModel: viewModel,
             isCompact: isCompact,
             isActiveSession: isActiveSession,
+            shouldFreezeUpdates: shouldFreezeUpdates,
             isInputActive: isInputActive,
             topInset: topInset,
             truncationBottomInset: truncationBottomInset,
@@ -128,6 +131,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var viewModel: ChatViewModel?
     private var isCompact: Bool = true
     private var isActiveSession: Bool = true
+    private var shouldFreezeUpdates: Bool = false
     private var isInputActive: Bool = false
     private var topInset: CGFloat = 0
     private var truncationBottomInset: CGFloat = 0
@@ -445,6 +449,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 viewModel: viewModel,
                 isCompact: isCompact,
                 isActiveSession: isActiveSession,
+                shouldFreezeUpdates: shouldFreezeUpdates,
                 isInputActive: isInputActive,
                 topInset: topInset,
                 truncationBottomInset: truncationBottomInset,
@@ -772,6 +777,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         viewModel: ChatViewModel,
         isCompact: Bool,
         isActiveSession: Bool,
+        shouldFreezeUpdates: Bool,
         isInputActive: Bool,
         topInset: CGFloat,
         truncationBottomInset: CGFloat,
@@ -791,6 +797,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.viewModel = viewModel
         self.channelOverride = sessionKey
         self.isActiveSession = isActiveSession
+        self.shouldFreezeUpdates = shouldFreezeUpdates
         self.isInputActive = isInputActive
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
@@ -822,6 +829,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let effectiveSessionKey = sessionKey ?? viewModel.engineActiveSessionKey
         collectionView.accessibilityIdentifier = effectiveSessionKey
         StreamSwitchTiming.log("messageFlow_update_enter", sessionKey: effectiveSessionKey)
+        if shouldFreezeUpdates {
+            StreamSwitchTiming.log("messageFlow_update_skipped_frozen", sessionKey: effectiveSessionKey)
+            return
+        }
         let isOffscreenSession = sessionKey != nil && !isActiveSession
         let needsFullLayout = forceReconfigureAll
             || self.isCompact != isCompact
