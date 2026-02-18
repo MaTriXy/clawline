@@ -434,9 +434,9 @@ final class ChatViewModel: ChatViewModelHosting {
                 startObserving()
             }
             restoreStreamMetadataIfNeeded()
+            restoreActiveSessionKeyIfNeeded()
             ensureDefaultActiveSessionIfNeeded()
             restoreLastServerMessageIdIfNeeded()
-            restoreActiveSessionKeyIfNeeded()
             if !engineActiveSessionKey.isEmpty {
                 restoreLastServerMessageIdIfNeeded(for: engineActiveSessionKey)
                 restoreCachedMessagesIfNeeded(for: engineActiveSessionKey)
@@ -1779,10 +1779,13 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func restoreActiveSessionKeyIfNeeded() {
         guard !didRestoreActiveSessionKey else { return }
-        didRestoreActiveSessionKey = true
-        guard let stored = persistedActiveSessionKey() else { return }
+        guard let stored = persistedActiveSessionKey() else {
+            didRestoreActiveSessionKey = true
+            return
+        }
         if orderedSessionKeys.contains(stored) {
             setEngineActiveSessionKey(stored)
+            didRestoreActiveSessionKey = true
         }
     }
 
