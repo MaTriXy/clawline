@@ -820,6 +820,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #endif
 
         let effectiveSessionKey = sessionKey ?? viewModel.engineActiveSessionKey
+        collectionView.accessibilityIdentifier = effectiveSessionKey
+        StreamSwitchTiming.log("messageFlow_update_enter", sessionKey: effectiveSessionKey)
         let isOffscreenSession = sessionKey != nil && !isActiveSession
         let needsFullLayout = forceReconfigureAll
             || self.isCompact != isCompact
@@ -852,6 +854,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let removedPlan = invalidateFor(reason: .messagesRemoved(Array(removedIds)))
         executeInvalidationPlan(removedPlan)
 
+        StreamSwitchTiming.log("snapshot_build_start", sessionKey: effectiveSessionKey)
         var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
         snapshot.appendSections([0])
         snapshot.appendItems(messages.map(\.id))
@@ -870,6 +873,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if showTypingIndicator {
             snapshot.appendItems([TypingIndicatorCell.itemId])
         }
+        StreamSwitchTiming.log("snapshot_build_end", sessionKey: effectiveSessionKey)
 
         let newItemIds = Set(snapshot.itemIdentifiers)
         let insertedIds = newItemIds.subtracting(oldItemIds)
@@ -927,24 +931,32 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if shouldMorph {
 #if os(visionOS)
+            StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
                 afterSnapshotApplied()
                 self?.updateVisibleCellOpacity()
+                StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
             }
 #else
+            StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
                 afterSnapshotApplied()
+                StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
             }
 #endif
         } else {
 #if os(visionOS)
+            StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
                 afterSnapshotApplied()
                 self?.updateVisibleCellOpacity()
+                StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
             }
 #else
+            StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
                 afterSnapshotApplied()
+                StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
             }
 #endif
         }
@@ -2917,6 +2929,8 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         let t0 = CFAbsoluteTimeGetCurrent()
         super.prepare()
         guard let collectionView else { return }
+        let sessionKey = collectionView.accessibilityIdentifier
+        StreamSwitchTiming.log("layout_prepare_start", sessionKey: sessionKey)
 
         let itemCount = collectionView.numberOfItems(inSection: 0)
         let contentWidth = collectionView.bounds.width
@@ -2933,6 +2947,7 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
            applyItemHeightChange(index: index, delta: delta) {
             pendingInvalidation = .none
             cachedLayoutSignature = signature
+            StreamSwitchTiming.log("layout_prepare_end", sessionKey: sessionKey)
             return
         }
 
@@ -2942,11 +2957,13 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
            appendLastItem(collectionView: collectionView, signature: signature) {
             pendingInvalidation = .none
             cachedLayoutSignature = signature
+            StreamSwitchTiming.log("layout_prepare_end", sessionKey: sessionKey)
             return
         }
 
         if !needsRebuild, cachedLayoutSignature == signature {
             pendingInvalidation = .none
+            StreamSwitchTiming.log("layout_prepare_end", sessionKey: sessionKey)
             return
         }
 
@@ -2955,6 +2972,7 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
             cachedContentSize = .zero
             cachedLayoutSignature = signature
             needsRebuild = false
+            StreamSwitchTiming.log("layout_prepare_end", sessionKey: sessionKey)
             return
         }
 
@@ -2987,6 +3005,7 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         cachedLayoutSignature = signature
         needsRebuild = false
         pendingInvalidation = .none
+        StreamSwitchTiming.log("layout_prepare_end", sessionKey: sessionKey)
         NSLog("[KBTIMING] FlowLayout.prepare items=%d dt=%.4f", itemCount, CFAbsoluteTimeGetCurrent() - t0)
     }
 

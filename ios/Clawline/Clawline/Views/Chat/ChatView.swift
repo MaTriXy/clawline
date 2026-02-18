@@ -654,7 +654,9 @@ struct ChatView: View {
             guard let selectedSessionKey = viewModel.lastUISelectedSessionKey else { return }
             let streamDisplayName = viewModel.stream(for: selectedSessionKey)?.displayName ?? viewModel.activeSessionDisplayName
             let shouldShowBusy = selectedSessionKey != viewModel.engineActiveSessionKey
+            StreamSwitchTiming.log("toast_show_called", sessionKey: selectedSessionKey)
             #if !os(visionOS)
+            StreamSwitchTiming.log("haptic_fired", sessionKey: selectedSessionKey)
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
             #endif
@@ -1031,10 +1033,15 @@ struct ChatView: View {
             // We avoid speculative timing guesses in ChatView itself.
             StreamPagerScrollObserver(
                 onInteractionBegan: {
+                    StreamSwitchTiming.log("onInteractionBegan_callback_fired", sessionKey: viewModel.uiSelectedSessionKey)
                     viewModel.streamPagerDidBeginInteraction()
                 },
                 onSettledAtRest: {
+                    StreamSwitchTiming.log("pan_settled_callback_fired", sessionKey: viewModel.uiSelectedSessionKey)
                     viewModel.streamPagerDidSettleAtRest()
+                },
+                currentSessionKey: {
+                    viewModel.uiSelectedSessionKey
                 }
             )
             .allowsHitTesting(false)
@@ -1110,6 +1117,7 @@ struct ChatView: View {
                 return effectiveSessionKeys.first ?? viewModel.engineActiveSessionKey
             },
             set: { newSessionKey in
+                StreamSwitchTiming.log("tabview_selection_setter_fired", sessionKey: newSessionKey)
                 selectStream(newSessionKey, source: .pager)
             }
         )
@@ -1145,6 +1153,7 @@ struct ChatView: View {
     }
 
     private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {
+        StreamSwitchTiming.log("selectStream_called", sessionKey: sessionKey)
         viewModel.requestStreamSwitch(to: sessionKey, source: source)
     }
 
@@ -1998,17 +2007,20 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
 private struct StreamPagerScrollObserver: UIViewRepresentable {
     let onInteractionBegan: @MainActor () -> Void
     let onSettledAtRest: @MainActor () -> Void
+    let currentSessionKey: @MainActor () -> String
 
     func makeUIView(context: Context) -> StreamPagerProbeView {
         let view = StreamPagerProbeView()
         view.onInteractionBegan = onInteractionBegan
         view.onSettledAtRest = onSettledAtRest
+        view.currentSessionKey = currentSessionKey
         return view
     }
 
     func updateUIView(_ uiView: StreamPagerProbeView, context: Context) {
         uiView.onInteractionBegan = onInteractionBegan
         uiView.onSettledAtRest = onSettledAtRest
+        uiView.currentSessionKey = currentSessionKey
         uiView.attachIfNeeded()
     }
 }
@@ -2016,6 +2028,7 @@ private struct StreamPagerScrollObserver: UIViewRepresentable {
 private final class StreamPagerProbeView: UIView {
     var onInteractionBegan: (@MainActor () -> Void)?
     var onSettledAtRest: (@MainActor () -> Void)?
+    var currentSessionKey: (@MainActor () -> String)?
 
     private weak var observedPagerScrollView: UIScrollView?
     private var settlePollTimer: Timer?
@@ -2068,11 +2081,13 @@ private final class StreamPagerProbeView: UIView {
             // Emit once per gesture to avoid noisy state churn while finger moves.
             if !didEmitInteractionForCurrentGesture {
                 didEmitInteractionForCurrentGesture = true
+                StreamSwitchTiming.markGestureBegan(sessionKey: currentSessionKey?())
                 onInteractionBegan?()
             }
             settlePollTimer?.invalidate()
             settlePollTimer = nil
         case .ended, .cancelled, .failed:
+            StreamSwitchTiming.log("pan_gesture_ended", sessionKey: currentSessionKey?())
             didEmitInteractionForCurrentGesture = false
             startSettlePolling()
         default:
