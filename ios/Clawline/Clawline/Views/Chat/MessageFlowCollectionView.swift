@@ -29,6 +29,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var unreadCount: Int
     var onExpand: ((Message) -> Void)?
     var layoutCoordinator: ChatLayoutCoordinator
+    var shouldRegisterWithLayoutCoordinator: Bool = true
     /// Optional session override - if provided, shows messages for this session instead of activeSessionKey
     var sessionKey: String?
     var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
@@ -57,7 +58,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             onScrollEvent: onScrollEvent,
             isDark: isDark
         )
-        if let sessionKey {
+        if shouldRegisterWithLayoutCoordinator, let sessionKey {
             layoutCoordinator.registerListView(controller, sessionKey: sessionKey)
         }
         return controller
@@ -83,7 +84,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             onScrollEvent: onScrollEvent,
             isDark: isDark
         )
-        if let sessionKey {
+        if shouldRegisterWithLayoutCoordinator, let sessionKey {
             layoutCoordinator.registerListView(uiViewController, sessionKey: sessionKey)
         }
     }

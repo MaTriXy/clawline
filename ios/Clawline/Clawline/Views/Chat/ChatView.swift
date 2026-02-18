@@ -1011,6 +1011,21 @@ struct ChatView: View {
                     .tag(sessionKey)
             }
         }
+        .overlay {
+            // First-frame pager hitch mitigation:
+            // SwiftUI lazily realizes neighboring page controllers on first pan recognition.
+            // Precreate only the adjacent UIKit shells (+/-1) ahead of drag; content stays deferred
+            // by MessageFlowCollectionViewController's offscreen early-return path.
+            adjacentPagePrewarmShells(
+                topInset: topInset,
+                truncationBottomInset: truncationBottomInset,
+                effectiveSessionKeys: effectiveSessionKeys
+            )
+            .frame(width: 0, height: 0)
+            .clipped()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
         .background {
             // This bridge feeds explicit pager motion/settle events into the coordinator state machine.
             // We avoid speculative timing guesses in ChatView itself.
@@ -1027,6 +1042,51 @@ struct ChatView: View {
         .tabViewStyle(.page(indexDisplayMode: .never))
         .scrollContentBackground(.hidden)
         .background(Color.clear)
+    }
+
+    @ViewBuilder
+    private func adjacentPagePrewarmShells(topInset: CGFloat,
+                                           truncationBottomInset: CGFloat,
+                                           effectiveSessionKeys: [String]) -> some View {
+        let prewarmKeys = adjacentPrewarmSessionKeys(effectiveSessionKeys: effectiveSessionKeys)
+        ForEach(prewarmKeys, id: \.self) { sessionKey in
+            MessageFlowCollectionView(
+                viewModel: viewModel,
+                topInset: topInset,
+                isCompact: horizontalSizeClass == .compact,
+                // Keep prewarm pages explicitly offscreen so data/snapshot/layout work stays deferred.
+                isActiveSession: false,
+                isInputActive: isInputFocused,
+                truncationBottomInset: truncationBottomInset,
+                firstUnreadMessageId: nil,
+                unreadCount: 0,
+                onExpand: nil,
+                layoutCoordinator: layoutCoordinator,
+                // Do not register prewarm shells as live session list views.
+                shouldRegisterWithLayoutCoordinator: false,
+                sessionKey: sessionKey,
+                onScrollEvent: nil
+            )
+            .hidden()
+        }
+    }
+
+    private func adjacentPrewarmSessionKeys(effectiveSessionKeys: [String]) -> [String] {
+        guard !effectiveSessionKeys.isEmpty else { return [] }
+        let primarySelection = effectiveSessionKeys.contains(viewModel.uiSelectedSessionKey)
+            ? viewModel.uiSelectedSessionKey
+            : viewModel.engineActiveSessionKey
+        guard let centerIndex = effectiveSessionKeys.firstIndex(of: primarySelection) else { return [] }
+        var keys: [String] = []
+        let lower = centerIndex - 1
+        let upper = centerIndex + 1
+        if lower >= 0 {
+            keys.append(effectiveSessionKeys[lower])
+        }
+        if upper < effectiveSessionKeys.count {
+            keys.append(effectiveSessionKeys[upper])
+        }
+        return keys
     }
 
     private var renderPolicySessionKey: String {
