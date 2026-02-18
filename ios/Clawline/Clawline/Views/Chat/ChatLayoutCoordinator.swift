@@ -18,8 +18,8 @@ struct ChatLayoutInputs: Equatable {
     let usesExternalKeyboardInsets: Bool
 
     var effectiveKeyboardInset: CGFloat {
-        guard keyboardVisible, !usesExternalKeyboardInsets else { return 0 }
-        return max(0, keyboardHeight)
+        guard !usesExternalKeyboardInsets else { return 0 }
+        return max(0, keyboardHeight - safeAreaBottom)
     }
 }
 
@@ -201,6 +201,14 @@ final class ChatLayoutCoordinator {
         let didJustStabilize = wasUsingBootstrap && !isUsingBootstrap
         let targetInset = targetBottomInset(for: inputs, metrics: metrics, barHeight: currentBarHeight)
         let previousInset = lastAppliedInset
+        let insetChanged = abs(targetInset - previousInset) > 0.5
+        let gapChanged = abs(lastAppliedBelowBarGap - metrics.belowBarGap) > 1
+            || lastAppliedKeyboardVisible != inputs.keyboardVisible
+        let barHeightChanged = abs(currentBarHeight - lastAppliedBarHeight) > 0.5
+        if !insetChanged, !gapChanged, !barHeightChanged {
+            previousInputs = inputs
+            return
+        }
         let list = activeListView()
         let wasNearBottom = list?.isNearBottom(extraMargin: max(MessageFlowCollectionViewController.atBottomThreshold, previousInset)) ?? false
         let keyboardJustAppeared = inputs.isInputFocused && !(previousInputs?.isInputFocused ?? false)
@@ -226,15 +234,17 @@ final class ChatLayoutCoordinator {
 
         let applyChanges = { [weak self] in
             guard let self else { return }
-            if abs(self.lastAppliedBelowBarGap - metrics.belowBarGap) > 0.5 || self.lastAppliedKeyboardVisible != inputs.keyboardVisible {
+            if gapChanged {
                 self.lastAppliedBelowBarGap = metrics.belowBarGap
                 self.lastAppliedKeyboardVisible = inputs.keyboardVisible
                 barView.setDesiredBottomGap(metrics.belowBarGap, isKeyboardVisible: inputs.keyboardVisible)
                 barView.containerView.layoutIfNeeded()
             }
-            for list in self.listViews.values.compactMap({ $0.value }) {
-                if abs(list.currentBottomInset - targetInset) > 0.5 {
-                    list.setBottomInset(targetInset)
+            if insetChanged {
+                for list in self.listViews.values.compactMap({ $0.value }) {
+                    if abs(list.currentBottomInset - targetInset) > 0.5 {
+                        list.setBottomInset(targetInset)
+                    }
                 }
             }
         }

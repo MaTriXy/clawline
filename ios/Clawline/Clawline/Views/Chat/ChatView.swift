@@ -542,8 +542,9 @@ struct ChatView: View {
             ? metrics.flowGap
             : ChatFlowTheme.Metrics(isCompact: false).flowGap
         let bottomInsetFlowGap = bottomFlowGap
-        // Gap below input bar: version label area (keyboard hidden) or minimal gap (keyboard up)
-        let belowBarGap: CGFloat = isKeyboardVisible ? 12 : 24
+        // Keep the bar gap continuous through the final keyboard-dismiss frames.
+        let keyboardInsetProgress = min(1, max(0, keyboardVisibleHeight / 24))
+        let belowBarGap: CGFloat = 24 - (12 * keyboardInsetProgress)
         let usesExternalKeyboardInsets: Bool = {
 #if os(visionOS)
             // visionOS keyboard geometry can over-report and cause content overlap drift after
