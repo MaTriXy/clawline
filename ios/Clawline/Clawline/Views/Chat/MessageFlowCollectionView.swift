@@ -114,6 +114,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let bubbleSizingV2RemeasureDebounceSeconds: TimeInterval = 0.45
     private static let bubbleSizingV2RemeasureMaxWaitSeconds: TimeInterval = 2.5
     private static let bubbleSizingV2RestSettleDelaySeconds: TimeInterval = 0.12
+    private static let bottomInsetHeightCapInvalidationDebounceSeconds: TimeInterval = 0.20
 
     private var messagesById: [String: Message] = [:]
     private var fingerprints: [String: Int] = [:]
@@ -162,6 +163,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var restoredScrollKeys: Set<String> = []
     private var scrollStateWriteDebounceTimer: Timer?
     private static let scrollStateWriteDebounceSeconds: TimeInterval = 0.35
+    private var pendingBottomInsetHeightCapInvalidation: DispatchWorkItem?
     // iPad mini 6th gen portrait reference size used as the max chat geometry envelope on large screens.
     private static let bubbleReferenceSize = CGSize(width: 744, height: 1133)
     /// Single source of truth for what “at bottom” means across:
@@ -231,6 +233,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     deinit {
         NotificationCenter.default.removeObserver(self, name: UIApplication.willResignActiveNotification, object: nil)
+        pendingBottomInsetHeightCapInvalidation?.cancel()
     }
 
     // MARK: - Cache Mutation Seam
@@ -638,6 +641,23 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func handleBottomInsetHeightCapChange(previousBottomInset: CGFloat, newBottomInset: CGFloat) {
         guard abs(newBottomInset - previousBottomInset) > 0.5 else { return }
+        scheduleBottomInsetHeightCapInvalidation()
+    }
+
+    private func scheduleBottomInsetHeightCapInvalidation() {
+        pendingBottomInsetHeightCapInvalidation?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.pendingBottomInsetHeightCapInvalidation = nil
+            self?.applyBottomInsetHeightCapInvalidation()
+        }
+        pendingBottomInsetHeightCapInvalidation = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.bottomInsetHeightCapInvalidationDebounceSeconds,
+            execute: workItem
+        )
+    }
+
+    private func applyBottomInsetHeightCapInvalidation() {
         guard let viewModel else { return }
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let affectedIds = messagesById.values.compactMap { message -> String? in
