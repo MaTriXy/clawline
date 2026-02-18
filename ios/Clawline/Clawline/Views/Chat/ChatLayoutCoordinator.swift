@@ -19,7 +19,12 @@ struct ChatLayoutInputs: Equatable {
 
     var effectiveKeyboardInset: CGFloat {
         guard !usesExternalKeyboardInsets else { return 0 }
-        return max(0, keyboardHeight - safeAreaBottom)
+        let visibleHeight = max(0, keyboardHeight - safeAreaBottom)
+        guard visibleHeight > 0.5 else { return 0 }
+        // Keep a continuous release near dismiss, but preserve full keyboard inset when clearly visible.
+        let blendProgress = min(1, visibleHeight / 24)
+        let compensatedSafeArea = safeAreaBottom * (1 - blendProgress)
+        return max(0, keyboardHeight - compensatedSafeArea)
     }
 }
 
