@@ -223,6 +223,66 @@ struct UnifiedMarkdownRenderingAcceptanceTests {
         #expect(model.rows[0].cells[1].plainText == "y")
     }
 
+    @Test("BLK-01: interleaved block markdown preserves vertical separation and content")
+    func blk_01_interleavedBlockSpacingAndContent() {
+        let markdown = """
+        # Title
+
+        Intro paragraph.
+
+        - Item one
+        - Item two
+
+        > Quoted line
+
+        ---
+
+        Let me check the proposal against each principle:
+        ## 1 Ownership
+        ## 2 Mutation seams
+        But first, guard block spacing.
+
+        ```swift
+        print("code")
+        ```
+
+        | Key | Value |
+        | --- | --- |
+        | A | B |
+
+        Tail paragraph.
+        """
+
+        let plan = UnifiedMarkdownParser.parse(markdown: markdown, messageID: "blk_01", metrics: metrics)
+        let bubble = UnifiedMarkdownRenderer.render(plan: plan, options: bubbleOptions())
+        let expanded = UnifiedMarkdownRenderer.render(plan: plan, options: expandedOptions())
+
+        #expect(sequence(for: bubble) == sequence(for: expanded))
+        #expect(bubble.filter { if case .attributedText = $0 { return true }; return false }.count >= 6)
+        #expect(sequence(for: expanded).contains(.code))
+        #expect(sequence(for: expanded).contains(.table))
+
+        let expandedText = joinedText(from: expanded)
+        #expect(expandedText.contains("Title"))
+        #expect(expandedText.contains("Intro paragraph."))
+        #expect(expandedText.contains("Item one"))
+        #expect(expandedText.contains("Quoted line"))
+        #expect(expandedText.contains("Ownership"))
+        #expect(expandedText.contains("Tail paragraph."))
+        #expect(expandedText.contains("\n\n"))
+        #expect(containsInOrder(
+            expandedText,
+            tokens: [
+                "Title",
+                "Intro paragraph.",
+                "Item one",
+                "Quoted line",
+                "Ownership",
+                "Tail paragraph."
+            ]
+        ))
+    }
+
     private enum BlockType: Equatable {
         case richText
         case code
@@ -289,5 +349,16 @@ struct UnifiedMarkdownRenderingAcceptanceTests {
             return nil
         }
         .joined(separator: "\n\n")
+    }
+
+    private func containsInOrder(_ text: String, tokens: [String]) -> Bool {
+        var searchStart = text.startIndex
+        for token in tokens {
+            guard let range = text.range(of: token, range: searchStart..<text.endIndex) else {
+                return false
+            }
+            searchStart = range.upperBound
+        }
+        return true
     }
 }

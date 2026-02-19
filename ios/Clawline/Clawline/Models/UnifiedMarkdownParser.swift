@@ -13,44 +13,31 @@ enum UnifiedMarkdownParser {
 
         let document = Document(parsing: markdown)
         var blocks: [MarkdownRenderBlock] = []
-        var richTextBuffer: [Markup] = []
 
-        func flushRichText() {
-            guard !richTextBuffer.isEmpty else { return }
-            let source = richTextBuffer
-                .map { $0.format() }
-                .joined(separator: "\n\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !source.isEmpty {
-                blocks.append(.richText(markdownSource: source))
+        func appendRichText(_ source: String) {
+            let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                blocks.append(.richText(markdownSource: trimmed))
             }
-            richTextBuffer.removeAll(keepingCapacity: true)
         }
 
         for child in document.children {
             if let code = child as? CodeBlock {
-                flushRichText()
                 blocks.append(.code(language: normalizedLanguage(code.language), code: code.code))
                 continue
             }
 
             if let table = child as? Table {
-                flushRichText()
                 if let model = buildTableModel(from: table, messageID: messageID, metrics: metrics) {
                     blocks.append(.table(model))
                 } else {
-                    let fallback = child.format().trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !fallback.isEmpty {
-                        blocks.append(.richText(markdownSource: fallback))
-                    }
+                    appendRichText(child.format())
                 }
                 continue
             }
 
-            richTextBuffer.append(child)
+            appendRichText(child.format())
         }
-
-        flushRichText()
 
         let plainTextForMetrics = blocks
             .map(plainText(from:))
