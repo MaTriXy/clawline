@@ -383,11 +383,20 @@ private struct MessageSendControl: View {
         }
     }
 
-    private func reconnectDotOpacity(at date: Date) -> Double {
+    private func reconnectPulsePhase(at date: Date) -> Double {
         let phase = date.timeIntervalSinceReferenceDate
             .truncatingRemainder(dividingBy: reconnectPulseDuration) / reconnectPulseDuration
-        let eased = 0.5 - 0.5 * cos(phase * 2 * .pi)
-        return 0.4 + (0.6 * eased)
+        return 0.5 - 0.5 * cos(phase * 2 * .pi)
+    }
+
+    private func reconnectDotOpacity(at date: Date) -> Double {
+        let phase = reconnectPulsePhase(at: date)
+        return 0.4 + (0.6 * phase)
+    }
+
+    private func reconnectDotScale(at date: Date) -> Double {
+        let phase = reconnectPulsePhase(at: date)
+        return 1.0 + (0.2 * phase)
     }
 
     var body: some View {
@@ -411,7 +420,7 @@ private struct MessageSendControl: View {
                         .fill(sendBackgroundColor)
                         .frame(width: reconnectDotSize, height: reconnectDotSize)
                         .opacity(isReconnecting ? reconnectDotOpacity(at: context.date) : 0)
-                        .scaleEffect(isReconnecting ? 1 : 0.45)
+                        .scaleEffect(isReconnecting ? reconnectDotScale(at: context.date) : 0.45)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
