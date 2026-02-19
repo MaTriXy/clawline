@@ -5,6 +5,25 @@ enum UnifiedMarkdownRenderer {
     private static let markOpenSentinel = "\u{F0000}"
     private static let markCloseSentinel = "\u{F0001}"
 
+    static func makeOptions(
+        baseFont: UIFont,
+        inkColor: UIColor,
+        lineSpacing: CGFloat,
+        stripDetectedURLs: Bool,
+        role: Message.Role,
+        isDark: Bool
+    ) -> MarkdownRenderOptions {
+        MarkdownRenderOptions(
+            baseFont: baseFont,
+            inkColor: inkColor,
+            lineSpacing: lineSpacing,
+            stripDetectedURLs: stripDetectedURLs,
+            markHighlightColor: role == .assistant
+                ? SalientHighlightApplier.highlightColor(isDark: isDark)
+                : nil
+        )
+    }
+
     static func render(
         plan: MarkdownRenderPlan,
         options: MarkdownRenderOptions

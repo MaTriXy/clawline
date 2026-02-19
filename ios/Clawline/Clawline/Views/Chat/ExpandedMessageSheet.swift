@@ -151,14 +151,13 @@ struct ExpandedMessageSheet: View {
     }
 
     private var renderedMarkdownBlocks: [RenderedMarkdownBlock] {
-        let options = MarkdownRenderOptions(
+        let options = UnifiedMarkdownRenderer.makeOptions(
             baseFont: UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular),
             inkColor: UIColor(ChatFlowTheme.ink(effectiveColorScheme)),
             lineSpacing: 4,
             stripDetectedURLs: false,
-            markHighlightColor: message.role == .assistant
-                ? SalientHighlightApplier.highlightColor(isDark: effectiveColorScheme == .dark)
-                : nil
+            role: message.role,
+            isDark: effectiveColorScheme == .dark
         )
         return UnifiedMarkdownRenderer.render(
             plan: presentation.markdownRenderPlan,

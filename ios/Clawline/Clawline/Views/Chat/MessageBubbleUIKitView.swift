@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import HighlightSwift
 import OSLog
 import SwiftUI
 import UIKit
@@ -609,14 +608,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fileTapHandlers.removeAll()
 
         let markdownStyle = Self.markdownStyle(for: sizeClass, metrics: metrics)
-        let markdownOptions = MarkdownRenderOptions(
+        let markdownOptions = UnifiedMarkdownRenderer.makeOptions(
             baseFont: markdownStyle.baseFont,
             inkColor: palette.ink,
             lineSpacing: markdownStyle.lineSpacing,
             stripDetectedURLs: true,
-            markHighlightColor: message.role == .assistant
-                ? SalientHighlightApplier.highlightColor(isDark: effectiveIsDark)
-                : nil
+            role: message.role,
+            isDark: effectiveIsDark
         )
         let renderedMarkdownBlocks = UnifiedMarkdownRenderer.render(
             plan: presentation.markdownRenderPlan,
@@ -2261,220 +2259,95 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
 
 // MARK: - Code Block View
 
-/// UIKit view for rendering code blocks with proper container styling and syntax highlighting.
-/// Matches the SwiftUI CodeBlockView in the design system.
+/// UIKit wrapper for the shared SwiftUI CodeBlockView.
+/// This keeps bubble and expanded code block rendering/theming on one implementation path.
 final class CodeBlockUIKitView: UIView {
-    private let languageLabel = UILabel()
-    private let codeScrollView = UIScrollView()
-    private let codeLabel = UILabel()
-    private var currentCode: String = ""
+    private var hostingController: UIHostingController<AnyView>?
     private var currentLanguage: String?
+    private var currentCode: String = ""
     private var explicitIsDarkOverride: Bool?
-    private static let highlight = Highlight()
-    private var traitObservation: (any NSObjectProtocol)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setupView()
-
-        // Register for trait changes (modern API)
-        traitObservation = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: CodeBlockUIKitView, previousTraitCollection: UITraitCollection) in
-            self?.updateColors()
-            self?.applyHighlightedCode()
-        }
+        clipsToBounds = false
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setupView() {
-        layer.cornerRadius = 12
-        layer.cornerCurve = .continuous
-        clipsToBounds = true
-
-        // Configure scroll view for horizontal scrolling
-        codeScrollView.showsHorizontalScrollIndicator = true
-        codeScrollView.showsVerticalScrollIndicator = false
-        codeScrollView.alwaysBounceHorizontal = false
-        codeScrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        // Add code label to scroll view
-        codeLabel.translatesAutoresizingMaskIntoConstraints = false
-        codeScrollView.addSubview(codeLabel)
-
-        let stack = UIStackView(arrangedSubviews: [languageLabel, codeScrollView])
-        stack.axis = .vertical
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-
-            // Code label fills scroll view content
-            codeLabel.topAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.topAnchor),
-            codeLabel.leadingAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.leadingAnchor),
-            codeLabel.trailingAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.trailingAnchor),
-            codeLabel.bottomAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.bottomAnchor),
-
-            // Scroll view height matches content (no vertical scrolling)
-            codeScrollView.contentLayoutGuide.heightAnchor.constraint(equalTo: codeScrollView.frameLayoutGuide.heightAnchor)
-        ])
-
-        languageLabel.font = UIFont.systemFont(ofSize: 11, weight: .semibold)
-        codeLabel.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        codeLabel.numberOfLines = 0
-
-        updateColors()
-    }
-
-    private func updateColors() {
-        let isDark = explicitIsDarkOverride ?? (traitCollection.userInterfaceStyle == .dark)
-        if isDark {
-            backgroundColor = UIColor(red: 0.118, green: 0.118, blue: 0.118, alpha: 1)
-            languageLabel.textColor = UIColor.white.withAlphaComponent(0.6)
-        } else {
-            backgroundColor = UIColor(red: 0.945, green: 0.933, blue: 0.910, alpha: 1)
-            languageLabel.textColor = UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 0.6)
-        }
-    }
-
-    override func sizeThatFits(_ size: CGSize) -> CGSize {
-        // Use systemLayoutSizeFitting to respect Auto Layout constraints
-        let targetSize = CGSize(width: size.width, height: UIView.layoutFittingCompressedSize.height)
-        return systemLayoutSizeFitting(targetSize, withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
-    }
-
     func configure(language: String?, code: String, isDark: Bool? = nil) {
         currentLanguage = language
         currentCode = code
         explicitIsDarkOverride = isDark
-
-        if let lang = language, !lang.isEmpty {
-            languageLabel.text = lang.uppercased()
-            languageLabel.isHidden = false
-        } else {
-            languageLabel.isHidden = true
-        }
-
-        // Show plain text immediately, then apply highlighting async
-        applyPlainCode()
-        updateColors()
-        applyHighlightedCode()
+        rebuildHostedView()
     }
 
     func setAppearanceOverride(isDark: Bool?) {
         explicitIsDarkOverride = isDark
-        updateColors()
-        applyHighlightedCode()
+        applyInterfaceStyle()
     }
 
-    private func applyHighlightedCode() {
-        let isDark = explicitIsDarkOverride ?? (traitCollection.userInterfaceStyle == .dark)
-        let colors: HighlightColors = isDark ? .dark(.atomOne) : .light(.atomOne)
+    private func rebuildHostedView() {
+        hostingController?.view.removeFromSuperview()
+        hostingController = nil
 
-        Task { @MainActor in
-            do {
-                // Map common language names to HighlightSwift language strings
-                let langString = Self.mapLanguageString(currentLanguage)
-                let highlighted: AttributedString
-                if let lang = langString {
-                    highlighted = try await Self.highlight.attributedText(currentCode, language: lang, colors: colors)
-                } else {
-                    highlighted = try await Self.highlight.attributedText(currentCode, colors: colors)
-                }
+        let codeView = CodeBlockView(language: currentLanguage, code: currentCode)
+        let controller = UIHostingController(rootView: AnyView(codeView))
+        controller.view.backgroundColor = .clear
+        controller.view.translatesAutoresizingMaskIntoConstraints = false
+        controller.safeAreaRegions = []
+        addSubview(controller.view)
 
-                // Convert to NSAttributedString and apply our font
-                let mutable = NSMutableAttributedString(highlighted)
-                let fullRange = NSRange(location: 0, length: mutable.length)
+        NSLayoutConstraint.activate([
+            controller.view.topAnchor.constraint(equalTo: topAnchor),
+            controller.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
 
-                // Apply monospace font while preserving colors
-                mutable.enumerateAttribute(.font, in: fullRange, options: []) { _, range, _ in
-                    mutable.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: range)
-                }
+        hostingController = controller
+        applyInterfaceStyle()
+        controller.view.layoutIfNeeded()
+    }
 
-                // Apply line spacing
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.lineSpacing = 4
-                mutable.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
-
-                self.codeLabel.attributedText = mutable
-            } catch {
-                // Fallback to plain text on error
-                self.applyPlainCode()
-            }
+    private func applyInterfaceStyle() {
+        guard let hostingController else { return }
+        if let explicitIsDarkOverride {
+            let style: UIUserInterfaceStyle = explicitIsDarkOverride ? .dark : .light
+            hostingController.overrideUserInterfaceStyle = style
+            hostingController.view.overrideUserInterfaceStyle = style
+        } else {
+            hostingController.overrideUserInterfaceStyle = .unspecified
+            hostingController.view.overrideUserInterfaceStyle = .unspecified
         }
     }
 
-    private func applyPlainCode() {
-        let isDark = explicitIsDarkOverride ?? (traitCollection.userInterfaceStyle == .dark)
-        let textColor = isDark
-            ? UIColor.white.withAlphaComponent(0.9)
-            : UIColor(red: 0.239, green: 0.204, blue: 0.161, alpha: 1)
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 4
-        let attributed = NSAttributedString(
-            string: currentCode,
-            attributes: [
-                .font: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-                .foregroundColor: textColor,
-                .paragraphStyle: paragraph
-            ]
+    override var intrinsicContentSize: CGSize {
+        guard let hostingView = hostingController?.view else {
+            return CGSize(width: UIView.noIntrinsicMetric, height: 44)
+        }
+        let size = hostingView.intrinsicContentSize
+        if size.height > 0 {
+            return size
+        }
+        let fittingSize = hostingView.systemLayoutSizeFitting(
+            CGSize(width: bounds.width > 0 ? bounds.width : 300, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
         )
-        codeLabel.attributedText = attributed
+        return fittingSize
     }
 
-    /// Maps common language identifiers to highlight.js language names
-    private static func mapLanguageString(_ language: String?) -> String? {
-        guard let lang = language?.lowercased() else { return nil }
-        switch lang {
-        case "swift": return "swift"
-        case "python", "py": return "python"
-        case "javascript", "js": return "javascript"
-        case "typescript", "ts": return "typescript"
-        case "java": return "java"
-        case "kotlin", "kt": return "kotlin"
-        case "c": return "c"
-        case "cpp", "c++": return "cpp"
-        case "csharp", "c#", "cs": return "csharp"
-        case "go", "golang": return "go"
-        case "rust", "rs": return "rust"
-        case "ruby", "rb": return "ruby"
-        case "php": return "php"
-        case "sql": return "sql"
-        case "bash", "sh", "shell", "zsh": return "bash"
-        case "html": return "html"
-        case "css": return "css"
-        case "json": return "json"
-        case "yaml", "yml": return "yaml"
-        case "xml": return "xml"
-        case "markdown", "md": return "markdown"
-        case "objectivec", "objc", "objective-c": return "objectivec"
-        case "dart": return "dart"
-        case "scala": return "scala"
-        case "r": return "r"
-        case "perl": return "perl"
-        case "lua": return "lua"
-        case "haskell", "hs": return "haskell"
-        case "elixir", "ex": return "elixir"
-        case "clojure", "clj": return "clojure"
-        case "fsharp", "f#", "fs": return "fsharp"
-        case "ocaml", "ml": return "ocaml"
-        case "erlang", "erl": return "erlang"
-        case "julia", "jl": return "julia"
-        case "groovy": return "groovy"
-        case "powershell", "ps1": return "powershell"
-        case "dockerfile", "docker": return "dockerfile"
-        case "makefile", "make": return "makefile"
-        case "diff": return "diff"
-        case "ini": return "ini"
-        default: return lang // Try using the provided language directly
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        guard let hostingView = hostingController?.view else {
+            return CGSize(width: size.width, height: 44)
         }
+        return hostingView.systemLayoutSizeFitting(
+            CGSize(width: size.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
     }
 }
 
