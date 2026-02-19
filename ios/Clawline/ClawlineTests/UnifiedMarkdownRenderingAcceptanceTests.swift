@@ -196,6 +196,24 @@ struct UnifiedMarkdownRenderingAcceptanceTests {
         #expect(combined.contains("| 1 | 2 |"))
     }
 
+    @Test("TB-02: valid table cell markdown parses without formatter trap")
+    func tb_02_tableCellMarkdownNoTrap() {
+        let markdown = """
+        | A | B |
+        | --- | --- |
+        | `x` | **y** |
+        """
+        let plan = UnifiedMarkdownParser.parse(markdown: markdown, messageID: "tb_02", metrics: metrics)
+
+        guard case .table(let model)? = plan.blocks.first else {
+            Issue.record("Expected first block to be table")
+            return
+        }
+        #expect(model.rows.count == 1)
+        #expect(model.rows[0].cells[0].plainText == "x")
+        #expect(model.rows[0].cells[1].plainText == "y")
+    }
+
     private enum BlockType: Equatable {
         case richText
         case code

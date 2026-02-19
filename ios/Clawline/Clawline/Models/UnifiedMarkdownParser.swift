@@ -198,7 +198,7 @@ enum UnifiedMarkdownParser {
     }
 
     private static func makeCell(from cell: Table.Cell, metrics: ChatFlowTheme.Metrics) -> TableModel.Cell {
-        let markdown = cell.format().trimmingCharacters(in: .whitespacesAndNewlines)
+        let markdown = tableCellMarkdown(from: cell)
         let attributed: AttributedString
         if let parsed = try? AttributedString(
             markdown: markdown,
@@ -216,6 +216,19 @@ enum UnifiedMarkdownParser {
             plainText: plainText,
             isEmpty: plainText.isEmpty
         )
+    }
+
+    private static func tableCellMarkdown(from cell: Table.Cell) -> String {
+        // Calling Table.Cell.format() can assert inside swift-markdown's formatter.
+        // Format each child node instead so malformed/edge cell content is still preserved.
+        let source = cell.children
+            .map { $0.format() }
+            .joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty {
+            return source
+        }
+        return cell.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func intrinsicWidth(for text: String, metrics: ChatFlowTheme.Metrics) -> CGFloat {
