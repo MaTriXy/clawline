@@ -49,7 +49,7 @@ enum UnifiedMarkdownParser {
         let isEmojiOnly = containsTextualContent && blocks.allSatisfy { block in
             switch block {
             case .richText(let source):
-                return isEmojiOnlyText(markdownPlainText(from: source))
+                return EmojiOnlyClassifier.isEmojiOnly(markdownPlainText(from: source))
             case .code, .table:
                 return false
             }
@@ -95,14 +95,6 @@ enum UnifiedMarkdownParser {
             return NSAttributedString(attributed).string.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return source.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func isEmojiOnlyText(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        let characters = Array(trimmed)
-        guard characters.count >= 1, characters.count <= 3 else { return false }
-        return characters.allSatisfy { $0.isUnifiedMarkdownEmoji }
     }
 
     private static func buildTableModel(
@@ -225,18 +217,5 @@ enum UnifiedMarkdownParser {
         let scaledFont = UIFontMetrics.default.scaledFont(for: baseFont)
         let width = (text as NSString).size(withAttributes: [.font: scaledFont]).width
         return ceil(width)
-    }
-}
-
-private extension Character {
-    var isUnifiedMarkdownEmoji: Bool {
-        unicodeScalars.contains { scalar in
-            scalar.properties.isEmoji && (
-                scalar.properties.generalCategory == .otherSymbol
-                || scalar.properties.generalCategory == .modifierSymbol
-                || scalar.properties.generalCategory == .nonspacingMark
-                || scalar.properties.generalCategory == .enclosingMark
-            )
-        }
     }
 }

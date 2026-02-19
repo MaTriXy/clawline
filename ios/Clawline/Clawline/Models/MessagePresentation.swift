@@ -242,9 +242,7 @@ extension MessagePresentation {
         case .code:
             return .codeBlock
         case .inlineEmoji(let value):
-            // Only chromeless if 1-3 emojis
-            let emojiCount = value.unicodeScalars.filter { $0.properties.isEmoji }.count
-            return emojiCount >= 1 && emojiCount <= 3 ? .emoji : nil
+            return EmojiOnlyClassifier.isEmojiOnly(value) ? .emoji : nil
         default:
             return nil
         }
@@ -317,7 +315,7 @@ enum MessagePresentationBuilder {
                     if hasAttachments, isAttachmentSummaryLine(trimmed) {
                         continue
                     }
-                    if isEmojiOnly(trimmed) {
+                    if EmojiOnlyClassifier.isEmojiOnly(trimmed) {
                         markdownParts.append(.inlineEmoji(trimmed))
                     } else {
                         markdownParts.append(.markdown(trimmed))
@@ -553,12 +551,6 @@ enum MessagePresentationBuilder {
         return urls
     }
 
-    private static func isEmojiOnly(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        return trimmed.allSatisfy { $0.isEmoji }
-    }
-
     private static func stripMarkdownMarkers(from text: String) -> String {
         let replacements: [String] = [
             "**", "__", "~~", "`", "*", "_", "~", "[", "]", "(", ")", "#", ">", "!", "-", "+"
@@ -568,15 +560,6 @@ enum MessagePresentationBuilder {
             stripped = stripped.replacingOccurrences(of: marker, with: " ")
         }
         return stripped
-    }
-}
-
-
-private extension Character {
-    var isEmoji: Bool {
-        unicodeScalars.contains { scalar in
-            scalar.properties.isEmoji && (scalar.properties.generalCategory == .otherSymbol || scalar.properties.generalCategory == .modifierSymbol || scalar.properties.generalCategory == .nonspacingMark || scalar.properties.generalCategory == .enclosingMark)
-        }
     }
 }
 
