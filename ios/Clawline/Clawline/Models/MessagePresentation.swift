@@ -193,7 +193,7 @@ enum ChromelessStyle: Equatable {
     case image
     case table
     case codeBlock
-    case emoji  // 1-2 emojis only, centered with double font size
+    case emoji  // 1-3 emojis only, centered with amplified font size
     // case blockquote (future)
 }
 
@@ -242,9 +242,9 @@ extension MessagePresentation {
         case .code:
             return .codeBlock
         case .inlineEmoji(let value):
-            // Only chromeless if 1-2 emojis
+            // Only chromeless if 1-3 emojis
             let emojiCount = value.unicodeScalars.filter { $0.properties.isEmoji }.count
-            return emojiCount >= 1 && emojiCount <= 2 ? .emoji : nil
+            return emojiCount >= 1 && emojiCount <= 3 ? .emoji : nil
         default:
             return nil
         }

@@ -213,6 +213,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var currentMessageRole: Message.Role = .assistant
     private var currentStream: ChatStream = .personal
     private var currentSizeClass: MessageSizeClass = .short
+    private var explicitIsDarkOverride: Bool?
     private var currentContentPaddingHorizontal: CGFloat = 16
     private var currentContentPaddingVertical: CGFloat = 14
     private var contentLeadingConstraint: NSLayoutConstraint!
@@ -539,6 +540,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         // Store for trait collection updates
         currentMessageRole = message.role
         currentStream = message.stream
+        explicitIsDarkOverride = isDark
         currentSizeClass = sizeClass
         self.showsHeader = showsHeader
         contentPaddingScale = paddingScale
@@ -1208,7 +1210,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     private func updateAppearanceColors() {
-        let isDark = traitCollection.userInterfaceStyle == .dark
+        let isDark = explicitIsDarkOverride ?? (traitCollection.userInterfaceStyle == .dark)
         Self.logger.debug("updateAppearanceColors: isDark=\(isDark, privacy: .public) role=\(String(describing: self.currentMessageRole), privacy: .public)")
         let palette = ChatFlowUIKitTheme.palette(isDark: isDark)
 
@@ -1255,6 +1257,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Force layer redraw to ensure gradient is visible
         gradientLayer.setNeedsDisplay()
+        for view in dynamicContentViews {
+            if let codeView = view as? CodeBlockUIKitView {
+                codeView.setAppearanceOverride(isDark: isDark)
+            }
+        }
         setNeedsLayout()
     }
 
@@ -1411,7 +1418,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 }
             case .code(let language, let code):
                 let codeView = CodeBlockUIKitView()
-                codeView.configure(language: language, code: code)
+                codeView.configure(language: language, code: code, isDark: isDark)
                 dynamicContentStack.addArrangedSubview(codeView)
                 dynamicContentViews.append(codeView)
             case .table(let model):
@@ -2276,6 +2283,7 @@ final class CodeBlockUIKitView: UIView {
     private let codeLabel = UILabel()
     private var currentCode: String = ""
     private var currentLanguage: String?
+    private var explicitIsDarkOverride: Bool?
     private static let highlight = Highlight()
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -2339,7 +2347,7 @@ final class CodeBlockUIKitView: UIView {
     }
 
     private func updateColors() {
-        let isDark = traitCollection.userInterfaceStyle == .dark
+        let isDark = explicitIsDarkOverride ?? (traitCollection.userInterfaceStyle == .dark)
         if isDark {
             backgroundColor = UIColor(red: 0.118, green: 0.118, blue: 0.118, alpha: 1)
             languageLabel.textColor = UIColor.white.withAlphaComponent(0.6)
@@ -2355,9 +2363,10 @@ final class CodeBlockUIKitView: UIView {
         return systemLayoutSizeFitting(targetSize, withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
     }
 
-    func configure(language: String?, code: String) {
+    func configure(language: String?, code: String, isDark: Bool? = nil) {
         currentLanguage = language
         currentCode = code
+        explicitIsDarkOverride = isDark
 
         if let lang = language, !lang.isEmpty {
             languageLabel.text = lang.uppercased()
@@ -2372,8 +2381,14 @@ final class CodeBlockUIKitView: UIView {
         applyHighlightedCode()
     }
 
+    func setAppearanceOverride(isDark: Bool?) {
+        explicitIsDarkOverride = isDark
+        updateColors()
+        applyHighlightedCode()
+    }
+
     private func applyHighlightedCode() {
-        let isDark = traitCollection.userInterfaceStyle == .dark
+        let isDark = explicitIsDarkOverride ?? (traitCollection.userInterfaceStyle == .dark)
         let colors: HighlightColors = isDark ? .dark(.atomOne) : .light(.atomOne)
 
         Task { @MainActor in
@@ -2410,7 +2425,7 @@ final class CodeBlockUIKitView: UIView {
     }
 
     private func applyPlainCode() {
-        let isDark = traitCollection.userInterfaceStyle == .dark
+        let isDark = explicitIsDarkOverride ?? (traitCollection.userInterfaceStyle == .dark)
         let textColor = isDark
             ? UIColor.white.withAlphaComponent(0.9)
             : UIColor(red: 0.239, green: 0.204, blue: 0.161, alpha: 1)

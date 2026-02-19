@@ -179,6 +179,15 @@ struct UnifiedMarkdownRenderingAcceptanceTests {
         #expect(codeBlocks[0].contains("==code=="))
     }
 
+    @Test("EM-01: parser emoji-only metric is limited to 1-3 emoji characters")
+    func em_01_parserEmojiOnlyBounds() {
+        let three = UnifiedMarkdownParser.parse(markdown: "😀😁😂", messageID: "em_01_3", metrics: metrics)
+        #expect(three.isEmojiOnly)
+
+        let four = UnifiedMarkdownParser.parse(markdown: "😀😁😂🤣", messageID: "em_01_4", metrics: metrics)
+        #expect(!four.isEmojiOnly)
+    }
+
     @Test("TB-01: broken table input falls back to rich text without dropping content")
     func tb_01_brokenTableFallback() {
         let markdown = """

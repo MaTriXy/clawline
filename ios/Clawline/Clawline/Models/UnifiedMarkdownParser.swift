@@ -113,7 +113,9 @@ enum UnifiedMarkdownParser {
     private static func isEmojiOnlyText(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        return trimmed.allSatisfy { $0.isUnifiedMarkdownEmoji }
+        let characters = Array(trimmed)
+        guard characters.count >= 1, characters.count <= 3 else { return false }
+        return characters.allSatisfy { $0.isUnifiedMarkdownEmoji }
     }
 
     private static func buildTableModel(

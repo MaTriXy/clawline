@@ -427,6 +427,15 @@ struct ChatFlowOrganicComplianceTests {
         #expect(presentation.isEmojiOnly)
     }
 
+    @Test("Doc §5: Chromeless emoji supports 1-3 and rejects 4+")
+    func messagePresentationChromelessEmojiCountBounds() {
+        let three = buildPresentation(sampleMessage(content: "😀😁😂"))
+        #expect(three.chromelessStyle == .emoji)
+
+        let four = buildPresentation(sampleMessage(content: "😀😁😂🤣"))
+        #expect(four.chromelessStyle != .emoji)
+    }
+
     @Test("Doc §5: Media-only attachments map to gallery")
     func messagePresentationMediaOnlyGallery() {
         let message = Message(
