@@ -386,6 +386,11 @@ enum MessagePresentationBuilder {
         )
     }
 
+    private static func isAttachmentSummaryLine(_ line: String) -> Bool {
+        let lower = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower.hasPrefix("attachment:") || lower.hasPrefix("attachments:")
+    }
+
     private static func isImageMime(_ mime: String?) -> Bool {
         mime?.lowercased().hasPrefix("image/") == true
     }
