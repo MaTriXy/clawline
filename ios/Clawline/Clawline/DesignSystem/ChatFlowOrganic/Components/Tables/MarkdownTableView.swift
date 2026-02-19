@@ -212,7 +212,13 @@ struct MarkdownTableView: View {
             .onPreferenceChange(HorizontalOffsetPreferenceKey.self) { value in
                 scrollOffset = -value
             }
-            .onAppear { scrollProxy = proxy }
+            .onAppear {
+                scrollProxy = proxy
+                resetHorizontalScrollToLeading(using: proxy)
+            }
+            .onChange(of: containerWidth) { _, _ in
+                resetHorizontalScrollToLeading(using: proxy)
+            }
         }
     }
 
@@ -495,6 +501,15 @@ struct MarkdownTableView: View {
             if needsHorizontalScroll {
                 scrollProxy?.scrollTo("leading", anchor: .leading)
             }
+        }
+    }
+
+    private func resetHorizontalScrollToLeading(using proxy: ScrollViewProxy) {
+        guard !isExpanded else { return }
+        guard needsHorizontalScroll else { return }
+        // Ensure collapsed tables always start at the left-most columns when mounted in bubble UIKit wrappers.
+        DispatchQueue.main.async {
+            proxy.scrollTo("leading", anchor: .leading)
         }
     }
 
