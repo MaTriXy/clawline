@@ -657,7 +657,7 @@ struct ChatViewModelTests {
         )
         try await Task.sleep(for: .milliseconds(30))
 
-        viewModel.setActiveSessionKey(adminSessionKey)
+        viewModel.setActiveSessionKeyForTesting(adminSessionKey)
         #expect(viewModel.activeSessionKey == adminSessionKey)
         viewModel.inputContent = NSAttributedString(string: "Admin ping")
         chatService.emitConnectionState(.connected)
@@ -841,7 +841,7 @@ struct ChatViewModelTests {
             if viewModel.orderedSessionKeys.contains(staleKey) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        viewModel.setActiveSessionKey(staleKey)
+        viewModel.setActiveSessionKeyForTesting(staleKey)
 
         chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
         try await Task.sleep(for: .milliseconds(20))
@@ -904,7 +904,7 @@ struct ChatViewModelTests {
             if viewModel.orderedSessionKeys.contains(customKey) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        viewModel.setActiveSessionKey(customKey)
+        viewModel.setActiveSessionKeyForTesting(customKey)
         #expect(viewModel.activeSessionKey == customKey)
 
         chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
@@ -915,7 +915,7 @@ struct ChatViewModelTests {
         try await Task.sleep(for: .milliseconds(30))
         #expect(chatService.lastSentId == nil)
 
-        viewModel.setActiveSessionKey(personalSessionKey)
+        viewModel.setActiveSessionKeyForTesting(personalSessionKey)
         #expect(viewModel.activeSessionKey == personalSessionKey)
 
         chatService.emitServiceEvent(.sessionInfo(
@@ -967,7 +967,7 @@ struct ChatViewModelTests {
             try await Task.sleep(forDuration: .milliseconds(20))
         }
 
-        viewModel.setActiveSessionKey(adminSessionKey)
+        viewModel.setActiveSessionKeyForTesting(adminSessionKey)
         #expect(viewModel.activeSessionKey == adminSessionKey)
 
         let adminMessage = Message(
@@ -1024,7 +1024,7 @@ struct ChatViewModelTests {
             if viewModel.orderedSessionKeys.contains(adminSessionKey) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        viewModel.setActiveSessionKey(adminSessionKey)
+        viewModel.setActiveSessionKeyForTesting(adminSessionKey)
         #expect(viewModel.activeSessionKey == adminSessionKey)
 
         chatService.emitServiceEvent(.streamSnapshot([
@@ -1034,6 +1034,64 @@ struct ChatViewModelTests {
 
         #expect(viewModel.orderedSessionKeys == [personalSessionKey])
         #expect(viewModel.activeSessionKey == personalSessionKey)
+    }
+
+    @Test("Relaunch restores previously active non-default stream")
+    @MainActor
+    func relaunchRestoresPreviouslyActiveStream() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+
+        let streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: adminSessionKey, displayName: "Admin", kind: "global_dm", orderIndex: 1, isBuiltIn: true),
+        ]
+
+        let firstService = TestChatService()
+        firstService.streams = streams
+        let firstViewModel = ChatViewModel(
+            auth: auth,
+            chatService: firstService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+
+        await firstViewModel.onAppear()
+        firstService.emitServiceEvent(.streamSnapshot(streams))
+        for _ in 0..<50 {
+            if firstViewModel.orderedSessionKeys.contains(adminSessionKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        firstViewModel.setActiveSessionKeyForTesting(adminSessionKey)
+        #expect(firstViewModel.activeSessionKey == adminSessionKey)
+        #expect(UserDefaults.standard.string(forKey: "clawline.lastSessionKey.user") == adminSessionKey)
+        firstViewModel.onDisappear()
+
+        let secondService = TestChatService()
+        secondService.streams = streams
+        let secondViewModel = ChatViewModel(
+            auth: auth,
+            chatService: secondService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { secondViewModel.onDisappear() }
+
+        await secondViewModel.onAppear()
+        secondService.emitServiceEvent(.streamSnapshot(streams))
+        for _ in 0..<50 {
+            if secondViewModel.activeSessionKey == adminSessionKey { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(secondViewModel.activeSessionKey == adminSessionKey)
     }
 
     @Test("Incremental stream events update metadata")
@@ -1114,7 +1172,7 @@ struct ChatViewModelTests {
             if viewModel.orderedSessionKeys.contains(customKey) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        viewModel.setActiveSessionKey(customKey)
+        viewModel.setActiveSessionKeyForTesting(customKey)
         #expect(viewModel.activeSessionKey == customKey)
 
         chatService.emitServiceEvent(.streamDeleted(sessionKey: customKey))
