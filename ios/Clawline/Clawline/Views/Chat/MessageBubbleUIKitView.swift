@@ -626,7 +626,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         // Check for chromeless emoji mode (1-3 emojis only, centered with double font)
         let isChromelessEmoji = presentation.chromelessStyle == .emoji
 
-        // Set up a baseline body label for salient highlighting flows.
+        // Reset text state before rebuilding content views.
+        bodyLabel.attributedText = nil
+        salientBaseAttributedText = nil
+
         if isChromelessEmoji, case .inlineEmoji(let value) = presentation.parts.first {
             let emojiFont = UIFont.systemFont(ofSize: (metrics.shortFontSize + 8) * 2)
             let paragraph = NSMutableParagraphStyle()
@@ -638,20 +641,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     .paragraphStyle: paragraph
                 ]
             )
-        } else {
-            bodyLabel.attributedText = Self.combinedMarkdownText(
-                from: renderedMarkdownBlocks
-            ) ?? NSAttributedString(string: "")
+            dynamicContentStack.addArrangedSubview(bodyTextContainer)
+            dynamicContentViews.append(bodyTextContainer)
+            salientBaseAttributedText = bodyLabel.attributedText
         }
-
-        // Cache the base attributed text (pre-highlights) so async application is idempotent.
-        salientBaseAttributedText = bodyLabel.attributedText
-        applySalientHighlightsIfNeeded(
-            message: message,
-            isChromelessEmoji: isChromelessEmoji,
-            isDark: effectiveIsDark,
-            salientHighlightService: salientHighlightService
-        )
 
         let hasTextContent = renderedMarkdownBlocks.contains { block in
             if case .attributedText(let attributed) = block {
@@ -682,11 +675,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
         }
 
-        if hasTextContent || renderedMarkdownBlocks.contains(where: {
+        if !isChromelessEmoji && (hasTextContent || renderedMarkdownBlocks.contains(where: {
             if case .code = $0 { return true }
             if case .table = $0 { return true }
             return false
-        }) {
+        })) {
             addRenderedMarkdownBlocks(
                 renderedMarkdownBlocks,
                 role: message.role,
@@ -694,6 +687,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 isDark: effectiveIsDark
             )
         }
+
+        // Cache/render salient highlights only for the visible primary text block.
+        applySalientHighlightsIfNeeded(
+            message: message,
+            isChromelessEmoji: isChromelessEmoji,
+            isDark: effectiveIsDark,
+            salientHighlightService: salientHighlightService
+        )
 
         let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
             if case .linkPreview(let url) = part { return url }
@@ -1376,22 +1377,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         }
     }
 
-    private static func combinedMarkdownText(from blocks: [RenderedMarkdownBlock]) -> NSAttributedString? {
-        let result = NSMutableAttributedString()
-        var didAppend = false
-        for block in blocks {
-            guard case .attributedText(let attributed) = block else { continue }
-            let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            if didAppend {
-                result.append(NSAttributedString(string: "\n\n"))
-            }
-            result.append(attributed)
-            didAppend = true
-        }
-        return didAppend ? result : nil
-    }
-
     private func addRenderedMarkdownBlocks(
         _ blocks: [RenderedMarkdownBlock],
         role: Message.Role,
@@ -1408,6 +1393,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
                 if !usedPrimaryTextContainer {
                     bodyLabel.attributedText = attributed
+                    salientBaseAttributedText = attributed
                     dynamicContentStack.addArrangedSubview(bodyTextContainer)
                     dynamicContentViews.append(bodyTextContainer)
                     usedPrimaryTextContainer = true

@@ -99,3 +99,30 @@ This restores a clean mutation seam:
 - UI layers only lay out blocks.
 
 That boundary prevents recurrence of "everything became one attributed run" regressions.
+
+## Second Bounce Addendum (Bubble-Layer Re-merge)
+
+After parser boundary fixes, device behavior still collapsed block spacing in bubbles because the bubble view had a second merge layer.
+
+What happened:
+
+1. `MessageBubbleUIKitView.configure` pre-populated `bodyLabel` using `combinedMarkdownText(from: renderedMarkdownBlocks)`.
+2. That helper concatenated all `.attributedText` blocks into one attributed run separated by literal `"\n\n"`.
+3. `salientBaseAttributedText` was captured from that merged body label before block layout.
+4. Salient highlight application could then reapply the merged attributed run to `bodyLabel`, effectively bypassing per-block layout intent.
+
+Why parser fix alone was insufficient:
+
+- Parser now emitted proper top-level rich-text block boundaries.
+- Bubble rendering still had an independent mutation path that reintroduced merge semantics in the view layer.
+
+Boundary correction (v2):
+
+1. Remove merged baseline path from visible text setup (no `combinedMarkdownText` primary usage).
+2. `addRenderedMarkdownBlocks()` is the only non-emoji path that sets visible text content.
+3. Set `salientBaseAttributedText` from the primary attributed block chosen inside `addRenderedMarkdownBlocks()`, so salient highlighting tracks per-block content instead of a synthetic merged string.
+4. Keep chromeless emoji as a dedicated branch with its own single text container.
+
+Resulting invariant:
+
+- For non-emoji markdown text, bubble visible content is sourced exclusively from ordered rendered blocks, one text container per block (primary + supplemental containers), with no hidden re-merge stage.
