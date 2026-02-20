@@ -489,7 +489,7 @@ struct ChatView: View {
         .photosPicker(
             isPresented: $isPhotosPickerPresented,
             selection: $photoPickerItems,
-            matching: .images
+            matching: .any(of: [.images, .videos])
         )
         .onChange(of: photoPickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
@@ -1267,10 +1267,16 @@ struct ChatView: View {
 
     private func handlePhotoPickerItems(_ items: [PhotosPickerItem]) async {
         var attachments: [PendingAttachment] = []
-        for item in items {
+        for (index, item) in items.enumerated() {
             if let data = try? await item.loadTransferable(type: Data.self),
                let image = UIImage(data: data),
                let attachment = Self.makeImageAttachment(from: image, suggestedFilename: item.itemIdentifier) {
+                attachments.append(attachment)
+                continue
+            }
+
+            if let data = try? await item.loadTransferable(type: Data.self),
+               let attachment = makeVideoAttachment(from: data, item: item, index: index) {
                 attachments.append(attachment)
             }
         }
@@ -1281,6 +1287,23 @@ struct ChatView: View {
         await MainActor.run {
             insertAttachments(attachments)
         }
+    }
+
+    private func makeVideoAttachment(from data: Data, item: PhotosPickerItem, index: Int) -> PendingAttachment? {
+        guard !data.isEmpty else { return nil }
+        guard let contentType = item.supportedContentTypes.first(where: { $0.conforms(to: .movie) }) else {
+            return nil
+        }
+        let mimeType = contentType.preferredMIMEType ?? "video/mp4"
+        let fileExtension = contentType.preferredFilenameExtension ?? "mp4"
+        let filename = "video-\(index + 1).\(fileExtension)"
+        return PendingAttachment(
+            id: UUID(),
+            data: data,
+            thumbnail: makeDocumentThumbnail(),
+            mimeType: mimeType,
+            filename: filename
+        )
     }
 
     private func handleDocumentResults(_ urls: [URL]) async {
