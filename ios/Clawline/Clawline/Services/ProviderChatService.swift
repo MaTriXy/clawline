@@ -129,6 +129,7 @@ final class ProviderChatService: ChatServicing {
         let features: [String]?
         let sessionKeys: [String]?
         let sessions: [SessionDescriptor]?
+        let replayCount: Int?
         let reason: String?
     }
 
@@ -210,8 +211,10 @@ final class ProviderChatService: ChatServicing {
 
     private var socket: (any WebSocketClient)?
     private var receiveTask: Task<Void, Never>?
+    private var activeSocketIdentity: ObjectIdentifier?
     private var authContinuation: CheckedContinuation<Void, Swift.Error>?
     private var pendingMessages: [String: PendingMessage] = [:]
+    private var pendingReplayMessageCount = 0
     private var shouldNotifyDisconnect = true
     private var pendingDisconnectReason: String?
     private var isConnecting = false
@@ -330,6 +333,8 @@ final class ProviderChatService: ChatServicing {
         receiveTask = nil
         socket?.close(with: .normalClosure)
         socket = nil
+        activeSocketIdentity = nil
+        pendingReplayMessageCount = 0
         authToken = nil
         if !pendingMessages.isEmpty {
             for (messageId, pending) in pendingMessages {
@@ -408,13 +413,15 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func startListening(on client: any WebSocketClient) {
+        let socketIdentity = ObjectIdentifier(client)
+        activeSocketIdentity = socketIdentity
         receiveTask = Task { [weak self] in
             guard let self else { return }
             var iterator = client.incomingTextMessages.makeAsyncIterator()
             while let text = await iterator.next() {
                 handle(text: text)
             }
-            handleSocketClose(closeInfo: client.lastCloseInfo)
+            handleSocketClose(closeInfo: client.lastCloseInfo, socketIdentity: socketIdentity)
         }
     }
 
@@ -457,6 +464,12 @@ final class ProviderChatService: ChatServicing {
         guard let result = try? decoder.decode(AuthResultPayload.self, from: data) else { return }
         if result.success {
             resolveAuthContinuation(with: .success(()))
+            pendingReplayMessageCount = max(result.replayCount ?? 0, 0)
+            if pendingReplayMessageCount > 0 {
+                emitServiceEvent(.replayStarted(expectedCount: pendingReplayMessageCount))
+            } else {
+                emitServiceEvent(.replayCompleted)
+            }
             logger.info("state -> connected (auth success)")
             updateState(.connected)
             let supportsSessionProvisioning = result.features?.contains("session_info") ?? false
@@ -491,6 +504,12 @@ final class ProviderChatService: ChatServicing {
         )
         let message = Message(payload: payload, sessionKey: sessionKey)
         messageBroadcaster.send(message)
+        if pendingReplayMessageCount > 0 {
+            pendingReplayMessageCount -= 1
+            if pendingReplayMessageCount == 0 {
+                emitServiceEvent(.replayCompleted)
+            }
+        }
     }
 
     private func handleTyping(data: Data) {
@@ -726,7 +745,13 @@ final class ProviderChatService: ChatServicing {
         return map
     }
 
-    private func handleSocketClose(closeInfo: WebSocketCloseInfo?) {
+    private func handleSocketClose(closeInfo: WebSocketCloseInfo?, socketIdentity: ObjectIdentifier) {
+        guard activeSocketIdentity == socketIdentity else {
+            logger.info("ignoring stale socket close event")
+            return
+        }
+        pendingReplayMessageCount = 0
+
         let rejectionError: Error? = {
             guard let closeInfo else { return nil }
             guard closeInfo.code == 1008 else { return nil }
