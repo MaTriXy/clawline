@@ -1131,9 +1131,15 @@ struct ChatView: View {
         streamSelectorMaxHeight: CGFloat
     ) -> some View {
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
+        let unreadSessionKeys = Set(
+            viewModel.hasUnreadBySession
+                .filter { $0.value }
+                .map(\.key)
+        )
         return StreamPageDotsView(
             sessionKeys: effectiveSessionKeys,
             activeSessionKey: viewModel.uiSelectedSessionKey,
+            unreadSessionKeys: unreadSessionKeys,
             onTap: { isStreamManagerPopoverPresented = true }
         )
         .popover(
@@ -1144,6 +1150,7 @@ struct ChatView: View {
             StreamManagerSheet(
                 viewModel: viewModel,
                 streams: effectiveStreams,
+                unreadSessionKeys: unreadSessionKeys,
                 isPresented: $isStreamManagerPopoverPresented,
                 maxAvailableHeight: streamSelectorMaxHeight,
                 onSelectStream: { sessionKey in

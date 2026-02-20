@@ -10,6 +10,7 @@ import SwiftUI
 struct StreamManagerSheet: View {
     @Bindable var viewModel: ChatViewModel
     let streams: [StreamSession]
+    let unreadSessionKeys: Set<String>
     @Binding var isPresented: Bool
     let maxAvailableHeight: CGFloat
     let onSelectStream: (String) -> Void
@@ -264,6 +265,10 @@ struct StreamManagerSheet: View {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.secondary)
+                    } else if unreadSessionKeys.contains(stream.sessionKey) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 8, height: 8)
                     }
                 }
             }
