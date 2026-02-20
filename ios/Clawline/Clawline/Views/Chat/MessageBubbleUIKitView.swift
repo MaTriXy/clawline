@@ -323,16 +323,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         headerStack.addArrangedSubview(avatarView)
         headerStack.addArrangedSubview(senderLabel)
 
-        bodyLabel.backgroundColor = .clear
         bodyLabel.translatesAutoresizingMaskIntoConstraints = false
-        bodyLabel.isUserInteractionEnabled = true
-        bodyLabel.isEditable = false
-        bodyLabel.isSelectable = true
-        bodyLabel.isScrollEnabled = false
-        bodyLabel.textContainerInset = .zero
-        bodyLabel.textContainer.lineFragmentPadding = 0
-        bodyLabel.dataDetectorTypes = [.link]
-        bodyLabel.delegate = self
+        UnifiedMarkdownRenderer.configureTextView(bodyLabel, delegate: self)
         let bodyTap = UITapGestureRecognizer(target: self, action: #selector(handleBubbleTap))
         bodyTap.cancelsTouchesInView = false
         bodyTap.delaysTouchesBegan = false
@@ -608,17 +600,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fileTapHandlers.removeAll()
 
         let markdownStyle = Self.markdownStyle(for: sizeClass, metrics: metrics)
-        let markdownOptions = UnifiedMarkdownRenderer.makeOptions(
+        let renderedMarkdownBlocks = UnifiedMarkdownRenderer.render(
+            plan: presentation.markdownRenderPlan,
             baseFont: markdownStyle.baseFont,
             inkColor: palette.ink,
             lineSpacing: markdownStyle.lineSpacing,
             stripDetectedURLs: true,
             role: message.role,
             isDark: effectiveIsDark
-        )
-        let renderedMarkdownBlocks = UnifiedMarkdownRenderer.render(
-            plan: presentation.markdownRenderPlan,
-            options: markdownOptions
         )
 
         // Check for chromeless emoji mode (1-3 emojis only, centered with double font)
@@ -1428,16 +1417,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         let textView = UITextView()
         textView.translatesAutoresizingMaskIntoConstraints = false
-        textView.backgroundColor = .clear
-        textView.isUserInteractionEnabled = true
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isScrollEnabled = false
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
-        textView.dataDetectorTypes = [.link]
-        textView.delegate = self
-        textView.linkTextAttributes = bodyLabel.linkTextAttributes
+        UnifiedMarkdownRenderer.configureTextView(
+            textView,
+            delegate: self,
+            linkTextAttributes: bodyLabel.linkTextAttributes ?? [:]
+        )
         textView.attributedText = attributed
 
         container.addSubview(textView)

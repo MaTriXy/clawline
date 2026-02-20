@@ -26,6 +26,45 @@ enum UnifiedMarkdownRenderer {
 
     static func render(
         plan: MarkdownRenderPlan,
+        baseFont: UIFont,
+        inkColor: UIColor,
+        lineSpacing: CGFloat,
+        stripDetectedURLs: Bool,
+        role: Message.Role,
+        isDark: Bool
+    ) -> [RenderedMarkdownBlock] {
+        let options = makeOptions(
+            baseFont: baseFont,
+            inkColor: inkColor,
+            lineSpacing: lineSpacing,
+            stripDetectedURLs: stripDetectedURLs,
+            role: role,
+            isDark: isDark
+        )
+        return render(plan: plan, options: options)
+    }
+
+    static func configureTextView(
+        _ textView: UITextView,
+        delegate: UITextViewDelegate?,
+        linkTextAttributes: [NSAttributedString.Key: Any] = [:]
+    ) {
+        textView.backgroundColor = .clear
+        textView.isUserInteractionEnabled = true
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = false
+        textView.showsVerticalScrollIndicator = false
+        textView.showsHorizontalScrollIndicator = false
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.dataDetectorTypes = [.link]
+        textView.delegate = delegate
+        textView.linkTextAttributes = linkTextAttributes
+    }
+
+    static func render(
+        plan: MarkdownRenderPlan,
         options: MarkdownRenderOptions
     ) -> [RenderedMarkdownBlock] {
         plan.blocks.compactMap { block in

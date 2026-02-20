@@ -14,20 +14,11 @@ struct SelectableAttributedText: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITextView {
         let textView = TraitResponsiveTextView()
-        textView.delegate = context.coordinator
-        textView.backgroundColor = .clear
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isScrollEnabled = false
-        textView.showsVerticalScrollIndicator = false
-        textView.showsHorizontalScrollIndicator = false
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
+        UnifiedMarkdownRenderer.configureTextView(textView, delegate: context.coordinator)
         textView.textContainer.widthTracksTextView = true
         textView.adjustsFontForContentSizeCategory = true
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        textView.linkTextAttributes = [:]
         return textView
     }
 
