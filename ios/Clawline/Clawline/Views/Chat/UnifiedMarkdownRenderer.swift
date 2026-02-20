@@ -111,18 +111,21 @@ enum UnifiedMarkdownRenderer {
         // UIKit rendering relies on concrete line breaks in the backing string. Ordered lists parsed
         // with `.full` collapse separators into presentation intents, which become run-on text.
         let hasOrderedListSyntax = parsedMarkdown.range(
-            of: #"(?m)^\s*\d+\.\s+"#,
+            of: #"(?m)^\s*\d+[.)]\s+"#,
             options: .regularExpression
         ) != nil
+        let markdownForRender = hasOrderedListSyntax
+            ? normalizeOrderedListMarkers(in: parsedMarkdown)
+            : parsedMarkdown
 
         // Prefer full parsing (block syntax like headings), but keep list separators intact.
         let attributed: AttributedString
         if hasOrderedListSyntax,
-           let inline = try? AttributedString(markdown: parsedMarkdown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+           let inline = try? AttributedString(markdown: markdownForRender, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
             attributed = inline
-        } else if let full = try? AttributedString(markdown: parsedMarkdown, options: .init(interpretedSyntax: .full)) {
+        } else if let full = try? AttributedString(markdown: markdownForRender, options: .init(interpretedSyntax: .full)) {
             attributed = full
-        } else if let inline = try? AttributedString(markdown: parsedMarkdown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+        } else if let inline = try? AttributedString(markdown: markdownForRender, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
             attributed = inline
         } else {
             return nil
@@ -165,7 +168,7 @@ enum UnifiedMarkdownRenderer {
             nsAttributed.addAttribute(.font, value: newFont, range: range)
         }
 
-        applyHeadingStyles(markdown: parsedMarkdown, nsAttributed: nsAttributed, baseFont: baseFont)
+        applyHeadingStyles(markdown: markdownForRender, nsAttributed: nsAttributed, baseFont: baseFont)
         if let markHighlightColor {
             applyMarkHighlights(nsAttributed: nsAttributed, color: markHighlightColor)
         }
@@ -358,6 +361,79 @@ enum UnifiedMarkdownRenderer {
         }
 
         return output
+    }
+
+    private static func normalizeOrderedListMarkers(in markdown: String) -> String {
+        let linePattern = #"^([ \t>]*)(\d{1,9})([.)])([ \t]+)(.*)$"#
+        guard let regex = try? NSRegularExpression(pattern: linePattern) else { return markdown }
+
+        let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var normalized: [String] = []
+        normalized.reserveCapacity(lines.count)
+
+        var inFence = false
+        var activeListKey: String?
+        var nextOrderedValue: Int?
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                inFence.toggle()
+                activeListKey = nil
+                nextOrderedValue = nil
+                normalized.append(line)
+                continue
+            }
+
+            if inFence {
+                normalized.append(line)
+                continue
+            }
+
+            let nsLine = line as NSString
+            let range = NSRange(location: 0, length: nsLine.length)
+            guard let match = regex.firstMatch(in: line, options: [], range: range),
+                  match.range.location != NSNotFound else {
+                if trimmed.isEmpty {
+                    normalized.append(line)
+                    continue
+                }
+
+                // Keep active list context through indented continuation lines.
+                if activeListKey != nil,
+                   let leadingScalar = line.unicodeScalars.first,
+                   CharacterSet.whitespacesAndNewlines.contains(leadingScalar) {
+                    normalized.append(line)
+                    continue
+                }
+
+                activeListKey = nil
+                nextOrderedValue = nil
+                normalized.append(line)
+                continue
+            }
+
+            let prefix = nsLine.substring(with: match.range(at: 1))
+            let rawNumber = nsLine.substring(with: match.range(at: 2))
+            let delimiter = nsLine.substring(with: match.range(at: 3))
+            let spacing = nsLine.substring(with: match.range(at: 4))
+            let content = nsLine.substring(with: match.range(at: 5))
+
+            let key = "\(prefix)|\(delimiter)"
+            let startValue = Int(rawNumber) ?? 1
+            let value: Int
+            if activeListKey == key, let nextOrderedValue {
+                value = nextOrderedValue
+            } else {
+                value = startValue
+            }
+
+            activeListKey = key
+            nextOrderedValue = value + 1
+            normalized.append("\(prefix)\(value)\(delimiter)\(spacing)\(content)")
+        }
+
+        return normalized.joined(separator: "\n")
     }
 
     private static func countConsecutiveBackticks(_ characters: [Character], from start: Int) -> Int {
