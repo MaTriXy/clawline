@@ -600,8 +600,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fileTapHandlers.removeAll()
 
         let markdownStyle = Self.markdownStyle(for: sizeClass, metrics: metrics)
-        let renderedMarkdownBlocks = UnifiedMarkdownRenderer.render(
-            plan: presentation.markdownRenderPlan,
+        let markdownContent = UnifiedMarkdownRenderer.makeContent(
+            presentation: presentation,
             baseFont: markdownStyle.baseFont,
             inkColor: palette.ink,
             lineSpacing: markdownStyle.lineSpacing,
@@ -617,7 +617,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         bodyLabel.attributedText = nil
         salientBaseAttributedText = nil
 
-        if isChromelessEmoji, case .inlineEmoji(let value) = presentation.parts.first {
+        if isChromelessEmoji, let value = markdownContent.firstInlineEmojiValue {
             let emojiFont = UIFont.systemFont(ofSize: (metrics.shortFontSize + 8) * 2)
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
@@ -631,13 +631,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             dynamicContentStack.addArrangedSubview(bodyTextContainer)
             dynamicContentViews.append(bodyTextContainer)
             salientBaseAttributedText = bodyLabel.attributedText
-        }
-
-        let hasTextContent = renderedMarkdownBlocks.contains { block in
-            if case .attributedText(let attributed) = block {
-                return !attributed.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            return false
         }
 
         // File attachments first so previews stay visible even with long text
@@ -662,13 +655,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
         }
 
-        if !isChromelessEmoji && (hasTextContent || renderedMarkdownBlocks.contains(where: {
-            if case .code = $0 { return true }
-            if case .table = $0 { return true }
-            return false
-        })) {
+        if !isChromelessEmoji && markdownContent.hasRenderableMarkdownContent {
             addRenderedMarkdownBlocks(
-                renderedMarkdownBlocks,
+                markdownContent.renderedBlocks,
                 role: message.role,
                 metrics: metrics,
                 isDark: effectiveIsDark

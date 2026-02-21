@@ -1,6 +1,39 @@
 import Foundation
 import UIKit
 
+struct UnifiedMarkdownContent {
+    let renderedBlocks: [RenderedMarkdownBlock]
+    let inlineEmojiValues: [String]
+
+    var firstInlineEmojiValue: String? {
+        inlineEmojiValues.first
+    }
+
+    var joinedInlineEmojiValues: String? {
+        guard !inlineEmojiValues.isEmpty else { return nil }
+        return inlineEmojiValues.joined(separator: "\n\n")
+    }
+
+    var hasNonEmptyAttributedText: Bool {
+        renderedBlocks.contains { block in
+            guard case .attributedText(let attributed) = block else { return false }
+            return !attributed.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    var hasCodeOrTable: Bool {
+        renderedBlocks.contains { block in
+            if case .code = block { return true }
+            if case .table = block { return true }
+            return false
+        }
+    }
+
+    var hasRenderableMarkdownContent: Bool {
+        hasNonEmptyAttributedText || hasCodeOrTable
+    }
+}
+
 enum UnifiedMarkdownRenderer {
     private static let markOpenSentinel = "\u{F0000}"
     private static let markCloseSentinel = "\u{F0001}"
@@ -21,6 +54,34 @@ enum UnifiedMarkdownRenderer {
             markHighlightColor: role == .assistant
                 ? SalientHighlightApplier.highlightColor(isDark: isDark)
                 : nil
+        )
+    }
+
+    static func makeContent(
+        presentation: MessagePresentation,
+        baseFont: UIFont,
+        inkColor: UIColor,
+        lineSpacing: CGFloat,
+        stripDetectedURLs: Bool,
+        role: Message.Role,
+        isDark: Bool
+    ) -> UnifiedMarkdownContent {
+        let renderedBlocks = render(
+            plan: presentation.markdownRenderPlan,
+            baseFont: baseFont,
+            inkColor: inkColor,
+            lineSpacing: lineSpacing,
+            stripDetectedURLs: stripDetectedURLs,
+            role: role,
+            isDark: isDark
+        )
+        let inlineEmojiValues = presentation.parts.compactMap { part -> String? in
+            if case .inlineEmoji(let value) = part { return value }
+            return nil
+        }
+        return UnifiedMarkdownContent(
+            renderedBlocks: renderedBlocks,
+            inlineEmojiValues: inlineEmojiValues
         )
     }
 
@@ -114,13 +175,18 @@ enum UnifiedMarkdownRenderer {
             of: #"(?m)^\s*\d+[.)]\s+"#,
             options: .regularExpression
         ) != nil
+        let hasUnorderedListSyntax = parsedMarkdown.range(
+            of: #"(?m)^[ \t]*[-*+]\s+"#,
+            options: .regularExpression
+        ) != nil
+        let shouldUseInlineListParsing = hasOrderedListSyntax || hasUnorderedListSyntax
         let markdownForRender = hasOrderedListSyntax
             ? normalizeOrderedListMarkers(in: parsedMarkdown)
             : parsedMarkdown
 
         // Prefer full parsing (block syntax like headings), but keep list separators intact.
         let attributed: AttributedString
-        if hasOrderedListSyntax,
+        if shouldUseInlineListParsing,
            let inline = try? AttributedString(markdown: markdownForRender, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
             attributed = inline
         } else if let full = try? AttributedString(markdown: markdownForRender, options: .init(interpretedSyntax: .full)) {

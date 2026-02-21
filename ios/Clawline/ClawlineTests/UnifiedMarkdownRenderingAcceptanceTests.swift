@@ -283,6 +283,28 @@ struct UnifiedMarkdownRenderingAcceptanceTests {
         ))
     }
 
+    @Test("UL-01: unordered list preserves visible separators and item boundaries")
+    func ul_01_unorderedListKeepsLineBreaks() {
+        let markdown = """
+        - Alpha
+        - Beta
+          - Nested Beta One
+          - Nested Beta Two
+        - Gamma
+        """
+        let plan = UnifiedMarkdownParser.parse(markdown: markdown, messageID: "ul_01", metrics: metrics)
+        let rendered = UnifiedMarkdownRenderer.render(plan: plan, options: expandedOptions())
+        let text = joinedText(from: rendered)
+
+        #expect(text.contains("Alpha"))
+        #expect(text.contains("Beta"))
+        #expect(text.contains("Nested Beta One"))
+        #expect(text.contains("Nested Beta Two"))
+        #expect(text.contains("Gamma"))
+        #expect(text.contains("\n"))
+        #expect(!text.contains("AlphaBetaNested Beta OneNested Beta TwoGamma"))
+    }
+
     private enum BlockType: Equatable {
         case richText
         case code

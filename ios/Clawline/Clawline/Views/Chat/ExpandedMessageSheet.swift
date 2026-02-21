@@ -81,7 +81,16 @@ struct ExpandedMessageSheet: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let markdownContent = UnifiedMarkdownRenderer.makeContent(
+            presentation: presentation,
+            baseFont: UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular),
+            inkColor: UIColor(ChatFlowTheme.ink(effectiveColorScheme)),
+            lineSpacing: 4,
+            stripDetectedURLs: false,
+            role: message.role,
+            isDark: effectiveColorScheme == .dark
+        )
+        return VStack(alignment: .leading, spacing: 12) {
             ForEach(fileAttachments) { attachment in
                 FileAttachmentRow(
                     filename: attachment.filename ?? attachment.assetId ?? attachment.mimeType ?? "Attachment",
@@ -90,11 +99,11 @@ struct ExpandedMessageSheet: View {
                 )
             }
 
-            if let emojiOnlyText {
+            if presentation.isEmojiOnly, let emojiOnlyText = markdownContent.joinedInlineEmojiValues {
                 Text(emojiOnlyText)
                     .font(.system(size: 32))
             } else {
-                ForEach(Array(renderedMarkdownBlocks.enumerated()), id: \.offset) { item in
+                ForEach(Array(markdownContent.renderedBlocks.enumerated()), id: \.offset) { item in
                     switch item.element {
                     case .attributedText(let attributed):
                         SelectableAttributedText(
@@ -148,28 +157,6 @@ struct ExpandedMessageSheet: View {
         .font(.system(size: metrics.bodyFontSize, weight: .regular))
         .foregroundColor(ChatFlowTheme.ink(effectiveColorScheme))
         .lineSpacing(4)
-    }
-
-    private var renderedMarkdownBlocks: [RenderedMarkdownBlock] {
-        return UnifiedMarkdownRenderer.render(
-            plan: presentation.markdownRenderPlan,
-            baseFont: UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular),
-            inkColor: UIColor(ChatFlowTheme.ink(effectiveColorScheme)),
-            lineSpacing: 4,
-            stripDetectedURLs: false,
-            role: message.role,
-            isDark: effectiveColorScheme == .dark
-        )
-    }
-
-    private var emojiOnlyText: String? {
-        guard presentation.isEmojiOnly else { return nil }
-        let values = presentation.parts.compactMap { part -> String? in
-            if case .inlineEmoji(let value) = part { return value }
-            return nil
-        }
-        guard !values.isEmpty else { return nil }
-        return values.joined(separator: "\n\n")
     }
 
     private var fileAttachments: [Attachment] {
