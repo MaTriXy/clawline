@@ -155,7 +155,7 @@ struct StreamManagerSheet: View {
             .environment(\.defaultMinListRowHeight, listRowHeight)
             .listRowSpacing(listRowSpacing)
             .scrollDisabled(!allowsListScrolling)
-            .scrollBounceBehavior(.basedOnSize)
+            .scrollBounceBehavior(.always)
             .contentMargins(.vertical, 0, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
@@ -277,10 +277,11 @@ struct StreamManagerSheet: View {
                             .tint(.secondary)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(isWorking || isDeletingStream(stream.sessionKey))
-            .contentShape(Rectangle())
         }
     }
 
