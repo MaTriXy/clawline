@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct StreamManagerSheet: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     @Bindable var viewModel: ChatViewModel
     let streams: [StreamSession]
     let unreadSessionKeys: Set<String>
@@ -255,20 +257,24 @@ struct StreamManagerSheet: View {
                 }
             } label: {
                 HStack(spacing: 10) {
+                    let isActive = stream.sessionKey == viewModel.uiSelectedSessionKey
+                    let hasUnread = unreadSessionKeys.contains(stream.sessionKey)
                     Circle()
-                        .fill(stream.sessionKey == viewModel.uiSelectedSessionKey ? Color.accentColor : Color.primary.opacity(0.25))
+                        .fill(
+                            StreamDotColor.resolve(
+                                isActive: isActive,
+                                hasUnread: hasUnread,
+                                colorScheme: colorScheme
+                            )
+                        )
                         .frame(width: 8, height: 8)
                     Text(stream.displayName)
-                        .font(.system(size: 28, weight: stream.sessionKey == viewModel.uiSelectedSessionKey ? .semibold : .regular))
+                        .font(.system(size: 28, weight: isActive ? .semibold : .regular))
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if isDeletingStream(stream.sessionKey) {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.secondary)
-                    } else if unreadSessionKeys.contains(stream.sessionKey) {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 8, height: 8)
                     }
                 }
             }

@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct StreamPageDotsView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let sessionKeys: [String]
     let activeSessionKey: String
     let unreadSessionKeys: Set<String>
@@ -49,11 +51,14 @@ struct StreamPageDotsView: View {
                 ForEach(visibleDotIndices, id: \.self) { index in
                     let sessionKey = sessionKeys[index]
                     let isActive = index == activeIndex
+                    let hasUnread = unreadSessionKeys.contains(sessionKey)
                     Circle()
                         .fill(
-                            isActive
-                                ? Color.primary
-                                : (unreadSessionKeys.contains(sessionKey) ? Color.red : Color.primary.opacity(0.25))
+                            StreamDotColor.resolve(
+                                isActive: isActive,
+                                hasUnread: hasUnread,
+                                colorScheme: colorScheme
+                            )
                         )
                         .frame(width: 7, height: 7)
                 }
