@@ -141,7 +141,10 @@ final class TerminalSessionService {
     }
 
     func sendInput(_ data: Data) {
-        guard isReady, let socket else { return }
+        guard isReady, let socket else {
+            logger.warning("terminal_send_input_skipped: not ready or no socket")
+            return
+        }
         Task {
             do {
                 try await socket.send(.data(data))
@@ -173,7 +176,10 @@ final class TerminalSessionService {
     }
 
     private func sendControl(_ dict: [String: Any]) {
-        guard let socket else { return }
+        guard let socket else {
+            logger.warning("terminal_send_control_skipped: no socket")
+            return
+        }
         if let type = dict["type"] as? String {
             logger.debug("terminal_send_control type=\(type, privacy: .public) ready=\(self.isReady, privacy: .public)")
         }
