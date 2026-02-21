@@ -230,7 +230,8 @@ final class TerminalSessionService {
 
     private func sendAuth(initialCols: Int, initialRows: Int, backfillLines: Int) async {
         guard let socket else { return }
-        if !Self.isValidTerminalSessionId(descriptor.terminalSessionId) {
+        let terminalSessionId = descriptor.terminalSessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if terminalSessionId.isEmpty {
             stateContinuation.yield(.failed("Invalid terminalSessionId"))
             teardownSocket(yieldDisconnected: false)
             return
@@ -250,7 +251,7 @@ final class TerminalSessionService {
             "authMode": authMode,
             "authToken": token,
             "deviceId": deviceId.deviceId,
-            "terminalSessionId": descriptor.terminalSessionId,
+            "terminalSessionId": terminalSessionId,
             "backfillLines": backfillLines,
             "cols": initialCols,
             "rows": initialRows
@@ -443,17 +444,5 @@ final class TerminalSessionService {
         }
     }
 
-    private static func isValidTerminalSessionId(_ id: String) -> Bool {
-        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed.count > 128 { return false }
-        for scalar in trimmed.unicodeScalars {
-            switch scalar {
-            case "a"..."z", "A"..."Z", "0"..."9", "-", "_":
-                continue
-            default:
-                return false
-            }
-        }
-        return true
-    }
+
 }
