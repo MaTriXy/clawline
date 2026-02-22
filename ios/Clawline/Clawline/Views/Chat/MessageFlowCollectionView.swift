@@ -2179,6 +2179,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func liveScrollSnapshotIfAvailable() -> ScrollSnapshot? {
         guard collectionView != nil else { return nil }
+        guard collectionView.contentSize.height > 0 else { return nil }
         let contentInset = collectionView.contentInset
         let minY = -contentInset.top
         let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom)
