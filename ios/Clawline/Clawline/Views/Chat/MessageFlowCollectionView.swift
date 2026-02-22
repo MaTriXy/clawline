@@ -327,9 +327,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if let channelOverride, !channelOverride.isEmpty {
             return channelOverride
         }
-#if DEBUG
-        assertionFailure("Keyless per-stream state access attempted")
-#endif
         return nil
     }
 
