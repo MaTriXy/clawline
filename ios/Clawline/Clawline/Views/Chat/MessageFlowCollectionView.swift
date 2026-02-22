@@ -2134,7 +2134,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let isSameKeyReRead = outgoingSessionKey == incomingSessionKey && forceReRead
 
         if let outgoingSessionKey, outgoingSessionKey != incomingSessionKey {
-            persistScrollStateNow(sessionKey: outgoingSessionKey)
+            persistScrollStateNow(sessionKey: outgoingSessionKey, bypassSuspension: true)
             cancelDeferredWork(for: outgoingSessionKey, cancelAll: true)
         }
 
@@ -2222,9 +2222,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    private func persistScrollStateNow(sessionKey persistenceKey: String) {
+    private func persistScrollStateNow(sessionKey persistenceKey: String, bypassSuspension: Bool = false) {
         guard !persistenceKey.isEmpty else { return }
-        if readState(for: persistenceKey).suspendScrollPersistenceUntilRestoreConfirmed {
+        if !bypassSuspension, readState(for: persistenceKey).suspendScrollPersistenceUntilRestoreConfirmed {
             StreamSwitchTiming.log("scroll_persist_skipped_suspended", sessionKey: persistenceKey)
             return
         }
