@@ -2310,6 +2310,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return abs(actualDistance - desiredDistance) <= Self.atBottomThreshold
         }()
 
+        if restoreConfirmed, token.stage == .tail {
+            mutateState(for: token.sessionKey) { state in
+                state.restorePhase = .pendingFullConfirmation
+                state.restoreConfirmationRetries = 0
+            }
+            return
+        }
+
         if restoreConfirmed {
             let unread = runtimeState.unreadCount
             mutateState(for: token.sessionKey) { state in
