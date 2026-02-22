@@ -993,7 +993,14 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func setMessages(_ newMessages: [Message], for sessionKey: String) {
+        let oldCount = sessionMessages[sessionKey]?.count ?? 0
         sessionMessages[sessionKey] = newMessages
+        let newCount = newMessages.count
+        if oldCount > 0, newCount == 0 {
+            StreamSwitchTiming.log("stream_messages_unloaded oldCount=\(oldCount) newCount=0", sessionKey: sessionKey)
+        } else if oldCount == 0, newCount > 0 {
+            StreamSwitchTiming.log("stream_messages_reloaded oldCount=0 newCount=\(newCount)", sessionKey: sessionKey)
+        }
         persistMessages(newMessages, for: sessionKey)
         refreshUnreadState(for: sessionKey)
         if sessionKey == engineActiveSessionKey {

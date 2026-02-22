@@ -2225,19 +2225,32 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func persistScrollStateNow(sessionKey persistenceKey: String) {
         guard !persistenceKey.isEmpty else { return }
         if readState(for: persistenceKey).suspendScrollPersistenceUntilRestoreConfirmed {
+            StreamSwitchTiming.log("scroll_persist_skipped_suspended", sessionKey: persistenceKey)
             return
         }
         if view.window == nil {
             if let snapshot = readState(for: persistenceKey).lastKnownScrollSnapshot {
                 persistScrollSnapshot(snapshot, for: persistenceKey)
+                StreamSwitchTiming.log(
+                    "scroll_persist_flush source=cached atBottom=\(snapshot.atBottom) distance=\(String(format: "%.1f", snapshot.distanceFromBottom))",
+                    sessionKey: persistenceKey
+                )
             }
             return
         }
         if let snapshot = liveScrollSnapshotIfAvailable() {
             mutateState(for: persistenceKey) { $0.lastKnownScrollSnapshot = snapshot }
             persistScrollSnapshot(snapshot, for: persistenceKey)
+            StreamSwitchTiming.log(
+                "scroll_persist_flush source=live atBottom=\(snapshot.atBottom) distance=\(String(format: "%.1f", snapshot.distanceFromBottom))",
+                sessionKey: persistenceKey
+            )
         } else if let snapshot = readState(for: persistenceKey).lastKnownScrollSnapshot {
             persistScrollSnapshot(snapshot, for: persistenceKey)
+            StreamSwitchTiming.log(
+                "scroll_persist_flush source=fallback atBottom=\(snapshot.atBottom) distance=\(String(format: "%.1f", snapshot.distanceFromBottom))",
+                sessionKey: persistenceKey
+            )
         }
     }
 
@@ -2282,6 +2295,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let desiredDistance = persistedState.atBottom ? 0 : CGFloat(persistedState.distanceFromBottom)
         let targetY = maxY - desiredDistance
         let clampedTargetY = min(max(targetY, minY), maxY)
+        StreamSwitchTiming.log(
+            "scroll_restore_attempt phase=\(String(describing: runtimeState.restorePhase)) stage=\(token.stage.rawValue) generation=\(token.generation) targetY=\(String(format: "%.1f", clampedTargetY)) desiredDistance=\(String(format: "%.1f", desiredDistance)) atBottomTarget=\(persistedState.atBottom)",
+            sessionKey: token.sessionKey
+        )
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedTargetY), animated: false)
 
         let actualDistance = distanceFromBottomClamped()
@@ -2303,6 +2320,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 state.pendingScrollRestoreState = nil
                 state.sbbState = isAtBottomNow ? .atBottom : (unread > 0 ? .scrolledUpUnread : .scrolledUp)
             }
+            StreamSwitchTiming.log(
+                "scroll_restore_confirmed stage=\(token.stage.rawValue) generation=\(token.generation) actualDistance=\(String(format: "%.1f", actualDistance)) atBottomNow=\(isAtBottomNow)",
+                sessionKey: token.sessionKey
+            )
             emitHideIndicatorIfChanged(force: true)
             return
         }
@@ -2331,6 +2352,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if shouldFallbackToBottom {
             collectionView.setContentOffset(CGPoint(x: 0, y: maxY), animated: false)
+            StreamSwitchTiming.log(
+                "scroll_restore_fallback_to_bottom stage=\(token.stage.rawValue) generation=\(token.generation) retries=\(Self.restoreMaxConfirmationRetries)",
+                sessionKey: token.sessionKey
+            )
             emitHideIndicatorIfChanged(force: true)
         }
     }
