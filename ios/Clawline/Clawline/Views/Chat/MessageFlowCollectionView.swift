@@ -2228,6 +2228,31 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             StreamSwitchTiming.log("scroll_persist_skipped_suspended", sessionKey: persistenceKey)
             return
         }
+        if collectionView != nil {
+            let contentInset = collectionView.contentInset
+            let minY = -contentInset.top
+            let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom)
+            let rawOffsetY = collectionView.contentOffset.y
+            let clampedOffsetY = min(max(rawOffsetY, minY), maxY)
+            let computedDistance = max(0, maxY - clampedOffsetY)
+            let computedAtBottom = computedDistance <= Self.atBottomThreshold
+            let rawOffsetYString = String(format: "%.1f", rawOffsetY)
+            let clampedOffsetYString = String(format: "%.1f", clampedOffsetY)
+            let minYString = String(format: "%.1f", minY)
+            let maxYString = String(format: "%.1f", maxY)
+            let contentSizeString = String(format: "%.1f", collectionView.contentSize.height)
+            let frameHeightString = String(format: "%.1f", collectionView.bounds.height)
+            let insetTopString = String(format: "%.1f", contentInset.top)
+            let insetBottomString = String(format: "%.1f", contentInset.bottom)
+            let computedDistanceString = String(format: "%.1f", computedDistance)
+            let thresholdString = String(format: "%.1f", Self.atBottomThreshold)
+            StreamSwitchTiming.log(
+                "scroll_persist_geometry rawOffsetY=\(rawOffsetYString) clampedOffsetY=\(clampedOffsetYString) minY=\(minYString) maxY=\(maxYString) contentSize=\(contentSizeString) frameHeight=\(frameHeightString) insetTop=\(insetTopString) insetBottom=\(insetBottomString) computedDistance=\(computedDistanceString) threshold=\(thresholdString) computedAtBottom=\(computedAtBottom)",
+                sessionKey: persistenceKey
+            )
+        } else {
+            StreamSwitchTiming.log("scroll_persist_geometry unavailable_collectionView", sessionKey: persistenceKey)
+        }
         if view.window == nil {
             if let snapshot = readState(for: persistenceKey).lastKnownScrollSnapshot {
                 persistScrollSnapshot(snapshot, for: persistenceKey)
