@@ -931,6 +931,8 @@ struct ChatView: View {
             },
             layoutCoordinator: layoutCoordinator,
             sessionKey: sessionKey,
+            forceReRead: false,
+            forceReReadSequence: viewModel.forceReReadSequence(for: sessionKey),
             onScrollEvent: handleMessageFlowScrollEvent
         )
         // We manage keyboard avoidance manually inside the collection view.
@@ -1074,6 +1076,8 @@ struct ChatView: View {
                 // Do not register prewarm shells as live session list views.
                 shouldRegisterWithLayoutCoordinator: false,
                 sessionKey: sessionKey,
+                forceReRead: false,
+                forceReReadSequence: viewModel.forceReReadSequence(for: sessionKey),
                 onScrollEvent: nil
             )
             .hidden()
