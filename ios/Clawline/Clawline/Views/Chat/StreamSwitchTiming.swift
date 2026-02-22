@@ -17,6 +17,6 @@ enum StreamSwitchTiming {
             elapsedMs = 0
         }
         let session = sessionKey ?? ""
-        NSLog("[STREAM_SWITCH] %@ t=%.2f sessionKey=%@", stepName, elapsedMs, session)
+        print(String(format: "[STREAM_SWITCH] %@ t=%.2f sessionKey=%@", stepName, elapsedMs, session))
     }
 }
