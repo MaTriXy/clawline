@@ -43,7 +43,6 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var orderedSessionKeys: [String] = []
     private(set) var lastReadMessageIdBySession: [String: String] = [:]
     private(set) var hasUnreadBySession: [String: Bool] = [:]
-    private(set) var forceReReadSequenceBySessionKey: [String: Int] = [:]
     private var syntheticSessionKeys: Set<String> = []
     private var didRestoreActiveSessionKey = false
 
@@ -89,10 +88,6 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func stream(for sessionKey: String) -> StreamSession? {
         streamsBySessionKey[sessionKey]
-    }
-
-    func forceReReadSequence(for sessionKey: String) -> Int {
-        forceReReadSequenceBySessionKey[sessionKey] ?? 0
     }
 
     var orderedStreams: [StreamSession] {
@@ -998,13 +993,9 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func setMessages(_ newMessages: [Message], for sessionKey: String) {
-        let previousMessages = sessionMessages[sessionKey] ?? []
         sessionMessages[sessionKey] = newMessages
         persistMessages(newMessages, for: sessionKey)
         refreshUnreadState(for: sessionKey)
-        if previousMessages.isEmpty, !newMessages.isEmpty {
-            forceReReadSequenceBySessionKey[sessionKey, default: 0] &+= 1
-        }
         if sessionKey == engineActiveSessionKey {
             messages = newMessages
             let total = newMessages.count
@@ -1956,7 +1947,6 @@ final class ChatViewModel: ChatViewModelHosting {
         lastServerMessageIdBySession.removeValue(forKey: sessionKey)
         lastReadMessageIdBySession.removeValue(forKey: sessionKey)
         hasUnreadBySession.removeValue(forKey: sessionKey)
-        forceReReadSequenceBySessionKey.removeValue(forKey: sessionKey)
         persistLastServerMessageId(nil, for: sessionKey)
         persistLastReadMessageId(nil, for: sessionKey)
         persistMessages([], for: sessionKey)

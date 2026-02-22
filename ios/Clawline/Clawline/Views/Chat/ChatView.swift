@@ -932,7 +932,6 @@ struct ChatView: View {
             layoutCoordinator: layoutCoordinator,
             sessionKey: sessionKey,
             forceReRead: false,
-            forceReReadSequence: viewModel.forceReReadSequence(for: sessionKey),
             onScrollEvent: handleMessageFlowScrollEvent
         )
         // We manage keyboard avoidance manually inside the collection view.
@@ -1077,7 +1076,6 @@ struct ChatView: View {
                 shouldRegisterWithLayoutCoordinator: false,
                 sessionKey: sessionKey,
                 forceReRead: false,
-                forceReReadSequence: viewModel.forceReReadSequence(for: sessionKey),
                 onScrollEvent: nil
             )
             .hidden()
