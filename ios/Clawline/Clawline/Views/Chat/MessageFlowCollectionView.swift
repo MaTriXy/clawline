@@ -2303,16 +2303,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         } else {
             StreamSwitchTiming.log("scroll_persist_geometry unavailable_collectionView", sessionKey: persistenceKey)
         }
-        if view.window == nil {
-            if let snapshot = readState(for: persistenceKey).lastKnownScrollSnapshot {
-                persistScrollSnapshot(snapshot, for: persistenceKey)
-                StreamSwitchTiming.log(
-                    "scroll_persist_flush source=cached atBottom=\(snapshot.atBottom) distance=\(String(format: "%.1f", snapshot.distanceFromBottom))",
-                    sessionKey: persistenceKey
-                )
-            }
-            return
-        }
         if let snapshot = liveScrollSnapshotIfAvailable() {
             mutateState(for: persistenceKey) { $0.lastKnownScrollSnapshot = snapshot }
             persistScrollSnapshot(snapshot, for: persistenceKey)
