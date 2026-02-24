@@ -2356,7 +2356,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         callback: @escaping @MainActor () -> Void
     ) {
         guard !sessionKey.isEmpty, !messageId.isEmpty else { return }
-        guard callbackSessionKey() == sessionKey else { return }
 
         let isMaterialized = isMessageMaterialized(sessionKey: sessionKey, messageId: messageId)
         if isMaterialized {
