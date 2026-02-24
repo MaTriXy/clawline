@@ -57,8 +57,10 @@ protocol ChatServicing {
     var connectionState: AsyncStream<ConnectionState> { get }
     var serviceEvents: AsyncStream<ChatServiceEvent> { get }
 
-    func connect(token: String, lastMessageId: String?) async throws
+    func connect(token: String, activeSessionKey: String?) async throws
     func disconnect()
+    func replayCursorSnapshot() -> [String: String]
+    func setReplayCursor(_ cursor: String?, for sessionKey: String)
     func send(
         id: String,
         content: String,

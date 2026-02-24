@@ -10,6 +10,7 @@ import Foundation
 final class StubChatService: ChatServicing {
     var responseDelay: TimeInterval = 1.5
     private var streams: [StreamSession] = []
+    private var replayCursorBySessionKey: [String: String] = [:]
 
     private var messageContinuation: AsyncStream<Message>.Continuation?
     private var stateContinuation: AsyncStream<ConnectionState>.Continuation?
@@ -40,7 +41,8 @@ final class StubChatService: ChatServicing {
         }
     }()
 
-    func connect(token: String, lastMessageId: String?) async throws {
+    func connect(token: String, activeSessionKey: String?) async throws {
+        _ = activeSessionKey
         stateContinuation?.yield(.connecting)
         try await Task.sleep(forDuration: .milliseconds(500))
         if streams.isEmpty {
@@ -63,6 +65,18 @@ final class StubChatService: ChatServicing {
 
     func disconnect() {
         stateContinuation?.yield(.disconnected)
+    }
+
+    func replayCursorSnapshot() -> [String: String] {
+        replayCursorBySessionKey
+    }
+
+    func setReplayCursor(_ cursor: String?, for sessionKey: String) {
+        if let cursor, !cursor.isEmpty {
+            replayCursorBySessionKey[sessionKey] = cursor
+        } else {
+            replayCursorBySessionKey.removeValue(forKey: sessionKey)
+        }
     }
 
     func send(

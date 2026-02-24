@@ -93,6 +93,7 @@ final class ProviderChatService: ChatServicing {
         let token: String
         let deviceId: String
         let lastMessageId: String?
+        let replayCursorsBySessionKey: [String: String]?
         let clientFeatures: [String]?
         let client: ClientDescriptor
     }
@@ -199,6 +200,7 @@ final class ProviderChatService: ChatServicing {
     private let streamAPIClient: StreamAPIClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let replayCursorDefaults = UserDefaults.standard
     private let supportedClientFeatures = ["terminal_bubbles_v1"]
     private let ackInterval: Duration = .seconds(5)
     private let authTimeout: Duration = .seconds(12)
@@ -216,6 +218,8 @@ final class ProviderChatService: ChatServicing {
     private var pendingDisconnectReason: String?
     private var isConnecting = false
     private var authToken: String?
+    private var replayCursorBySessionKey: [String: String] = [:]
+    private var knownSessionKeys: Set<String> = []
 
     init(connector: any WebSocketConnecting,
          deviceId: String,
@@ -231,6 +235,7 @@ final class ProviderChatService: ChatServicing {
         self.encoder = encoder
         self.decoder = decoder
         self.streamAPIClient = streamAPIClient ?? StreamAPIClient(baseURLProvider: baseURLProvider)
+        self.replayCursorBySessionKey = restoreReplayCursorSnapshot()
     }
 
     var incomingMessages: AsyncStream<Message> { messageBroadcaster.stream() }
@@ -281,7 +286,7 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
-    func connect(token: String, lastMessageId: String?) async throws {
+    func connect(token: String, activeSessionKey: String?) async throws {
         if isConnecting {
             logger.info("connect suppressed: already connecting")
             resolveAuthContinuation(with: .failure(Error.notConnected))
@@ -306,7 +311,7 @@ final class ProviderChatService: ChatServicing {
         startListening(on: client)
 
         do {
-            try await awaitAuthResult(client: client, token: token, lastMessageId: lastMessageId)
+            try await awaitAuthResult(client: client, token: token)
             authToken = token
         } catch {
             logger.info("state -> failed (auth timeout) error=\(error.localizedDescription, privacy: .public)")
@@ -319,6 +324,22 @@ final class ProviderChatService: ChatServicing {
     func disconnect() {
         logger.info("disconnect requested")
         performDisconnect(shouldNotify: false)
+    }
+
+    func replayCursorSnapshot() -> [String: String] {
+        replayCursorBySessionKey
+    }
+
+    func setReplayCursor(_ cursor: String?, for sessionKey: String) {
+        let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        let trimmedCursor = cursor?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedCursor, !trimmedCursor.isEmpty {
+            replayCursorBySessionKey[trimmedKey] = trimmedCursor
+        } else {
+            replayCursorBySessionKey.removeValue(forKey: trimmedKey)
+        }
+        persistReplayCursorSnapshot()
     }
 
     private func performDisconnect(shouldNotify: Bool, reason: String? = nil) {
@@ -490,6 +511,9 @@ final class ProviderChatService: ChatServicing {
             "recv message id=\(payload.id, privacy: .public) sessionKey=\(sessionKey, privacy: .public) role=\(String(describing: payload.role), privacy: .public) streaming=\(payload.streaming, privacy: .public) deviceId=\(payload.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
         )
         let message = Message(payload: payload, sessionKey: sessionKey)
+        if message.id.hasPrefix("s_") {
+            setReplayCursor(message.id, for: sessionKey)
+        }
         messageBroadcaster.send(message)
     }
 
@@ -579,6 +603,7 @@ final class ProviderChatService: ChatServicing {
             logger.warning("Failed to decode session_info payload")
             return
         }
+        knownSessionKeys = Set(normalizeSessionKeys(payload.sessionKeys ?? payload.sessions?.map(\.sessionKey) ?? []))
         if let info = sessionInfo(from: payload) {
             emitServiceEvent(.sessionInfo(info))
         }
@@ -612,6 +637,12 @@ final class ProviderChatService: ChatServicing {
             logger.warning("Failed to decode stream_snapshot payload")
             return
         }
+        let validKeys = Set(payload.streams.map(\.sessionKey))
+        knownSessionKeys = validKeys
+        if replayCursorBySessionKey.keys.contains(where: { !validKeys.contains($0) }) {
+            replayCursorBySessionKey = replayCursorBySessionKey.filter { validKeys.contains($0.key) }
+            persistReplayCursorSnapshot()
+        }
         emitServiceEvent(.streamSnapshot(payload.streams))
     }
 
@@ -636,6 +667,8 @@ final class ProviderChatService: ChatServicing {
             logger.warning("Failed to decode stream_deleted payload")
             return
         }
+        knownSessionKeys.remove(payload.sessionKey)
+        setReplayCursor(nil, for: payload.sessionKey)
         emitServiceEvent(.streamDeleted(sessionKey: payload.sessionKey))
     }
 
@@ -816,7 +849,7 @@ final class ProviderChatService: ChatServicing {
         return error
     }
 
-    private func awaitAuthResult(client: any WebSocketClient, token: String, lastMessageId: String?) async throws {
+    private func awaitAuthResult(client: any WebSocketClient, token: String) async throws {
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { [weak self] in
                 guard let self else { return }
@@ -824,10 +857,19 @@ final class ProviderChatService: ChatServicing {
                     self.authContinuation = continuation
                     Task {
                         do {
+                            let replayCursorSnapshot = self.replayCursorSnapshot()
+                            let shouldSendPerStreamReplayCursors =
+                                !self.knownSessionKeys.isEmpty &&
+                                self.knownSessionKeys.allSatisfy { replayCursorSnapshot[$0]?.isEmpty == false }
+                            let lastMessageId = self.resolveAuthLastMessageId(
+                                replayCursorSnapshot: replayCursorSnapshot,
+                                knownSessionKeys: self.knownSessionKeys
+                            )
                             let authPayload = AuthPayload(
                                 token: token,
                                 deviceId: self.deviceId,
                                 lastMessageId: lastMessageId,
+                                replayCursorsBySessionKey: shouldSendPerStreamReplayCursors ? replayCursorSnapshot : nil,
                                 clientFeatures: self.supportedClientFeatures,
                                 client: ClientDescriptor(
                                     id: Self.clientID,
@@ -857,5 +899,35 @@ final class ProviderChatService: ChatServicing {
             }
             group.cancelAll()
         }
+    }
+
+    private func replayCursorDefaultsKey() -> String {
+        let rawUserId = userIdProvider()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let userComponent = rawUserId.isEmpty ? "anon" : rawUserId
+        return "clawline.replayCursorBySession.v1.\(userComponent).\(deviceId)"
+    }
+
+    private func restoreReplayCursorSnapshot() -> [String: String] {
+        guard let data = replayCursorDefaults.data(forKey: replayCursorDefaultsKey()) else { return [:] }
+        guard let decoded = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return decoded.filter { !$0.key.isEmpty && !$0.value.isEmpty }
+    }
+
+    private func persistReplayCursorSnapshot() {
+        guard let data = try? JSONEncoder().encode(replayCursorBySessionKey) else { return }
+        replayCursorDefaults.set(data, forKey: replayCursorDefaultsKey())
+    }
+
+    private func resolveAuthLastMessageId(
+        replayCursorSnapshot: [String: String],
+        knownSessionKeys: Set<String>
+    ) -> String? {
+        let normalizedKnownKeys = knownSessionKeys
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard normalizedKnownKeys.allSatisfy({ replayCursorSnapshot[$0]?.isEmpty == false }) else {
+            return nil
+        }
+        return replayCursorSnapshot.values.max()
     }
 }
