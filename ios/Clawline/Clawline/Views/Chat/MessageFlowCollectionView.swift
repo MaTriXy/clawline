@@ -1308,6 +1308,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         mutateState(for: sessionKey) { state in
             state.pendingScrollToBottomWorkItem?.cancel()
             state.pendingScrollToBottomWorkItem = nil
+            state.scrollStateWriteDebounceTimer?.invalidate()
+            state.scrollStateWriteDebounceTimer = nil
 
             if cancelAll {
                 state.bubbleSizingV2RemeasureDebounceTimer?.invalidate()
@@ -2259,8 +2261,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let state = readState(for: sessionKey)
         guard !state.suspendScrollPersistenceUntilRestoreConfirmed else { return }
         state.scrollStateWriteDebounceTimer?.invalidate()
+        let expectedGeneration = state.restoreGeneration
         let timer = Timer.scheduledTimer(withTimeInterval: Self.scrollStateWriteDebounceSeconds, repeats: false) { [weak self] _ in
-            self?.persistScrollStateNow(sessionKey: sessionKey)
+            guard let self else { return }
+            guard self.readState(for: sessionKey).restoreGeneration == expectedGeneration else { return }
+            self.persistScrollStateNow(sessionKey: sessionKey)
         }
         mutateState(for: sessionKey) { runtimeState in
             runtimeState.scrollStateWriteDebounceTimer = timer
