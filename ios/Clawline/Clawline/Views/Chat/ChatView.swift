@@ -2199,8 +2199,10 @@ private final class PreviewChatService: ChatServicing {
     var serviceEvents: AsyncStream<ChatServiceEvent> {
         AsyncStream { _ in }
     }
-    func connect(token: String, lastMessageId: String?) async throws {}
+    func connect(token: String, activeSessionKey: String?) async throws {}
     func disconnect() {}
+    func replayCursorSnapshot() -> [String: String] { [:] }
+    func setReplayCursor(_ cursor: String?, for sessionKey: String) {}
     func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String?) async throws {}
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {}
     func fetchStreams() async throws -> [StreamSession] { [] }
