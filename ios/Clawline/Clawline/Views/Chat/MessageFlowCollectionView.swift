@@ -959,6 +959,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard let sessionKey = callbackSessionKey() else { return }
         handleUserScrolled(sessionKey: sessionKey)
         checkFirstUnreadCrossingIfNeeded(sessionKey: sessionKey)
+        refreshLastKnownScrollSnapshot(sessionKey: sessionKey)
         schedulePersistScrollState(sessionKey: sessionKey)
         flushDeferredBubbleSizingV2RemeasureIfNeeded()
         scheduleDeferredBottomInsetRemeasure()

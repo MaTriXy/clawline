@@ -345,6 +345,12 @@ final class ProviderChatService: ChatServicing {
         persistReplayCursorSnapshot()
     }
 
+    func clearReplayCursors() {
+        guard !replayCursorBySessionKey.isEmpty else { return }
+        replayCursorBySessionKey.removeAll()
+        persistReplayCursorSnapshot()
+    }
+
     private func performDisconnect(shouldNotify: Bool, reason: String? = nil) {
         logger.info("performDisconnect notify=\(shouldNotify, privacy: .public) reason=\(reason ?? "nil", privacy: .public)")
         shouldNotifyDisconnect = shouldNotify
@@ -928,6 +934,9 @@ final class ProviderChatService: ChatServicing {
         let normalizedKnownKeys = knownSessionKeys
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        guard !normalizedKnownKeys.isEmpty else {
+            return nil
+        }
         guard normalizedKnownKeys.allSatisfy({ replayCursorSnapshot[$0]?.isEmpty == false }) else {
             return nil
         }

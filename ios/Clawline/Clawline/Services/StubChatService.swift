@@ -79,6 +79,10 @@ final class StubChatService: ChatServicing {
         }
     }
 
+    func clearReplayCursors() {
+        replayCursorBySessionKey.removeAll()
+    }
+
     func send(
         id: String,
         content: String,

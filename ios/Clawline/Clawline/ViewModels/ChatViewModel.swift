@@ -672,10 +672,10 @@ final class ChatViewModel: ChatViewModelHosting {
         observationTask?.cancel()
         observationTask = nil
         chatService.disconnect()
+        chatService.clearReplayCursors()
         var sessionKeysToClear = Set(sessionMessages.keys)
         sessionKeysToClear.formUnion(streamsBySessionKey.keys)
         for key in sessionKeysToClear {
-            chatService.setReplayCursor(nil, for: key)
             persistLastReadMessageId(nil, for: key)
         }
         lastReadMessageIdBySession.removeAll()
