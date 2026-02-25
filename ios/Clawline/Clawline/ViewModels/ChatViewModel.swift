@@ -331,7 +331,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private let assistantIncomingHapticDebounceInterval: TimeInterval = 1
     private var lastAssistantIncomingHapticAt: Date?
     private let nowProvider: () -> Date
-    private let assistantIncomingHaptic: () -> Void
+    private let assistantIncomingHaptic: @MainActor () -> Void
     private var persistDebounceTasks: [String: Task<Void, Never>] = [:]
     private var pendingPersistPayloads: [String: [Message]] = [:]
     private let messageCacheLimit = 500
@@ -375,7 +375,7 @@ final class ChatViewModel: ChatViewModelHosting {
          salientHighlightService: any SalientHighlightServicing,
          connectionAlertGracePeriod: Duration = .seconds(2),
          nowProvider: @escaping () -> Date = Date.init,
-         assistantIncomingHaptic: @escaping () -> Void = {
+         assistantIncomingHaptic: @escaping @MainActor () -> Void = {
              let generator = UIImpactFeedbackGenerator(style: .light)
              generator.impactOccurred()
          }) {
