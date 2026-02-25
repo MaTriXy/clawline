@@ -334,14 +334,16 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         senderLabel.numberOfLines = 1
         senderLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        senderLabel.lineBreakMode = .byClipping
         senderLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
         senderTimestampSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         senderTimestampSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         timestampLabel.numberOfLines = 1
-        timestampLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        timestampLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         timestampLabel.setContentHuggingPriority(.required, for: .horizontal)
+        timestampLabel.lineBreakMode = .byTruncatingTail
 
         headerStack.addArrangedSubview(avatarView)
         headerStack.addArrangedSubview(senderLabel)
