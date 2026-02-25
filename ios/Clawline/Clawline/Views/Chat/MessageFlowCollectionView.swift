@@ -1803,7 +1803,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             guard let self else { return }
             guard self.callbackSessionKey() == effectiveSessionKey else { return }
             let runtimeState = self.readState(for: effectiveSessionKey)
-            if runtimeState.pendingScrollRestoreState == nil, runtimeState.restorePhase == .none {
+            if Self.shouldScheduleBottomFallbackAfterApply(
+                hasPendingRestoreState: runtimeState.pendingScrollRestoreState != nil,
+                restorePhaseIsNone: runtimeState.restorePhase == .none,
+                isIncrementalAppend: isIncrementalAppend,
+                previousLastMessageId: previousLastMessageId
+            ) {
                 self.scheduleScrollToBottom(sessionKey: effectiveSessionKey, animated: false, attempts: 1)
             }
             self.scheduleRestoreAttemptOnMessageAppearance(
@@ -1930,6 +1935,19 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let next = messageIDs.index(after: idx)
         guard next < messageIDs.endIndex else { return [] }
         return Array(messageIDs[next...])
+    }
+
+    static func shouldScheduleBottomFallbackAfterApply(
+        hasPendingRestoreState: Bool,
+        restorePhaseIsNone: Bool,
+        isIncrementalAppend: Bool,
+        previousLastMessageId: String?
+    ) -> Bool {
+        guard !hasPendingRestoreState, restorePhaseIsNone else { return false }
+        // Guardrail: a plain append must not force-jump to bottom while reading history.
+        guard !isIncrementalAppend else { return false }
+        // Keep the one-time initial bottom placement behavior for first population only.
+        return previousLastMessageId == nil
     }
 
     private func emit(_ event: MessageFlowScrollEvent) {
