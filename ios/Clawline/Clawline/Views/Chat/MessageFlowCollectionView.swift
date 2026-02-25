@@ -2290,6 +2290,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 state.lastSeenForceReReadGeneration = forceReReadGeneration
             }
             lastAppliedEffectiveSessionKey = incomingSessionKey
+            emitHideIndicatorIfChanged(force: true)
             return
         }
 
@@ -2298,6 +2299,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 state.lastSeenForceReReadGeneration = max(state.lastSeenForceReReadGeneration, forceReReadGeneration)
             }
             lastAppliedEffectiveSessionKey = incomingSessionKey
+            emitHideIndicatorIfChanged(force: true)
             return
         }
 
@@ -2309,6 +2311,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             state.lastSeenForceReReadGeneration = max(state.lastSeenForceReReadGeneration, forceReReadGeneration)
         }
         lastAppliedEffectiveSessionKey = incomingSessionKey
+        emitHideIndicatorIfChanged(force: true)
     }
 
     private func scrollStateDefaultsKey(for persistenceKey: String) -> String {
@@ -2549,6 +2552,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sessionKey: token.sessionKey
         )
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedTargetY), animated: false)
+        refreshLastKnownScrollSnapshot(sessionKey: token.sessionKey)
 
         let actualDistance = distanceFromBottomClamped()
         let isAtBottomNow = actualDistance <= Self.atBottomThreshold
@@ -2609,6 +2613,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if shouldFallbackToBottom {
             collectionView.setContentOffset(CGPoint(x: 0, y: maxY), animated: false)
+            refreshLastKnownScrollSnapshot(sessionKey: token.sessionKey)
             StreamSwitchTiming.log(
                 "scroll_restore_fallback_to_bottom stage=\(token.stage.rawValue) generation=\(token.generation) retries=\(Self.restoreMaxConfirmationRetries)",
                 sessionKey: token.sessionKey
@@ -3765,9 +3770,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let clampedY = max(minY, min(targetY, maxY))
         // If we're already at (or extremely near) the bottom, don't re-set contentOffset.
         if abs(collectionView.contentOffset.y - clampedY) <= 0.5 {
+            if let sessionKey = callbackSessionKey() {
+                refreshLastKnownScrollSnapshot(sessionKey: sessionKey)
+            }
             return
         }
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: animated)
+        if !animated, let sessionKey = callbackSessionKey() {
+            refreshLastKnownScrollSnapshot(sessionKey: sessionKey)
+        }
         NSLog("[KBTIMING] scrollToBottom animated=%d targetY=%.1f dt=%.4f", animated ? 1 : 0, clampedY, CFAbsoluteTimeGetCurrent() - t0)
     }
 
@@ -3797,6 +3808,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let maxY = collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom
         let clampedY = max(minY, min(targetOffsetY, maxY))
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: animated)
+        if !animated {
+            refreshLastKnownScrollSnapshot(sessionKey: sessionKey)
+        }
     }
 
     func isNearBottom(extraMargin: CGFloat) -> Bool {
@@ -3819,6 +3833,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let targetY = collectionView.contentOffset.y + delta
         let clampedY = max(minY, min(targetY, maxY))
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedY), animated: false)
+        if let sessionKey = callbackSessionKey() {
+            refreshLastKnownScrollSnapshot(sessionKey: sessionKey)
+        }
     }
 
     var isUserInteracting: Bool {
