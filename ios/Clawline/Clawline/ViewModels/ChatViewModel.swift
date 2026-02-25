@@ -304,15 +304,10 @@ final class ChatViewModel: ChatViewModelHosting {
     private var sessionMessages: [String: [Message]] = [:]
     private var forceReReadGenerationBySession: [String: Int] = [:]
     private var pendingLocalMessages: [PendingLocalMessage] = []
-    private var reconnectTask: Task<Void, Never>?
-    private var reconnectBackoff: Duration = .seconds(1)
-    private let authRejectionInitialBackoff: Duration = .seconds(30)
-    private let authRejectionMaxBackoff: Duration = .seconds(900)
-    private var lastReconnectAttemptAt: Date?
-    private let minimumReconnectInterval: TimeInterval = 1.0
-    private var lastReconnectRequestAt: Date?
-    private var lastForegroundReconnectTrigger: Date?
-    private let foregroundReconnectDebounceInterval: TimeInterval = 5
+    private let lifecycleCoordinator: ConnectionLifecycleCoordinator
+    private var lifecycleTransportTask: Task<Void, Never>?
+    private var lifecycleOutputTask: Task<Void, Never>?
+    private var connectionLifecyclePhase: ConnectionLifecyclePhase = .idle
     private var connectionStableTask: Task<Void, Never>?
     private let stableConnectionInterval: Duration = .seconds(5)
     private var activeClientMessageId: String?
@@ -324,6 +319,9 @@ final class ChatViewModel: ChatViewModelHosting {
     private let streamDefaults = UserDefaults.standard
     private var persistDebounceTasks: [String: Task<Void, Never>] = [:]
     private var pendingPersistPayloads: [String: [Message]] = [:]
+    private var restoreTaskBySessionKey: [String: Task<Void, Never>] = [:]
+    private var writerCurrentEpoch: Int?
+    private var firstReplayAppliedEpoch: Int?
     private let messageCacheLimit = 500
     private var restoredSessionKeys: Set<String> = []
     private var restoredStreamMetadataForUserId: String?
@@ -360,9 +358,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private enum ConnectionStateMutationSource: String {
-        case stateStream
-        case manualReconnect
-        case serviceInterruption
+        case lifecycleCoordinator
     }
 
     init(auth: any AuthManaging,
@@ -381,6 +377,14 @@ final class ChatViewModel: ChatViewModelHosting {
         self.uploadService = uploadService
         self.toastManager = toastManager
         self.salientHighlightService = salientHighlightService
+        self.lifecycleCoordinator = ConnectionLifecycleCoordinator(
+            startAttempt: { [weak chatService] epoch, lastMessageId, token in
+                chatService?.startConnectionAttempt(epoch: epoch, lastMessageId: lastMessageId, token: token)
+            },
+            stopAttempt: { [weak chatService] in
+                chatService?.stopConnectionAttempt()
+            }
+        )
         _ = connectionAlertGracePeriod
         NotificationCenter.default.addObserver(
             self,
@@ -394,6 +398,12 @@ final class ChatViewModel: ChatViewModelHosting {
             name: Notification.Name("AuthStateDidChange"),
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDidEnterBackgroundNotification),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
         handleAuthStateChange()
     }
 
@@ -401,6 +411,7 @@ final class ChatViewModel: ChatViewModelHosting {
         logger.info("ChatViewModel deinit id=\(self.instanceId, privacy: .public)")
         NotificationCenter.default.removeObserver(self, name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: Notification.Name("AuthStateDidChange"), object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIApplication.didEnterBackgroundNotification, object: nil)
     }
 
     func onAppear() async {
@@ -408,28 +419,29 @@ final class ChatViewModel: ChatViewModelHosting {
 
         logger.info("ChatViewModel onAppear id=\(self.instanceId, privacy: .public)")
         startObserving()
-        scheduleReconnect(immediate: true, reason: .onAppear)
+        await lifecycleCoordinator.setAuthToken(auth.token)
+        await lifecycleCoordinator.startIfNeeded()
     }
 
     func onDisappear() {
         logger.info("ChatViewModel onDisappear id=\(self.instanceId, privacy: .public)")
         observationTask?.cancel()
         observationTask = nil
-        reconnectTask?.cancel()
-        reconnectTask = nil
+        lifecycleTransportTask?.cancel()
+        lifecycleTransportTask = nil
+        lifecycleOutputTask?.cancel()
+        lifecycleOutputTask = nil
         connectionStableTask?.cancel()
         connectionStableTask = nil
         cancelSend()
+        Task { await lifecycleCoordinator.disconnectRequested() }
         chatService.disconnect()
     }
 
     func reconnect() {
         guard auth.token != nil else { return }
         guard sendButtonConnectionState == .disconnected else { return }
-        transitionConnectionState(.reconnecting, source: .manualReconnect)
-        reconnectTask?.cancel()
-        reconnectTask = nil
-        scheduleReconnect(immediate: true, reason: .manualReconnect)
+        Task { await lifecycleCoordinator.manualRetry() }
     }
 
     @objc private func handleAuthStateChangeNotification() {
@@ -441,29 +453,26 @@ final class ChatViewModel: ChatViewModelHosting {
             if observationTask == nil {
                 startObserving()
             }
+            let seededCursor = chatService.replayCursorSnapshot().values.max()
+            Task {
+                await lifecycleCoordinator.setAuthToken(auth.token)
+                await lifecycleCoordinator.seedCanonicalCursor(seededCursor)
+            }
             restoreStreamMetadataIfNeeded()
             restoreActiveSessionKeyIfNeeded()
             ensureDefaultActiveSessionIfNeeded()
-            if !engineActiveSessionKey.isEmpty {
-                restoreCachedMessagesIfNeeded(for: engineActiveSessionKey)
-            }
-            for sessionKey in orderedSessionKeys where sessionKey != engineActiveSessionKey {
-                restoreCachedMessagesIfNeeded(for: sessionKey)
-            }
-            switch connectionState {
-            case .connected, .connecting, .reconnecting:
-                break
-            default:
-                scheduleReconnect(immediate: true, reason: .authStateChange)
-            }
+            Task { await lifecycleCoordinator.startIfNeeded() }
         } else {
             didRestoreActiveSessionKey = false
             observationTask?.cancel()
             observationTask = nil
-            reconnectTask?.cancel()
-            reconnectTask = nil
+            lifecycleTransportTask?.cancel()
+            lifecycleTransportTask = nil
+            lifecycleOutputTask?.cancel()
+            lifecycleOutputTask = nil
             connectionStableTask?.cancel()
             connectionStableTask = nil
+            Task { await lifecycleCoordinator.setAuthToken(nil) }
             chatService.disconnect()
         }
     }
@@ -471,19 +480,11 @@ final class ChatViewModel: ChatViewModelHosting {
     func handleSceneDidBecomeActive() {
         guard auth.token != nil else { return }
         logger.info("ChatViewModel sceneDidBecomeActive id=\(self.instanceId, privacy: .public) state=\(String(describing: self.connectionState), privacy: .public)")
-        switch connectionState {
-        case .connected, .connecting, .reconnecting:
-            break
-        default:
-            guard reconnectTask == nil else { return }
-            let now = Date()
-            if let last = lastForegroundReconnectTrigger,
-               now.timeIntervalSince(last) < foregroundReconnectDebounceInterval {
-                return
-            }
-            lastForegroundReconnectTrigger = now
-            scheduleReconnect(immediate: false, reason: .sceneDidBecomeActive)
-        }
+        Task { await lifecycleCoordinator.appDidBecomeActive() }
+    }
+
+    @objc private func handleDidEnterBackgroundNotification() {
+        Task { await lifecycleCoordinator.appDidEnterBackground() }
     }
 
     private func startObserving() {
@@ -491,11 +492,11 @@ final class ChatViewModel: ChatViewModelHosting {
         observationTask = Task {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { [weak self] in
-                    await self?.observeMessages()
+                    await self?.observeLifecycleTransportEvents()
                 }
 
                 group.addTask { [weak self] in
-                    await self?.observeConnectionState()
+                    await self?.observeLifecycleOutputs()
                 }
 
                 group.addTask { [weak self] in
@@ -506,17 +507,17 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     @MainActor
-    private func observeMessages() async {
-        for await message in chatService.incomingMessages {
-            handleIncoming(message)
+    private func observeLifecycleTransportEvents() async {
+        for await event in chatService.lifecycleTransportEvents {
+            await lifecycleCoordinator.handleTransportEvent(event)
         }
     }
 
     @MainActor
-    private func observeConnectionState() async {
-        for await state in chatService.connectionState {
-            logger.info("ChatViewModel stateStream id=\(self.instanceId, privacy: .public) state=\(String(describing: state), privacy: .public)")
-            transitionConnectionState(state, source: .stateStream)
+    private func observeLifecycleOutputs() async {
+        let outputs = await lifecycleCoordinator.outputs
+        for await output in outputs {
+            handleLifecycleOutput(output)
         }
     }
 
@@ -671,6 +672,14 @@ final class ChatViewModel: ChatViewModelHosting {
         cancelSend()
         observationTask?.cancel()
         observationTask = nil
+        lifecycleTransportTask?.cancel()
+        lifecycleTransportTask = nil
+        lifecycleOutputTask?.cancel()
+        lifecycleOutputTask = nil
+        Task {
+            await lifecycleCoordinator.disconnectRequested()
+            await lifecycleCoordinator.setAuthToken(nil)
+        }
         chatService.disconnect()
         chatService.clearReplayCursors()
         var sessionKeysToClear = Set(sessionMessages.keys)
@@ -824,6 +833,42 @@ final class ChatViewModel: ChatViewModelHosting {
 
         markUnreadIfNeeded(for: resolvedMessage)
         resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
+    }
+
+    private func handleLifecycleServerMessage(epoch: Int, payload: Data) {
+        firstReplayAppliedEpoch = epoch
+        restoreTaskBySessionKey.values.forEach { $0.cancel() }
+        restoreTaskBySessionKey.removeAll()
+        let decoder = JSONDecoder()
+        guard let envelope = try? decoder.decode(LifecycleEnvelope.self, from: payload) else { return }
+        guard envelope.type == "message" else { return }
+        guard let serverPayload = try? decoder.decode(ServerMessagePayload.self, from: payload),
+              let sessionKey = serverPayload.sessionKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionKey.isEmpty else {
+            return
+        }
+        let message = Message(payload: serverPayload, sessionKey: sessionKey)
+        handleIncoming(message)
+        if message.id.hasPrefix("s_") {
+            Task { await lifecycleCoordinator.updateCanonicalCursor(message.id) }
+        }
+    }
+
+    private struct LifecycleEnvelope: Decodable {
+        let type: String
+    }
+
+    private func handleHistoryResetRequired(epoch: Int) {
+        sessionMessages.removeAll()
+        messages.removeAll()
+        pendingLocalMessages.removeAll()
+        messageFailures.removeAll()
+        chatService.clearReplayCursors()
+        clearMessageCache()
+        Task {
+            await lifecycleCoordinator.updateCanonicalCursor(nil)
+            await lifecycleCoordinator.acknowledgeHistoryReset(epoch: epoch)
+        }
     }
 
     private func resolveAssetAttachmentsIfNeeded(for message: Message) {
@@ -1034,134 +1079,43 @@ final class ChatViewModel: ChatViewModelHosting {
         messageFailures.removeValue(forKey: id)
     }
 
-    private func handleConnectionState(_ state: ConnectionState) {
-        logger.info("ChatViewModel handleConnectionState id=\(self.instanceId, privacy: .public) state=\(String(describing: state), privacy: .public)")
-        switch state {
-        case .connected:
-            connectionStableTask?.cancel()
-            connectionStableTask = Task { [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(forDuration: self.stableConnectionInterval)
-                await MainActor.run {
-                    if self.connectionState == .connected {
-                        self.reconnectBackoff = .seconds(1)
-                    }
-                }
+    private func handleLifecycleOutput(_ output: ConnectionLifecycleOutput) {
+        switch output {
+        case .phaseTransition(_, let to, let epoch, _):
+            if writerCurrentEpoch != epoch {
+                writerCurrentEpoch = epoch
+                firstReplayAppliedEpoch = nil
+                restoreTaskBySessionKey.values.forEach { $0.cancel() }
+                restoreTaskBySessionKey.removeAll()
             }
-            reconnectTask?.cancel()
-            reconnectTask = nil
-            lastForegroundReconnectTrigger = nil
-            isAssistantTyping = false
-            typingSessionKey = nil
-        case .disconnected:
-            connectionStableTask?.cancel()
-            connectionStableTask = nil
-            resetSessionProvisioningState(clearPendingSend: true)
-            markPendingMessagesAsFailedForConnectionLoss()
-            scheduleReconnect(reason: .connectionStateDisconnected)
-            isAssistantTyping = false
-            typingSessionKey = nil
-        case .failed(let err):
-            connectionStableTask?.cancel()
-            connectionStableTask = nil
-            resetSessionProvisioningState(clearPendingSend: true)
-            markPendingMessagesAsFailedForConnectionLoss()
-            handleConnectionFailure(err)
-            scheduleReconnect(reason: .connectionStateFailed)
-            isAssistantTyping = false
-            typingSessionKey = nil
-        case .connecting, .reconnecting:
-            resetSessionProvisioningState(clearPendingSend: true)
-            isAssistantTyping = false
-            typingSessionKey = nil
+            connectionLifecyclePhase = to
+            let mapped: ConnectionState
+            switch to {
+            case .live:
+                mapped = .connected
+            case .connecting, .authenticating, .replaying, .recovering:
+                mapped = .reconnecting
+            case .idle:
+                mapped = .disconnected
+            case .failed:
+                mapped = .failed(ProviderChatService.Error.notConnected)
+            }
+            transitionConnectionState(mapped, source: .lifecycleCoordinator)
+        case .restoreCacheRequested(let epoch):
+            for sessionKey in orderedSessionKeys {
+                restoreCachedMessagesIfNeeded(for: sessionKey, epoch: epoch)
+            }
+        case .historyResetRequired(let epoch):
+            handleHistoryResetRequired(epoch: epoch)
+        case .replayStarted:
+            break
+        case .serverMessage(let epoch, let payload):
+            handleLifecycleServerMessage(epoch: epoch, payload: payload)
+        case .replayCompleted:
+            break
+        case .historyTruncated(let epoch):
+            logger.info("history truncated for epoch=\(epoch, privacy: .public)")
         }
-    }
-
-    private enum ReconnectTrigger: String {
-        case onAppear
-        case sceneDidBecomeActive
-        case connectionStateDisconnected
-        case connectionStateFailed
-        case authStateChange
-        case manualReconnect
-    }
-
-    private func scheduleReconnect(immediate: Bool = false, reason: ReconnectTrigger = .connectionStateFailed) {
-        let now = Date()
-        lastReconnectRequestAt = now
-        if immediate, reconnectTask != nil {
-            reconnectTask?.cancel()
-            reconnectTask = nil
-        }
-        guard reconnectTask == nil, auth.token != nil else {
-            logger.info("reconnect suppressed reason=\(reason.rawValue, privacy: .public) reconnectTask=\(self.reconnectTask != nil, privacy: .public) hasToken=\(self.auth.token != nil, privacy: .public)")
-            return
-        }
-
-        logger.info("reconnect scheduled id=\(self.instanceId, privacy: .public) reason=\(reason.rawValue, privacy: .public) immediate=\(immediate, privacy: .public) backoff=\(String(describing: self.reconnectBackoff), privacy: .public) state=\(String(describing: self.connectionState), privacy: .public)")
-
-        reconnectTask = Task { [weak self] in
-            guard let self else { return }
-            let jitter = Duration.milliseconds(Int.random(in: 0...1000))
-            var delay = immediate ? Duration.zero : reconnectBackoff + jitter
-            if let lastAttempt = self.lastReconnectAttemptAt {
-                let elapsed = Date().timeIntervalSince(lastAttempt)
-                let minDelay = max(0, self.minimumReconnectInterval - elapsed)
-                delay = max(delay, .seconds(minDelay))
-            }
-            if delay > .zero {
-                try? await Task.sleep(forDuration: delay)
-            }
-            await MainActor.run {
-                self.lastReconnectAttemptAt = Date()
-            }
-            let snapshot = await MainActor.run { self.connectionSnapshot() }
-            guard let token = snapshot.token else { return }
-            await MainActor.run {
-                for sessionKey in self.orderedSessionKeys {
-                    self.armForceReRead(for: sessionKey)
-                }
-            }
-            await MainActor.run {
-                self.auth.refreshAdminStatusFromToken()
-            }
-
-            do {
-                try await self.chatService.connect(token: token, activeSessionKey: snapshot.activeSessionKey)
-                await MainActor.run {
-                    self.reconnectBackoff = .seconds(1)
-                    self.reconnectTask = nil
-                }
-            } catch {
-                await MainActor.run {
-                    if let providerError = error as? ProviderChatService.Error {
-                        switch providerError {
-                        case .authFailed:
-                            self.reconnectTask = nil
-                            self.logout()
-                            return
-                        default:
-                            break
-                        }
-                    }
-                    if let providerError = error as? ProviderChatService.Error,
-                       self.shouldUseAuthRejectionBackoff(providerError) {
-                        let current = max(self.reconnectBackoff, self.authRejectionInitialBackoff)
-                        self.reconnectBackoff = min(current * 2, self.authRejectionMaxBackoff)
-                    } else {
-                        self.reconnectBackoff = min(self.reconnectBackoff * 2, .seconds(10))
-                    }
-                    self.reconnectTask = nil
-                    self.scheduleReconnect(reason: .connectionStateFailed)
-                }
-            }
-        }
-    }
-
-    private func shouldUseAuthRejectionBackoff(_ error: ProviderChatService.Error) -> Bool {
-        guard case .policyViolation(_, let reason) = error else { return false }
-        let normalized = (reason ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized == "pairing required" || normalized.hasPrefix("invalid connect params")
     }
 
     private func handleConnectionFailure(_ error: Swift.Error) {
@@ -1494,11 +1448,8 @@ final class ChatViewModel: ChatViewModelHosting {
             break
         case .connectionInterrupted(let reason):
             logger.info("connection interrupted reason=\(reason ?? "unknown", privacy: .public)")
-            if sendButtonConnectionState == .connected {
-                transitionConnectionState(.reconnecting, source: .serviceInterruption)
-            }
             markPendingMessagesAsFailedForConnectionLoss()
-            scheduleReconnect(reason: .connectionStateDisconnected)
+            Task { await lifecycleCoordinator.reconnectIntentTransportInterrupted() }
         case .userInfo(let info):
             auth.updateAdminStatus(info.isAdmin)
         case .typingStateChanged(let isTyping, let sessionKey):
@@ -1584,7 +1535,25 @@ final class ChatViewModel: ChatViewModelHosting {
                                            source: ConnectionStateMutationSource) {
         connectionState = state
         logger.info("connectionState transition id=\(self.instanceId, privacy: .public) source=\(source.rawValue, privacy: .public) state=\(String(describing: state), privacy: .public)")
-        handleConnectionState(state)
+        switch state {
+        case .connected:
+            connectionStableTask?.cancel()
+            connectionStableTask = nil
+            isAssistantTyping = false
+            typingSessionKey = nil
+            auth.refreshAdminStatusFromToken()
+        case .connecting, .reconnecting:
+            resetSessionProvisioningState(clearPendingSend: true)
+            isAssistantTyping = false
+            typingSessionKey = nil
+        case .disconnected, .failed:
+            connectionStableTask?.cancel()
+            connectionStableTask = nil
+            resetSessionProvisioningState(clearPendingSend: true)
+            markPendingMessagesAsFailedForConnectionLoss()
+            isAssistantTyping = false
+            typingSessionKey = nil
+        }
     }
 
     private func resetSessionProvisioningState(clearPendingSend: Bool) {
@@ -1659,12 +1628,19 @@ final class ChatViewModel: ChatViewModelHosting {
         return sanitized.isEmpty ? "session" : sanitized
     }
 
-    private func restoreCachedMessagesIfNeeded(for sessionKey: String) {
+    private func restoreCachedMessagesIfNeeded(for sessionKey: String, epoch: Int? = nil) {
         StreamSwitchTiming.log("restoreCachedMessagesIfNeeded_start", sessionKey: sessionKey)
-        guard restoredSessionKeys.contains(sessionKey) == false else { return }
-        restoredSessionKeys.insert(sessionKey)
+        if epoch == nil {
+            guard restoredSessionKeys.contains(sessionKey) == false else { return }
+            restoredSessionKeys.insert(sessionKey)
+        }
+        if let epoch {
+            guard writerCurrentEpoch == epoch else { return }
+            if firstReplayAppliedEpoch == epoch { return }
+        }
         guard let url = messageCacheURL(for: sessionKey) else { return }
-        Task.detached { [weak self, sessionKey, url] in
+        restoreTaskBySessionKey[sessionKey]?.cancel()
+        let restoreTask = Task.detached { [weak self, sessionKey, url] in
             guard let self else { return }
             guard let data = try? Data(contentsOf: url) else {
                 await MainActor.run { [weak self] in
@@ -1688,9 +1664,16 @@ final class ChatViewModel: ChatViewModelHosting {
                 }
                 await MainActor.run { [weak self, filtered] in
                     guard let self else { return }
+                    if let epoch {
+                        guard self.writerCurrentEpoch == epoch else { return }
+                        guard self.firstReplayAppliedEpoch != epoch else { return }
+                    }
                     self.setMessages(filtered, for: sessionKey)
                     let cachedLast = self.lastServerMessageId(from: filtered)
                     self.chatService.setReplayCursor(cachedLast, for: sessionKey)
+                    if let cachedLast {
+                        Task { await self.lifecycleCoordinator.updateCanonicalCursor(cachedLast) }
+                    }
                     self.armForceReRead(for: sessionKey)
                     self.logger.info("message cache restored sessionKey=\(sessionKey, privacy: .public) count=\(filtered.count, privacy: .public)")
                     StreamSwitchTiming.log("restoreCachedMessagesIfNeeded_mainactor_apply_complete", sessionKey: sessionKey)
@@ -1700,10 +1683,12 @@ final class ChatViewModel: ChatViewModelHosting {
                 logger.error("message cache decode failed sessionKey=\(sessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             }
         }
+        restoreTaskBySessionKey[sessionKey] = restoreTask
     }
 
     private func clearCursor(for sessionKey: String) {
         self.chatService.setReplayCursor(nil, for: sessionKey)
+        Task { await lifecycleCoordinator.updateCanonicalCursor(nil) }
         self.armForceReRead(for: sessionKey)
         self.refreshUnreadState(for: sessionKey)
     }
@@ -2200,8 +2185,8 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     @MainActor
-    private func connectionSnapshot() -> (token: String?, replayCursorsBySessionKey: [String: String], activeSessionKey: String?) {
-        (auth.token, chatService.replayCursorSnapshot(), engineActiveSessionKey)
+    private func connectionSnapshot() -> (token: String?, lastMessageId: String?) {
+        (auth.token, chatService.replayCursorSnapshot().values.max())
     }
 
     private func markUnreadIfNeeded(for message: Message) {
@@ -2234,7 +2219,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
 #if DEBUG
-    func debugConnectionSnapshot() -> (token: String?, replayCursorsBySessionKey: [String: String], activeSessionKey: String?) {
+    func debugConnectionSnapshot() -> (token: String?, lastMessageId: String?) {
         connectionSnapshot()
     }
 

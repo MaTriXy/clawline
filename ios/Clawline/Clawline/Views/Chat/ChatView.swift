@@ -2199,7 +2199,12 @@ private final class PreviewChatService: ChatServicing {
     var serviceEvents: AsyncStream<ChatServiceEvent> {
         AsyncStream { _ in }
     }
+    var lifecycleTransportEvents: AsyncStream<LifecycleTransportEvent> {
+        AsyncStream { _ in }
+    }
     func connect(token: String, activeSessionKey: String?) async throws {}
+    func startConnectionAttempt(epoch: Int, lastMessageId: String?, token: String) {}
+    func stopConnectionAttempt() {}
     func disconnect() {}
     func replayCursorSnapshot() -> [String: String] { [:] }
     func setReplayCursor(_ cursor: String?, for sessionKey: String) {}

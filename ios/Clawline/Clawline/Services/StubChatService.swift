@@ -15,6 +15,7 @@ final class StubChatService: ChatServicing {
     private var messageContinuation: AsyncStream<Message>.Continuation?
     private var stateContinuation: AsyncStream<ConnectionState>.Continuation?
     private var serviceEventContinuation: AsyncStream<ChatServiceEvent>.Continuation?
+    private var lifecycleContinuation: AsyncStream<LifecycleTransportEvent>.Continuation?
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -41,6 +42,12 @@ final class StubChatService: ChatServicing {
         }
     }()
 
+    private(set) lazy var lifecycleTransportEvents: AsyncStream<LifecycleTransportEvent> = {
+        AsyncStream { continuation in
+            self.lifecycleContinuation = continuation
+        }
+    }()
+
     func connect(token: String, activeSessionKey: String?) async throws {
         _ = activeSessionKey
         stateContinuation?.yield(.connecting)
@@ -61,6 +68,25 @@ final class StubChatService: ChatServicing {
         }
         serviceEventContinuation?.yield(.streamSnapshot(streams))
         stateContinuation?.yield(.connected)
+    }
+
+    func startConnectionAttempt(epoch: Int, lastMessageId: String?, token: String) {
+        _ = lastMessageId
+        Task {
+            do {
+                try await connect(token: token, activeSessionKey: nil)
+                lifecycleContinuation?.yield(.init(
+                    epoch: epoch,
+                    payload: .authResult(success: true, replayCount: 0, replayTruncated: false, historyReset: false, failureReason: nil)
+                ))
+            } catch {
+                lifecycleContinuation?.yield(.init(epoch: epoch, payload: .transportClosed(reason: .error)))
+            }
+        }
+    }
+
+    func stopConnectionAttempt() {
+        disconnect()
     }
 
     func disconnect() {
