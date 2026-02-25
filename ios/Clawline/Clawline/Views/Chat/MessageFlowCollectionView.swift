@@ -2845,10 +2845,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 guard let self else { return }
                 guard self.callbackSessionKey() == morphToken.sessionKey else {
                     typingSnapshotView.removeFromSuperview()
+                    self.morphTargetMessageId = nil
+                    self.deferScrollToBottomUntilMorphCompletes = false
                     return
                 }
                 guard self.readState(for: morphToken.sessionKey).restoreGeneration == morphToken.generation else {
                     typingSnapshotView.removeFromSuperview()
+                    self.morphTargetMessageId = nil
+                    self.deferScrollToBottomUntilMorphCompletes = false
                     return
                 }
                 guard let targetIndexPath = self.dataSource.indexPath(for: targetMessageId),
@@ -2877,10 +2881,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 } completion: { _ in
                     guard self.callbackSessionKey() == morphToken.sessionKey else {
                         typingSnapshotView.removeFromSuperview()
+                        self.morphTargetMessageId = nil
+                        self.deferScrollToBottomUntilMorphCompletes = false
                         return
                     }
                     guard self.readState(for: morphToken.sessionKey).restoreGeneration == morphToken.generation else {
                         typingSnapshotView.removeFromSuperview()
+                        self.morphTargetMessageId = nil
+                        self.deferScrollToBottomUntilMorphCompletes = false
                         return
                     }
                     typingSnapshotView.removeFromSuperview()
