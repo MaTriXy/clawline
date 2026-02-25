@@ -455,14 +455,17 @@ struct ChatView: View {
                 .overlay(NoiseOverlayView().ignoresSafeArea())
 #endif
         }
-        .task { await viewModel.onAppear() }
+        .task {
+            viewModel.handleSceneActiveStateChanged(isActive: scenePhase == .active)
+            await viewModel.onAppear()
+        }
         .onDisappear {
             viewModel.onDisappear()
             resetScrollButtonInteractionState()
         }
         .onChange(of: scenePhase) { _, phase in
+            viewModel.handleSceneActiveStateChanged(isActive: phase == .active)
             guard phase == .active else { return }
-            viewModel.handleSceneDidBecomeActive()
             keyboardRefreshToken &+= 1
         }
         .background(
