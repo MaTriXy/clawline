@@ -295,8 +295,11 @@ final class ProviderChatService: ChatServicing {
         isConnecting = true
         defer { isConnecting = false }
 
-        guard let baseURL = baseURLProvider(),
-              let wsURL = makeWebSocketURL(from: baseURL) else {
+        guard let baseURL = baseURLProvider() else {
+            throw Error.missingBaseURL
+        }
+        let wsURLs = makeWebSocketURLs(from: baseURL)
+        guard !wsURLs.isEmpty else {
             throw Error.missingBaseURL
         }
 
@@ -304,21 +307,32 @@ final class ProviderChatService: ChatServicing {
         shouldNotifyDisconnect = true
         pendingDisconnectReason = nil
 
-        logger.info("connect start ws=\(wsURL.absoluteString, privacy: .public)")
-        updateState(.connecting)
-        let client = try await connector.connect(to: wsURL)
-        socket = client
-        startListening(on: client)
-
-        do {
-            try await awaitAuthResult(client: client, token: token)
-            authToken = token
-        } catch {
-            logger.info("state -> failed (auth timeout) error=\(error.localizedDescription, privacy: .public)")
-            updateState(.failed(error))
-            performDisconnect(shouldNotify: false, reason: error.localizedDescription)
-            throw error
+        var lastError: Swift.Error?
+        for (index, wsURL) in wsURLs.enumerated() {
+            logger.info("connect start attempt=\(index + 1, privacy: .public)/\(wsURLs.count, privacy: .public) ws=\(wsURL.absoluteString, privacy: .public)")
+            updateState(.connecting)
+            do {
+                let client = try await connector.connect(to: wsURL)
+                socket = client
+                startListening(on: client)
+                try await awaitAuthResult(client: client, token: token)
+                authToken = token
+                return
+            } catch {
+                lastError = error
+                if index < wsURLs.count - 1, shouldFallbackToNextTransport(after: error) {
+                    logger.warning("connect fallback after \(error.localizedDescription, privacy: .public)")
+                    performDisconnect(shouldNotify: false)
+                    continue
+                }
+                logger.info("state -> failed (connect/auth) error=\(error.localizedDescription, privacy: .public)")
+                updateState(.failed(error))
+                performDisconnect(shouldNotify: false, reason: error.localizedDescription)
+                throw error
+            }
         }
+
+        throw lastError ?? Error.notConnected
     }
 
     func disconnect() {
@@ -424,17 +438,29 @@ final class ProviderChatService: ChatServicing {
 
     // MARK: - Internal helpers
 
-    private func makeWebSocketURL(from baseURL: URL) -> URL? {
-        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-            return nil
+    private func makeWebSocketURLs(from baseURL: URL) -> [URL] {
+        ProviderWebSocketURLBuilder.candidateURLs(from: baseURL, defaultPath: "/ws")
+    }
+
+    private func shouldFallbackToNextTransport(after error: Swift.Error) -> Bool {
+        if let providerError = error as? Error {
+            switch providerError {
+            case .missingBaseURL,
+                 .authFailed,
+                 .tokenRevoked,
+                 .sessionReplaced,
+                 .invalidMessageId,
+                 .serverError,
+                 .policyViolation:
+                return false
+            case .notConnected, .authTimeout:
+                return true
+            }
         }
-        components.scheme = (components.scheme == "https" ? "wss" : "ws")
-        if components.path.isEmpty || components.path == "/" {
-            components.path = "/ws"
-        } else if !components.path.hasSuffix("/ws") {
-            components.path.append("/ws")
+        if error is URLError {
+            return true
         }
-        return components.url
+        return true
     }
 
     private func startListening(on client: any WebSocketClient) {

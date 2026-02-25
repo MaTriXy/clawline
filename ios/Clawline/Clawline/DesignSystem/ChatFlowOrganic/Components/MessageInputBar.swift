@@ -172,7 +172,7 @@ struct MessageInputBar: View {
                 settings.toggleAppearanceMode()
             }) {
                 Image(systemName: appearanceIconName)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(appearanceIconColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
@@ -202,7 +202,7 @@ struct MessageInputBar: View {
                 onAdd()
             }) {
                 Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(addButtonForeground)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
@@ -425,13 +425,13 @@ private struct MessageSendControl: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(sendIconColor)
                     .opacity(isSending && !isReconnecting ? 1 : 0)
                     .scaleEffect(isSending && !isReconnecting ? 1 : 0.7)
 
                 Image(systemName: isDisconnected ? "arrow.clockwise" : "paperplane.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(sendIconColor)
                     .opacity(!isSending && !isReconnecting ? 1 : 0)
                     .scaleEffect(!isSending && !isReconnecting ? 1 : 0.7)
