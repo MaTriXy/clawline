@@ -913,7 +913,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 topInset: topInset,
                 truncationBottomInset: truncationBottomInset,
                 firstUnreadMessageId: self.firstUnreadMessageId,
-                unreadCount: self.unreadCount
+                unreadCount: self.unreadCount,
+                onExpand: onExpand,
+                sessionKey: channelOverride,
+                forceReReadGeneration: 0,
+                onScrollEvent: onScrollEvent,
+                isDark: currentIsDark
             )
         }
 #if os(visionOS)
@@ -2290,7 +2295,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 state.lastSeenForceReReadGeneration = forceReReadGeneration
             }
             lastAppliedEffectiveSessionKey = incomingSessionKey
-            emitHideIndicatorIfChanged(force: true)
+            emitHideIndicatorIfChanged()
             return
         }
 
@@ -2299,7 +2304,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 state.lastSeenForceReReadGeneration = max(state.lastSeenForceReReadGeneration, forceReReadGeneration)
             }
             lastAppliedEffectiveSessionKey = incomingSessionKey
-            emitHideIndicatorIfChanged(force: true)
+            emitHideIndicatorIfChanged()
             return
         }
 
@@ -4128,8 +4133,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func scheduleBubbleSizingV2ViewportAnchorCompensation(_ anchor: BubbleSizingV2ViewportAnchor?) {
         guard let anchor else { return }
+        guard let token = activeSessionGenerationToken() else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.callbackSessionKey() == token.sessionKey else { return }
+            guard self.readState(for: token.sessionKey).restoreGeneration == token.generation else { return }
             self.collectionView.layoutIfNeeded()
             guard let indexPath = self.dataSource.indexPath(for: anchor.messageId),
                   let attrs = self.collectionView.layoutAttributesForItem(at: indexPath) else {
