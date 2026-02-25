@@ -2806,6 +2806,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             dataSource.apply(snapshot, animatingDifferences: true, completion: onApplied)
             return
         }
+        guard let morphToken = activeSessionGenerationToken() else {
+            dataSource.apply(snapshot, animatingDifferences: true, completion: onApplied)
+            return
+        }
 
         morphTargetMessageId = targetMessageId
 
@@ -2839,6 +2843,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             // the morph animation isn't snap-applied.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                guard self.callbackSessionKey() == morphToken.sessionKey else {
+                    typingSnapshotView.removeFromSuperview()
+                    return
+                }
+                guard self.readState(for: morphToken.sessionKey).restoreGeneration == morphToken.generation else {
+                    typingSnapshotView.removeFromSuperview()
+                    return
+                }
                 guard let targetIndexPath = self.dataSource.indexPath(for: targetMessageId),
                       let targetCell = self.collectionView.cellForItem(at: targetIndexPath) else {
                     typingSnapshotView.removeFromSuperview()
@@ -2863,6 +2875,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     typingSnapshotView.alpha = 0
                     targetCell.alpha = 1
                 } completion: { _ in
+                    guard self.callbackSessionKey() == morphToken.sessionKey else {
+                        typingSnapshotView.removeFromSuperview()
+                        return
+                    }
+                    guard self.readState(for: morphToken.sessionKey).restoreGeneration == morphToken.generation else {
+                        typingSnapshotView.removeFromSuperview()
+                        return
+                    }
                     typingSnapshotView.removeFromSuperview()
                     self.morphTargetMessageId = nil
                     // Scroll-to-bottom often triggers a layout pass/scroll animation that makes the
@@ -4151,6 +4171,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             let targetY = max(minY, min(anchor.contentOffsetY + delta, maxY))
             guard targetY.isFinite else { return }
             self.collectionView.setContentOffset(CGPoint(x: self.collectionView.contentOffset.x, y: targetY), animated: false)
+            self.refreshLastKnownScrollSnapshot(sessionKey: token.sessionKey)
         }
     }
 
