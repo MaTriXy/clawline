@@ -808,7 +808,6 @@ final class ChatViewModel: ChatViewModelHosting {
         if replacePendingMessageIfNeeded(with: resolvedMessage) {
             logger.info("incoming replacePending id=\(resolvedMessage.id, privacy: .public)")
             markUnreadIfNeeded(for: resolvedMessage)
-            updateLastServerMessageIdIfNeeded(with: resolvedMessage)
             resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
             return
         }
@@ -824,7 +823,6 @@ final class ChatViewModel: ChatViewModelHosting {
         setMessages(messageList, for: resolvedMessage.sessionKey)
 
         markUnreadIfNeeded(for: resolvedMessage)
-        updateLastServerMessageIdIfNeeded(with: resolvedMessage)
         resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
     }
 
@@ -1019,12 +1017,6 @@ final class ChatViewModel: ChatViewModelHosting {
             sessionMessages[sessionKey] = []
         }
     }
-
-    private func updateLastServerMessageIdIfNeeded(with message: Message) {
-        guard message.id.hasPrefix("s_") else { return }
-        chatService.setReplayCursor(message.id, for: message.sessionKey)
-    }
-
 
     private func removePlaceholder(withId id: String) {
         let keys = Array(sessionMessages.keys)

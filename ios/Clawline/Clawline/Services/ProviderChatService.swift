@@ -334,6 +334,9 @@ final class ProviderChatService: ChatServicing {
         let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else { return }
         let trimmedCursor = cursor?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let previousCursor = replayCursorBySessionKey[trimmedKey]
+        let normalizedCursor = (trimmedCursor?.isEmpty == false) ? trimmedCursor : nil
+        if previousCursor == normalizedCursor { return }
         if let trimmedCursor, !trimmedCursor.isEmpty {
             replayCursorBySessionKey[trimmedKey] = trimmedCursor
         } else {
