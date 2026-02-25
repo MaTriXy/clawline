@@ -371,11 +371,7 @@ private struct MessageSendControl: View {
     private var sendBackgroundColor: Color {
         switch connectionState {
         case .connected:
-#if os(visionOS)
-            return ChatFlowTheme.sage(inputBarColorScheme)
-#else
-            return ChatFlowTheme.sage(uiColorScheme)
-#endif
+            return Color(uiColor: .tintColor)
         case .reconnecting:
             return ChatFlowTheme.connectionReconnecting(inputBarColorScheme)
         case .disconnected:
