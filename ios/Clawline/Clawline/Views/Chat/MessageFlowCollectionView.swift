@@ -1954,6 +1954,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard !isIncrementalAppend else { return false }
         // Keep the one-time initial bottom placement behavior for first population only.
         return previousLastMessageId == nil
+    }
 
     private func isNonMessageItemID(_ id: String) -> Bool {
         id == TypingIndicatorCell.itemId || DateSeparatorCell.isDateSeparatorItemID(id)
@@ -2034,7 +2035,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         formatter.setLocalizedDateFormatFromTemplate("MMMM d, y")
         return formatter
     }()
-    }
 
     private func emit(_ event: MessageFlowScrollEvent) {
         onScrollEvent?(event)
@@ -2282,6 +2282,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
 
         if isSameKeyReRead {
+            // Same-key re-read must seed restore from the latest live position for this stream.
+            // Without this flush, reconnect-triggered re-read can replay a stale persisted anchor.
+            persistScrollStateNow(sessionKey: incomingSessionKey, bypassSuspension: true)
             prepareSameKeyReread(sessionKey: incomingSessionKey)
             mutateState(for: incomingSessionKey) { state in
                 state.lastSeenForceReReadGeneration = forceReReadGeneration

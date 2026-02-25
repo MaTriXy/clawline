@@ -1852,11 +1852,10 @@ final class ChatViewModel: ChatViewModelHosting {
         let removedSessionKeys = previousSessionKeys.subtracting(validSessionKeys)
         for sessionKey in removedSessionKeys {
             sessionMessages.removeValue(forKey: sessionKey)
-            lastServerMessageIdBySession.removeValue(forKey: sessionKey)
             lastReadMessageIdBySession.removeValue(forKey: sessionKey)
             hasUnreadBySession.removeValue(forKey: sessionKey)
             pendingLocalMessages.removeAll { $0.sessionKey == sessionKey }
-            persistLastServerMessageId(nil, for: sessionKey)
+            chatService.setReplayCursor(nil, for: sessionKey)
             persistLastReadMessageId(nil, for: sessionKey)
             persistMessages([], for: sessionKey)
         }

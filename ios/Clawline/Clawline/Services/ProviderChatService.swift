@@ -893,9 +893,6 @@ final class ProviderChatService: ChatServicing {
                     Task {
                         do {
                             let replayCursorSnapshot = self.replayCursorSnapshot()
-                            let shouldSendPerStreamReplayCursors =
-                                !self.knownSessionKeys.isEmpty &&
-                                self.knownSessionKeys.allSatisfy { replayCursorSnapshot[$0]?.isEmpty == false }
                             let lastMessageId = self.resolveAuthLastMessageId(
                                 replayCursorSnapshot: replayCursorSnapshot,
                                 knownSessionKeys: self.knownSessionKeys
@@ -904,7 +901,7 @@ final class ProviderChatService: ChatServicing {
                                 token: token,
                                 deviceId: self.deviceId,
                                 lastMessageId: lastMessageId,
-                                replayCursorsBySessionKey: shouldSendPerStreamReplayCursors ? replayCursorSnapshot : nil,
+                                replayCursorsBySessionKey: nil,
                                 clientFeatures: self.supportedClientFeatures,
                                 client: ClientDescriptor(
                                     id: Self.clientID,
