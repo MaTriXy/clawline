@@ -376,8 +376,10 @@ final class ChatViewModel: ChatViewModelHosting {
          connectionAlertGracePeriod: Duration = .seconds(2),
          nowProvider: @escaping () -> Date = Date.init,
          assistantIncomingHaptic: @escaping @MainActor () -> Void = {
+             #if !os(visionOS)
              let generator = UIImpactFeedbackGenerator(style: .light)
              generator.impactOccurred()
+             #endif
          }) {
         logger.info("ChatViewModel init id=\(self.instanceId, privacy: .public)")
         self.auth = auth
