@@ -294,7 +294,8 @@ private struct MessageEditorChrome: View {
         let tint = isLightModeForInputBar ? ChatFlowTheme.ink(.light) : ChatFlowTheme.ink(.dark)
         return (UIColor(tint), .white, isSending ? 0.5 : 1)
 #else
-        return (UIColor(.primary), .label, isSending ? 0.5 : 1)
+        let tint = isLightModeForInputBar ? ChatFlowTheme.sage(.light) : ChatFlowTheme.sage(.dark)
+        return (UIColor(tint), .label, isSending ? 0.5 : 1)
 #endif
     }
 
@@ -371,7 +372,11 @@ private struct MessageSendControl: View {
     private var sendBackgroundColor: Color {
         switch connectionState {
         case .connected:
-            return Color(uiColor: .tintColor)
+#if os(visionOS)
+            return ChatFlowTheme.sage(inputBarColorScheme)
+#else
+            return ChatFlowTheme.sage(uiColorScheme)
+#endif
         case .reconnecting:
             return ChatFlowTheme.connectionReconnecting(inputBarColorScheme)
         case .disconnected:
