@@ -222,7 +222,6 @@ final class ProviderChatService: ChatServicing {
     private var pendingDisconnectReason: String?
     private var isConnecting = false
     private var connectAttemptTask: Task<Void, Never>?
-    private var activeAttemptEpoch: Int?
     private var authToken: String?
     private var replayCursorBySessionKey: [String: String] = [:]
     private var knownSessionKeys: Set<String> = []
@@ -352,7 +351,6 @@ final class ProviderChatService: ChatServicing {
     }
 
     func startConnectionAttempt(epoch: Int, lastMessageId: String?, token: String) {
-        activeAttemptEpoch = epoch
         connectAttemptTask?.cancel()
         connectAttemptTask = Task { [weak self] in
             await self?.runLifecycleConnectAttempt(epoch: epoch, lastMessageId: lastMessageId, token: token)
@@ -402,7 +400,6 @@ final class ProviderChatService: ChatServicing {
         shouldNotifyDisconnect = shouldNotify
         pendingDisconnectReason = reason
         resolveAuthContinuation(with: .failure(Error.notConnected))
-        activeAttemptEpoch = nil
         receiveTask?.cancel()
         receiveTask = nil
         socket?.close(with: .normalClosure)
