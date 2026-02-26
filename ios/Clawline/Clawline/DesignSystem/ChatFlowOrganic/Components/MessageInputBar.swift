@@ -397,7 +397,7 @@ private struct MessageSendControl: View {
 
     private func reconnectDotScale(at date: Date) -> Double {
         let phase = reconnectPulsePhase(at: date)
-        return 1.0 + (0.2 * phase)
+        return 1.0 + (0.3 * phase)
     }
 
     var body: some View {
