@@ -496,26 +496,28 @@ final class ProviderChatService: ChatServicing {
     private func runLifecycleConnectAttempt(epoch: Int, lastMessageId: String?, token: String) async {
         guard let baseURL = baseURLProvider() else {
             emitLifecycleEvent(
-                .init(epoch: epoch, payload: .authResult(
+                epoch: epoch,
+                payload: .authResult(
                     success: false,
                     replayCount: nil,
                     replayTruncated: nil,
                     historyReset: nil,
                     failureReason: .protocolMismatch
-                ))
+                )
             )
             return
         }
         let wsURLs = makeWebSocketURLs(from: baseURL)
         guard !wsURLs.isEmpty else {
             emitLifecycleEvent(
-                .init(epoch: epoch, payload: .authResult(
+                epoch: epoch,
+                payload: .authResult(
                     success: false,
                     replayCount: nil,
                     replayTruncated: nil,
                     historyReset: nil,
                     failureReason: .protocolMismatch
-                ))
+                )
             )
             return
         }
@@ -530,15 +532,15 @@ final class ProviderChatService: ChatServicing {
                 let client = try await connector.connect(to: wsURL)
                 if Task.isCancelled { return }
                 socket = client
-                startListening(on: client, epoch: epoch)
-                emitLifecycleEvent(.init(epoch: epoch, payload: .transportOpened))
+                startLifecycleListening(on: client, epoch: epoch)
+                emitLifecycleEvent(epoch: epoch, payload: .transportOpened)
                 try await sendAuth(client: client, token: token, lastMessageId: lastMessageId)
                 return
             } catch {
                 if index < wsURLs.count - 1, shouldFallbackToNextTransport(after: error) {
                     continue
                 }
-                emitLifecycleEvent(.init(epoch: epoch, payload: .transportClosed(reason: .error)))
+                emitLifecycleEvent(epoch: epoch, payload: .transportClosed(reason: .error))
                 return
             }
         }
@@ -563,29 +565,40 @@ final class ProviderChatService: ChatServicing {
         try await client.send(text: text)
     }
 
-    private func startListening(on client: any WebSocketClient, epoch: Int? = nil) {
+    private func startListening(on client: any WebSocketClient) {
         receiveTask = Task { [weak self] in
             guard let self else { return }
             var iterator = client.incomingTextMessages.makeAsyncIterator()
             while let text = await iterator.next() {
-                handle(text: text, epoch: epoch)
+                handle(text: text, lifecycleEpoch: nil)
             }
-            handleSocketClose(closeInfo: client.lastCloseInfo, epoch: epoch)
+            handleSocketClose(closeInfo: client.lastCloseInfo, lifecycleEpoch: nil)
         }
     }
 
-    private func handle(text: String, epoch: Int?) {
+    private func startLifecycleListening(on client: any WebSocketClient, epoch: Int) {
+        receiveTask = Task { [weak self] in
+            guard let self else { return }
+            var iterator = client.incomingTextMessages.makeAsyncIterator()
+            while let text = await iterator.next() {
+                handle(text: text, lifecycleEpoch: epoch)
+            }
+            handleSocketClose(closeInfo: client.lastCloseInfo, lifecycleEpoch: epoch)
+        }
+    }
+
+    private func handle(text: String, lifecycleEpoch: Int?) {
         guard let data = text.data(using: .utf8) else { return }
         if let envelope = try? decoder.decode(Envelope.self, from: data) {
             switch envelope.type {
             case "auth_result":
-                handleAuthResult(data: data, epoch: epoch)
+                handleAuthResult(data: data, lifecycleEpoch: lifecycleEpoch)
             case "message":
-                handleMessage(data: data, epoch: epoch)
+                handleMessage(data: data, lifecycleEpoch: lifecycleEpoch)
             case "ack":
                 handleAck(data: data)
             case "error":
-                handleServerError(data: data, epoch: epoch)
+                handleServerError(data: data, lifecycleEpoch: lifecycleEpoch)
             case "user_info":
                 handleUserInfo(data: data)
             case "typing":
@@ -609,19 +622,17 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
-    private func handleAuthResult(data: Data, epoch: Int?) {
+    private func handleAuthResult(data: Data, lifecycleEpoch: Int?) {
         guard let result = try? decoder.decode(AuthResultPayload.self, from: data) else { return }
-        if let epoch {
+        if let lifecycleEpoch {
             emitLifecycleEvent(
-                .init(
-                    epoch: epoch,
-                    payload: .authResult(
-                        success: result.success,
-                        replayCount: result.replayCount,
-                        replayTruncated: result.replayTruncated,
-                        historyReset: result.historyReset,
-                        failureReason: authFailureReason(from: result.reason)
-                    )
+                epoch: lifecycleEpoch,
+                payload: .authResult(
+                    success: result.success,
+                    replayCount: result.replayCount,
+                    replayTruncated: result.replayTruncated,
+                    historyReset: result.historyReset,
+                    failureReason: authFailureReason(from: result.reason)
                 )
             )
         }
@@ -649,9 +660,9 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
-    private func handleMessage(data: Data, epoch: Int?) {
-        if let epoch {
-            emitLifecycleEvent(.init(epoch: epoch, payload: .serverMessage(data: data)))
+    private func handleMessage(data: Data, lifecycleEpoch: Int?) {
+        if let lifecycleEpoch {
+            emitLifecycleEvent(epoch: lifecycleEpoch, payload: .serverMessage(data: data))
         }
         guard let payload = try? decoder.decode(ServerMessagePayload.self, from: data) else { return }
         guard let sessionKey = resolveSessionKey(from: payload) else {
@@ -693,7 +704,7 @@ final class ProviderChatService: ChatServicing {
         emitServiceEvent(.messageAcked(id: payload.id))
     }
 
-    private func handleServerError(data: Data, epoch: Int?) {
+    private func handleServerError(data: Data, lifecycleEpoch: Int?) {
         guard let payload = try? decoder.decode(ErrorPayload.self, from: data) else { return }
 
         if let messageId = payload.messageId {
@@ -708,17 +719,15 @@ final class ProviderChatService: ChatServicing {
         switch payload.code {
         case "auth_failed":
             let error = Error.authFailed(message)
-            if let epoch {
+            if let lifecycleEpoch {
                 emitLifecycleEvent(
-                    .init(
-                        epoch: epoch,
-                        payload: .authResult(
-                            success: false,
-                            replayCount: nil,
-                            replayTruncated: nil,
-                            historyReset: nil,
-                            failureReason: .rejected
-                        )
+                    epoch: lifecycleEpoch,
+                    payload: .authResult(
+                        success: false,
+                        replayCount: nil,
+                        replayTruncated: nil,
+                        historyReset: nil,
+                        failureReason: .rejected
                     )
                 )
             }
@@ -728,17 +737,15 @@ final class ProviderChatService: ChatServicing {
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
         case "token_revoked":
             let error = Error.tokenRevoked(message)
-            if let epoch {
+            if let lifecycleEpoch {
                 emitLifecycleEvent(
-                    .init(
-                        epoch: epoch,
-                        payload: .authResult(
-                            success: false,
-                            replayCount: nil,
-                            replayTruncated: nil,
-                            historyReset: nil,
-                            failureReason: .tokenRevoked
-                        )
+                    epoch: lifecycleEpoch,
+                    payload: .authResult(
+                        success: false,
+                        replayCount: nil,
+                        replayTruncated: nil,
+                        historyReset: nil,
+                        failureReason: .tokenRevoked
                     )
                 )
             }
@@ -748,17 +755,15 @@ final class ProviderChatService: ChatServicing {
             performDisconnect(shouldNotify: false, reason: error.localizedDescription)
         case "session_replaced":
             let error = Error.sessionReplaced
-            if let epoch {
+            if let lifecycleEpoch {
                 emitLifecycleEvent(
-                    .init(
-                        epoch: epoch,
-                        payload: .authResult(
-                            success: false,
-                            replayCount: nil,
-                            replayTruncated: nil,
-                            historyReset: nil,
-                            failureReason: .sessionReplaced
-                        )
+                    epoch: lifecycleEpoch,
+                    payload: .authResult(
+                        success: false,
+                        replayCount: nil,
+                        replayTruncated: nil,
+                        historyReset: nil,
+                        failureReason: .sessionReplaced
                     )
                 )
             }
@@ -887,8 +892,8 @@ final class ProviderChatService: ChatServicing {
         serviceEventBroadcaster.send(event)
     }
 
-    private func emitLifecycleEvent(_ event: LifecycleTransportEvent) {
-        lifecycleTransportEventBroadcaster.send(event)
+    private func emitLifecycleEvent(epoch: Int, payload: LifecycleTransportEvent.Payload) {
+        lifecycleTransportEventBroadcaster.send(.init(epoch: epoch, payload: payload))
     }
 
     private func authFailureReason(from rawReason: String?) -> AuthFailureReason? {
@@ -973,7 +978,7 @@ final class ProviderChatService: ChatServicing {
         return map
     }
 
-    private func handleSocketClose(closeInfo: WebSocketCloseInfo?, epoch: Int?) {
+    private func handleSocketClose(closeInfo: WebSocketCloseInfo?, lifecycleEpoch: Int?) {
         let rejectionError: Error? = {
             guard let closeInfo else { return nil }
             guard closeInfo.code == 1008 else { return nil }
@@ -1012,8 +1017,8 @@ final class ProviderChatService: ChatServicing {
             if shouldNotifyDisconnect {
                 emitServiceEvent(.connectionInterrupted(reason: rejectionError.errorDescription ?? pendingDisconnectReason))
             }
-            if let epoch {
-                emitLifecycleEvent(.init(epoch: epoch, payload: .transportClosed(reason: .error)))
+            if let lifecycleEpoch {
+                emitLifecycleEvent(epoch: lifecycleEpoch, payload: .transportClosed(reason: .error))
             }
         } else {
             logger.info("state -> disconnected (socket close) notify=\(self.shouldNotifyDisconnect, privacy: .public)")
@@ -1021,13 +1026,13 @@ final class ProviderChatService: ChatServicing {
             if shouldNotifyDisconnect {
                 emitServiceEvent(.connectionInterrupted(reason: pendingDisconnectReason))
             }
-            if let epoch {
+            if let lifecycleEpoch {
                 let reason: TransportCloseReason = {
                     if closeInfo?.code == URLSessionWebSocketTask.CloseCode.normalClosure.rawValue { return .clean }
                     if closeInfo?.reason?.lowercased().contains("keepalive") == true { return .keepaliveTimeout }
                     return .error
                 }()
-                emitLifecycleEvent(.init(epoch: epoch, payload: .transportClosed(reason: reason)))
+                emitLifecycleEvent(epoch: lifecycleEpoch, payload: .transportClosed(reason: reason))
             }
         }
         shouldNotifyDisconnect = true

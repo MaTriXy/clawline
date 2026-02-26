@@ -334,6 +334,52 @@ struct ProviderServiceTests {
         #expect(openedEvent?.epoch == epoch)
         #expect(authEvent?.epoch == epoch)
     }
+
+    @Test("Lifecycle attempts echo the epoch received for each attempt")
+    func lifecycleAttemptsEchoReceivedEpoch() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+
+        var iterator = service.lifecycleTransportEvents.makeAsyncIterator()
+        let firstEpoch = 7
+        let secondEpoch = 19
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true, "replayCount": 0, "replayTruncated": false, "historyReset": false }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true, "replayCount": 0, "replayTruncated": false, "historyReset": false }"#)
+        }
+
+        service.startConnectionAttempt(epoch: firstEpoch, lastMessageId: nil, token: "jwt")
+        var firstAuthEpoch: Int?
+        for _ in 0..<4 {
+            guard let event = await iterator.next() else { continue }
+            if case .authResult = event.payload {
+                firstAuthEpoch = event.epoch
+                break
+            }
+        }
+
+        service.startConnectionAttempt(epoch: secondEpoch, lastMessageId: nil, token: "jwt")
+        var secondAuthEpoch: Int?
+        for _ in 0..<4 {
+            guard let event = await iterator.next() else { continue }
+            if case .authResult = event.payload {
+                secondAuthEpoch = event.epoch
+                break
+            }
+        }
+
+        #expect(firstAuthEpoch == firstEpoch)
+        #expect(secondAuthEpoch == secondEpoch)
+    }
 }
 
 // MARK: - Test doubles
