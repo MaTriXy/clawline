@@ -4328,6 +4328,19 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         let sessionKey = collectionView.accessibilityIdentifier
         StreamSwitchTiming.log("layout_prepare_start", sessionKey: sessionKey)
 
+        let sectionCount = collectionView.numberOfSections
+        guard sectionCount > 0 else {
+            // During diffable datasource transitions, UIKit may trigger layout before section 0 exists.
+            // Treat this as an empty transient state and rebuild on the next prepare pass.
+            cachedAttributes.removeAll(keepingCapacity: true)
+            cachedContentSize = .zero
+            cachedLayoutSignature = nil
+            needsRebuild = true
+            pendingInvalidation = .fullRebuild
+            StreamSwitchTiming.log("layout_prepare_end", sessionKey: sessionKey)
+            return
+        }
+
         let itemCount = collectionView.numberOfItems(inSection: 0)
         let contentWidth = collectionView.bounds.width
         let signature = LayoutSignature(
