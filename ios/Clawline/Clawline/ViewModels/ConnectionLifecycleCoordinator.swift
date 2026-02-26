@@ -299,6 +299,24 @@ actor ConnectionLifecycleCoordinator {
         historyReset: Bool?,
         failureReason: AuthFailureReason?
     ) {
+        if !success {
+            switch failureReason {
+            case .sessionReplaced:
+                fail(.sessionReplaced)
+                return
+            case .tokenRevoked:
+                fail(.tokenRevoked)
+                return
+            case .rejected:
+                fail(.authRejected)
+                return
+            case .protocolMismatch:
+                fail(.protocolMismatch)
+                return
+            case nil:
+                break
+            }
+        }
         guard phase == .authenticating else { return }
         authTimeoutTask?.cancel()
         authTimeoutTask = nil
@@ -594,9 +612,9 @@ actor ConnectionLifecycleCoordinator {
 
     private func moveToIdleIfNeeded(reason: ConnectionLifecycleReason) {
         switch phase {
-        case .connecting, .authenticating, .replaying, .live, .recovering, .failed:
+        case .connecting, .authenticating, .replaying, .live, .recovering:
             transition(to: .idle, reason: reason)
-        case .idle:
+        case .idle, .failed:
             break
         }
     }
