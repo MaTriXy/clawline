@@ -83,9 +83,6 @@ final class ChatViewModel: ChatViewModelHosting {
     private var pendingEngineActivationEpoch: Int?
     private var engineActivationInFlightSessionKey: String?
     private var isPagerInteracting: Bool = false
-    private lazy var streamSwitchCoordinator = StreamSwitchCoordinator(resetHandler: { [weak self] in
-        self?.resetStreamSwitchState()
-    })
     // Render policy seam:
     // `.frozen` while pager is physically moving; suppresses new heavy snapshot/layout work on all pages.
     // `.active` once pager is settled; heavy work may start again.
@@ -277,6 +274,12 @@ final class ChatViewModel: ChatViewModelHosting {
         pendingEngineActivationEpoch = nil
         engineActivationInFlightSessionKey = nil
         bindStreamSwitchCoordinatorIfNeeded()
+    }
+
+    private func makeStreamSwitchCoordinator() -> StreamSwitchCoordinator {
+        StreamSwitchCoordinator(resetHandler: { [weak self] in
+            self?.resetStreamSwitchState()
+        })
     }
 
     var activeSessionDisplayName: String {
@@ -930,7 +933,7 @@ final class ChatViewModel: ChatViewModelHosting {
         messageFailures.removeAll()
         chatService.clearReplayCursors()
         clearMessageCache()
-        streamSwitchCoordinator.reset()
+        makeStreamSwitchCoordinator().reset()
         Task {
             await lifecycleCoordinator.updateCanonicalCursor(nil)
             await lifecycleCoordinator.acknowledgeHistoryReset(epoch: epoch)
