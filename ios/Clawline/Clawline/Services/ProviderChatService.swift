@@ -222,6 +222,7 @@ final class ProviderChatService: ChatServicing {
     private var pendingDisconnectReason: String?
     private var isConnecting = false
     private var connectAttemptTask: Task<Void, Never>?
+    private var activeLifecycleConnectionToken: UUID?
     private var authToken: String?
     private var replayCursorBySessionKey: [String: String] = [:]
     private var knownSessionKeys: Set<String> = []
@@ -352,6 +353,7 @@ final class ProviderChatService: ChatServicing {
 
     func startConnectionAttempt(epoch: Int, lastMessageId: String?, token: String) {
         connectAttemptTask?.cancel()
+        activeLifecycleConnectionToken = nil
         connectAttemptTask = Task { [weak self] in
             await self?.runLifecycleConnectAttempt(epoch: epoch, lastMessageId: lastMessageId, token: token)
         }
@@ -399,6 +401,7 @@ final class ProviderChatService: ChatServicing {
         logger.info("performDisconnect notify=\(shouldNotify, privacy: .public) reason=\(reason ?? "nil", privacy: .public)")
         shouldNotifyDisconnect = shouldNotify
         pendingDisconnectReason = reason
+        activeLifecycleConnectionToken = nil
         resolveAuthContinuation(with: .failure(Error.notConnected))
         receiveTask?.cancel()
         receiveTask = nil
@@ -531,16 +534,29 @@ final class ProviderChatService: ChatServicing {
                 logger.info("lifecycle attempt epoch=\(epoch) connect \(index + 1)/\(wsURLs.count) ws=\(wsURL.absoluteString, privacy: .public)")
                 let client = try await connector.connect(to: wsURL)
                 if Task.isCancelled { return }
+                let connectionToken = UUID()
+                activeLifecycleConnectionToken = connectionToken
                 socket = client
-                startLifecycleListening(on: client, epoch: epoch)
-                emitLifecycleEvent(epoch: epoch, payload: .transportOpened)
+                startLifecycleListening(on: client, epoch: epoch, connectionToken: connectionToken)
+                emitLifecycleEvent(
+                    epoch: epoch,
+                    payload: .transportOpened,
+                    lifecycleConnectionToken: connectionToken
+                )
                 try await sendAuth(client: client, token: token, lastMessageId: lastMessageId)
                 return
             } catch {
                 if index < wsURLs.count - 1, shouldFallbackToNextTransport(after: error) {
+                    performDisconnect(shouldNotify: false)
+                    shouldNotifyDisconnect = false
                     continue
                 }
-                emitLifecycleEvent(epoch: epoch, payload: .transportClosed(reason: .error))
+                emitLifecycleEvent(
+                    epoch: epoch,
+                    payload: .transportClosed(reason: .error),
+                    lifecycleConnectionToken: activeLifecycleConnectionToken
+                )
+                performDisconnect(shouldNotify: false)
                 return
             }
         }
@@ -570,35 +586,50 @@ final class ProviderChatService: ChatServicing {
             guard let self else { return }
             var iterator = client.incomingTextMessages.makeAsyncIterator()
             while let text = await iterator.next() {
-                handle(text: text, lifecycleEpoch: nil)
+                handle(text: text, lifecycleEpoch: nil, lifecycleConnectionToken: nil)
             }
-            handleSocketClose(closeInfo: client.lastCloseInfo, lifecycleEpoch: nil)
+            handleSocketClose(closeInfo: client.lastCloseInfo, lifecycleEpoch: nil, lifecycleConnectionToken: nil)
         }
     }
 
-    private func startLifecycleListening(on client: any WebSocketClient, epoch: Int) {
+    private func startLifecycleListening(on client: any WebSocketClient, epoch: Int, connectionToken: UUID) {
         receiveTask = Task { [weak self] in
             guard let self else { return }
             var iterator = client.incomingTextMessages.makeAsyncIterator()
             while let text = await iterator.next() {
-                handle(text: text, lifecycleEpoch: epoch)
+                handle(text: text, lifecycleEpoch: epoch, lifecycleConnectionToken: connectionToken)
             }
-            handleSocketClose(closeInfo: client.lastCloseInfo, lifecycleEpoch: epoch)
+            handleSocketClose(
+                closeInfo: client.lastCloseInfo,
+                lifecycleEpoch: epoch,
+                lifecycleConnectionToken: connectionToken
+            )
         }
     }
 
-    private func handle(text: String, lifecycleEpoch: Int?) {
+    private func handle(text: String, lifecycleEpoch: Int?, lifecycleConnectionToken: UUID?) {
+        if let lifecycleConnectionToken, !isCurrentLifecycleConnectionToken(lifecycleConnectionToken) {
+            return
+        }
         guard let data = text.data(using: .utf8) else { return }
         if let envelope = try? decoder.decode(Envelope.self, from: data) {
             switch envelope.type {
             case "auth_result":
-                handleAuthResult(data: data, lifecycleEpoch: lifecycleEpoch)
+                handleAuthResult(
+                    data: data,
+                    lifecycleEpoch: lifecycleEpoch,
+                    lifecycleConnectionToken: lifecycleConnectionToken
+                )
             case "message":
-                handleMessage(data: data, lifecycleEpoch: lifecycleEpoch)
+                handleMessage(data: data, lifecycleEpoch: lifecycleEpoch, lifecycleConnectionToken: lifecycleConnectionToken)
             case "ack":
                 handleAck(data: data)
             case "error":
-                handleServerError(data: data, lifecycleEpoch: lifecycleEpoch)
+                handleServerError(
+                    data: data,
+                    lifecycleEpoch: lifecycleEpoch,
+                    lifecycleConnectionToken: lifecycleConnectionToken
+                )
             case "user_info":
                 handleUserInfo(data: data)
             case "typing":
@@ -622,7 +653,7 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
-    private func handleAuthResult(data: Data, lifecycleEpoch: Int?) {
+    private func handleAuthResult(data: Data, lifecycleEpoch: Int?, lifecycleConnectionToken: UUID?) {
         guard let result = try? decoder.decode(AuthResultPayload.self, from: data) else { return }
         if let lifecycleEpoch {
             emitLifecycleEvent(
@@ -633,7 +664,8 @@ final class ProviderChatService: ChatServicing {
                     replayTruncated: result.replayTruncated,
                     historyReset: result.historyReset,
                     failureReason: authFailureReason(from: result.reason)
-                )
+                ),
+                lifecycleConnectionToken: lifecycleConnectionToken
             )
         }
         if result.success {
@@ -660,9 +692,13 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
-    private func handleMessage(data: Data, lifecycleEpoch: Int?) {
+    private func handleMessage(data: Data, lifecycleEpoch: Int?, lifecycleConnectionToken: UUID?) {
         if let lifecycleEpoch {
-            emitLifecycleEvent(epoch: lifecycleEpoch, payload: .serverMessage(data: data))
+            emitLifecycleEvent(
+                epoch: lifecycleEpoch,
+                payload: .serverMessage(data: data),
+                lifecycleConnectionToken: lifecycleConnectionToken
+            )
             return
         }
         guard let payload = try? decoder.decode(ServerMessagePayload.self, from: data) else { return }
@@ -705,7 +741,7 @@ final class ProviderChatService: ChatServicing {
         emitServiceEvent(.messageAcked(id: payload.id))
     }
 
-    private func handleServerError(data: Data, lifecycleEpoch: Int?) {
+    private func handleServerError(data: Data, lifecycleEpoch: Int?, lifecycleConnectionToken: UUID?) {
         guard let payload = try? decoder.decode(ErrorPayload.self, from: data) else { return }
 
         if let messageId = payload.messageId {
@@ -729,7 +765,8 @@ final class ProviderChatService: ChatServicing {
                         replayTruncated: nil,
                         historyReset: nil,
                         failureReason: .rejected
-                    )
+                    ),
+                    lifecycleConnectionToken: lifecycleConnectionToken
                 )
             }
             resolveAuthContinuation(with: .failure(error))
@@ -747,7 +784,8 @@ final class ProviderChatService: ChatServicing {
                         replayTruncated: nil,
                         historyReset: nil,
                         failureReason: .tokenRevoked
-                    )
+                    ),
+                    lifecycleConnectionToken: lifecycleConnectionToken
                 )
             }
             resolveAuthContinuation(with: .failure(error))
@@ -765,7 +803,8 @@ final class ProviderChatService: ChatServicing {
                         replayTruncated: nil,
                         historyReset: nil,
                         failureReason: .sessionReplaced
-                    )
+                    ),
+                    lifecycleConnectionToken: lifecycleConnectionToken
                 )
             }
             logger.info("state -> failed (server error session_replaced)")
@@ -893,8 +932,20 @@ final class ProviderChatService: ChatServicing {
         serviceEventBroadcaster.send(event)
     }
 
-    private func emitLifecycleEvent(epoch: Int, payload: LifecycleTransportEvent.Payload) {
+    private func emitLifecycleEvent(
+        epoch: Int,
+        payload: LifecycleTransportEvent.Payload,
+        lifecycleConnectionToken: UUID? = nil
+    ) {
+        if let lifecycleConnectionToken, !isCurrentLifecycleConnectionToken(lifecycleConnectionToken) {
+            logger.debug("dropping stale lifecycle event epoch=\(epoch, privacy: .public)")
+            return
+        }
         lifecycleTransportEventBroadcaster.send(.init(epoch: epoch, payload: payload))
+    }
+
+    private func isCurrentLifecycleConnectionToken(_ token: UUID) -> Bool {
+        activeLifecycleConnectionToken == token
     }
 
     private func authFailureReason(from rawReason: String?) -> AuthFailureReason? {
@@ -979,7 +1030,11 @@ final class ProviderChatService: ChatServicing {
         return map
     }
 
-    private func handleSocketClose(closeInfo: WebSocketCloseInfo?, lifecycleEpoch: Int?) {
+    private func handleSocketClose(closeInfo: WebSocketCloseInfo?, lifecycleEpoch: Int?, lifecycleConnectionToken: UUID?) {
+        if let lifecycleConnectionToken, !isCurrentLifecycleConnectionToken(lifecycleConnectionToken) {
+            logger.debug("ignoring stale lifecycle socket close")
+            return
+        }
         let rejectionError: Error? = {
             guard let closeInfo else { return nil }
             guard closeInfo.code == 1008 else { return nil }
@@ -1019,7 +1074,11 @@ final class ProviderChatService: ChatServicing {
                 emitServiceEvent(.connectionInterrupted(reason: rejectionError.errorDescription ?? pendingDisconnectReason))
             }
             if let lifecycleEpoch {
-                emitLifecycleEvent(epoch: lifecycleEpoch, payload: .transportClosed(reason: .error))
+                emitLifecycleEvent(
+                    epoch: lifecycleEpoch,
+                    payload: .transportClosed(reason: .error),
+                    lifecycleConnectionToken: lifecycleConnectionToken
+                )
             }
         } else {
             logger.info("state -> disconnected (socket close) notify=\(self.shouldNotifyDisconnect, privacy: .public)")
@@ -1033,7 +1092,11 @@ final class ProviderChatService: ChatServicing {
                     if closeInfo?.reason?.lowercased().contains("keepalive") == true { return .keepaliveTimeout }
                     return .error
                 }()
-                emitLifecycleEvent(epoch: lifecycleEpoch, payload: .transportClosed(reason: reason))
+                emitLifecycleEvent(
+                    epoch: lifecycleEpoch,
+                    payload: .transportClosed(reason: reason),
+                    lifecycleConnectionToken: lifecycleConnectionToken
+                )
             }
         }
         shouldNotifyDisconnect = true
