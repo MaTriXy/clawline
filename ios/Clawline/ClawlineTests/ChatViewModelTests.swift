@@ -6,6 +6,11 @@ import Testing
 private let personalSessionKey = SessionKey.clawlineMain(userId: "user")
 private let adminSessionKey = SessionKey.admin
 
+@MainActor
+private final class HapticCounter {
+    var count = 0
+}
+
 struct ChatViewModelTests {
     @Test("Records last server message id for reconnects")
     @MainActor
@@ -637,7 +642,8 @@ struct ChatViewModelTests {
         )
         defer { viewModel.onDisappear() }
 
-        await resetViewModelForTest(viewModel, auth: auth)
+        await viewModel.onAppear()
+        try await setConnected(chatService: chatService, viewModel: viewModel)
         chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
         for _ in 0..<50 {
             if viewModel.orderedSessionKeys.contains(adminSessionKey) { break }
@@ -657,10 +663,8 @@ struct ChatViewModelTests {
         )
         try await Task.sleep(for: .milliseconds(30))
 
-        viewModel.setActiveSessionKey(adminSessionKey)
+        viewModel.setActiveSessionKeyForTesting(adminSessionKey)
         #expect(viewModel.activeSessionKey == adminSessionKey)
-        viewModel.inputContent = NSAttributedString(string: "Admin ping")
-        chatService.emitConnectionState(.connected)
         chatService.emitServiceEvent(.sessionInfo(
             SessionInfo(
                 userId: "user",
@@ -669,28 +673,18 @@ struct ChatViewModelTests {
                 sessionKeys: [personalSessionKey, adminSessionKey]
             )
         ))
+
         for _ in 0..<50 {
             if viewModel.sendButtonConnectionState == .connected { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        for _ in 0..<5 {
-            viewModel.send()
-            for _ in 0..<25 {
-                if chatService.lastSessionKey == adminSessionKey { break }
-                try await Task.sleep(for: .milliseconds(20))
-            }
+        #expect(viewModel.sendButtonConnectionState == .connected)
+
+        viewModel.inputContent = NSAttributedString(string: "Admin ping")
+        viewModel.send()
+        for _ in 0..<50 {
             if chatService.lastSessionKey == adminSessionKey { break }
-            // Reassert connected/provisioned state before another retry.
-            chatService.emitConnectionState(.connected)
-            chatService.emitServiceEvent(.sessionInfo(
-                SessionInfo(
-                    userId: "user",
-                    isAdmin: true,
-                    dmScope: "global_dm",
-                    sessionKeys: [personalSessionKey, adminSessionKey]
-                )
-            ))
-            viewModel.inputContent = NSAttributedString(string: "Admin ping")
+            try await Task.sleep(for: .milliseconds(20))
         }
 
         #expect(chatService.lastSessionKey == adminSessionKey)
@@ -841,7 +835,7 @@ struct ChatViewModelTests {
             if viewModel.orderedSessionKeys.contains(staleKey) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        viewModel.setActiveSessionKey(staleKey)
+        viewModel.setActiveSessionKeyForTesting(staleKey)
 
         chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
         try await Task.sleep(for: .milliseconds(20))
@@ -904,7 +898,7 @@ struct ChatViewModelTests {
             if viewModel.orderedSessionKeys.contains(customKey) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        viewModel.setActiveSessionKey(customKey)
+        viewModel.setActiveSessionKeyForTesting(customKey)
         #expect(viewModel.activeSessionKey == customKey)
 
         chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
@@ -915,7 +909,7 @@ struct ChatViewModelTests {
         try await Task.sleep(for: .milliseconds(30))
         #expect(chatService.lastSentId == nil)
 
-        viewModel.setActiveSessionKey(personalSessionKey)
+        viewModel.setActiveSessionKeyForTesting(personalSessionKey)
         #expect(viewModel.activeSessionKey == personalSessionKey)
 
         chatService.emitServiceEvent(.sessionInfo(
@@ -967,7 +961,7 @@ struct ChatViewModelTests {
             try await Task.sleep(forDuration: .milliseconds(20))
         }
 
-        viewModel.setActiveSessionKey(adminSessionKey)
+        viewModel.setActiveSessionKeyForTesting(adminSessionKey)
         #expect(viewModel.activeSessionKey == adminSessionKey)
 
         let adminMessage = Message(
@@ -994,6 +988,179 @@ struct ChatViewModelTests {
         }
         #expect(routedMessages.count == 1)
         #expect(routedMessages.first?.id == "s_admin")
+    }
+
+    @Test("Assistant incoming append fires light haptic when chat is visible and app is foreground")
+    @MainActor
+    func assistantIncomingAppendFiresHapticWhenVisibleAndForeground() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        _ = chatService.incomingMessages
+        _ = chatService.connectionState
+        _ = chatService.serviceEvents
+        let hapticCounter = HapticCounter()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService(),
+            assistantIncomingHaptic: {
+                hapticCounter.count += 1
+            }
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emit(
+            Message(
+                id: "s_haptic_visible",
+                role: .assistant,
+                content: "hello",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: personalSessionKey
+            )
+        )
+
+        for _ in 0..<50 {
+            if hapticCounter.count == 1 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(hapticCounter.count == 1)
+    }
+
+    @Test("Assistant incoming append does not fire haptic when app is backgrounded")
+    @MainActor
+    func assistantIncomingAppendDoesNotFireHapticInBackground() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        _ = chatService.incomingMessages
+        _ = chatService.connectionState
+        _ = chatService.serviceEvents
+        let hapticCounter = HapticCounter()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService(),
+            assistantIncomingHaptic: {
+                hapticCounter.count += 1
+            }
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        viewModel.handleSceneActiveStateChanged(isActive: false)
+        chatService.emit(
+            Message(
+                id: "s_haptic_background",
+                role: .assistant,
+                content: "hello",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: personalSessionKey
+            )
+        )
+
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(hapticCounter.count == 0)
+    }
+
+    @Test("Assistant incoming haptic is debounced to one event per second")
+    @MainActor
+    func assistantIncomingHapticIsDebounced() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        _ = chatService.incomingMessages
+        _ = chatService.connectionState
+        _ = chatService.serviceEvents
+        let hapticCounter = HapticCounter()
+        var now = Date()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService(),
+            nowProvider: { now },
+            assistantIncomingHaptic: {
+                hapticCounter.count += 1
+            }
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+
+        chatService.emit(
+            Message(
+                id: "s_haptic_1",
+                role: .assistant,
+                content: "one",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: personalSessionKey
+            )
+        )
+        for _ in 0..<50 {
+            if hapticCounter.count == 1 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(hapticCounter.count == 1)
+
+        now = now.addingTimeInterval(0.2)
+        chatService.emit(
+            Message(
+                id: "s_haptic_2",
+                role: .assistant,
+                content: "two",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: personalSessionKey
+            )
+        )
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(hapticCounter.count == 1)
+
+        now = now.addingTimeInterval(1.0)
+        chatService.emit(
+            Message(
+                id: "s_haptic_3",
+                role: .assistant,
+                content: "three",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: personalSessionKey
+            )
+        )
+        for _ in 0..<50 {
+            if hapticCounter.count == 2 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(hapticCounter.count == 2)
     }
 
     @Test("Stream snapshot replaces metadata and falls back when active is removed")
@@ -1024,7 +1191,7 @@ struct ChatViewModelTests {
             if viewModel.orderedSessionKeys.contains(adminSessionKey) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        viewModel.setActiveSessionKey(adminSessionKey)
+        viewModel.setActiveSessionKeyForTesting(adminSessionKey)
         #expect(viewModel.activeSessionKey == adminSessionKey)
 
         chatService.emitServiceEvent(.streamSnapshot([
@@ -1034,6 +1201,124 @@ struct ChatViewModelTests {
 
         #expect(viewModel.orderedSessionKeys == [personalSessionKey])
         #expect(viewModel.activeSessionKey == personalSessionKey)
+    }
+
+    @Test("Relaunch restores previously active non-default stream")
+    @MainActor
+    func relaunchRestoresPreviouslyActiveStream() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+
+        let streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: adminSessionKey, displayName: "Admin", kind: "global_dm", orderIndex: 1, isBuiltIn: true),
+        ]
+
+        let firstService = TestChatService()
+        firstService.streams = streams
+        let firstViewModel = ChatViewModel(
+            auth: auth,
+            chatService: firstService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+
+        await firstViewModel.onAppear()
+        firstService.emitServiceEvent(.streamSnapshot(streams))
+        for _ in 0..<50 {
+            if firstViewModel.orderedSessionKeys.contains(adminSessionKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        firstViewModel.setActiveSessionKeyForTesting(adminSessionKey)
+        #expect(firstViewModel.activeSessionKey == adminSessionKey)
+        #expect(UserDefaults.standard.string(forKey: "clawline.lastSessionKey.user") == adminSessionKey)
+        firstViewModel.onDisappear()
+
+        let secondService = TestChatService()
+        secondService.streams = streams
+        let secondViewModel = ChatViewModel(
+            auth: auth,
+            chatService: secondService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { secondViewModel.onDisappear() }
+
+        await secondViewModel.onAppear()
+        secondService.emitServiceEvent(.streamSnapshot(streams))
+        for _ in 0..<50 {
+            if secondViewModel.activeSessionKey == adminSessionKey { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(secondViewModel.activeSessionKey == adminSessionKey)
+    }
+
+    @Test("Relaunch prunes cached stream missing from next server snapshot")
+    @MainActor
+    func relaunchPrunesCachedStreamMissingFromSnapshot() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let staleKey = "agent:main:clawline:user:s_stale1234"
+
+        let firstService = TestChatService()
+        firstService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: staleKey, displayName: "Parallelism", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        let firstViewModel = ChatViewModel(
+            auth: auth,
+            chatService: firstService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+
+        await firstViewModel.onAppear()
+        firstService.emitServiceEvent(.streamSnapshot(firstService.streams))
+        for _ in 0..<50 {
+            if firstViewModel.stream(for: staleKey) != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(firstViewModel.stream(for: staleKey) != nil)
+        firstViewModel.onDisappear()
+
+        let secondService = TestChatService()
+        secondService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let secondViewModel = ChatViewModel(
+            auth: auth,
+            chatService: secondService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { secondViewModel.onDisappear() }
+
+        await secondViewModel.onAppear()
+        #expect(secondViewModel.stream(for: staleKey) != nil) // Restored from cache before reconciliation.
+
+        secondService.emitServiceEvent(.streamSnapshot(secondService.streams))
+        for _ in 0..<50 {
+            if secondViewModel.stream(for: staleKey) == nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(secondViewModel.stream(for: staleKey) == nil)
+        #expect(secondViewModel.orderedSessionKeys == [personalSessionKey])
     }
 
     @Test("Incremental stream events update metadata")
@@ -1114,7 +1399,7 @@ struct ChatViewModelTests {
             if viewModel.orderedSessionKeys.contains(customKey) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        viewModel.setActiveSessionKey(customKey)
+        viewModel.setActiveSessionKeyForTesting(customKey)
         #expect(viewModel.activeSessionKey == customKey)
 
         chatService.emitServiceEvent(.streamDeleted(sessionKey: customKey))
@@ -1124,9 +1409,9 @@ struct ChatViewModelTests {
         #expect(viewModel.stream(for: customKey) == nil)
     }
 
-    @Test("Synthetic child stream remains deletable when snapshot omits it")
+    @Test("Snapshot removes child stream omitted by server")
     @MainActor
-    func syntheticChildStreamStillDeletable() async throws {
+    func snapshotRemovesChildStreamOmittedByServer() async throws {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
@@ -1170,11 +1455,6 @@ struct ChatViewModelTests {
         ]))
         try await Task.sleep(for: .milliseconds(40))
 
-        #expect(viewModel.stream(for: customKey) != nil)
-        #expect(viewModel.canDeleteStream(sessionKey: customKey))
-
-        let deleted = await viewModel.deleteStream(sessionKey: customKey)
-        #expect(deleted)
         #expect(viewModel.stream(for: customKey) == nil)
     }
 

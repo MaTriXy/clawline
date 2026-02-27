@@ -24,6 +24,14 @@ final class SettingsManager {
         didSet { saveAppearanceMode() }
     }
 
+    var trustSelfSignedCertificates: Bool {
+        didSet { saveTrustSelfSignedCertificates() }
+    }
+
+    var pinnedLeafCertificateSHA256: String {
+        didSet { savePinnedLeafCertificateSHA256() }
+    }
+
     var isSettingsPresented: Bool = false
 
     private static let effectConfigKey = "backgroundEffectConfiguration"
@@ -44,6 +52,8 @@ final class SettingsManager {
             self.appearanceMode = .dark
         }
 
+        self.trustSelfSignedCertificates = ProviderTLSSettingsStore.trustSelfSignedCertificates
+        self.pinnedLeafCertificateSHA256 = ProviderTLSSettingsStore.pinnedLeafCertificateSHA256 ?? ""
     }
 
     private func save() {
@@ -56,9 +66,19 @@ final class SettingsManager {
         UserDefaults.standard.set(appearanceMode.rawValue, forKey: Self.appearanceModeKey)
     }
 
+    private func saveTrustSelfSignedCertificates() {
+        ProviderTLSSettingsStore.trustSelfSignedCertificates = trustSelfSignedCertificates
+    }
+
+    private func savePinnedLeafCertificateSHA256() {
+        ProviderTLSSettingsStore.pinnedLeafCertificateSHA256 = pinnedLeafCertificateSHA256
+    }
+
     func resetToDefaults() {
         effectConfig = .default
         appearanceMode = .dark
+        trustSelfSignedCertificates = true
+        pinnedLeafCertificateSHA256 = ""
     }
 
     func toggleSettings() {

@@ -44,6 +44,7 @@ struct MessageInputBar: View {
     @Binding var content: NSAttributedString
     @Binding var selectionRange: NSRange
     @Binding var pendingInsertions: [PendingAttachment]
+    var placeholderText: String = "Message"
     var resetToken: Int
     let canSend: Bool
     let isSending: Bool
@@ -153,6 +154,16 @@ struct MessageInputBar: View {
             : Color.white.opacity(0.5)
     }
 
+    private var placeholderColor: Color {
+#if os(visionOS)
+        return isLightModeForInputBar
+            ? ChatFlowTheme.ink(.light).opacity(0.6)
+            : ChatFlowTheme.ink(.dark).opacity(0.6)
+#else
+        return .secondary
+#endif
+    }
+
     var body: some View {
         HStack(alignment: .bottom, spacing: MessageInputBarMetrics.elementSpacing) {
 #if os(visionOS)
@@ -161,7 +172,7 @@ struct MessageInputBar: View {
                 settings.toggleAppearanceMode()
             }) {
                 Image(systemName: appearanceIconName)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(appearanceIconColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
@@ -191,7 +202,7 @@ struct MessageInputBar: View {
                 onAdd()
             }) {
                 Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(addButtonForeground)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
@@ -224,6 +235,8 @@ struct MessageInputBar: View {
                 onSend: onSend,
                 onFocusChange: onFocusChange,
                 onPasteImages: onPasteImages,
+                placeholderText: placeholderText,
+                placeholderColor: placeholderColor,
                 isLightModeForInputBar: isLightModeForInputBar,
                 visionOSBorderColor: visionOSBorderColor
             )
@@ -270,6 +283,8 @@ private struct MessageEditorChrome: View {
     let onSend: () -> Void
     let onFocusChange: (Bool) -> Void
     var onPasteImages: (([UIImage]) -> Void)?
+    let placeholderText: String
+    let placeholderColor: Color
     let isLightModeForInputBar: Bool
     let visionOSBorderColor: Color
 
@@ -279,7 +294,8 @@ private struct MessageEditorChrome: View {
         let tint = isLightModeForInputBar ? ChatFlowTheme.ink(.light) : ChatFlowTheme.ink(.dark)
         return (UIColor(tint), .white, isSending ? 0.5 : 1)
 #else
-        return (UIColor(.primary), .label, isSending ? 0.5 : 1)
+        let tint = isLightModeForInputBar ? ChatFlowTheme.sage(.light) : ChatFlowTheme.sage(.dark)
+        return (UIColor(tint), .label, isSending ? 0.5 : 1)
 #endif
     }
 
@@ -304,6 +320,19 @@ private struct MessageEditorChrome: View {
                 trailingPadding: 20
             )
             .opacity(chrome.editorOpacity)
+
+            if content.length == 0 {
+                Text(placeholderText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .minimumScaleFactor(0.7)
+                    .foregroundColor(placeholderColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .frame(maxHeight: .infinity, alignment: .center)
+                    .padding(.leading, 20)
+                    .padding(.trailing, 20)
+                    .allowsHitTesting(false)
+            }
         }
         .frame(height: inputHeight)
         .frame(maxWidth: .infinity, alignment: .bottom)
@@ -355,11 +384,20 @@ private struct MessageSendControl: View {
         }
     }
 
-    private func reconnectDotOpacity(at date: Date) -> Double {
+    private func reconnectPulsePhase(at date: Date) -> Double {
         let phase = date.timeIntervalSinceReferenceDate
             .truncatingRemainder(dividingBy: reconnectPulseDuration) / reconnectPulseDuration
-        let eased = 0.5 - 0.5 * cos(phase * 2 * .pi)
-        return 0.4 + (0.6 * eased)
+        return 0.5 - 0.5 * cos(phase * 2 * .pi)
+    }
+
+    private func reconnectDotOpacity(at date: Date) -> Double {
+        let phase = reconnectPulsePhase(at: date)
+        return 0.4 + (0.6 * phase)
+    }
+
+    private func reconnectDotScale(at date: Date) -> Double {
+        let phase = reconnectPulsePhase(at: date)
+        return 1.0 + (0.3 * phase)
     }
 
     var body: some View {
@@ -383,18 +421,18 @@ private struct MessageSendControl: View {
                         .fill(sendBackgroundColor)
                         .frame(width: reconnectDotSize, height: reconnectDotSize)
                         .opacity(isReconnecting ? reconnectDotOpacity(at: context.date) : 0)
-                        .scaleEffect(isReconnecting ? 1 : 0.45)
+                        .scaleEffect(isReconnecting ? reconnectDotScale(at: context.date) : 0.45)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(sendIconColor)
                     .opacity(isSending && !isReconnecting ? 1 : 0)
                     .scaleEffect(isSending && !isReconnecting ? 1 : 0.7)
 
                 Image(systemName: isDisconnected ? "arrow.clockwise" : "paperplane.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(sendIconColor)
                     .opacity(!isSending && !isReconnecting ? 1 : 0)
                     .scaleEffect(!isSending && !isReconnecting ? 1 : 0.7)
