@@ -501,6 +501,7 @@ final class ChatViewModel: ChatViewModelHosting {
     func handleSceneDidBecomeActive() {
         isAppInForeground = true
         guard auth.token != nil else { return }
+        ensureLifecycleTransportSubscription()
         logger.info("ChatViewModel sceneDidBecomeActive id=\(self.instanceId, privacy: .public) state=\(String(describing: self.connectionState), privacy: .public)")
         Task { await lifecycleCoordinator.appDidBecomeActive() }
     }
@@ -517,9 +518,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func startObserving() {
         guard observationTask == nil else { return }
-        // Subscribe synchronously so lifecycle transport events cannot be dropped
-        // before the first startIfNeeded() dispatch.
-        lifecycleTransportEventsSubscription = chatService.lifecycleTransportEvents
+        ensureLifecycleTransportSubscription()
         logger.info("ChatViewModel startObserving id=\(self.instanceId, privacy: .public)")
         observationTask = Task {
             await withTaskGroup(of: Void.self) { group in
@@ -536,6 +535,13 @@ final class ChatViewModel: ChatViewModelHosting {
                 }
             }
         }
+    }
+
+    private func ensureLifecycleTransportSubscription() {
+        guard lifecycleTransportEventsSubscription == nil else { return }
+        // Subscribe synchronously so lifecycle transport events cannot be dropped
+        // before the first startIfNeeded() dispatch.
+        lifecycleTransportEventsSubscription = chatService.lifecycleTransportEvents
     }
 
     @MainActor
