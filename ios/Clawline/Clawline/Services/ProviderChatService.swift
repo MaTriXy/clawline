@@ -663,6 +663,7 @@ final class ProviderChatService: ChatServicing {
     private func handleMessage(data: Data, lifecycleEpoch: Int?) {
         if let lifecycleEpoch {
             emitLifecycleEvent(epoch: lifecycleEpoch, payload: .serverMessage(data: data))
+            return
         }
         guard let payload = try? decoder.decode(ServerMessagePayload.self, from: data) else { return }
         guard let sessionKey = resolveSessionKey(from: payload) else {
