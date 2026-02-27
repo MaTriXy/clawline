@@ -255,7 +255,7 @@ final class ChatViewModel: ChatViewModelHosting {
         persistActiveSessionKey(sessionKey)
     }
 
-    private func clearActiveSession() {
+    private func clearActiveSession(clearPersistedActiveSessionKey: Bool = true) {
         setEngineActiveSessionKey("")
         setUISelectedSessionKey("")
         pendingEngineActivationTarget = nil
@@ -264,7 +264,9 @@ final class ChatViewModel: ChatViewModelHosting {
         pendingEngineActivationTask = nil
         engineActivationInFlightSessionKey = nil
         messages = []
-        streamDefaults.removeObject(forKey: activeSessionDefaultsKey())
+        if clearPersistedActiveSessionKey {
+            streamDefaults.removeObject(forKey: activeSessionDefaultsKey())
+        }
     }
 
     private func resetStreamSwitchState() {
@@ -770,7 +772,7 @@ final class ChatViewModel: ChatViewModelHosting {
         messageFailures.removeAll()
         clearInput()
         sessionMessages = [:]
-        clearActiveSession()
+        clearActiveSession(clearPersistedActiveSessionKey: false)
         streamsBySessionKey = [:]
         orderedSessionKeys = []
         syntheticSessionKeys = []
@@ -1637,7 +1639,6 @@ final class ChatViewModel: ChatViewModelHosting {
             typingSessionKey = nil
             auth.refreshAdminStatusFromToken()
         case .connecting, .reconnecting:
-            resetSessionProvisioningState(clearPendingSend: true)
             isAssistantTyping = false
             typingSessionKey = nil
         case .disconnected, .failed:
