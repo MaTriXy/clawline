@@ -25,6 +25,7 @@ final class TerminalSessionService {
 
     // Use our own URLSession so we can set timeouts and headers consistently with the main chat socket.
     private let session: URLSession
+    private let sessionDelegate: URLSessionDelegate
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var pingTask: Task<Void, Never>?
@@ -54,7 +55,9 @@ final class TerminalSessionService {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 360
-        self.session = URLSession(configuration: configuration)
+        let delegate = ProviderWebSocketTLSSessionDelegate(policyProvider: { ProviderTLSSettingsStore.policy })
+        self.sessionDelegate = delegate
+        self.session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
 
         var outCont: AsyncStream<Data>.Continuation!
         self.output = AsyncStream { cont in outCont = cont }
@@ -141,7 +144,10 @@ final class TerminalSessionService {
     }
 
     func sendInput(_ data: Data) {
-        guard isReady, let socket else { return }
+        guard isReady, let socket else {
+            logger.warning("terminal_send_input_skipped: not ready or no socket")
+            return
+        }
         Task {
             do {
                 try await socket.send(.data(data))
@@ -173,7 +179,10 @@ final class TerminalSessionService {
     }
 
     private func sendControl(_ dict: [String: Any]) {
-        guard let socket else { return }
+        guard let socket else {
+            logger.warning("terminal_send_control_skipped: no socket")
+            return
+        }
         if let type = dict["type"] as? String {
             logger.debug("terminal_send_control type=\(type, privacy: .public) ready=\(self.isReady, privacy: .public)")
         }
@@ -230,7 +239,8 @@ final class TerminalSessionService {
 
     private func sendAuth(initialCols: Int, initialRows: Int, backfillLines: Int) async {
         guard let socket else { return }
-        if !Self.isValidTerminalSessionId(descriptor.terminalSessionId) {
+        let terminalSessionId = descriptor.terminalSessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if terminalSessionId.isEmpty {
             stateContinuation.yield(.failed("Invalid terminalSessionId"))
             teardownSocket(yieldDisconnected: false)
             return
@@ -250,7 +260,7 @@ final class TerminalSessionService {
             "authMode": authMode,
             "authToken": token,
             "deviceId": deviceId.deviceId,
-            "terminalSessionId": descriptor.terminalSessionId,
+            "terminalSessionId": terminalSessionId,
             "backfillLines": backfillLines,
             "cols": initialCols,
             "rows": initialRows
@@ -443,17 +453,5 @@ final class TerminalSessionService {
         }
     }
 
-    private static func isValidTerminalSessionId(_ id: String) -> Bool {
-        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed.count > 128 { return false }
-        for scalar in trimmed.unicodeScalars {
-            switch scalar {
-            case "a"..."z", "A"..."Z", "0"..."9", "-", "_":
-                continue
-            default:
-                return false
-            }
-        }
-        return true
-    }
+
 }

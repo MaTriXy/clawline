@@ -75,13 +75,22 @@ struct ExpandedMessageSheet: View {
                 .fill(message.role == .user ? ChatFlowTheme.sage(effectiveColorScheme) : ChatFlowTheme.softCoral(effectiveColorScheme))
                 .frame(width: 8, height: 8)
             Text(message.displayName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.clawline(.senderName))
                 .foregroundColor(ChatFlowTheme.warmBrown(effectiveColorScheme))
         }
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let markdownContent = UnifiedMarkdownRenderer.makeContent(
+            presentation: presentation,
+            baseFont: UIFont.clawline(.bodyText),
+            inkColor: UIColor(ChatFlowTheme.ink(effectiveColorScheme)),
+            lineSpacing: 4,
+            stripDetectedURLs: false,
+            role: message.role,
+            isDark: effectiveColorScheme == .dark
+        )
+        return VStack(alignment: .leading, spacing: 12) {
             ForEach(fileAttachments) { attachment in
                 FileAttachmentRow(
                     filename: attachment.filename ?? attachment.assetId ?? attachment.mimeType ?? "Attachment",
@@ -90,40 +99,41 @@ struct ExpandedMessageSheet: View {
                 )
             }
 
-            if let emojiOnlyText {
+            if presentation.isEmojiOnly, let emojiOnlyText = markdownContent.joinedInlineEmojiValues {
                 Text(emojiOnlyText)
-                    .font(.system(size: 32))
-            } else if let attributedText {
-                SelectableAttributedText(
-                    attributedString: attributedText,
-                    alignment: .left,
-                    colorScheme: effectiveColorScheme,
-                    onSelectionChange: { _ in },
-                    onLinkTap: { url in
-                        UIApplication.shared.open(url)
+                    .font(.clawline(.sectionHeader))
+            } else {
+                ForEach(Array(markdownContent.renderedBlocks.enumerated()), id: \.offset) { item in
+                    switch item.element {
+                    case .attributedText(let attributed):
+                        SelectableAttributedText(
+                            attributedString: attributed,
+                            alignment: .left,
+                            colorScheme: effectiveColorScheme,
+                            onSelectionChange: { _ in },
+                            onLinkTap: { url in
+                                UIApplication.shared.open(url)
+                            }
+                        )
+                    case .code(let language, let code):
+                        CodeBlockView(language: language, code: code)
+                    case .table(let model):
+                        MarkdownTableView(
+                            model: model,
+                            role: message.role,
+                            metrics: metrics,
+                            maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                            isExpanded: true,
+                            onExpand: {},
+                            onCollapse: { dismiss() }
+                        )
                     }
-                )
+                }
             }
 
             ForEach(Array(linkPreviewURLs.enumerated()), id: \.offset) { item in
                 LinkPreviewRepresentable(url: item.element)
                     .frame(maxWidth: .infinity)
-            }
-
-            ForEach(Array(codeBlocks.enumerated()), id: \.offset) { item in
-                CodeBlockView(language: item.element.language, code: item.element.code)
-            }
-
-            ForEach(Array(tables.enumerated()), id: \.offset) { item in
-                MarkdownTableView(
-                    model: item.element,
-                    role: message.role,
-                    metrics: metrics,
-                    maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-                    isExpanded: true,
-                    onExpand: {},
-                    onCollapse: { dismiss() }
-                )
             }
 
             ForEach(Array(terminalSessions.enumerated()), id: \.offset) { item in
@@ -144,34 +154,9 @@ struct ExpandedMessageSheet: View {
                 mediaPartView(item.element)
             }
         }
-        .font(.system(size: metrics.bodyFontSize, weight: .regular))
+        .font(.clawline(.bodyText))
         .foregroundColor(ChatFlowTheme.ink(effectiveColorScheme))
         .lineSpacing(4)
-    }
-
-    private var attributedText: NSAttributedString? {
-        let ink = UIColor(ChatFlowTheme.ink(effectiveColorScheme))
-        let attributed = MessageTextPartRenderer.attributedText(
-            from: presentation,
-            sizeClass: .long,
-            metrics: metrics,
-            inkColor: ink,
-            stripDetectedURLs: false,
-            isDarkMode: effectiveColorScheme == .dark,
-            enableMarkdownHighlights: message.role == .assistant
-        )
-        let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : attributed
-    }
-
-    private var emojiOnlyText: String? {
-        guard presentation.isEmojiOnly else { return nil }
-        let values = presentation.parts.compactMap { part -> String? in
-            if case .inlineEmoji(let value) = part { return value }
-            return nil
-        }
-        guard !values.isEmpty else { return nil }
-        return values.joined(separator: "\n\n")
     }
 
     private var fileAttachments: [Attachment] {
@@ -184,22 +169,6 @@ struct ExpandedMessageSheet: View {
     private var linkPreviewURLs: [URL] {
         presentation.parts.compactMap { part in
             if case .linkPreview(let url) = part { return url }
-            return nil
-        }
-    }
-
-    private var codeBlocks: [(language: String?, code: String)] {
-        presentation.parts.compactMap { part in
-            if case .code(let language, let code) = part {
-                return (language: language, code: code)
-            }
-            return nil
-        }
-    }
-
-    private var tables: [TableModel] {
-        presentation.parts.compactMap { part in
-            if case .table(let model) = part { return model }
             return nil
         }
     }
@@ -304,17 +273,17 @@ private struct FileAttachmentRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "doc.fill")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.clawline(.shortMessage))
                 .foregroundColor(ChatFlowTheme.ink(colorScheme).opacity(0.7))
             VStack(alignment: .leading, spacing: 2) {
                 Text(filename)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundColor(ChatFlowTheme.ink(colorScheme))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let sizeText {
                     Text(sizeText)
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.clawline(.secondaryLabel))
                         .foregroundColor(ChatFlowTheme.ink(colorScheme).opacity(0.7))
                 }
             }

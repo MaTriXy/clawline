@@ -172,7 +172,7 @@ struct MessageInputBar: View {
                 settings.toggleAppearanceMode()
             }) {
                 Image(systemName: appearanceIconName)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(appearanceIconColor)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
@@ -202,7 +202,7 @@ struct MessageInputBar: View {
                 onAdd()
             }) {
                 Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(addButtonForeground)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
@@ -294,7 +294,8 @@ private struct MessageEditorChrome: View {
         let tint = isLightModeForInputBar ? ChatFlowTheme.ink(.light) : ChatFlowTheme.ink(.dark)
         return (UIColor(tint), .white, isSending ? 0.5 : 1)
 #else
-        return (UIColor(.primary), .label, isSending ? 0.5 : 1)
+        let tint = isLightModeForInputBar ? ChatFlowTheme.sage(.light) : ChatFlowTheme.sage(.dark)
+        return (UIColor(tint), .label, isSending ? 0.5 : 1)
 #endif
     }
 
@@ -383,11 +384,20 @@ private struct MessageSendControl: View {
         }
     }
 
-    private func reconnectDotOpacity(at date: Date) -> Double {
+    private func reconnectPulsePhase(at date: Date) -> Double {
         let phase = date.timeIntervalSinceReferenceDate
             .truncatingRemainder(dividingBy: reconnectPulseDuration) / reconnectPulseDuration
-        let eased = 0.5 - 0.5 * cos(phase * 2 * .pi)
-        return 0.4 + (0.6 * eased)
+        return 0.5 - 0.5 * cos(phase * 2 * .pi)
+    }
+
+    private func reconnectDotOpacity(at date: Date) -> Double {
+        let phase = reconnectPulsePhase(at: date)
+        return 0.4 + (0.6 * phase)
+    }
+
+    private func reconnectDotScale(at date: Date) -> Double {
+        let phase = reconnectPulsePhase(at: date)
+        return 1.0 + (0.3 * phase)
     }
 
     var body: some View {
@@ -411,18 +421,18 @@ private struct MessageSendControl: View {
                         .fill(sendBackgroundColor)
                         .frame(width: reconnectDotSize, height: reconnectDotSize)
                         .opacity(isReconnecting ? reconnectDotOpacity(at: context.date) : 0)
-                        .scaleEffect(isReconnecting ? 1 : 0.45)
+                        .scaleEffect(isReconnecting ? reconnectDotScale(at: context.date) : 0.45)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(sendIconColor)
                     .opacity(isSending && !isReconnecting ? 1 : 0)
                     .scaleEffect(isSending && !isReconnecting ? 1 : 0.7)
 
                 Image(systemName: isDisconnected ? "arrow.clockwise" : "paperplane.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(sendIconColor)
                     .opacity(!isSending && !isReconnecting ? 1 : 0)
                     .scaleEffect(!isSending && !isReconnecting ? 1 : 0.7)

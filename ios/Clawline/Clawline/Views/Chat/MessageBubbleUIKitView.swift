@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import HighlightSwift
 import OSLog
 import SwiftUI
 import UIKit
@@ -168,6 +167,7 @@ final class MessageBubbleUIKitContainerView: UIView {
 
 final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "BubbleTheme")
+    override var safeAreaInsets: UIEdgeInsets { .zero }
     private let shadowContainerView = UIView()  // Separate view for shadow (masks clip shadows)
     private let bubbleBackgroundView = UIView()
     private let contentStack = UIStackView()
@@ -177,6 +177,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private let dynamicContentStack = UIStackView()  // Holds text + code blocks
     private let avatarView = AvatarCircleView()
     private let senderLabel = UILabel()
+    private let senderTimestampSpacer = UIView()
+    private let timestampLabel = UILabel()
     private let bodyLabel = UITextView()
     private let bodyTextContainer = UIView()
     private let fadeView = TruncationFadeView()
@@ -213,6 +215,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var currentMessageRole: Message.Role = .assistant
     private var currentStream: ChatStream = .personal
     private var currentSizeClass: MessageSizeClass = .short
+    private var explicitIsDarkOverride: Bool?
     private var currentContentPaddingHorizontal: CGFloat = 16
     private var currentContentPaddingVertical: CGFloat = 14
     private var contentLeadingConstraint: NSLayoutConstraint!
@@ -230,12 +233,16 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var currentMessageId: String?
     private var wasOverflowingOnLastLayout = false
     private var suppressExpandTapForLinkCards = false
+    private var timestampDate: Date?
+    private var timestampRefreshTimer: Timer?
 
     private var traitObservation: (any NSObjectProtocol)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
+        insetsLayoutMarginsFromSafeArea = false
+        preservesSuperviewLayoutMargins = false
 
         // Register for trait changes (modern API, replaces deprecated traitCollectionDidChange)
         traitObservation = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: MessageBubbleUIKitView, previousTraitCollection: UITraitCollection) in
@@ -249,6 +256,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         bubbleBackgroundView.translatesAutoresizingMaskIntoConstraints = false
         bubbleBackgroundView.isUserInteractionEnabled = true
+        bubbleBackgroundView.insetsLayoutMarginsFromSafeArea = false
+        bubbleBackgroundView.preservesSuperviewLayoutMargins = false
         let bubbleTap = UITapGestureRecognizer(target: self, action: #selector(handleBubbleTap))
         bubbleTap.cancelsTouchesInView = false
         bubbleTap.delaysTouchesBegan = false
@@ -308,31 +317,40 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         contentStack.axis = .vertical
         contentStack.spacing = 10
         contentStack.alignment = .fill
+        contentStack.insetsLayoutMarginsFromSafeArea = false
+        contentStack.preservesSuperviewLayoutMargins = false
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         bubbleBackgroundView.addSubview(contentStack)
 
         headerStack.axis = .horizontal
         headerStack.spacing = 10
         headerStack.alignment = .center
+        headerStack.isLayoutMarginsRelativeArrangement = true
+        headerStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 4)
+        headerStack.insetsLayoutMarginsFromSafeArea = false
+        headerStack.preservesSuperviewLayoutMargins = false
         headerStack.setContentHuggingPriority(.required, for: .vertical)
         headerStack.setContentCompressionResistancePriority(.required, for: .vertical)
 
         senderLabel.numberOfLines = 1
         senderLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        senderLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+
+        senderTimestampSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        senderTimestampSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        timestampLabel.numberOfLines = 1
+        timestampLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        timestampLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         headerStack.addArrangedSubview(avatarView)
         headerStack.addArrangedSubview(senderLabel)
+        headerStack.addArrangedSubview(senderTimestampSpacer)
+        headerStack.addArrangedSubview(timestampLabel)
+        senderLabel.firstBaselineAnchor.constraint(equalTo: timestampLabel.firstBaselineAnchor).isActive = true
 
-        bodyLabel.backgroundColor = .clear
         bodyLabel.translatesAutoresizingMaskIntoConstraints = false
-        bodyLabel.isUserInteractionEnabled = true
-        bodyLabel.isEditable = false
-        bodyLabel.isSelectable = true
-        bodyLabel.isScrollEnabled = false
-        bodyLabel.textContainerInset = .zero
-        bodyLabel.textContainer.lineFragmentPadding = 0
-        bodyLabel.dataDetectorTypes = [.link]
-        bodyLabel.delegate = self
+        UnifiedMarkdownRenderer.configureTextView(bodyLabel, delegate: self)
         let bodyTap = UITapGestureRecognizer(target: self, action: #selector(handleBubbleTap))
         bodyTap.cancelsTouchesInView = false
         bodyTap.delaysTouchesBegan = false
@@ -408,6 +426,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         wrapperHeightConstraint.isActive = true
         wrapperPrefersContentHeightConstraint = wrapperHeightConstraint
         contentStack.addArrangedSubview(dynamicContentWrapper)
+        
 
         fadeView.translatesAutoresizingMaskIntoConstraints = false
         fadeView.isUserInteractionEnabled = false
@@ -456,8 +475,23 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {
+        timestampRefreshTimer?.invalidate()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+
+        // Hide timestamp if it would compress the sender name
+        if !headerStack.isHidden, let timestampText = timestampLabel.attributedText, !timestampText.string.isEmpty {
+            let avatarWidth = avatarView.bounds.width + headerStack.spacing
+            let senderSize = senderLabel.intrinsicContentSize.width
+            let spacerMin: CGFloat = 8
+            let timestampSize = timestampLabel.intrinsicContentSize.width
+            let availableWidth = headerStack.bounds.width
+            let needed = avatarWidth + senderSize + spacerMin + timestampSize
+            timestampLabel.isHidden = needed > availableWidth
+        }
         gradientLayer.frame = bubbleBackgroundView.bounds
         maskLayer.frame = bubbleBackgroundView.bounds
         let path: UIBezierPath
@@ -512,6 +546,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         topHighlightMask.frame = CGRect(x: 0, y: 0, width: bubbleBackgroundView.bounds.width, height: highlightHeight)
         topHighlightMask.path = (hasTerminalSessionsForLayout || useContinuousCorners) ? path.cgPath : highlightMaskPath.cgPath
 
+        updateTimestampVisibilityIfNeeded()
         updateOuterScrollState()
     }
 
@@ -539,6 +574,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         // Store for trait collection updates
         currentMessageRole = message.role
         currentStream = message.stream
+        explicitIsDarkOverride = isDark
         currentSizeClass = sizeClass
         self.showsHeader = showsHeader
         contentPaddingScale = paddingScale
@@ -578,9 +614,16 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         Self.logger.debug("configure: isDark=\(isDark.map { String($0) } ?? "nil", privacy: .public) effectiveIsDark=\(effectiveIsDark, privacy: .public) role=\(String(describing: message.role), privacy: .public)")
         let palette = ChatFlowUIKitTheme.palette(isDark: effectiveIsDark)
         let senderColor = (message.stream == .admin) ? palette.adminAccent : palette.warmBrown
-        senderLabel.font = UIFont.systemFont(ofSize: metrics.senderFontSize, weight: .semibold)
+        senderLabel.font = UIFont.clawline(.senderName)
+        senderLabel.adjustsFontForContentSizeCategory = true
         senderLabel.textColor = senderColor.withAlphaComponent(message.stream == .admin ? 1.0 : 0.7)
         senderLabel.text = message.displayName
+        timestampLabel.font = UIFont.clawline(.timestamp)
+        timestampLabel.adjustsFontForContentSizeCategory = true
+        timestampLabel.textColor = palette.textMuted.withAlphaComponent(0.4)
+        timestampLabel.textAlignment = message.role == .user ? .right : .left
+        timestampDate = message.timestamp
+        refreshTimestampDisplay()
         headerStack.isHidden = !showsHeader
         bodyLabel.linkTextAttributes = [
             .foregroundColor: palette.ink,
@@ -606,13 +649,27 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentViews.removeAll()
         fileTapHandlers.removeAll()
 
+        let markdownStyle = Self.markdownStyle(for: sizeClass, metrics: metrics)
+        let markdownContent = UnifiedMarkdownRenderer.makeContent(
+            presentation: presentation,
+            baseFont: markdownStyle.baseFont,
+            inkColor: palette.ink,
+            lineSpacing: markdownStyle.lineSpacing,
+            stripDetectedURLs: true,
+            role: message.role,
+            isDark: effectiveIsDark
+        )
+
         // Check for chromeless emoji mode (1-3 emojis only, centered with double font)
         let isChromelessEmoji = presentation.chromelessStyle == .emoji
 
-        // Set up bodyLabel with text content (excluding code blocks)
-        if isChromelessEmoji, case .inlineEmoji(let value) = presentation.parts.first {
-            // Chromeless emoji: double font size, centered
-            let emojiFont = UIFont.systemFont(ofSize: (metrics.shortFontSize + 8) * 2)
+        // Reset text state before rebuilding content views.
+        bodyLabel.attributedText = nil
+        salientBaseAttributedText = nil
+
+        if isChromelessEmoji, let value = markdownContent.firstInlineEmojiValue {
+            let baseEmojiFont = UIFont.clawline(.shortMessage)
+            let emojiFont = UIFont(descriptor: baseEmojiFont.fontDescriptor, size: baseEmojiFont.pointSize * 2)
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
             bodyLabel.attributedText = NSAttributedString(
@@ -622,27 +679,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     .paragraphStyle: paragraph
                 ]
             )
-        } else {
-            bodyLabel.attributedText = MessageTextPartRenderer.attributedText(
-                from: presentation,
-                sizeClass: sizeClass,
-                metrics: metrics,
-                inkColor: palette.ink,
-                isDarkMode: effectiveIsDark,
-                enableMarkdownHighlights: message.role == .assistant
-            )
+            dynamicContentStack.addArrangedSubview(bodyTextContainer)
+            dynamicContentViews.append(bodyTextContainer)
+            salientBaseAttributedText = bodyLabel.attributedText
         }
-
-        // Cache the base attributed text (pre-highlights) so async application is idempotent.
-        salientBaseAttributedText = bodyLabel.attributedText
-        applySalientHighlightsIfNeeded(
-            message: message,
-            isChromelessEmoji: isChromelessEmoji,
-            isDark: effectiveIsDark,
-            salientHighlightService: salientHighlightService
-        )
-
-        let hasTextContent = !(bodyLabel.attributedText?.string.isEmpty ?? true)
 
         // File attachments first so previews stay visible even with long text
         let fileParts = presentation.parts.compactMap { part -> Attachment? in
@@ -666,10 +706,22 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
         }
 
-        if hasTextContent {
-            dynamicContentStack.addArrangedSubview(bodyTextContainer)
-            dynamicContentViews.append(bodyTextContainer)
+        if !isChromelessEmoji && markdownContent.hasRenderableMarkdownContent {
+            addRenderedMarkdownBlocks(
+                markdownContent.renderedBlocks,
+                role: message.role,
+                metrics: metrics,
+                isDark: effectiveIsDark
+            )
         }
+
+        // Cache/render salient highlights only for the visible primary text block.
+        applySalientHighlightsIfNeeded(
+            message: message,
+            isChromelessEmoji: isChromelessEmoji,
+            isDark: effectiveIsDark,
+            salientHighlightService: salientHighlightService
+        )
 
         let linkPreviewURL = presentation.parts.compactMap({ part -> URL? in
             if case .linkPreview(let url) = part { return url }
@@ -817,37 +869,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             }
             dynamicContentStack.addArrangedSubview(previewView)
             dynamicContentViews.append(previewView)
-        }
-
-        // Add code block views to dynamicContentStack
-        let codeBlocks = presentation.parts.compactMap { part -> (String?, String)? in
-            if case .code(let lang, let code) = part { return (lang, code) }
-            return nil
-        }
-        for (lang, code) in codeBlocks {
-            let codeView = CodeBlockUIKitView()
-            codeView.configure(language: lang, code: code)
-            dynamicContentStack.addArrangedSubview(codeView)
-            dynamicContentViews.append(codeView)
-        }
-
-        // Add table views to dynamicContentStack
-        let tables = presentation.parts.compactMap { part -> TableModel? in
-            if case .table(let model) = part { return model }
-            return nil
-        }
-        for tableModel in tables {
-            let tableView = TableUIKitWrapperView()
-            tableView.configure(
-                model: tableModel,
-                role: message.role,
-                metrics: metrics,
-                maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
-                isDark: effectiveIsDark,
-                onExpand: { [weak self] in self?.onRequestExpand?() }
-            )
-            dynamicContentStack.addArrangedSubview(tableView)
-            dynamicContentViews.append(tableView)
         }
 
         let hasTerminalSessions = presentation.parts.contains(where: { if case .terminalSession = $0 { return true }; return false })
@@ -1036,6 +1057,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     func prepareForReuse() {
         currentMessageId = nil
         suppressExpandTapForLinkCards = false
+        timestampDate = nil
+        timestampRefreshTimer?.invalidate()
+        timestampRefreshTimer = nil
+        timestampLabel.isHidden = true
+        timestampLabel.attributedText = nil
         resetOuterScrollState(resetOffset: true)
         wasOverflowingOnLastLayout = false
         salientTask?.cancel()
@@ -1217,13 +1243,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     private func updateAppearanceColors() {
-        let isDark = traitCollection.userInterfaceStyle == .dark
+        let isDark = explicitIsDarkOverride ?? (traitCollection.userInterfaceStyle == .dark)
         Self.logger.debug("updateAppearanceColors: isDark=\(isDark, privacy: .public) role=\(String(describing: self.currentMessageRole), privacy: .public)")
         let palette = ChatFlowUIKitTheme.palette(isDark: isDark)
 
         // Update sender label color
         let senderColor = (currentStream == .admin) ? palette.adminAccent : palette.warmBrown
         senderLabel.textColor = senderColor.withAlphaComponent(currentStream == .admin ? 1.0 : 0.7)
+        timestampLabel.textColor = palette.textMuted.withAlphaComponent(0.4)
 
         // Update body text color - must update attributed string since textColor is ignored for attributed text
         if let attributedText = bodyLabel.attributedText, attributedText.length > 0 {
@@ -1264,6 +1291,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Force layer redraw to ensure gradient is visible
         gradientLayer.setNeedsDisplay()
+        for view in dynamicContentViews {
+            if let codeView = view as? CodeBlockUIKitView {
+                codeView.setAppearanceOverride(isDark: isDark)
+            }
+        }
         setNeedsLayout()
     }
 
@@ -1301,7 +1333,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     func preferredWidth(maxWidth: CGFloat) -> CGFloat {
-        let headerWidth: CGFloat = showsHeader ? (32 + 10 + senderLabel.intrinsicContentSize.width) : 0
+        let headerWidth: CGFloat = showsHeader
+            ? (32 + headerStack.spacing + senderLabel.intrinsicContentSize.width)
+            : 0
         let contentWidth = maxWidth - (currentContentPaddingHorizontal * 2)
         let bodySize = bodyLabel.sizeThatFits(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
         let contentMax = max(headerWidth, bodySize.width)
@@ -1362,6 +1396,221 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             return nil
         }
         return defaultAction
+    }
+
+    private static func markdownStyle(
+        for sizeClass: MessageSizeClass,
+        metrics: ChatFlowTheme.Metrics
+    ) -> (baseFont: UIFont, lineSpacing: CGFloat) {
+        _ = metrics
+        switch sizeClass {
+        case .short:
+            return (UIFont.clawline(.shortMessage), 0)
+        case .medium:
+            return (UIFont.clawline(.mediumMessage), 4)
+        case .long:
+            return (UIFont.clawline(.bodyText), 4)
+        }
+    }
+
+    private func refreshTimestampDisplay(now: Date = Date()) {
+        guard let timestamp = timestampDate else {
+            timestampLabel.attributedText = nil
+            timestampRefreshTimer?.invalidate()
+            timestampRefreshTimer = nil
+            return
+        }
+        let formatted = Self.formattedBubbleTimestamp(timestamp, now: now)
+        timestampLabel.attributedText = NSAttributedString(
+            string: formatted,
+            attributes: [.kern: 0.2]
+        )
+        updateTimestampVisibilityIfNeeded()
+        scheduleTimestampRefreshIfNeeded(now: now)
+    }
+
+    private func updateTimestampVisibilityIfNeeded() {
+        guard let timestampText = timestampLabel.attributedText, !timestampText.string.isEmpty else {
+            timestampLabel.isHidden = true
+            return
+        }
+        timestampLabel.isHidden = false
+    }
+
+    private func scheduleTimestampRefreshIfNeeded(now: Date) {
+        timestampRefreshTimer?.invalidate()
+        timestampRefreshTimer = nil
+        guard let timestamp = timestampDate else { return }
+
+        let elapsed = max(0, now.timeIntervalSince(timestamp))
+        let calendar = Calendar.autoupdatingCurrent
+        let nextInterval: TimeInterval?
+        if elapsed < 3_600 || calendar.isDate(timestamp, inSameDayAs: now) {
+            let nextMinute = calendar.nextDate(
+                after: now,
+                matching: DateComponents(second: 0),
+                matchingPolicy: .nextTime
+            ) ?? now.addingTimeInterval(60)
+            nextInterval = max(1, nextMinute.timeIntervalSince(now))
+        } else {
+            let sameYear = calendar.component(.year, from: timestamp) == calendar.component(.year, from: now)
+            if !sameYear {
+                nextInterval = nil
+            } else if calendar.isDateInYesterday(timestamp) || calendar.isDate(timestamp, equalTo: now, toGranularity: .weekOfYear) {
+                let startOfTomorrow = calendar.date(
+                    byAdding: .day,
+                    value: 1,
+                    to: calendar.startOfDay(for: now)
+                ) ?? now.addingTimeInterval(86_400)
+                nextInterval = max(60, startOfTomorrow.timeIntervalSince(now))
+            } else {
+                let currentYear = calendar.component(.year, from: now)
+                let startOfNextYear = calendar.date(
+                    from: DateComponents(year: currentYear + 1, month: 1, day: 1)
+                ) ?? now.addingTimeInterval(31_536_000)
+                nextInterval = max(60, startOfNextYear.timeIntervalSince(now))
+            }
+        }
+
+        guard let nextInterval else { return }
+
+        timestampRefreshTimer = Timer.scheduledTimer(withTimeInterval: nextInterval, repeats: false) { [weak self] _ in
+            self?.refreshTimestampDisplay()
+        }
+    }
+
+    private static func formattedBubbleTimestamp(_ timestamp: Date, now: Date) -> String {
+        let interval = max(0, now.timeIntervalSince(timestamp))
+        if interval < 60 {
+            return "just now"
+        }
+        if interval < 3_600 {
+            return "\(Int(interval / 60))m ago"
+        }
+        if interval < 86_400 {
+            let calendar = Calendar.autoupdatingCurrent
+            if calendar.isDate(timestamp, inSameDayAs: now) {
+                return timeFormatter.string(from: timestamp)
+            }
+        }
+        let calendar = Calendar.autoupdatingCurrent
+        if calendar.isDateInYesterday(timestamp) {
+            return "\(relativeDayFormatter.string(from: timestamp)), \(timeFormatter.string(from: timestamp))"
+        }
+        if calendar.component(.year, from: timestamp) != calendar.component(.year, from: now) {
+            return differentYearFormatter.string(from: timestamp)
+        }
+        if calendar.isDate(timestamp, equalTo: now, toGranularity: .weekOfYear) {
+            return "\(weekdayFormatter.string(from: timestamp)), \(timeFormatter.string(from: timestamp))"
+        }
+        return "\(monthDayFormatter.string(from: timestamp)), \(timeFormatter.string(from: timestamp))"
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("jm")
+        return formatter
+    }()
+
+    private static let monthDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        return formatter
+    }()
+
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("EEEE")
+        return formatter
+    }()
+
+    private static let differentYearFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("MMM d, y")
+        return formatter
+    }()
+
+    private static let relativeDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.autoupdatingCurrent
+        formatter.timeStyle = .none
+        formatter.dateStyle = .medium
+        formatter.doesRelativeDateFormatting = true
+        return formatter
+    }()
+
+    private func addRenderedMarkdownBlocks(
+        _ blocks: [RenderedMarkdownBlock],
+        role: Message.Role,
+        metrics: ChatFlowTheme.Metrics,
+        isDark: Bool
+    ) {
+        var usedPrimaryTextContainer = false
+
+        for block in blocks {
+            switch block {
+            case .attributedText(let attributed):
+                let trimmed = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+
+                if !usedPrimaryTextContainer {
+                    bodyLabel.attributedText = attributed
+                    salientBaseAttributedText = attributed
+                    dynamicContentStack.addArrangedSubview(bodyTextContainer)
+                    dynamicContentViews.append(bodyTextContainer)
+                    usedPrimaryTextContainer = true
+                } else {
+                    let supplemental = makeSupplementalTextContainer(attributed: attributed)
+                    dynamicContentStack.addArrangedSubview(supplemental)
+                    dynamicContentViews.append(supplemental)
+                }
+            case .code(let language, let code):
+                let codeView = CodeBlockUIKitView()
+                codeView.configure(language: language, code: code, isDark: isDark)
+                dynamicContentStack.addArrangedSubview(codeView)
+                dynamicContentViews.append(codeView)
+            case .table(let model):
+                let tableView = TableUIKitWrapperView()
+                tableView.configure(
+                    model: model,
+                    role: role,
+                    metrics: metrics,
+                    maxLineWidth: ChatFlowTheme.maxLineWidth(bodyFontSize: metrics.bodyFontSize),
+                    isDark: isDark,
+                    onExpand: { [weak self] in self?.onRequestExpand?() }
+                )
+                dynamicContentStack.addArrangedSubview(tableView)
+                dynamicContentViews.append(tableView)
+            }
+        }
+    }
+
+    private func makeSupplementalTextContainer(attributed: NSAttributedString) -> UIView {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.backgroundColor = .clear
+
+        let textView = UITextView()
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        UnifiedMarkdownRenderer.configureTextView(
+            textView,
+            delegate: self,
+            linkTextAttributes: bodyLabel.linkTextAttributes ?? [:]
+        )
+        textView.attributedText = attributed
+
+        container.addSubview(textView)
+        NSLayoutConstraint.activate([
+            textView.topAnchor.constraint(equalTo: container.topAnchor),
+            textView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            textView.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
+            textView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        return container
     }
 
     private static func textContent(from presentation: MessagePresentation) -> String {
@@ -1430,14 +1679,17 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         ])
 
         let nameLabel = UILabel()
-        nameLabel.font = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .semibold)
+        _ = metrics
+        nameLabel.font = UIFont.clawline(.uiLabel, weight: .semibold)
+        nameLabel.adjustsFontForContentSizeCategory = true
         nameLabel.textColor = palette.ink
         nameLabel.numberOfLines = 1
         nameLabel.lineBreakMode = .byTruncatingMiddle
         nameLabel.text = name
 
         let sizeLabel = UILabel()
-        sizeLabel.font = UIFont.systemFont(ofSize: metrics.senderFontSize, weight: .regular)
+        sizeLabel.font = UIFont.clawline(.secondaryLabel)
+        sizeLabel.adjustsFontForContentSizeCategory = true
         sizeLabel.textColor = palette.ink.withAlphaComponent(0.7)
         sizeLabel.numberOfLines = 1
         sizeLabel.text = sizeValue.map(Self.formatFileSize)
@@ -1519,7 +1771,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         guard !text.isEmpty else { return 0 }
 
         // Use short size class font for single-line measurement (natural width)
-        let font = UIFont.systemFont(ofSize: metrics.shortFontSize, weight: .semibold)
+        _ = metrics
+        let font = UIFont.clawline(.shortMessage)
         let attributes: [NSAttributedString.Key: Any] = [.font: font]
         let size = (text as NSString).boundingRect(
             with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
@@ -1546,13 +1799,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         let lineSpacing: CGFloat
         switch sizeClass {
         case .short:
-            font = UIFont.systemFont(ofSize: metrics.shortFontSize, weight: .semibold)
+            font = UIFont.clawline(.shortMessage)
             lineSpacing = 0
         case .medium:
-            font = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
+            font = UIFont.clawline(.mediumMessage)
             lineSpacing = 4
         case .long:
-            font = UIFont.systemFont(ofSize: metrics.bodyFontSize, weight: .regular)
+            font = UIFont.clawline(.bodyText)
             lineSpacing = 4
         }
 
@@ -1592,7 +1845,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         }
 
         let lineSpacing: CGFloat = 4
-        let font = UIFont.systemFont(ofSize: metrics.mediumFontSize, weight: .medium)
+        _ = metrics
+        let font = UIFont.clawline(.mediumMessage)
         let lineHeight = font.lineHeight
         return Int(ceil((textHeight + lineSpacing) / (lineHeight + lineSpacing)))
     }
@@ -1766,7 +2020,8 @@ final class AvatarCircleView: UIView {
             label.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
 
-        label.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
+        label.font = UIFont.clawline(.uiLabel, weight: .semibold)
+        label.adjustsFontForContentSizeCategory = true
         label.textColor = .white
         label.layer.shadowColor = UIColor.black.cgColor
         label.layer.shadowOffset = CGSize(width: 0, height: 1)
@@ -1874,6 +2129,7 @@ enum ChatFlowUIKitTheme {
         let failureText: UIColor
         let failureBackground: UIColor
         let shadowNear: UIColor
+        let textMuted: UIColor
     }
 
     static func palette(isDark: Bool) -> Palette {
@@ -1902,7 +2158,8 @@ enum ChatFlowUIKitTheme {
                 fadeTop: UIColor(red: 0, green: 0, blue: 0, alpha: 0),
                 failureText: UIColor(red: 0.95, green: 0.62, blue: 0.62, alpha: 1),
                 failureBackground: UIColor(red: 0.30, green: 0.14, blue: 0.14, alpha: 1),
-                shadowNear: UIColor.black.withAlphaComponent(0.35)
+                shadowNear: UIColor.black.withAlphaComponent(0.35),
+                textMuted: UIColor(red: 0.545, green: 0.502, blue: 0.471, alpha: 1)
             )
         }
         return Palette(
@@ -1929,7 +2186,8 @@ enum ChatFlowUIKitTheme {
             fadeTop: UIColor(red: 1, green: 1, blue: 1, alpha: 0),
             failureText: UIColor(red: 0.6, green: 0.12, blue: 0.12, alpha: 1),
             failureBackground: UIColor(red: 0.98, green: 0.92, blue: 0.92, alpha: 1),
-            shadowNear: UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 0.30)
+            shadowNear: UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 0.30),
+            textMuted: UIColor(red: 0.651, green: 0.608, blue: 0.553, alpha: 1)
         )
     }
 
@@ -2173,212 +2431,95 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
 
 // MARK: - Code Block View
 
-/// UIKit view for rendering code blocks with proper container styling and syntax highlighting.
-/// Matches the SwiftUI CodeBlockView in the design system.
+/// UIKit wrapper for the shared SwiftUI CodeBlockView.
+/// This keeps bubble and expanded code block rendering/theming on one implementation path.
 final class CodeBlockUIKitView: UIView {
-    private let languageLabel = UILabel()
-    private let codeScrollView = UIScrollView()
-    private let codeLabel = UILabel()
-    private var currentCode: String = ""
+    private var hostingController: UIHostingController<AnyView>?
     private var currentLanguage: String?
-    private static let highlight = Highlight()
-    private var traitObservation: (any NSObjectProtocol)?
+    private var currentCode: String = ""
+    private var explicitIsDarkOverride: Bool?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setupView()
-
-        // Register for trait changes (modern API)
-        traitObservation = registerForTraitChanges([UITraitUserInterfaceStyle.self]) { [weak self] (view: CodeBlockUIKitView, previousTraitCollection: UITraitCollection) in
-            self?.updateColors()
-            self?.applyHighlightedCode()
-        }
+        clipsToBounds = false
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func setupView() {
-        layer.cornerRadius = 12
-        layer.cornerCurve = .continuous
-        clipsToBounds = true
-
-        // Configure scroll view for horizontal scrolling
-        codeScrollView.showsHorizontalScrollIndicator = true
-        codeScrollView.showsVerticalScrollIndicator = false
-        codeScrollView.alwaysBounceHorizontal = false
-        codeScrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        // Add code label to scroll view
-        codeLabel.translatesAutoresizingMaskIntoConstraints = false
-        codeScrollView.addSubview(codeLabel)
-
-        let stack = UIStackView(arrangedSubviews: [languageLabel, codeScrollView])
-        stack.axis = .vertical
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
-
-            // Code label fills scroll view content
-            codeLabel.topAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.topAnchor),
-            codeLabel.leadingAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.leadingAnchor),
-            codeLabel.trailingAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.trailingAnchor),
-            codeLabel.bottomAnchor.constraint(equalTo: codeScrollView.contentLayoutGuide.bottomAnchor),
-
-            // Scroll view height matches content (no vertical scrolling)
-            codeScrollView.contentLayoutGuide.heightAnchor.constraint(equalTo: codeScrollView.frameLayoutGuide.heightAnchor)
-        ])
-
-        languageLabel.font = UIFont.systemFont(ofSize: 11, weight: .semibold)
-        codeLabel.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        codeLabel.numberOfLines = 0
-
-        updateColors()
+    func configure(language: String?, code: String, isDark: Bool? = nil) {
+        currentLanguage = language
+        currentCode = code
+        explicitIsDarkOverride = isDark
+        rebuildHostedView()
     }
 
-    private func updateColors() {
-        let isDark = traitCollection.userInterfaceStyle == .dark
-        if isDark {
-            backgroundColor = UIColor(red: 0.118, green: 0.118, blue: 0.118, alpha: 1)
-            languageLabel.textColor = UIColor.white.withAlphaComponent(0.6)
+    func setAppearanceOverride(isDark: Bool?) {
+        explicitIsDarkOverride = isDark
+        applyInterfaceStyle()
+    }
+
+    private func rebuildHostedView() {
+        hostingController?.view.removeFromSuperview()
+        hostingController = nil
+
+        let codeView = CodeBlockView(language: currentLanguage, code: currentCode)
+        let controller = UIHostingController(rootView: AnyView(codeView))
+        controller.view.backgroundColor = .clear
+        controller.view.translatesAutoresizingMaskIntoConstraints = false
+        controller.safeAreaRegions = []
+        addSubview(controller.view)
+
+        NSLayoutConstraint.activate([
+            controller.view.topAnchor.constraint(equalTo: topAnchor),
+            controller.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        hostingController = controller
+        applyInterfaceStyle()
+        controller.view.layoutIfNeeded()
+    }
+
+    private func applyInterfaceStyle() {
+        guard let hostingController else { return }
+        if let explicitIsDarkOverride {
+            let style: UIUserInterfaceStyle = explicitIsDarkOverride ? .dark : .light
+            hostingController.overrideUserInterfaceStyle = style
+            hostingController.view.overrideUserInterfaceStyle = style
         } else {
-            backgroundColor = UIColor(red: 0.945, green: 0.933, blue: 0.910, alpha: 1)
-            languageLabel.textColor = UIColor(red: 0.361, green: 0.290, blue: 0.239, alpha: 0.6)
+            hostingController.overrideUserInterfaceStyle = .unspecified
+            hostingController.view.overrideUserInterfaceStyle = .unspecified
         }
+    }
+
+    override var intrinsicContentSize: CGSize {
+        guard let hostingView = hostingController?.view else {
+            return CGSize(width: UIView.noIntrinsicMetric, height: 44)
+        }
+        let size = hostingView.intrinsicContentSize
+        if size.height > 0 {
+            return size
+        }
+        let fittingSize = hostingView.systemLayoutSizeFitting(
+            CGSize(width: bounds.width > 0 ? bounds.width : 300, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        return fittingSize
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
-        // Use systemLayoutSizeFitting to respect Auto Layout constraints
-        let targetSize = CGSize(width: size.width, height: UIView.layoutFittingCompressedSize.height)
-        return systemLayoutSizeFitting(targetSize, withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
-    }
-
-    func configure(language: String?, code: String) {
-        currentLanguage = language
-        currentCode = code
-
-        if let lang = language, !lang.isEmpty {
-            languageLabel.text = lang.uppercased()
-            languageLabel.isHidden = false
-        } else {
-            languageLabel.isHidden = true
+        guard let hostingView = hostingController?.view else {
+            return CGSize(width: size.width, height: 44)
         }
-
-        // Show plain text immediately, then apply highlighting async
-        applyPlainCode()
-        updateColors()
-        applyHighlightedCode()
-    }
-
-    private func applyHighlightedCode() {
-        let isDark = traitCollection.userInterfaceStyle == .dark
-        let colors: HighlightColors = isDark ? .dark(.atomOne) : .light(.atomOne)
-
-        Task { @MainActor in
-            do {
-                // Map common language names to HighlightSwift language strings
-                let langString = Self.mapLanguageString(currentLanguage)
-                let highlighted: AttributedString
-                if let lang = langString {
-                    highlighted = try await Self.highlight.attributedText(currentCode, language: lang, colors: colors)
-                } else {
-                    highlighted = try await Self.highlight.attributedText(currentCode, colors: colors)
-                }
-
-                // Convert to NSAttributedString and apply our font
-                let mutable = NSMutableAttributedString(highlighted)
-                let fullRange = NSRange(location: 0, length: mutable.length)
-
-                // Apply monospace font while preserving colors
-                mutable.enumerateAttribute(.font, in: fullRange, options: []) { _, range, _ in
-                    mutable.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular), range: range)
-                }
-
-                // Apply line spacing
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.lineSpacing = 4
-                mutable.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
-
-                self.codeLabel.attributedText = mutable
-            } catch {
-                // Fallback to plain text on error
-                self.applyPlainCode()
-            }
-        }
-    }
-
-    private func applyPlainCode() {
-        let isDark = traitCollection.userInterfaceStyle == .dark
-        let textColor = isDark
-            ? UIColor.white.withAlphaComponent(0.9)
-            : UIColor(red: 0.239, green: 0.204, blue: 0.161, alpha: 1)
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 4
-        let attributed = NSAttributedString(
-            string: currentCode,
-            attributes: [
-                .font: UIFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-                .foregroundColor: textColor,
-                .paragraphStyle: paragraph
-            ]
+        return hostingView.systemLayoutSizeFitting(
+            CGSize(width: size.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
         )
-        codeLabel.attributedText = attributed
-    }
-
-    /// Maps common language identifiers to highlight.js language names
-    private static func mapLanguageString(_ language: String?) -> String? {
-        guard let lang = language?.lowercased() else { return nil }
-        switch lang {
-        case "swift": return "swift"
-        case "python", "py": return "python"
-        case "javascript", "js": return "javascript"
-        case "typescript", "ts": return "typescript"
-        case "java": return "java"
-        case "kotlin", "kt": return "kotlin"
-        case "c": return "c"
-        case "cpp", "c++": return "cpp"
-        case "csharp", "c#", "cs": return "csharp"
-        case "go", "golang": return "go"
-        case "rust", "rs": return "rust"
-        case "ruby", "rb": return "ruby"
-        case "php": return "php"
-        case "sql": return "sql"
-        case "bash", "sh", "shell", "zsh": return "bash"
-        case "html": return "html"
-        case "css": return "css"
-        case "json": return "json"
-        case "yaml", "yml": return "yaml"
-        case "xml": return "xml"
-        case "markdown", "md": return "markdown"
-        case "objectivec", "objc", "objective-c": return "objectivec"
-        case "dart": return "dart"
-        case "scala": return "scala"
-        case "r": return "r"
-        case "perl": return "perl"
-        case "lua": return "lua"
-        case "haskell", "hs": return "haskell"
-        case "elixir", "ex": return "elixir"
-        case "clojure", "clj": return "clojure"
-        case "fsharp", "f#", "fs": return "fsharp"
-        case "ocaml", "ml": return "ocaml"
-        case "erlang", "erl": return "erlang"
-        case "julia", "jl": return "julia"
-        case "groovy": return "groovy"
-        case "powershell", "ps1": return "powershell"
-        case "dockerfile", "docker": return "dockerfile"
-        case "makefile", "make": return "makefile"
-        case "diff": return "diff"
-        case "ini": return "ini"
-        default: return lang // Try using the provided language directly
-        }
     }
 }
 
