@@ -485,6 +485,7 @@ final class ChatViewModel: ChatViewModelHosting {
     func reconnect() {
         guard auth.token != nil else { return }
         guard sendButtonConnectionState == .disconnected else { return }
+        ensureLifecycleTransportSubscription()
         Task { await lifecycleCoordinator.manualRetry() }
     }
 
