@@ -326,6 +326,7 @@ final class ChatViewModel: ChatViewModelHosting {
     let salientHighlightService: any SalientHighlightServicing
     private var observationTask: Task<Void, Never>?
     private var lifecycleTransportEventsSubscription: AsyncStream<LifecycleTransportEvent>?
+    private var lifecycleOutputsSubscription: AsyncStream<ConnectionLifecycleOutput>?
     private var sessionMessages: [String: [Message]] = [:]
     private var forceReReadGenerationBySession: [String: Int] = [:]
     private var pendingLocalMessages: [PendingLocalMessage] = []
@@ -460,7 +461,7 @@ final class ChatViewModel: ChatViewModelHosting {
         isAppInForeground = true
 
         logger.info("ChatViewModel onAppear id=\(self.instanceId, privacy: .public)")
-        startObserving()
+        await startObservingIfNeeded()
         await lifecycleCoordinator.setAuthToken(auth.token)
         await lifecycleCoordinator.startIfNeeded()
     }
@@ -471,6 +472,7 @@ final class ChatViewModel: ChatViewModelHosting {
         observationTask?.cancel()
         observationTask = nil
         lifecycleTransportEventsSubscription = nil
+        lifecycleOutputsSubscription = nil
         lifecycleTransportTask?.cancel()
         lifecycleTransportTask = nil
         lifecycleOutputTask?.cancel()
@@ -485,8 +487,10 @@ final class ChatViewModel: ChatViewModelHosting {
     func reconnect() {
         guard auth.token != nil else { return }
         guard sendButtonConnectionState == .disconnected else { return }
-        ensureLifecycleTransportSubscription()
-        Task { await lifecycleCoordinator.manualRetry() }
+        Task {
+            await startObservingIfNeeded()
+            await lifecycleCoordinator.manualRetry()
+        }
     }
 
     @objc private func handleAuthStateChangeNotification() {
@@ -495,11 +499,9 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func handleAuthStateChange() {
         if auth.token != nil {
-            if observationTask == nil {
-                startObserving()
-            }
             let seededCursor = chatService.replayCursorSnapshot().values.max()
             Task {
+                await self.startObservingIfNeeded()
                 await lifecycleCoordinator.setAuthToken(auth.token)
                 await lifecycleCoordinator.seedCanonicalCursor(seededCursor)
                 await lifecycleCoordinator.startIfNeeded()
@@ -512,6 +514,7 @@ final class ChatViewModel: ChatViewModelHosting {
             observationTask?.cancel()
             observationTask = nil
             lifecycleTransportEventsSubscription = nil
+            lifecycleOutputsSubscription = nil
             lifecycleTransportTask?.cancel()
             lifecycleTransportTask = nil
             lifecycleOutputTask?.cancel()
@@ -526,9 +529,11 @@ final class ChatViewModel: ChatViewModelHosting {
     func handleSceneDidBecomeActive() {
         isAppInForeground = true
         guard auth.token != nil else { return }
-        ensureLifecycleTransportSubscription()
         logger.info("ChatViewModel sceneDidBecomeActive id=\(self.instanceId, privacy: .public) state=\(String(describing: self.connectionState), privacy: .public)")
-        Task { await lifecycleCoordinator.appDidBecomeActive() }
+        Task {
+            await startObservingIfNeeded()
+            await lifecycleCoordinator.appDidBecomeActive()
+        }
     }
 
     @objc private func handleDidEnterBackgroundNotification() {
@@ -541,8 +546,9 @@ final class ChatViewModel: ChatViewModelHosting {
         handleSceneDidBecomeActive()
     }
 
-    private func startObserving() {
+    private func startObservingIfNeeded() async {
         guard observationTask == nil else { return }
+        await ensureLifecycleOutputsSubscription()
         ensureLifecycleTransportSubscription()
         logger.info("ChatViewModel startObserving id=\(self.instanceId, privacy: .public)")
         observationTask = Task {
@@ -569,6 +575,12 @@ final class ChatViewModel: ChatViewModelHosting {
         lifecycleTransportEventsSubscription = chatService.lifecycleTransportEvents
     }
 
+    private func ensureLifecycleOutputsSubscription() async {
+        guard lifecycleOutputsSubscription == nil else { return }
+        // Subscribe before coordinator start paths so early lifecycle outputs are not dropped.
+        lifecycleOutputsSubscription = await lifecycleCoordinator.outputs
+    }
+
     @MainActor
     private func observeLifecycleTransportEvents() async {
         guard let lifecycleTransportEventsSubscription else { return }
@@ -579,8 +591,8 @@ final class ChatViewModel: ChatViewModelHosting {
 
     @MainActor
     private func observeLifecycleOutputs() async {
-        let outputs = await lifecycleCoordinator.outputs
-        for await output in outputs {
+        guard let lifecycleOutputsSubscription else { return }
+        for await output in lifecycleOutputsSubscription {
             handleLifecycleOutput(output)
         }
     }
