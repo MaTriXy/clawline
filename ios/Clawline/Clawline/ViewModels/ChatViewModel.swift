@@ -414,12 +414,14 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func onAppear() async {
-        guard observationTask == nil, auth.token != nil else { return }
         isChatVisible = true
         isAppInForeground = true
+        guard auth.token != nil else { return }
 
         logger.info("ChatViewModel onAppear id=\(self.instanceId, privacy: .public)")
-        startObserving()
+        if observationTask == nil {
+            startObserving()
+        }
         scheduleReconnect(immediate: true, reason: .onAppear)
     }
 
