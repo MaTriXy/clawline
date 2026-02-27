@@ -441,6 +441,54 @@ struct ProviderServiceTests {
         forwardTask.cancel()
         outputTask.cancel()
     }
+
+    @Test("Late auth success after transport close keeps same epoch and reaches live")
+    func authSuccessAfterRecoveringRaceReachesLive() async {
+        let coordinator = ConnectionLifecycleCoordinator(startAttempt: { _, _, _ in }, stopAttempt: {})
+        await coordinator.setAuthToken("jwt")
+        await coordinator.startIfNeeded()
+
+        await coordinator.handleTransportEvent(.init(epoch: 1, payload: .transportOpened))
+        await coordinator.handleTransportEvent(.init(epoch: 1, payload: .transportClosed(reason: .error)))
+        await coordinator.handleTransportEvent(
+            .init(
+                epoch: 1,
+                payload: .authResult(
+                    success: true,
+                    replayCount: 0,
+                    replayTruncated: false,
+                    historyReset: false,
+                    failureReason: nil
+                )
+            )
+        )
+
+        #expect(await coordinator.phase == .live)
+    }
+
+    @Test("History reset auth does not trigger immediate timeout failure")
+    func historyResetAuthDoesNotImmediatelyFail() async throws {
+        let coordinator = ConnectionLifecycleCoordinator(startAttempt: { _, _, _ in }, stopAttempt: {})
+        await coordinator.setAuthToken("jwt")
+        await coordinator.startIfNeeded()
+
+        await coordinator.handleTransportEvent(.init(epoch: 1, payload: .transportOpened))
+        await coordinator.handleTransportEvent(
+            .init(
+                epoch: 1,
+                payload: .authResult(
+                    success: true,
+                    replayCount: 27,
+                    replayTruncated: false,
+                    historyReset: true,
+                    failureReason: nil
+                )
+            )
+        )
+
+        try await Task.sleep(forDuration: .milliseconds(100))
+        #expect(await coordinator.phase == .authenticating)
+    }
 }
 
 // MARK: - Test doubles

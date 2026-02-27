@@ -173,7 +173,11 @@ actor ConnectionLifecycleCoordinator {
         if sinceBackground < 2 {
             reconnectTask?.cancel()
             reconnectTask = Task {
-                try? await Task.sleep(for: .seconds(2 - sinceBackground))
+                do {
+                    try await Task.sleep(for: .seconds(2 - sinceBackground))
+                } catch {
+                    return
+                }
                 await self.startIfNeeded()
             }
             return
@@ -269,7 +273,11 @@ actor ConnectionLifecycleCoordinator {
         transition(to: .authenticating, reason: .transportOpened)
         authTimeoutTask?.cancel()
         authTimeoutTask = Task {
-            try? await Task.sleep(for: .seconds(12))
+            do {
+                try await Task.sleep(for: .seconds(12))
+            } catch {
+                return
+            }
             await self.handleAuthTimeout(epoch: epoch)
         }
     }
@@ -317,6 +325,11 @@ actor ConnectionLifecycleCoordinator {
                 break
             }
         }
+        if phase == .recovering, success {
+            reconnectTask?.cancel()
+            reconnectTask = nil
+            transition(to: .authenticating, reason: .authSucceeded)
+        }
         guard phase == .authenticating else { return }
         authTimeoutTask?.cancel()
         authTimeoutTask = nil
@@ -348,7 +361,11 @@ actor ConnectionLifecycleCoordinator {
             emit(.historyResetRequired(epoch: epoch))
             historyResetAckTimeoutTask?.cancel()
             historyResetAckTimeoutTask = Task {
-                try? await Task.sleep(for: .seconds(5))
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                } catch {
+                    return
+                }
                 await self.handleHistoryResetAckTimeout(epoch: epoch)
             }
             return
@@ -381,7 +398,11 @@ actor ConnectionLifecycleCoordinator {
         let totalSeconds = min(300.0, max(30.0, Double(replayExpectedCount) * 0.25))
         replayTotalTimeoutTask?.cancel()
         replayTotalTimeoutTask = Task {
-            try? await Task.sleep(for: .seconds(totalSeconds))
+            do {
+                try await Task.sleep(for: .seconds(totalSeconds))
+            } catch {
+                return
+            }
             await self.handleReplayTotalTimeout(epoch: epoch)
         }
         resetReplayProgressTimeout(epoch: epoch)
@@ -408,7 +429,11 @@ actor ConnectionLifecycleCoordinator {
     private func resetReplayProgressTimeout(epoch: Int) {
         replayProgressTimeoutTask?.cancel()
         replayProgressTimeoutTask = Task {
-            try? await Task.sleep(for: .seconds(30))
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                return
+            }
             await self.handleReplayProgressTimeout(epoch: epoch)
         }
     }
@@ -544,7 +569,11 @@ actor ConnectionLifecycleCoordinator {
         emit(.restoreCacheRequested(epoch: epoch))
         connectTimeoutTask?.cancel()
         connectTimeoutTask = Task {
-            try? await Task.sleep(for: .seconds(10))
+            do {
+                try await Task.sleep(for: .seconds(10))
+            } catch {
+                return
+            }
             await self.handleConnectTimeout(epoch: epoch)
         }
         // Do not await between epoch increment and service dispatch.
@@ -567,7 +596,11 @@ actor ConnectionLifecycleCoordinator {
         guard reconnectTask == nil else { return }
 
         reconnectTask = Task {
-            try? await Task.sleep(for: delay)
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
             await self.executeRecoveringReconnect(incrementRecoveringAttempt: incrementRecoveringAttempt)
         }
     }
@@ -638,6 +671,7 @@ actor ConnectionLifecycleCoordinator {
             (.live, .failed),
             (.live, .idle),
             (.recovering, .connecting),
+            (.recovering, .authenticating),
             (.recovering, .failed),
             (.recovering, .idle),
             (.failed, .connecting),
