@@ -43,6 +43,7 @@ final class WatchVoiceSession {
     private var activeContextId: String?
     private var pendingBuffers = 0
     private var receivedDoneForContext = false
+    private var hasConfiguredAudioSession = false
 
     private var phase: Phase = .idle
     private var currentRoute: WatchProviderTransportState = .disconnected
@@ -54,9 +55,7 @@ final class WatchVoiceSession {
     private(set) var mode: VoiceMode?
 
     var canUseVoice: Bool {
-        let hasSoniox = credentialStore.sonioxApiKey?.isEmpty == false
-        let routeAllowsVoice = currentRoute == .direct || currentRoute == .probing
-        return hasSoniox && routeAllowsVoice
+        credentialStore.sonioxApiKey?.isEmpty == false
     }
 
     var onTranscriptReady: ((String) -> Void)?
@@ -86,7 +85,6 @@ final class WatchVoiceSession {
             }
         }
 
-        configurePlaybackEngineIfNeeded()
     }
 
     func startTap() {
@@ -157,7 +155,7 @@ final class WatchVoiceSession {
     func routeChanged(to route: WatchProviderTransportState) {
         currentRoute = route
 
-        guard route == .relay || route == .disconnected else {
+        guard route == .disconnected else {
             return
         }
 
@@ -211,6 +209,13 @@ final class WatchVoiceSession {
     }
 
     private func transitionToListening(mode: VoiceMode) {
+        do {
+            try configureAudioSessionIfNeeded()
+        } catch {
+            transitionToError(error.localizedDescription)
+            return
+        }
+
         inactivityTask?.cancel()
         maxDurationTask?.cancel()
 
@@ -305,11 +310,18 @@ final class WatchVoiceSession {
     }
 
     private func startSpeaking(text: String) {
+        do {
+            try configureAudioSessionIfNeeded()
+        } catch {
+            transitionToError(error.localizedDescription)
+            return
+        }
+
         errorMessage = nil
         mode = nil
         audioLevel = 0
 
-        if currentRoute == .relay || currentRoute == .disconnected || credentialStore.cartesiaApiKey?.isEmpty != false {
+        if credentialStore.cartesiaApiKey?.isEmpty != false {
             phase = .speaking(contextId: "local_speech")
             voiceState = .speaking
             speakWithSystemVoice(text)
@@ -503,6 +515,8 @@ final class WatchVoiceSession {
     }
 
     private func configurePlaybackEngineIfNeeded() {
+        try? configureAudioSessionIfNeeded()
+
         if playbackEngine.attachedNodes.contains(playerNode) == false {
             playbackEngine.attach(playerNode)
             let format = AVAudioFormat(commonFormat: .pcmFormatInt16,
@@ -515,5 +529,13 @@ final class WatchVoiceSession {
         if !playbackEngine.isRunning {
             try? playbackEngine.start()
         }
+    }
+
+    private func configureAudioSessionIfNeeded() throws {
+        guard !hasConfiguredAudioSession else { return }
+        let audioSession = AVAudioSession.sharedInstance()
+        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [])
+        try audioSession.setActive(true)
+        hasConfiguredAudioSession = true
     }
 }
