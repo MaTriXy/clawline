@@ -51,6 +51,15 @@ final class ChatViewModel: ChatViewModelHosting {
         case programmatic
     }
 
+    private struct StreamSwitchCoordinator {
+        let resetHandler: @MainActor () -> Void
+
+        @MainActor
+        func reset() {
+            resetHandler()
+        }
+    }
+
     // UI-intent key: updates immediately on stream-switch intent.
     private(set) var uiSelectedSessionKey: String = ""
     // Engine-active key: drives expensive restore/snapshot/layout work.
@@ -74,6 +83,9 @@ final class ChatViewModel: ChatViewModelHosting {
     private var pendingEngineActivationEpoch: Int?
     private var engineActivationInFlightSessionKey: String?
     private var isPagerInteracting: Bool = false
+    private lazy var streamSwitchCoordinator = StreamSwitchCoordinator(resetHandler: { [weak self] in
+        self?.resetStreamSwitchState()
+    })
     // Render policy seam:
     // `.frozen` while pager is physically moving; suppresses new heavy snapshot/layout work on all pages.
     // `.active` once pager is settled; heavy work may start again.
@@ -256,6 +268,15 @@ final class ChatViewModel: ChatViewModelHosting {
         engineActivationInFlightSessionKey = nil
         messages = []
         streamDefaults.removeObject(forKey: activeSessionDefaultsKey())
+    }
+
+    private func resetStreamSwitchState() {
+        pendingEngineActivationTask?.cancel()
+        pendingEngineActivationTask = nil
+        pendingEngineActivationTarget = nil
+        pendingEngineActivationEpoch = nil
+        engineActivationInFlightSessionKey = nil
+        bindStreamSwitchCoordinatorIfNeeded()
     }
 
     var activeSessionDisplayName: String {
@@ -909,6 +930,7 @@ final class ChatViewModel: ChatViewModelHosting {
         messageFailures.removeAll()
         chatService.clearReplayCursors()
         clearMessageCache()
+        streamSwitchCoordinator.reset()
         Task {
             await lifecycleCoordinator.updateCanonicalCursor(nil)
             await lifecycleCoordinator.acknowledgeHistoryReset(epoch: epoch)
