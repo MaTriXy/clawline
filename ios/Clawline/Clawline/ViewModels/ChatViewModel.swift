@@ -301,6 +301,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private let deviceId: String
     let salientHighlightService: any SalientHighlightServicing
     private var observationTask: Task<Void, Never>?
+    private var lifecycleTransportEventsSubscription: AsyncStream<LifecycleTransportEvent>?
     private var sessionMessages: [String: [Message]] = [:]
     private var forceReReadGenerationBySession: [String: Int] = [:]
     private var pendingLocalMessages: [PendingLocalMessage] = []
@@ -445,6 +446,7 @@ final class ChatViewModel: ChatViewModelHosting {
         logger.info("ChatViewModel onDisappear id=\(self.instanceId, privacy: .public)")
         observationTask?.cancel()
         observationTask = nil
+        lifecycleTransportEventsSubscription = nil
         lifecycleTransportTask?.cancel()
         lifecycleTransportTask = nil
         lifecycleOutputTask?.cancel()
@@ -475,15 +477,16 @@ final class ChatViewModel: ChatViewModelHosting {
             Task {
                 await lifecycleCoordinator.setAuthToken(auth.token)
                 await lifecycleCoordinator.seedCanonicalCursor(seededCursor)
+                await lifecycleCoordinator.startIfNeeded()
             }
             restoreStreamMetadataIfNeeded()
             restoreActiveSessionKeyIfNeeded()
             ensureDefaultActiveSessionIfNeeded()
-            Task { await lifecycleCoordinator.startIfNeeded() }
         } else {
             didRestoreActiveSessionKey = false
             observationTask?.cancel()
             observationTask = nil
+            lifecycleTransportEventsSubscription = nil
             lifecycleTransportTask?.cancel()
             lifecycleTransportTask = nil
             lifecycleOutputTask?.cancel()
@@ -513,6 +516,10 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func startObserving() {
+        guard observationTask == nil else { return }
+        // Subscribe synchronously so lifecycle transport events cannot be dropped
+        // before the first startIfNeeded() dispatch.
+        lifecycleTransportEventsSubscription = chatService.lifecycleTransportEvents
         logger.info("ChatViewModel startObserving id=\(self.instanceId, privacy: .public)")
         observationTask = Task {
             await withTaskGroup(of: Void.self) { group in
@@ -533,7 +540,8 @@ final class ChatViewModel: ChatViewModelHosting {
 
     @MainActor
     private func observeLifecycleTransportEvents() async {
-        for await event in chatService.lifecycleTransportEvents {
+        guard let lifecycleTransportEventsSubscription else { return }
+        for await event in lifecycleTransportEventsSubscription {
             await lifecycleCoordinator.handleTransportEvent(event)
         }
     }
@@ -697,6 +705,7 @@ final class ChatViewModel: ChatViewModelHosting {
         cancelSend()
         observationTask?.cancel()
         observationTask = nil
+        lifecycleTransportEventsSubscription = nil
         lifecycleTransportTask?.cancel()
         lifecycleTransportTask = nil
         lifecycleOutputTask?.cancel()
