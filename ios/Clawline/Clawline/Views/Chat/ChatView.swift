@@ -455,14 +455,17 @@ struct ChatView: View {
                 .overlay(NoiseOverlayView().ignoresSafeArea())
 #endif
         }
-        .task { await viewModel.onAppear() }
+        .task {
+            viewModel.handleSceneActiveStateChanged(isActive: scenePhase == .active)
+            await viewModel.onAppear()
+        }
         .onDisappear {
             viewModel.onDisappear()
             resetScrollButtonInteractionState()
         }
         .onChange(of: scenePhase) { _, phase in
+            viewModel.handleSceneActiveStateChanged(isActive: phase == .active)
             guard phase == .active else { return }
-            viewModel.handleSceneDidBecomeActive()
             keyboardRefreshToken &+= 1
         }
         .background(
@@ -525,7 +528,21 @@ struct ChatView: View {
                              viewModel: ChatViewModel,
                              toastManager: ToastManager) -> some View {
         @Bindable var viewModel = viewModel
-        let topInset: CGFloat = geometry.safeAreaInsets.top
+        let statusBarTopInset: CGFloat = geometry.safeAreaInsets.top
+        let messageListTopInset: CGFloat = {
+#if os(visionOS)
+            return geometry.safeAreaInsets.top + (geometry.size.height * 0.25)
+#else
+            return geometry.safeAreaInsets.top
+#endif
+        }()
+        let spatialAdditionalBottomInset: CGFloat = {
+#if os(visionOS)
+            return geometry.size.height * 0.25
+#else
+            return 0
+#endif
+        }()
         let isCompactLayout = horizontalSizeClass == .compact
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompactLayout)
         let resolvedInputHeight = max(inputBarHeight, MessageInputBarMetrics.minInputBarHeight)
@@ -535,17 +552,13 @@ struct ChatView: View {
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
         let showsStreamPager = !effectiveSessionKeys.isEmpty
         let pageIndicatorClearance: CGFloat = {
-#if os(visionOS)
-            return 0
-#else
             guard showsStreamPager else { return 0 }
             return floatingPageDotsBottomGap + StreamPageDotsView.controlHeight
-#endif
         }()
         let bottomFlowGap: CGFloat = isCompactLayout
             ? metrics.flowGap
             : ChatFlowTheme.Metrics(isCompact: false).flowGap
-        let bottomInsetFlowGap = bottomFlowGap
+        let bottomInsetFlowGap = bottomFlowGap + spatialAdditionalBottomInset
         // Keep the bar gap continuous through the final keyboard-dismiss frames.
         let keyboardInsetProgress = min(1, max(0, keyboardVisibleHeight / 24))
         let belowBarGap: CGFloat = 24 - (12 * keyboardInsetProgress)
@@ -613,7 +626,7 @@ struct ChatView: View {
 
         let messageLayer: AnyView = AnyView(
             pagedStreamView(
-                topInset: topInset,
+                topInset: messageListTopInset,
                 truncationBottomInset: truncationBottomInset,
                 effectiveSessionKeys: effectiveSessionKeys
             )
@@ -625,7 +638,7 @@ struct ChatView: View {
             messageLayer
                 // #31: fade out message content behind the system status bar (mask, not overlay tint).
                 .compositingGroup()
-                .mask(statusBarFadeMask(topInset: topInset))
+                .mask(statusBarFadeMask(topInset: statusBarTopInset))
 
             streamToastView(
                 inputBarTopFromScreenBottom: inputBarTopFromScreenBottom

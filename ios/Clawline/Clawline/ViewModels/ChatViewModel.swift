@@ -317,6 +317,12 @@ final class ChatViewModel: ChatViewModelHosting {
     private var uploadedAssetIds: [UUID: String] = [:]
     private var downloadedAssetData: [String: Data] = [:]
     private let streamDefaults = UserDefaults.standard
+    private var isChatVisible = false
+    private var isAppInForeground = false
+    private let assistantIncomingHapticDebounceInterval: TimeInterval = 1
+    private var lastAssistantIncomingHapticAt: Date?
+    private let nowProvider: () -> Date
+    private let assistantIncomingHaptic: @MainActor () -> Void
     private var persistDebounceTasks: [String: Task<Void, Never>] = [:]
     private var pendingPersistPayloads: [String: [Message]] = [:]
     private var restoreTaskBySessionKey: [String: Task<Void, Never>] = [:]
@@ -368,7 +374,14 @@ final class ChatViewModel: ChatViewModelHosting {
          uploadService: any UploadServicing,
          toastManager: ToastManager,
          salientHighlightService: any SalientHighlightServicing,
-         connectionAlertGracePeriod: Duration = .seconds(2)) {
+         connectionAlertGracePeriod: Duration = .seconds(2),
+         nowProvider: @escaping () -> Date = Date.init,
+         assistantIncomingHaptic: @escaping @MainActor () -> Void = {
+             #if !os(visionOS)
+             let generator = UIImpactFeedbackGenerator(style: .light)
+             generator.impactOccurred()
+             #endif
+         }) {
         logger.info("ChatViewModel init id=\(self.instanceId, privacy: .public)")
         self.auth = auth
         self.chatService = chatService
@@ -385,6 +398,8 @@ final class ChatViewModel: ChatViewModelHosting {
                 chatService?.stopConnectionAttempt()
             }
         )
+        self.nowProvider = nowProvider
+        self.assistantIncomingHaptic = assistantIncomingHaptic
         _ = connectionAlertGracePeriod
         NotificationCenter.default.addObserver(
             self,
@@ -416,6 +431,8 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func onAppear() async {
         guard observationTask == nil, auth.token != nil else { return }
+        isChatVisible = true
+        isAppInForeground = true
 
         logger.info("ChatViewModel onAppear id=\(self.instanceId, privacy: .public)")
         startObserving()
@@ -424,6 +441,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func onDisappear() {
+        isChatVisible = false
         logger.info("ChatViewModel onDisappear id=\(self.instanceId, privacy: .public)")
         observationTask?.cancel()
         observationTask = nil
@@ -478,6 +496,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func handleSceneDidBecomeActive() {
+        isAppInForeground = true
         guard auth.token != nil else { return }
         logger.info("ChatViewModel sceneDidBecomeActive id=\(self.instanceId, privacy: .public) state=\(String(describing: self.connectionState), privacy: .public)")
         Task { await lifecycleCoordinator.appDidBecomeActive() }
@@ -485,6 +504,12 @@ final class ChatViewModel: ChatViewModelHosting {
 
     @objc private func handleDidEnterBackgroundNotification() {
         Task { await lifecycleCoordinator.appDidEnterBackground() }
+    }
+
+    func handleSceneActiveStateChanged(isActive: Bool) {
+        isAppInForeground = isActive
+        guard isActive else { return }
+        handleSceneDidBecomeActive()
     }
 
     private func startObserving() {
@@ -823,13 +848,17 @@ final class ChatViewModel: ChatViewModelHosting {
 
         ensureSessionStorage(for: resolvedMessage.sessionKey)
         var messageList = sessionMessages[resolvedMessage.sessionKey] ?? []
+        let didAppendNewMessage: Bool
         if let existingIndex = messageList.firstIndex(where: { $0.id == resolvedMessage.id }) {
             logger.info("incoming duplicate id=\(resolvedMessage.id, privacy: .public) index=\(existingIndex, privacy: .public) sessionKey=\(resolvedMessage.sessionKey, privacy: .public)")
             messageList[existingIndex] = resolvedMessage
+            didAppendNewMessage = false
         } else {
             messageList.append(resolvedMessage)
+            didAppendNewMessage = true
         }
         setMessages(messageList, for: resolvedMessage.sessionKey)
+        maybeTriggerAssistantIncomingHaptic(for: resolvedMessage, didAppendNewMessage: didAppendNewMessage)
 
         markUnreadIfNeeded(for: resolvedMessage)
         resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
@@ -869,6 +898,18 @@ final class ChatViewModel: ChatViewModelHosting {
             await lifecycleCoordinator.updateCanonicalCursor(nil)
             await lifecycleCoordinator.acknowledgeHistoryReset(epoch: epoch)
         }
+    }
+
+    private func maybeTriggerAssistantIncomingHaptic(for message: Message, didAppendNewMessage: Bool) {
+        guard didAppendNewMessage, message.role == .assistant else { return }
+        guard isChatVisible, isAppInForeground else { return }
+        let now = nowProvider()
+        if let last = lastAssistantIncomingHapticAt,
+           now.timeIntervalSince(last) < assistantIncomingHapticDebounceInterval {
+            return
+        }
+        lastAssistantIncomingHapticAt = now
+        assistantIncomingHaptic()
     }
 
     private func resolveAssetAttachmentsIfNeeded(for message: Message) {
