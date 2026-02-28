@@ -59,116 +59,6 @@ struct ChatViewModelTests {
         #expect(snapshot.lastMessageId == "s_snapshot")
     }
 
-    @Test("Connection snapshot uses latest server id even when message is from inactive session")
-    @MainActor
-    func snapshotUsesGlobalServerCursorFromInactiveSession() async throws {
-        resetChatPersistence()
-        let auth = TestAuthManager()
-        auth.storeCredentials(token: "jwt", userId: "user")
-        let chatService = TestChatService()
-        _ = chatService.incomingMessages
-        _ = chatService.connectionState
-        _ = chatService.serviceEvents
-        let viewModel = ChatViewModel(
-            auth: auth,
-            chatService: chatService,
-            settings: SettingsManager(),
-            device: TestDevice(),
-            uploadService: TestUploadService(),
-            toastManager: ToastManager(),
-            salientHighlightService: SalientHighlightService()
-        )
-        defer { viewModel.onDisappear() }
-
-        await viewModel.onAppear()
-
-        let inactiveSessionKey = "agent:main:clawline:user:s_other"
-        chatService.emit(
-            Message(
-                id: "s_inactive_latest",
-                role: .assistant,
-                content: "From another stream",
-                timestamp: Date(),
-                streaming: false,
-                attachments: [],
-                deviceId: nil,
-                sessionKey: inactiveSessionKey
-            )
-        )
-
-        var snapshot: (token: String?, lastMessageId: String?) = (nil, nil)
-        for _ in 0..<50 {
-            snapshot = await MainActor.run { viewModel.debugConnectionSnapshot() }
-            if snapshot.lastMessageId == "s_inactive_latest" { break }
-            try await Task.sleep(forDuration: .milliseconds(10))
-        }
-        #expect(snapshot.lastMessageId == "s_inactive_latest")
-    }
-
-    @Test("Replay barrier defers cache restore and avoids overwriting replay-applied messages")
-    @MainActor
-    func replayBarrierDefersAndSkipsStaleCacheOverwrite() async throws {
-        resetChatPersistence()
-        let auth = TestAuthManager()
-        auth.storeCredentials(token: "jwt", userId: "user")
-        let chatService = TestChatService()
-        let sessionKey = personalSessionKey
-        let staleCached = Message(
-            id: "s_cached_old",
-            role: .assistant,
-            content: "old cached",
-            timestamp: Date(timeIntervalSince1970: 100),
-            streaming: false,
-            attachments: [],
-            deviceId: nil,
-            sessionKey: sessionKey
-        )
-        persistCachedMessagesForTest(messages: [staleCached], sessionKey: sessionKey)
-
-        let viewModel = ChatViewModel(
-            auth: auth,
-            chatService: chatService,
-            settings: SettingsManager(),
-            device: TestDevice(),
-            uploadService: TestUploadService(),
-            toastManager: ToastManager(),
-            salientHighlightService: SalientHighlightService()
-        )
-        defer { viewModel.onDisappear() }
-
-        await viewModel.onAppear()
-        try await setConnected(chatService: chatService, viewModel: viewModel)
-        chatService.emitServiceEvent(.replayStarted(expectedCount: 1))
-        chatService.emitServiceEvent(.streamSnapshot([
-            makeStreamSession(sessionKey: sessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true)
-        ]))
-        try await Task.sleep(for: .milliseconds(60))
-        let preReplayMessages = viewModel.messages(for: sessionKey)
-        #expect(preReplayMessages.contains(where: { $0.id == "s_cached_old" }) == false)
-
-        let replayMessage = Message(
-            id: "s_replay_new",
-            role: .assistant,
-            content: "replay new",
-            timestamp: Date(),
-            streaming: false,
-            attachments: [],
-            deviceId: nil,
-            sessionKey: sessionKey
-        )
-        chatService.emit(replayMessage)
-        for _ in 0..<50 {
-            if viewModel.messages(for: sessionKey).contains(where: { $0.id == "s_replay_new" }) { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        chatService.emitServiceEvent(.replayCompleted)
-        try await Task.sleep(for: .milliseconds(120))
-
-        let finalMessages = viewModel.messages(for: sessionKey)
-        #expect(finalMessages.contains(where: { $0.id == "s_replay_new" }))
-        #expect(finalMessages.contains(where: { $0.id == "s_cached_old" }) == false)
-    }
-
     @Test("Streaming updates replace existing message instead of duplicating")
     @MainActor
     func streamingMessagesUpdateInPlace() async throws {
@@ -731,6 +621,7 @@ struct ChatViewModelTests {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
+        auth.updateAdminStatus(true)
         let chatService = TestChatService()
         chatService.streams = [
             makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
@@ -752,6 +643,7 @@ struct ChatViewModelTests {
         defer { viewModel.onDisappear() }
 
         await viewModel.onAppear()
+        try await setConnected(chatService: chatService, viewModel: viewModel)
         chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
         for _ in 0..<50 {
             if viewModel.orderedSessionKeys.contains(adminSessionKey) { break }
@@ -773,32 +665,26 @@ struct ChatViewModelTests {
 
         viewModel.setActiveSessionKeyForTesting(adminSessionKey)
         #expect(viewModel.activeSessionKey == adminSessionKey)
-        chatService.emitConnectionState(.connected)
-        for _ in 0..<100 {
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: true,
+                dmScope: "global_dm",
+                sessionKeys: [personalSessionKey, adminSessionKey]
+            )
+        ))
+
+        for _ in 0..<50 {
             if viewModel.sendButtonConnectionState == .connected { break }
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(viewModel.sendButtonConnectionState == .connected)
-        chatService.emitServiceEvent(.sessionProvisioningAvailable(false))
-        viewModel.inputContent = NSAttributedString(string: "Admin ping")
-        for _ in 0..<50 {
-            if viewModel.canSend { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
 
-        for _ in 0..<10 {
-            if !viewModel.canSend {
-                viewModel.inputContent = NSAttributedString(string: "Admin ping")
-                try await Task.sleep(for: .milliseconds(20))
-                continue
-            }
-            viewModel.send()
-            for _ in 0..<25 {
-                if chatService.lastSessionKey != nil { break }
-                try await Task.sleep(for: .milliseconds(20))
-            }
+        viewModel.inputContent = NSAttributedString(string: "Admin ping")
+        viewModel.send()
+        for _ in 0..<50 {
             if chatService.lastSessionKey == adminSessionKey { break }
-            viewModel.inputContent = NSAttributedString(string: "Admin ping")
+            try await Task.sleep(for: .milliseconds(20))
         }
 
         #expect(chatService.lastSessionKey == adminSessionKey)
@@ -1095,14 +981,13 @@ struct ChatViewModelTests {
         var routedMessages: [Message] = []
         for _ in 0..<50 {
             routedMessages = await MainActor.run { viewModel.messages(for: adminSessionKey) }
-            if routedMessages.contains(where: { $0.id == "s_admin" }) {
+            if routedMessages.first?.id == "s_admin" {
                 break
             }
             try await Task.sleep(forDuration: .milliseconds(20))
         }
-        #expect(routedMessages.contains(where: { $0.id == "s_admin" }))
-        let personalMessages = await MainActor.run { viewModel.messages(for: personalSessionKey) }
-        #expect(personalMessages.contains(where: { $0.id == "s_admin" }) == false)
+        #expect(routedMessages.count == 1)
+        #expect(routedMessages.first?.id == "s_admin")
     }
 
     @Test("Assistant incoming append fires light haptic when chat is visible and app is foreground")
@@ -1929,27 +1814,6 @@ private func resetChatPersistence() {
         .appendingPathComponent("Clawline", isDirectory: true)
         .appendingPathComponent("StreamCache", isDirectory: true)
     try? fileManager.removeItem(at: streamDirectoryURL)
-}
-
-@MainActor
-private func persistCachedMessagesForTest(messages: [Message], sessionKey: String) {
-    let fileManager = FileManager.default
-    guard let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-        return
-    }
-    let directoryURL = baseURL
-        .appendingPathComponent("Clawline", isDirectory: true)
-        .appendingPathComponent("MessageCache", isDirectory: true)
-    try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-    let filename = sessionKey
-        .replacingOccurrences(of: ":", with: "-")
-        .replacingOccurrences(of: "/", with: "-")
-    let url = directoryURL.appendingPathComponent("\(filename).json")
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    if let data = try? encoder.encode(messages) {
-        try? data.write(to: url, options: [.atomic])
-    }
 }
 
 @MainActor

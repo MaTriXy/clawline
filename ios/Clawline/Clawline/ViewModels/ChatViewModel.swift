@@ -307,10 +307,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var observationTask: Task<Void, Never>?
     private var sessionMessages: [String: [Message]] = [:]
     private var lastServerMessageIdBySession: [String: String] = [:]
-    private var lastSeenServerMessageId: String?
     private var pendingLocalMessages: [PendingLocalMessage] = []
-    private var pendingReplayMessageCount: Int = 0
-    private var deferredCacheRestoreSessionKeys: Set<String> = []
     private var reconnectTask: Task<Void, Never>?
     private var reconnectBackoff: Duration = .seconds(1)
     private let authRejectionInitialBackoff: Duration = .seconds(30)
@@ -707,7 +704,6 @@ final class ChatViewModel: ChatViewModelHosting {
             persistLastReadMessageId(nil, for: key)
         }
         lastServerMessageId = nil
-        lastSeenServerMessageId = nil
         lastServerMessageIdBySession.removeAll()
         lastReadMessageIdBySession.removeAll()
         hasUnreadBySession.removeAll()
@@ -1061,7 +1057,6 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func updateLastServerMessageIdIfNeeded(with message: Message) {
         guard message.id.hasPrefix("s_") else { return }
-        lastSeenServerMessageId = message.id
         lastServerMessageIdBySession[message.sessionKey] = message.id
         if message.sessionKey == engineActiveSessionKey {
             lastServerMessageId = message.id
@@ -1090,9 +1085,6 @@ final class ChatViewModel: ChatViewModelHosting {
         logger.info("ChatViewModel handleConnectionState id=\(self.instanceId, privacy: .public) state=\(String(describing: state), privacy: .public)")
         switch state {
         case .connected:
-            if pendingReplayMessageCount == 0 {
-                restoreDeferredCachedMessagesIfNeeded()
-            }
             connectionStableTask?.cancel()
             connectionStableTask = Task { [weak self] in
                 guard let self else { return }
@@ -1109,8 +1101,6 @@ final class ChatViewModel: ChatViewModelHosting {
             isAssistantTyping = false
             typingSessionKey = nil
         case .disconnected:
-            pendingReplayMessageCount = 0
-            deferredCacheRestoreSessionKeys.removeAll()
             connectionStableTask?.cancel()
             connectionStableTask = nil
             resetSessionProvisioningState(clearPendingSend: true)
@@ -1119,8 +1109,6 @@ final class ChatViewModel: ChatViewModelHosting {
             isAssistantTyping = false
             typingSessionKey = nil
         case .failed(let err):
-            pendingReplayMessageCount = 0
-            deferredCacheRestoreSessionKeys.removeAll()
             connectionStableTask?.cancel()
             connectionStableTask = nil
             resetSessionProvisioningState(clearPendingSend: true)
@@ -1130,8 +1118,6 @@ final class ChatViewModel: ChatViewModelHosting {
             isAssistantTyping = false
             typingSessionKey = nil
         case .connecting, .reconnecting:
-            pendingReplayMessageCount = 0
-            deferredCacheRestoreSessionKeys.removeAll()
             resetSessionProvisioningState(clearPendingSend: true)
             isAssistantTyping = false
             typingSessionKey = nil
@@ -1600,11 +1586,6 @@ final class ChatViewModel: ChatViewModelHosting {
             hasReceivedSessionProvisioning = true
             provisionedSessionKeys = Set(info.sessionKeys)
             attemptPendingProvisionedSendIfPossible()
-        case .replayStarted(let expectedCount):
-            pendingReplayMessageCount = max(expectedCount, 0)
-        case .replayCompleted:
-            pendingReplayMessageCount = 0
-            restoreDeferredCachedMessagesIfNeeded()
         }
     }
 
@@ -1754,10 +1735,6 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func restoreCachedMessagesIfNeeded(for sessionKey: String) {
-        guard !shouldDeferCacheRestore else {
-            deferredCacheRestoreSessionKeys.insert(sessionKey)
-            return
-        }
         StreamSwitchTiming.log("restoreCachedMessagesIfNeeded_start", sessionKey: sessionKey)
         guard restoredSessionKeys.contains(sessionKey) == false else { return }
         restoredSessionKeys.insert(sessionKey)
@@ -1786,7 +1763,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 }
                 await MainActor.run { [weak self, filtered] in
                     guard let self else { return }
-                    guard self.shouldApplyCachedMessages(filtered, for: sessionKey) else { return }
                     self.setMessages(filtered, for: sessionKey)
                     let cachedLast = self.lastServerMessageId(from: filtered)
                     self.lastServerMessageIdBySession[sessionKey] = cachedLast
@@ -1801,36 +1777,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
                 logger.error("message cache decode failed sessionKey=\(sessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             }
-        }
-    }
-
-    private func restoreDeferredCachedMessagesIfNeeded() {
-        guard !deferredCacheRestoreSessionKeys.isEmpty else { return }
-        let deferredKeys = deferredCacheRestoreSessionKeys
-        deferredCacheRestoreSessionKeys.removeAll()
-        for sessionKey in deferredKeys {
-            restoreCachedMessagesIfNeeded(for: sessionKey)
-        }
-    }
-
-    private func shouldApplyCachedMessages(_ cachedMessages: [Message], for sessionKey: String) -> Bool {
-        let current = sessionMessages[sessionKey] ?? []
-        guard !current.isEmpty else { return true }
-        return false
-    }
-
-    private var shouldDeferCacheRestore: Bool {
-        if pendingReplayMessageCount > 0 {
-            return true
-        }
-        guard auth.token != nil else {
-            return false
-        }
-        switch connectionState {
-        case .connected:
-            return false
-        case .disconnected, .connecting, .reconnecting, .failed:
-            return true
         }
     }
 
@@ -2343,7 +2289,7 @@ final class ChatViewModel: ChatViewModelHosting {
     @MainActor
     private func connectionSnapshot() -> (token: String?, lastMessageId: String?) {
         let activeKey = engineActiveSessionKey
-        let cursor = lastSeenServerMessageId ?? lastServerMessageIdBySession[activeKey] ?? lastServerMessageId
+        let cursor = lastServerMessageIdBySession[activeKey] ?? lastServerMessageId
         return (auth.token, cursor)
     }
 

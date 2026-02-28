@@ -43,9 +43,6 @@ enum ChatServiceEvent: Equatable {
     /// Server-authoritative session provisioning manifest.
     /// Session keys are the only routing identifiers on the wire (Clawline invariants N3/N7).
     case sessionInfo(SessionInfo)
-    /// Replay phase lifecycle derived from auth_result metadata.
-    case replayStarted(expectedCount: Int)
-    case replayCompleted
 }
 
 struct SessionInfo: Equatable {
