@@ -1894,6 +1894,9 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func ensureDefaultActiveSessionIfNeeded() {
         if engineActiveSessionKey.isEmpty {
+            guard !orderedSessionKeys.isEmpty else {
+                return
+            }
             if let main = streamMainSessionKey() {
                 ensureStreamEntry(for: main)
                 setEngineActiveSessionKey(main)
