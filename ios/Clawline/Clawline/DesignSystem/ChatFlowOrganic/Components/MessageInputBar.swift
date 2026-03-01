@@ -351,6 +351,13 @@ private struct MessageEditorChrome: View {
 }
 
 private struct MessageSendControl: View {
+    private enum BubbleVisualState: Equatable {
+        case ghost
+        case active
+        case reconnecting
+        case error
+    }
+
     let isSending: Bool
     let canSend: Bool
     let connectionState: SendButtonConnectionState
@@ -365,39 +372,56 @@ private struct MessageSendControl: View {
     private var isReconnecting: Bool { connectionState == .reconnecting }
     private var isDisconnected: Bool { connectionState == .disconnected }
     private var sendActionEnabled: Bool { isSending || canSend || isDisconnected }
-    private var reconnectDotSize: CGFloat { min(12, sendButtonSize * 0.4) }
     private var sendIconColor: Color { .white }
     private let reconnectPulseDuration: TimeInterval = 0.8
 
-    private var sendBackgroundColor: Color {
+    private var bubbleVisualState: BubbleVisualState {
         switch connectionState {
         case .connected:
+            return sendActionEnabled ? .active : .ghost
+        case .reconnecting:
+            return .reconnecting
+        case .disconnected:
+            return .error
+        }
+    }
+
+    private var bubbleColor: Color {
+        let activeColor: Color = {
 #if os(visionOS)
-            return ChatFlowTheme.sage(inputBarColorScheme)
+            ChatFlowTheme.sage(inputBarColorScheme)
 #else
-            return ChatFlowTheme.sage(uiColorScheme)
+            ChatFlowTheme.sage(uiColorScheme)
 #endif
+        }()
+        switch bubbleVisualState {
+        case .ghost:
+            return activeColor
+        case .active:
+            return activeColor
         case .reconnecting:
             return ChatFlowTheme.connectionReconnecting(inputBarColorScheme)
-        case .disconnected:
+        case .error:
             return ChatFlowTheme.connectionDisconnected(inputBarColorScheme)
         }
     }
 
-    private func reconnectPulsePhase(at date: Date) -> Double {
+    private func reconnectPulsePhase(at date: Date) -> CGFloat {
         let phase = date.timeIntervalSinceReferenceDate
             .truncatingRemainder(dividingBy: reconnectPulseDuration) / reconnectPulseDuration
-        return 0.5 - 0.5 * cos(phase * 2 * .pi)
+        return CGFloat(0.5 - 0.5 * cos(phase * 2 * .pi))
     }
 
-    private func reconnectDotOpacity(at date: Date) -> Double {
-        let phase = reconnectPulsePhase(at: date)
-        return 0.4 + (0.6 * phase)
-    }
-
-    private func reconnectDotScale(at date: Date) -> Double {
-        let phase = reconnectPulsePhase(at: date)
-        return 1.0 + (0.3 * phase)
+    private func bubbleScale(at date: Date) -> CGFloat {
+        switch bubbleVisualState {
+        case .ghost:
+            return 0
+        case .active, .error:
+            return 1
+        case .reconnecting:
+            let phase = reconnectPulsePhase(at: date)
+            return 0.5 + (0.5 * phase)
+        }
     }
 
     var body: some View {
@@ -415,58 +439,29 @@ private struct MessageSendControl: View {
                 break
             }
         }) {
-            ZStack {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isReconnecting)) { context in
-                    Circle()
-                        .fill(sendBackgroundColor)
-                        .frame(width: reconnectDotSize, height: reconnectDotSize)
-                        .opacity(isReconnecting ? reconnectDotOpacity(at: context.date) : 0)
-                        .scaleEffect(isReconnecting ? reconnectDotScale(at: context.date) : 0.45)
-                }
+            Image(systemName: isDisconnected ? "arrow.clockwise" : "paperplane.fill")
+                .font(.clawline(.uiLabel).weight(.semibold))
+                .foregroundStyle(sendIconColor)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                Image(systemName: "stop.fill")
-                    .font(.clawline(.uiLabel).weight(.semibold))
-                    .foregroundStyle(sendIconColor)
-                    .opacity(isSending && !isReconnecting ? 1 : 0)
-                    .scaleEffect(isSending && !isReconnecting ? 1 : 0.7)
-
-                Image(systemName: isDisconnected ? "arrow.clockwise" : "paperplane.fill")
-                    .font(.clawline(.uiLabel).weight(.semibold))
-                    .foregroundStyle(sendIconColor)
-                    .opacity(!isSending && !isReconnecting ? 1 : 0)
-                    .scaleEffect(!isSending && !isReconnecting ? 1 : 0.7)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
+                .contentShape(Rectangle())
         }
         .frame(width: sendButtonSize, height: sendButtonSize)
+        .background {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isReconnecting)) { context in
+                Circle()
+                    .fill(bubbleColor)
+                    .frame(width: sendButtonSize, height: sendButtonSize)
+                    .scaleEffect(bubbleScale(at: context.date))
+            }
+        }
 #if os(visionOS)
-        .background(
-            Circle().fill(
-                isReconnecting
-                    ? .clear
-                    : sendBackgroundColor.opacity(sendActionEnabled ? 1 : 0.35)
-            )
-        )
+        .background(.regularMaterial, in: Circle())
         .overlay(Circle().stroke(visionOSBorderColor, lineWidth: 1))
 #else
-        .background(
-            Capsule().fill(
-                isReconnecting
-                    ? .clear
-                    : sendBackgroundColor.opacity(sendActionEnabled ? 1 : 0.35)
-            )
-        )
-        .glassEffect(.regular.interactive(), in: Capsule())
+        .glassEffect(.regular.interactive(), in: Circle())
 #endif
         .buttonStyle(.plain)
-#if os(visionOS)
-        .tint(sendIconColor)
-        .foregroundStyle(sendIconColor)
-#endif
         .allowsHitTesting(sendActionEnabled && !isReconnecting)
-        .opacity(sendActionEnabled || isReconnecting ? 1 : 0.4)
         .accessibilityLabel(
             isReconnecting ? "Reconnecting" :
                 (isDisconnected ? "Disconnected. Tap to reconnect." : "Send message")
@@ -475,6 +470,7 @@ private struct MessageSendControl: View {
         .animation(.spring(response: 0.30, dampingFraction: 0.82), value: isSending)
         .animation(.spring(response: 0.30, dampingFraction: 0.82), value: canSend)
         .animation(.spring(response: 0.30, dampingFraction: 0.82), value: connectionState)
+        .animation(.spring(response: 0.30, dampingFraction: 0.82), value: bubbleVisualState)
     }
 }
 
