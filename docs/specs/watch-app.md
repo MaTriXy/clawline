@@ -1369,3 +1369,109 @@ The spec is comprehensive and implementation-ready:
 - **Dual-transport failover state machine** with 4 states, 7 transitions, bounded buffer, debounced reachability
 - **Voice FSM** with 6 states (including ERROR), barge-in paths, route-change handling, timeout policy
 - **No SSOT violations**, **no unresolved contradictions**, **no undefined transitions**
+
+## Adversarial Review — 2026-03-01
+
+**Reviewer:** Claude Opus 4.6, cross-validated with GPT-5.2-Codex
+**Scope:** Spec-vs-implementation deep review against Flynn's 7 architectural principles
+
+### Mutation Seam Findings
+
+**1. BLOCKING: Credential contract C1 contradicts the State Ownership Map.**
+C1 (line 1183) claims: "Only `WCSessionDelegate.session(_:didReceiveUserInfo:)` writes credentials to the Keychain. No other code path writes credentials." But the State Ownership Map (line 1130) documents: "Provider token... `WCSessionDelegate.didReceiveUserInfo` writes; **token refresh response writes**." The relay protocol (line 208) also defines `auth.refresh` as a Watch-to-iPhone operation that returns fresh credentials. The implementation in `WatchWCSessionDelegate.swift` lines 49-63 shows the auth.refresh handler returning credential values, and those would need to be applied to the credential store — a second write path. This is a direct contradiction and a mutation seam violation. **Fix: Either route token refresh responses through the same `apply(userInfo:)` path (making `auth.refresh` responses use the same credential mutation seam as `didReceiveUserInfo`), or update C1 to acknowledge both paths and designate `WatchCredentialStore.apply(userInfo:)` as the single mutation method regardless of source.**
+
+**2. HIGH: `routeChanged(to:)` only handles `.disconnected`, ignoring `.relay`.**
+The spec (V6, lines 1039-1044) explicitly requires route-change force-stop behavior for both `.relay` and `.disconnected` transitions: "When `routeChanged(to:)` is called with `.relay` or `.disconnected`." The implementation in `WatchVoiceSession.swift` lines 155-177 guards only on `route == .disconnected`:
+```swift
+guard route == .disconnected else { return }
+```
+This means transitioning to `.relay` during active listening or speaking does NOT trigger the specified force-stop behavior. The spec requires that LISTENING during relay transition should finalize Soniox and send the transcript, and SPEAKING should cancel TTS. The implementation silently ignores relay transitions. **This is a behavioral gap between spec and implementation.**
+
+**3. MEDIUM: `WatchProviderTransport` has multiple `transportState` write sites.**
+The `transportState` property has a `didSet` observer (line 130-139 of `WatchProviderTransport.swift`) which is good — it gates relay activation/deactivation notifications. But `transportState` is written directly from at least 7 different methods: `reconnectForBestTransport`, `connectDirect.handleAuthResult`, `enterProbing`, the probing task completion block, `handleReachabilityChange` (indirectly via `enterProbing`), `disconnect()`, and `ensureDirectConnected`. While all writes go through the same stored property with `didSet`, there is no centralized transition-validation method. The spec's state machine (lines 116-126) defines 7 valid transitions — none of these writes validate that the from-state is legal. Any code path can set `transportState` to any value regardless of current state.
+
+**4. MEDIUM: `canUseVoice` checks only Soniox key, not transport state.**
+The spec (line 967) defines `canUseVoice` as: "derived: Soniox key present AND direct internet available." The implementation in `WatchVoiceSession.swift` line 57-59 checks only the Soniox key:
+```swift
+var canUseVoice: Bool {
+    credentialStore.sonioxApiKey?.isEmpty == false
+}
+```
+The "direct internet available" condition is not evaluated. This means `canUseVoice` returns `true` even when the Watch is in relay mode with no direct internet. The view compensates by also checking `transport.transportState == .disconnected` in multiple places (lines 202, 240 of `WatchMainView.swift`), but this creates a split-path check — the voice availability concept is gated by two independent components rather than one authoritative derivation.
+
+### STT/TTS Architecture Findings
+
+**5. IMPORTANT: On-device first principle is explicitly violated by design choice.**
+The spec (line 24) states: "Audio processing (STT and TTS) is always direct from Watch to cloud APIs." Flynn's principle 6 requires: "On-device first, server-side fallback. Check Apple Intelligence / CoreML before defaulting to server APIs." The spec positions Soniox and Cartesia as primary, with system dictation and AVSpeechSynthesizer only as degraded fallbacks when connectivity or keys are missing.
+
+However, this may be a deliberate product decision. Apple's on-device speech recognition on watchOS has significant limitations: lower accuracy than Soniox for continuous streaming, no real-time partial transcripts in the same format, and no custom model support. Similarly, AVSpeechSynthesizer is functionally inferior to Cartesia for a voice-first terminal. **The spec should explicitly acknowledge this tension and document WHY cloud-first is the correct choice for this use case, rather than leaving it as an unstated assumption that contradicts the architectural principle.** A single paragraph justifying the decision is sufficient.
+
+**6. LOW: STT fallback does not actually use Apple Intelligence / CoreML.**
+The spec mentions "watchOS system dictation keyboard" (line 351) and "Apple's on-device speech recognizer" as the STT fallback, but these are the legacy `UITextField` dictation integration, not the Apple Intelligence speech capabilities available since watchOS 11. The `SFSpeechRecognizer` with on-device recognition (available since watchOS 10) would be a better-quality fallback that aligns with the on-device-first principle. The spec should either document this option or explicitly rule it out with reasoning.
+
+### Spaghetti Risks
+
+**7. HIGH: `WatchProviderTransport` is a 1007-line monolith mixing 5+ concerns.**
+The implementation confirms the spec's implied architecture: `WatchProviderTransport.swift` handles (a) the failover state machine, (b) direct WebSocket connection management with auth, (c) relay protocol via WCSession, (d) message buffering with expiry, (e) `ChatServicing` conformance including stream CRUD, and (f) incoming message parsing and event broadcasting. This is the Watch's equivalent of the iOS `ProviderChatService` — but the spec explicitly noted that `ProviderChatService` was "too complex and iOS-specific" to share (line 605). The Watch has recreated the same monolith with additional transport-switching complexity layered on top.
+
+**The spec should define internal layering within `WatchProviderTransport`** — at minimum, the relay protocol handling and the direct WebSocket handling should be extractable concerns, even if they live in the same file as extensions. The current shape invites any future bug fix to touch all 1007 lines.
+
+**8. MEDIUM: Voice session `speakWithSystemVoice` uses a time-based approximation for completion.**
+The implementation (`WatchVoiceSession.swift` lines 456-472) estimates speech duration as `text.count / 18.0` seconds, then fires `handleTTSComplete()` after that delay. This is fragile — it can fire before speech finishes (fast rate setting) or long after (slow rate, long pauses). The spec does not address how `AVSpeechSynthesizer` completion is detected. The `AVSpeechSynthesizerDelegate.speechSynthesizer(_:didFinish:)` callback exists and should be used instead. This is a bug in the implementation, not the spec, but the spec should note that fallback TTS completion must use delegate callbacks, not time approximation.
+
+**9. MEDIUM: Route change behavior is specified in 3 separate locations.**
+Lines 260-267, lines 892-898, and acceptance criteria 10-12 (lines 1211-1212) all describe route change behavior with slightly different framing. The first two are nearly identical but not byte-for-byte identical, creating drift risk. One canonical definition with cross-references would be cleaner.
+
+### DRY Violations
+
+**10. HIGH: `ConnectionState` and `WatchProviderTransportState` are parallel type hierarchies.**
+The spec acknowledges this duality (lines 135-159) and provides a mapping table. The implementation faithfully implements both. But `ConnectionState` exists solely for `ChatServicing` protocol conformance, and the Watch's `ChatServicing` consumers (if any) would be better served reading `transportState` directly. The `connectionState` stream on `WatchProviderTransport` (line 127 of the implementation) creates a second observable path for the same concept. If no Watch component actually consumes `connectionState`, this is dead code. If components do consume it, there are two truth sources for "is the provider available" — a SSOT violation.
+
+**11. MEDIUM: `WatchSharedModels.swift` duplicates types from the iOS `Clawline` target.**
+The spec calls for a `ClawlineShared` Swift package (lines 549-596) to share types between iOS and Watch. This package was never created. Instead, `WatchSharedModels.swift` (195 lines) re-declares `ConnectionState`, `WatchProviderTransportState`, `SessionInfo`, `ChatUserInfo`, `ChatServiceEvent`, `ChatServicing`, `Message`, `StreamSession`, `Attachment`, `WireAttachment`, `JSONValue`, and all wire payload types. These are copy-pasted duplicates of the iOS types. Any protocol change on iOS (e.g., adding a method to `ChatServicing`, changing `Message` fields) requires a parallel change in the Watch models. This is the textbook DRY violation the spec's `ClawlineShared` package was designed to prevent.
+
+**12. MEDIUM: `SonioxStreamingClient` and `CartesiaTTSClient` are Watch-only, not shared.**
+The spec (lines 578-579) specifies these should live in `ClawlineShared` for reuse by both iOS and Watch. The implementation has them in `Clawline Watch Watch App/Services/` only. When iOS adds Cartesia TTS support (Phase 0 prerequisite), it will need to re-implement or duplicate this code.
+
+### On-Device First Violations
+
+**13. See Finding #5 above.** The spec violates the on-device-first principle for both STT and TTS by design. The justification is likely sound (quality/streaming requirements exceed on-device capabilities for a voice terminal) but is not documented.
+
+**14. LOW: No evaluation of `SFSpeechRecognizer` with on-device mode.**
+watchOS 10+ supports `SFSpeechRecognizer` with `requiresOnDeviceRecognition = true` for English. This provides significantly better quality than the system dictation keyboard and could serve as a middle-tier fallback between Soniox (best quality, cloud-required) and the dictation keyboard (worst UX, forces text field). The spec does not evaluate this option.
+
+### Right-Weight Assessment
+
+**15. The spec is well-structured for its complexity.** The ownership map (28 entries), behavioral contracts (V1-V13, T1-T6, C1-C3, CH1-CH2), and acceptance criteria (37 items) are proportionate to the dual-transport + voice-session + credential-sync architecture. This is not ceremony — it is necessary structure for a system with this many moving parts.
+
+**16. Over-specification in UI details is acceptable.** The route indicator copy ("Direct" / "Via iPhone" / etc.), colors, and haptic behavior are product decisions, not implementation details. They belong in the spec because they define the user experience. The Codex review flagged this as over-specification, but I disagree — these are behavioral requirements, not implementation constraints.
+
+**17. Under-specification in transport internal layering.** The spec over-specifies UI but under-specifies the internal decomposition of `WatchProviderTransport`. It says what the component does (37 acceptance criteria worth) but not how its responsibilities should be separated internally. For a 1007-line component, this matters. Even a brief note like "relay protocol handling and direct WebSocket handling should be separable concerns" would guide pattern propagation.
+
+### Recommended Spec Changes
+
+**Priority 1 (Blocking):**
+
+1. **Fix credential contract C1** to acknowledge that `auth.refresh` responses also flow through `WatchCredentialStore.apply(userInfo:)`, or redesign token refresh to use `transferUserInfo` instead of `sendMessage`. The single mutation method is `apply(userInfo:)` — the spec should say that, not "only `didReceiveUserInfo`."
+
+2. **Fix V6 route-change force-stop** to clarify implementation requirements: `routeChanged(to:)` must handle BOTH `.relay` and `.disconnected`, not just `.disconnected`. The current implementation violates V6.
+
+**Priority 2 (Should Fix):**
+
+3. **Add on-device-first justification paragraph** to the STT and TTS sections explaining why cloud-first is the right product choice for this use case, acknowledging the tension with principle 6.
+
+4. **Add internal layering guidance for `WatchProviderTransport`** — recommend separation of relay protocol handling, direct WebSocket handling, and buffering as identifiable concerns (extensions, inner types, or separate files).
+
+5. **Fix `canUseVoice` derivation** — the spec says it requires "Soniox key present AND direct internet available." This should be the single authoritative check. The view should not independently re-check transport state for voice availability.
+
+6. **Add note about `AVSpeechSynthesizer` completion** — fallback TTS must use delegate callbacks, not time approximation, for the SPEAKING-to-IDLE transition.
+
+**Priority 3 (Nice to Have):**
+
+7. **Consolidate route change behavior** to one canonical section with cross-references.
+
+8. **Evaluate `SFSpeechRecognizer` on-device** as a middle-tier STT fallback.
+
+9. **Note that `ClawlineShared` package is a Phase 1 prerequisite** — the current Watch-only type duplication is technical debt that must be resolved before the shared code strategy is viable.
+
+10. **Add transport state transition validation requirement** — transitions should be validated against the state machine diagram, not just written freely.
