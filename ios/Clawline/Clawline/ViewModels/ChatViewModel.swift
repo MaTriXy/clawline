@@ -330,11 +330,11 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var shouldMorphTypingIndicator: Bool = false
     private var isRetired = false
 
-    var canSend: Bool {
-        sendButtonConnectionState == .connected && !inputContent.isEffectivelyEmpty
-    }
+    private var temporarySendButtonOverride: SendButtonConnectionState?
+    private var temporarySendButtonOverrideTask: Task<Void, Never>?
+    private let temporarySendButtonOverrideDuration: Duration = .seconds(5)
 
-    var sendButtonConnectionState: SendButtonConnectionState {
+    private var transportSendButtonConnectionState: SendButtonConnectionState {
         switch connectionState {
         case .connected:
             return .connected
@@ -343,6 +343,14 @@ final class ChatViewModel: ChatViewModelHosting {
         case .disconnected, .failed:
             return .disconnected
         }
+    }
+
+    var canSend: Bool {
+        transportSendButtonConnectionState == .connected && !inputContent.isEffectivelyEmpty
+    }
+
+    var sendButtonConnectionState: SendButtonConnectionState {
+        temporarySendButtonOverride ?? transportSendButtonConnectionState
     }
 
     let toastManager: ToastManager
@@ -519,6 +527,7 @@ final class ChatViewModel: ChatViewModelHosting {
         isChatVisible = false
         logger.info("ChatViewModel onDisappear id=\(self.instanceId, privacy: .public)")
         stopObservingLifecycle()
+        clearTemporarySendButtonOverride()
         cancelSend()
         guard ownsConnection else {
             logger.info("ChatViewModel onDisappear skip disconnect id=\(self.instanceId, privacy: .public) reason=non_owner")
@@ -739,10 +748,6 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func send() {
         guard !isSending else { return }
-        guard sendButtonConnectionState == .connected else {
-            toastManager.show("Could not send; not connected.")
-            return
-        }
         pruneAttachmentData()
         let (text, pendingIds) = inputContent.contentForSending()
         let pendingAttachments = pendingIds.compactMap { attachmentData[$0] }
@@ -752,6 +757,11 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         if pendingAttachments.isEmpty && handleSlashCommand(text) {
+            return
+        }
+
+        guard transportSendButtonConnectionState == .connected else {
+            toastManager.show("Could not send; not connected.")
             return
         }
 
@@ -881,6 +891,7 @@ final class ChatViewModel: ChatViewModelHosting {
         cancelSend()
         observationStartupTask?.cancel()
         observationStartupTask = nil
+        clearTemporarySendButtonOverride()
         observationTask?.cancel()
         observationTask = nil
         lifecycleTransportEventsSubscription = nil
@@ -2401,7 +2412,9 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func handleSlashCommand(_ text: String) -> Bool {
-        let lowercased = text.lowercased()
+        let lowercased = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         switch lowercased {
         case "/logout":
             clearInput()
@@ -2411,9 +2424,37 @@ final class ChatViewModel: ChatViewModelHosting {
             clearInput()
             settings.toggleSettings()
             return true
+        case "/connecting":
+            clearInput()
+            setTemporarySendButtonOverride(.reconnecting)
+            return true
+        case "/error", "/disconnected":
+            clearInput()
+            setTemporarySendButtonOverride(.disconnected)
+            return true
         default:
             return false
         }
+    }
+
+    private func setTemporarySendButtonOverride(_ state: SendButtonConnectionState) {
+        temporarySendButtonOverride = state
+        temporarySendButtonOverrideTask?.cancel()
+        let overrideDuration = temporarySendButtonOverrideDuration
+        temporarySendButtonOverrideTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: overrideDuration)
+            } catch {
+                return
+            }
+            self?.clearTemporarySendButtonOverride()
+        }
+    }
+
+    private func clearTemporarySendButtonOverride() {
+        temporarySendButtonOverrideTask?.cancel()
+        temporarySendButtonOverrideTask = nil
+        temporarySendButtonOverride = nil
     }
 
     @MainActor
