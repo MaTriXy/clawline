@@ -509,11 +509,9 @@ final class ChatViewModel: ChatViewModelHosting {
         logger.info("ChatViewModel onAppear id=\(self.instanceId, privacy: .public)")
         coordinatorDiag("onAppear before startObservingIfNeeded")
         await startObservingIfNeeded()
-        coordinatorDiag("onAppear after startObservingIfNeeded before setAuthToken")
-        await lifecycleCoordinator.setAuthToken(auth.token)
-        coordinatorDiag("onAppear after setAuthToken before startIfNeeded")
-        await lifecycleCoordinator.startIfNeeded()
-        coordinatorDiag("onAppear after startIfNeeded")
+        coordinatorDiag("onAppear after startObservingIfNeeded before viewAppeared signal")
+        await lifecycleCoordinator.viewAppeared()
+        coordinatorDiag("onAppear after viewAppeared signal")
     }
 
     func onDisappear() {
@@ -564,13 +562,11 @@ final class ChatViewModel: ChatViewModelHosting {
             Task {
                 self.coordinatorDiag("handleAuthStateChange task before startObservingIfNeeded")
                 await self.startObservingIfNeeded()
-                self.coordinatorDiag("handleAuthStateChange task after startObservingIfNeeded before setAuthToken")
-                await lifecycleCoordinator.setAuthToken(auth.token)
-                self.coordinatorDiag("handleAuthStateChange task after setAuthToken before seedCanonicalCursor")
+                self.coordinatorDiag("handleAuthStateChange task after startObservingIfNeeded before seedCanonicalCursor")
                 await lifecycleCoordinator.seedCanonicalCursor(seededCursor)
-                self.coordinatorDiag("handleAuthStateChange task after seedCanonicalCursor before startIfNeeded")
-                await lifecycleCoordinator.startIfNeeded()
-                self.coordinatorDiag("handleAuthStateChange task after startIfNeeded")
+                self.coordinatorDiag("handleAuthStateChange task after seedCanonicalCursor before authChanged signal")
+                await lifecycleCoordinator.authChanged(token: auth.token)
+                self.coordinatorDiag("handleAuthStateChange task after authChanged signal")
             }
             restoreStreamMetadataIfNeeded()
             restoreActiveSessionKeyIfNeeded()
@@ -579,7 +575,7 @@ final class ChatViewModel: ChatViewModelHosting {
             coordinatorDiag("handleAuthStateChange logout-path")
             didRestoreActiveSessionKey = false
             stopObservingLifecycle()
-            Task { await lifecycleCoordinator.setAuthToken(nil) }
+            Task { await lifecycleCoordinator.authChanged(token: nil) }
             chatService.disconnect()
         }
     }
@@ -594,9 +590,9 @@ final class ChatViewModel: ChatViewModelHosting {
         Task {
             self.coordinatorDiag("sceneDidBecomeActive task before startObservingIfNeeded")
             await startObservingIfNeeded()
-            self.coordinatorDiag("sceneDidBecomeActive task before appDidBecomeActive")
-            await lifecycleCoordinator.appDidBecomeActive()
-            self.coordinatorDiag("sceneDidBecomeActive task after appDidBecomeActive")
+            self.coordinatorDiag("sceneDidBecomeActive task before sceneActivated signal")
+            await lifecycleCoordinator.sceneActivated()
+            self.coordinatorDiag("sceneDidBecomeActive task after sceneActivated signal")
         }
     }
 
@@ -701,7 +697,7 @@ final class ChatViewModel: ChatViewModelHosting {
             return
         }
         // Subscribe synchronously so lifecycle transport events cannot be dropped
-        // before the first startIfNeeded() dispatch.
+        // before the first coordinator startup signal dispatch.
         lifecycleTransportEventsSubscription = chatService.lifecycleTransportEvents
         coordinatorDiag("ensureLifecycleTransportSubscription created")
     }

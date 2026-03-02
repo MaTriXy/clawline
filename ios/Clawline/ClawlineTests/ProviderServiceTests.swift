@@ -586,6 +586,85 @@ struct ProviderServiceTests {
 
         #expect(await coordinator.phase == .failed)
     }
+
+    @Test("authChanged starts connect from idle and does not auto-retry from failed")
+    func authChangedStartsFromIdleAndSkipsFailedAutoRetry() async {
+        let capture = StartAttemptCapture()
+        let coordinator = ConnectionLifecycleCoordinator(
+            startAttempt: { epoch, lastMessageId, _ in
+                capture.append(epoch: epoch, lastMessageId: lastMessageId)
+            },
+            stopAttempt: {}
+        )
+
+        await coordinator.authChanged(token: "jwt")
+        #expect(capture.snapshot().count == 1)
+        #expect(await coordinator.phase == .connecting)
+
+        await coordinator.handleTransportEvent(.init(epoch: 1, payload: .transportOpened))
+        await coordinator.handleTransportEvent(
+            .init(
+                epoch: 1,
+                payload: .authResult(
+                    success: false,
+                    replayCount: nil,
+                    replayTruncated: nil,
+                    historyReset: nil,
+                    failureReason: .rejected
+                )
+            )
+        )
+        #expect(await coordinator.phase == .failed)
+
+        await coordinator.authChanged(token: "jwt_refreshed")
+        #expect(await coordinator.phase == .failed)
+        #expect(capture.snapshot().count == 1)
+    }
+
+    @Test("viewAppeared and sceneActivated honor token presence and idle-phase gating")
+    func startupSignalsHonorTokenAndPhaseGates() async {
+        let capture = StartAttemptCapture()
+        let coordinator = ConnectionLifecycleCoordinator(
+            startAttempt: { epoch, lastMessageId, _ in
+                capture.append(epoch: epoch, lastMessageId: lastMessageId)
+            },
+            stopAttempt: {}
+        )
+
+        await coordinator.viewAppeared()
+        await coordinator.sceneActivated()
+        #expect(capture.snapshot().isEmpty)
+
+        await coordinator.setAuthToken("jwt")
+        await coordinator.viewAppeared()
+        #expect(capture.snapshot().count == 1)
+        #expect(await coordinator.phase == .connecting)
+
+        await coordinator.sceneActivated()
+        #expect(capture.snapshot().count == 1)
+    }
+
+    @Test("Startup signal burst results in one connect attempt")
+    func startupSignalBurstStartsOnce() async {
+        let capture = StartAttemptCapture()
+        let coordinator = ConnectionLifecycleCoordinator(
+            startAttempt: { epoch, lastMessageId, _ in
+                capture.append(epoch: epoch, lastMessageId: lastMessageId)
+            },
+            stopAttempt: {}
+        )
+
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await coordinator.authChanged(token: "jwt") }
+            group.addTask { await coordinator.viewAppeared() }
+            group.addTask { await coordinator.sceneActivated() }
+        }
+
+        let attempts = capture.snapshot()
+        #expect(attempts.count == 1)
+        #expect(attempts.first?.epoch == 1)
+        #expect(await coordinator.phase == .connecting)
+    }
 }
 
 // MARK: - Test doubles

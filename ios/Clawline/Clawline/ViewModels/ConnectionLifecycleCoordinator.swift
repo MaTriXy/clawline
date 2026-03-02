@@ -160,6 +160,26 @@ actor ConnectionLifecycleCoordinator {
         }
     }
 
+    func authChanged(token: String?) {
+        coordinatorDiag("authChanged signal tokenNil=\(token == nil) phase=\(String(describing: phase))")
+        setAuthToken(token)
+        guard authToken != nil else { return }
+        guard phase == .idle else { return }
+        startIfNeeded()
+    }
+
+    func viewAppeared() {
+        coordinatorDiag("viewAppeared signal tokenPresent=\(authToken != nil) phase=\(String(describing: phase))")
+        guard authToken != nil else { return }
+        startIfNeeded()
+    }
+
+    func sceneActivated() {
+        coordinatorDiag("sceneActivated signal tokenPresent=\(authToken != nil) phase=\(String(describing: phase))")
+        guard authToken != nil else { return }
+        appDidBecomeActive()
+    }
+
     func setReconnectEnabled(_ enabled: Bool) {
         reconnectEnabled = enabled
     }
