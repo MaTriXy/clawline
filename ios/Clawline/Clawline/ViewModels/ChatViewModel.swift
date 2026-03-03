@@ -281,11 +281,11 @@ final class ChatViewModel: ChatViewModelHosting {
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
     private(set) var shouldMorphTypingIndicator: Bool = false
 
-    var canSend: Bool {
-        sendButtonConnectionState == .connected && !inputContent.isEffectivelyEmpty
-    }
+    private var temporarySendButtonOverride: SendButtonConnectionState?
+    private var temporarySendButtonOverrideTask: Task<Void, Never>?
+    private let temporarySendButtonOverrideDuration: Duration = .seconds(5)
 
-    var sendButtonConnectionState: SendButtonConnectionState {
+    private var transportSendButtonConnectionState: SendButtonConnectionState {
         switch connectionState {
         case .connected:
             return .connected
@@ -294,6 +294,14 @@ final class ChatViewModel: ChatViewModelHosting {
         case .disconnected, .failed:
             return .disconnected
         }
+    }
+
+    var canSend: Bool {
+        transportSendButtonConnectionState == .connected && !inputContent.isEffectivelyEmpty
+    }
+
+    var sendButtonConnectionState: SendButtonConnectionState {
+        temporarySendButtonOverride ?? transportSendButtonConnectionState
     }
 
     let toastManager: ToastManager
@@ -434,13 +442,14 @@ final class ChatViewModel: ChatViewModelHosting {
         reconnectTask = nil
         connectionStableTask?.cancel()
         connectionStableTask = nil
+        clearTemporarySendButtonOverride()
         cancelSend()
         chatService.disconnect()
     }
 
     func reconnect() {
         guard auth.token != nil else { return }
-        guard sendButtonConnectionState == .disconnected else { return }
+        guard transportSendButtonConnectionState == .disconnected else { return }
         transitionConnectionState(.reconnecting, source: .manualReconnect)
         reconnectTask?.cancel()
         reconnectTask = nil
@@ -554,10 +563,6 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func send() {
         guard !isSending else { return }
-        guard sendButtonConnectionState == .connected else {
-            toastManager.show("Could not send; not connected.")
-            return
-        }
         pruneAttachmentData()
         let (text, pendingIds) = inputContent.contentForSending()
         let pendingAttachments = pendingIds.compactMap { attachmentData[$0] }
@@ -567,6 +572,11 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         if pendingAttachments.isEmpty && handleSlashCommand(text) {
+            return
+        }
+
+        guard transportSendButtonConnectionState == .connected else {
+            toastManager.show("Could not send; not connected.")
             return
         }
 
@@ -694,6 +704,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func logout() {
         cancelSend()
+        clearTemporarySendButtonOverride()
         observationTask?.cancel()
         observationTask = nil
         chatService.disconnect()
@@ -1536,7 +1547,7 @@ final class ChatViewModel: ChatViewModelHosting {
             break
         case .connectionInterrupted(let reason):
             logger.info("connection interrupted reason=\(reason ?? "unknown", privacy: .public)")
-            if sendButtonConnectionState == .connected {
+            if transportSendButtonConnectionState == .connected {
                 transitionConnectionState(.reconnecting, source: .serviceInterruption)
             }
             markPendingMessagesAsFailedForConnectionLoss()
@@ -2271,7 +2282,9 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func handleSlashCommand(_ text: String) -> Bool {
-        let lowercased = text.lowercased()
+        let lowercased = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
         switch lowercased {
         case "/logout":
             clearInput()
@@ -2281,9 +2294,37 @@ final class ChatViewModel: ChatViewModelHosting {
             clearInput()
             settings.toggleSettings()
             return true
+        case "/connecting":
+            clearInput()
+            setTemporarySendButtonOverride(.reconnecting)
+            return true
+        case "/error", "/disconnected":
+            clearInput()
+            setTemporarySendButtonOverride(.disconnected)
+            return true
         default:
             return false
         }
+    }
+
+    private func setTemporarySendButtonOverride(_ state: SendButtonConnectionState) {
+        temporarySendButtonOverride = state
+        temporarySendButtonOverrideTask?.cancel()
+        let overrideDuration = temporarySendButtonOverrideDuration
+        temporarySendButtonOverrideTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: overrideDuration)
+            } catch {
+                return
+            }
+            self?.clearTemporarySendButtonOverride()
+        }
+    }
+
+    private func clearTemporarySendButtonOverride() {
+        temporarySendButtonOverrideTask?.cancel()
+        temporarySendButtonOverrideTask = nil
+        temporarySendButtonOverride = nil
     }
 
     @MainActor
