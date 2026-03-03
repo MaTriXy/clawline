@@ -2247,7 +2247,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let env = bubbleSizingV2Environment(metrics: metrics)
 
         if DateSeparatorCell.isDateSeparatorItemID(id) {
-            let rowWidth = effectiveContentWidth(metrics: metrics)
+            // Date separators should always occupy the full content row so they render
+            // as standalone dividers between message groups instead of inline bubbles.
+            let rowWidth = availableContentWidth()
             let lineHeight = UIFont.clawline(.uiLabel, weight: .semibold).lineHeight
             return CGSize(
                 width: rowWidth,
