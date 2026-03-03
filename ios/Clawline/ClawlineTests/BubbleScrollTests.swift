@@ -7,6 +7,7 @@
 
 import Testing
 import UIKit
+import WebKit
 @testable import Clawline
 
 struct BubbleScrollTests {
@@ -392,6 +393,22 @@ struct BubbleScrollTests {
         )
     }
 
+    @Test("T028: Link preview uses one outer squircle radius (no inner webview corner radius)")
+    @MainActor
+    func linkPreviewAvoidsInnerCornerRadiusLayer() {
+        let preview = LinkPreviewView()
+        preview.frame = CGRect(x: 0, y: 0, width: 320, height: 200)
+        preview.layoutIfNeeded()
+
+        guard let webView = firstWebView(in: preview) else {
+            Issue.record("Expected WKWebView in LinkPreviewView hierarchy")
+            return
+        }
+
+        #expect(webView.layer.cornerRadius == 0)
+        #expect(webView.scrollView.layer.cornerRadius == 0)
+    }
+
     @Test("T057: Bubble uses per-block text containers without re-merging rich text")
     @MainActor
     func bubbleUsesPerBlockTextContainers() {
@@ -638,6 +655,18 @@ struct BubbleScrollTests {
             result.append(contentsOf: textViews(in: sub))
         }
         return result
+    }
+
+    private func firstWebView(in view: UIView) -> WKWebView? {
+        if let webView = view as? WKWebView {
+            return webView
+        }
+        for sub in view.subviews {
+            if let found = firstWebView(in: sub) {
+                return found
+            }
+        }
+        return nil
     }
 
     private struct ImmediateHighlightService: SalientHighlightServicing {
