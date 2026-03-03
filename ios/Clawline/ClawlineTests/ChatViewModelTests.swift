@@ -183,6 +183,47 @@ struct ChatViewModelTests {
         #expect(messages.first?.id == "s_user_echo")
     }
 
+    @Test("Interactive callback fallback echoes are suppressed from visible messages")
+    @MainActor
+    func interactiveCallbackFallbackEchoesAreSuppressed() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emit(
+            Message(
+                id: "s_callback_1",
+                role: .user,
+                content: #"[Interactive: "Quick Survey"] action=submit - {"name":"Flynn"}"#,
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: "device",
+                sessionKey: personalSessionKey
+            )
+        )
+
+        for _ in 0..<50 {
+            if viewModel.debugConnectionSnapshot().lastMessageId == "s_callback_1" { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(viewModel.messages.isEmpty)
+        #expect(viewModel.debugConnectionSnapshot().lastMessageId == "s_callback_1")
+    }
+
     @Test("Message-level errors annotate placeholders and show toast")
     @MainActor
     func messageErrorsMarkFailedMessages() async throws {
