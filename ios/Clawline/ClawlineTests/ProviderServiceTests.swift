@@ -455,6 +455,7 @@ struct ProviderServiceTests {
         }
 
         await coordinator.setAuthToken("jwt")
+        await coordinator.viewAppeared()
         await coordinator.startIfNeeded()
         try await Task.sleep(forDuration: .milliseconds(10))
         service.startConnectionAttempt(epoch: 1, lastMessageId: nil, token: "jwt")
@@ -486,6 +487,7 @@ struct ProviderServiceTests {
     func authSuccessAfterRecoveringRaceReachesLive() async {
         let coordinator = ConnectionLifecycleCoordinator(startAttempt: { _, _, _ in }, stopAttempt: {})
         await coordinator.setAuthToken("jwt")
+        await coordinator.viewAppeared()
         await coordinator.startIfNeeded()
 
         await coordinator.handleTransportEvent(.init(epoch: 1, payload: .transportOpened))
@@ -510,6 +512,7 @@ struct ProviderServiceTests {
     func historyResetAuthDoesNotImmediatelyFail() async throws {
         let coordinator = ConnectionLifecycleCoordinator(startAttempt: { _, _, _ in }, stopAttempt: {})
         await coordinator.setAuthToken("jwt")
+        await coordinator.viewAppeared()
         await coordinator.startIfNeeded()
 
         await coordinator.handleTransportEvent(.init(epoch: 1, payload: .transportOpened))
@@ -542,6 +545,7 @@ struct ProviderServiceTests {
 
         await coordinator.seedCanonicalCursor(Self.validServerEventID)
         await coordinator.setAuthToken("jwt")
+        await coordinator.viewAppeared()
         await coordinator.startIfNeeded()
 
         #expect(capture.snapshot().count == 1)
@@ -587,8 +591,8 @@ struct ProviderServiceTests {
         #expect(await coordinator.phase == .failed)
     }
 
-    @Test("authChanged starts connect from idle and does not auto-retry from failed")
-    func authChangedStartsFromIdleAndSkipsFailedAutoRetry() async {
+    @Test("authChanged waits for viewAppeared and does not auto-retry from failed")
+    func authChangedRequiresViewAppearedAndSkipsFailedAutoRetry() async {
         let capture = StartAttemptCapture()
         let coordinator = ConnectionLifecycleCoordinator(
             startAttempt: { epoch, lastMessageId, _ in
@@ -598,6 +602,10 @@ struct ProviderServiceTests {
         )
 
         await coordinator.authChanged(token: "jwt")
+        #expect(capture.snapshot().isEmpty)
+        #expect(await coordinator.phase == .idle)
+
+        await coordinator.viewAppeared()
         #expect(capture.snapshot().count == 1)
         #expect(await coordinator.phase == .connecting)
 
@@ -636,6 +644,10 @@ struct ProviderServiceTests {
         #expect(capture.snapshot().isEmpty)
 
         await coordinator.setAuthToken("jwt")
+        await coordinator.sceneActivated()
+        #expect(capture.snapshot().isEmpty)
+        #expect(await coordinator.phase == .idle)
+
         await coordinator.viewAppeared()
         #expect(capture.snapshot().count == 1)
         #expect(await coordinator.phase == .connecting)

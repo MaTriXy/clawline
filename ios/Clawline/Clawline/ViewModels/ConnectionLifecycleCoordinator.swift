@@ -100,6 +100,7 @@ actor ConnectionLifecycleCoordinator {
     private(set) var phase: ConnectionLifecyclePhase = .idle
     private var currentEpoch: Int = 0
     private var authToken: String?
+    private var hasViewAppeared: Bool = false
     private var reconnectEnabled: Bool = true
     private var canonicalCursor: String?
 
@@ -154,6 +155,7 @@ actor ConnectionLifecycleCoordinator {
         }
         coordinatorDiag("setAuthToken stored tokenPresent=\(authToken != nil)")
         if authToken == nil {
+            hasViewAppeared = false
             coordinatorDiag("setAuthToken token-cleared -> moveToIdleIfNeeded")
             resetRecoveringState()
             moveToIdleIfNeeded(reason: .explicitTeardown)
@@ -161,16 +163,15 @@ actor ConnectionLifecycleCoordinator {
     }
 
     func authChanged(token: String?) {
-        coordinatorDiag("authChanged signal tokenNil=\(token == nil) phase=\(String(describing: phase))")
+        coordinatorDiag("authChanged signal tokenNil=\(token == nil) viewAppeared=\(hasViewAppeared) phase=\(String(describing: phase))")
         setAuthToken(token)
         guard authToken != nil else { return }
-        guard phase == .idle else { return }
         startIfNeeded()
     }
 
     func viewAppeared() {
-        coordinatorDiag("viewAppeared signal tokenPresent=\(authToken != nil) phase=\(String(describing: phase))")
-        guard authToken != nil else { return }
+        hasViewAppeared = true
+        coordinatorDiag("viewAppeared signal tokenPresent=\(authToken != nil) viewAppeared=\(hasViewAppeared) phase=\(String(describing: phase))")
         startIfNeeded()
     }
 
@@ -217,7 +218,7 @@ actor ConnectionLifecycleCoordinator {
             coordinatorDiag("appDidBecomeActive delayed startIfNeeded in \(2 - sinceBackground)s")
             return
         }
-        startConnecting(reason: .appForegrounded)
+        startIfNeeded()
     }
 
     func appDidEnterBackground() {
@@ -228,9 +229,17 @@ actor ConnectionLifecycleCoordinator {
     }
 
     func startIfNeeded() {
-        coordinatorDiag("startIfNeeded called reconnectEnabled=\(reconnectEnabled) tokenPresent=\(authToken != nil)")
+        coordinatorDiag("startIfNeeded called reconnectEnabled=\(reconnectEnabled) tokenPresent=\(authToken != nil) viewAppeared=\(hasViewAppeared)")
         guard reconnectEnabled, phase == .idle else {
             coordinatorDiag("startIfNeeded early-return reconnectEnabled=\(reconnectEnabled) phase=\(String(describing: phase))")
+            return
+        }
+        guard authToken != nil else {
+            coordinatorDiag("startIfNeeded early-return missing-auth-token")
+            return
+        }
+        guard hasViewAppeared else {
+            coordinatorDiag("startIfNeeded early-return view-not-appeared")
             return
         }
         startConnecting(reason: .appForegrounded)
