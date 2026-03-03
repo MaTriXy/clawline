@@ -394,6 +394,9 @@ final class ChatViewModel: ChatViewModelHosting {
     private var firstReplayAppliedEpoch: Int?
 #if DEBUG
     private var observationStartupCount: Int = 0
+    private(set) var lifecycleDebugPhase: ConnectionLifecyclePhase = .idle
+    private(set) var lifecycleDebugSignals: [LifecycleDebugSignalRecord] = []
+    private(set) var lifecycleDebugSequence: Int = 0
 #endif
     private let messageCacheLimit = 500
     private var restoredSessionKeys: Set<String> = []
@@ -424,6 +427,21 @@ final class ChatViewModel: ChatViewModelHosting {
         let sessionKey: String
     }
 
+#if DEBUG
+    enum LifecycleDebugSignal: String, Equatable {
+        case authChangedToken = "authChanged(token)"
+        case authChangedNil = "authChanged(nil)"
+        case viewAppeared = "viewAppeared"
+        case sceneActivated = "sceneActivated"
+    }
+
+    struct LifecycleDebugSignalRecord: Equatable, Identifiable {
+        let id = UUID()
+        let signal: LifecycleDebugSignal
+        let timestamp: Date
+    }
+#endif
+
     private enum SendProvisioningState {
         case ready
         case waiting
@@ -433,6 +451,24 @@ final class ChatViewModel: ChatViewModelHosting {
     private enum ConnectionStateMutationSource: String {
         case lifecycleCoordinator
     }
+
+#if DEBUG
+    private func recordLifecycleDebugSignal(_ signal: LifecycleDebugSignal) {
+        if signal == .authChangedToken {
+            lifecycleDebugSignals.removeAll(keepingCapacity: true)
+        }
+        lifecycleDebugSignals.append(.init(signal: signal, timestamp: Date()))
+        if lifecycleDebugSignals.count > 12 {
+            lifecycleDebugSignals.removeFirst(lifecycleDebugSignals.count - 12)
+        }
+        lifecycleDebugSequence &+= 1
+    }
+
+    private func recordLifecycleDebugPhase(_ phase: ConnectionLifecyclePhase) {
+        lifecycleDebugPhase = phase
+        lifecycleDebugSequence &+= 1
+    }
+#endif
 
     init(auth: any AuthManaging,
          chatService: any ChatServicing,
@@ -518,6 +554,9 @@ final class ChatViewModel: ChatViewModelHosting {
         coordinatorDiag("onAppear before startObservingIfNeeded")
         await startObservingIfNeeded()
         coordinatorDiag("onAppear after startObservingIfNeeded before viewAppeared signal")
+#if DEBUG
+        recordLifecycleDebugSignal(.viewAppeared)
+#endif
         await lifecycleCoordinator.viewAppeared()
         coordinatorDiag("onAppear after viewAppeared signal")
     }
@@ -574,6 +613,9 @@ final class ChatViewModel: ChatViewModelHosting {
                 self.coordinatorDiag("handleAuthStateChange task after startObservingIfNeeded before seedCanonicalCursor")
                 await lifecycleCoordinator.seedCanonicalCursor(seededCursor)
                 self.coordinatorDiag("handleAuthStateChange task after seedCanonicalCursor before authChanged signal")
+#if DEBUG
+                self.recordLifecycleDebugSignal(.authChangedToken)
+#endif
                 await lifecycleCoordinator.authChanged(token: auth.token)
                 self.coordinatorDiag("handleAuthStateChange task after authChanged signal")
             }
@@ -584,6 +626,9 @@ final class ChatViewModel: ChatViewModelHosting {
             coordinatorDiag("handleAuthStateChange logout-path")
             didRestoreActiveSessionKey = false
             stopObservingLifecycle()
+#if DEBUG
+            recordLifecycleDebugSignal(.authChangedNil)
+#endif
             Task { await lifecycleCoordinator.authChanged(token: nil) }
             chatService.disconnect()
         }
@@ -600,6 +645,9 @@ final class ChatViewModel: ChatViewModelHosting {
             self.coordinatorDiag("sceneDidBecomeActive task before startObservingIfNeeded")
             await startObservingIfNeeded()
             self.coordinatorDiag("sceneDidBecomeActive task before sceneActivated signal")
+#if DEBUG
+            self.recordLifecycleDebugSignal(.sceneActivated)
+#endif
             await lifecycleCoordinator.sceneActivated()
             self.coordinatorDiag("sceneDidBecomeActive task after sceneActivated signal")
         }
@@ -1330,6 +1378,9 @@ final class ChatViewModel: ChatViewModelHosting {
                 restoreTaskBySessionKey.removeAll()
             }
             connectionLifecyclePhase = to
+#if DEBUG
+            recordLifecycleDebugPhase(to)
+#endif
             let mapped: ConnectionState
             switch to {
             case .live:

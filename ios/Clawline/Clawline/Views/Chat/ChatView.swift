@@ -128,6 +128,10 @@ struct ChatView: View {
     @State private var streamToastManager = StreamToastManager()
     @State private var streamToastBusySince: Date?
     @State private var streamToastBusyClearTask: Task<Void, Never>?
+#if DEBUG
+    @State private var lifecycleDebugOverlayVisible = true
+    @State private var lifecycleDebugOverlayDismissTask: Task<Void, Never>?
+#endif
 
     private let streamToastMinimumBusySeconds: TimeInterval = 0.45
 
@@ -462,12 +466,21 @@ struct ChatView: View {
         .onDisappear {
             viewModel.onDisappear()
             resetScrollButtonInteractionState()
+#if DEBUG
+            lifecycleDebugOverlayDismissTask?.cancel()
+            lifecycleDebugOverlayDismissTask = nil
+#endif
         }
         .onChange(of: scenePhase) { _, phase in
             viewModel.handleSceneActiveStateChanged(isActive: phase == .active)
             guard phase == .active else { return }
             keyboardRefreshToken &+= 1
         }
+#if DEBUG
+        .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
+            showLifecycleDebugOverlay()
+        }
+#endif
         .background(
             KeyboardLayoutGuideReader(refreshToken: keyboardRefreshToken) { height, duration, curve in
                 if abs(height - keyboardHeight) > 0.5 {
@@ -740,7 +753,63 @@ struct ChatView: View {
             EmptyView()
 #endif
         }
+#if DEBUG
+        .overlay(alignment: .topTrailing) {
+            lifecycleDebugOverlay(viewModel: viewModel)
+        }
+#endif
     }
+
+#if DEBUG
+    @ViewBuilder
+    private func lifecycleDebugOverlay(viewModel: ChatViewModel) -> some View {
+        if lifecycleDebugOverlayVisible {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("lifecycle: \(String(describing: viewModel.lifecycleDebugPhase))")
+                    .font(.caption2.weight(.semibold))
+                ForEach(Array(viewModel.lifecycleDebugSignals.suffix(6))) { record in
+                    Text("\(record.signal.rawValue) @ \(record.timestamp.formatted(date: .omitted, time: .standard))")
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+            }
+            .padding(.top, 12)
+            .padding(.trailing, 12)
+            .onAppear {
+                showLifecycleDebugOverlay()
+            }
+            .onTapGesture {
+                lifecycleDebugOverlayVisible = false
+                lifecycleDebugOverlayDismissTask?.cancel()
+                lifecycleDebugOverlayDismissTask = nil
+            }
+        }
+    }
+
+    private func showLifecycleDebugOverlay() {
+        lifecycleDebugOverlayVisible = true
+        lifecycleDebugOverlayDismissTask?.cancel()
+        lifecycleDebugOverlayDismissTask = Task {
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                return
+            }
+            await MainActor.run {
+                lifecycleDebugOverlayVisible = false
+                lifecycleDebugOverlayDismissTask = nil
+            }
+        }
+    }
+#endif
 
     private var appVersionLabel: AttributedString? {
         let version = Bundle.main.object(
