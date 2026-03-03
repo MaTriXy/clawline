@@ -203,6 +203,9 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
         case "chat.send":
             handleChatSend(requestId: requestId, payload: payload, replyHandler: replyHandler)
 
+        case "chat.callback":
+            handleChatCallback(requestId: requestId, payload: payload, replyHandler: replyHandler)
+
         case "streams.fetch":
             handleStreamsFetch(requestId: requestId, replyHandler: replyHandler)
 
@@ -229,13 +232,14 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
         let content = payload["content"] as? String ?? ""
         let sessionKey = payload["sessionKey"] as? String
         let clientId = payload["id"] as? String ?? UUID().uuidString
+        let attachments = decodeAttachments(payload["attachments"])
 
         Task {
             do {
                 try await chatService.send(
                     id: clientId,
                     content: content,
-                    attachments: [],
+                    attachments: attachments,
                     sessionKey: sessionKey
                 )
                 replyHandler([
@@ -244,7 +248,34 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
                     "payload": ["acked": true]
                 ])
             } catch {
-                replyHandler(["error": ["code": "send_failed", "message": error.localizedDescription]])
+                replyError(for: error, fallbackCode: "send_failed", replyHandler: replyHandler)
+            }
+        }
+    }
+
+    private func handleChatCallback(requestId: String, payload: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        guard let sourceMessageId = payload["sourceMessageId"] as? String,
+              let action = payload["action"] as? String else {
+            replyHandler(["error": ["code": "malformed", "message": "Missing callback payload fields"]])
+            return
+        }
+
+        let dataValue = payload["data"].flatMap { JSONValue.from(any: $0) }
+
+        Task {
+            do {
+                try await chatService.sendInteractiveCallback(
+                    sourceMessageId: sourceMessageId,
+                    action: action,
+                    data: dataValue
+                )
+                replyHandler([
+                    "type": "chat.callback.ack",
+                    "requestId": requestId,
+                    "payload": ["acked": true]
+                ])
+            } catch {
+                replyError(for: error, fallbackCode: "callback_failed", replyHandler: replyHandler)
             }
         }
     }
@@ -260,7 +291,7 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
                     "payload": ["streams": streamsAny]
                 ])
             } catch {
-                replyHandler(["error": ["code": "fetch_failed", "message": error.localizedDescription]])
+                replyError(for: error, fallbackCode: "fetch_failed", replyHandler: replyHandler)
             }
         }
     }
@@ -279,7 +310,7 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
                     "payload": ["stream": streamAny]
                 ])
             } catch {
-                replyHandler(["error": ["code": "create_failed", "message": error.localizedDescription]])
+                replyError(for: error, fallbackCode: "create_failed", replyHandler: replyHandler)
             }
         }
     }
@@ -298,7 +329,7 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
                     "payload": ["stream": streamAny]
                 ])
             } catch {
-                replyHandler(["error": ["code": "rename_failed", "message": error.localizedDescription]])
+                replyError(for: error, fallbackCode: "rename_failed", replyHandler: replyHandler)
             }
         }
     }
@@ -315,7 +346,7 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
                     "payload": ["deletedKey": deletedKey]
                 ])
             } catch {
-                replyHandler(["error": ["code": "delete_failed", "message": error.localizedDescription]])
+                replyError(for: error, fallbackCode: "delete_failed", replyHandler: replyHandler)
             }
         }
     }
@@ -328,10 +359,28 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
             replyHandler(["error": ["code": "not_authenticated", "message": "Not authenticated on iPhone"]])
             return
         }
+
+        var payload: [String: Any] = [
+            "token": token,
+            "userId": userId
+        ]
+        if let providerBaseURL = ProviderBaseURLStore.baseURL?.absoluteString {
+            payload["providerBaseURL"] = providerBaseURL
+        }
+        if let sonioxApiKey = sonioxKeyStore.apiKey {
+            payload["sonioxApiKey"] = sonioxApiKey
+        }
+        if let cartesiaApiKey = cartesiaKeyStore.apiKey {
+            payload["cartesiaApiKey"] = cartesiaApiKey
+        }
+        if let cartesiaVoiceId = cartesiaKeyStore.selectedVoiceId {
+            payload["cartesiaVoiceId"] = cartesiaVoiceId
+        }
+
         replyHandler([
             "type": "auth.refresh.ack",
             "requestId": requestId,
-            "payload": ["token": token, "userId": userId]
+            "payload": payload
         ])
     }
 
@@ -419,6 +468,39 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
     private func encodeToAny<T: Encodable>(_ value: T) -> Any? {
         guard let data = try? JSONEncoder().encode(value) else { return nil }
         return try? JSONSerialization.jsonObject(with: data)
+    }
+
+    private func decodeAttachments(_ rawAttachments: Any?) -> [WireAttachment] {
+        guard let rawAttachments,
+              JSONSerialization.isValidJSONObject(rawAttachments),
+              let data = try? JSONSerialization.data(withJSONObject: rawAttachments),
+              let attachments = try? JSONDecoder().decode([WireAttachment].self, from: data) else {
+            return []
+        }
+        return attachments
+    }
+
+    private func replyError(for error: Error, fallbackCode: String, replyHandler: @escaping ([String: Any]) -> Void) {
+        let code: String
+        if let providerError = error as? ProviderChatService.Error {
+            switch providerError {
+            case .notConnected, .missingBaseURL:
+                code = "not_connected"
+            case .authFailed, .authTimeout, .tokenRevoked:
+                code = "auth_failed"
+            default:
+                code = fallbackCode
+            }
+        } else if let chatError = error as? ChatError {
+            switch chatError {
+            case .notConnected:
+                code = "not_connected"
+            }
+        } else {
+            code = fallbackCode
+        }
+
+        replyHandler(["error": ["code": code, "message": error.localizedDescription]])
     }
 }
 
