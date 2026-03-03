@@ -1,6 +1,17 @@
 import Foundation
 
 final class CartesiaTTSClient {
+    enum ClientError: LocalizedError {
+        case notConnected
+
+        var errorDescription: String? {
+            switch self {
+            case .notConnected:
+                return "Cartesia socket is not connected"
+            }
+        }
+    }
+
     struct Handler {
         let onChunk: (Data) -> Void
         let onAudioLevel: (Float) -> Void
@@ -66,7 +77,12 @@ final class CartesiaTTSClient {
             "continue": false
         ]
 
-        try await sendJSON(payload)
+        do {
+            try await sendJSON(payload)
+        } catch {
+            handlers.removeValue(forKey: contextId)
+            throw error
+        }
         return contextId
     }
 
@@ -171,9 +187,12 @@ final class CartesiaTTSClient {
     }
 
     private func sendJSON(_ object: [String: Any]) async throws {
+        guard let websocketTask else {
+            throw ClientError.notConnected
+        }
         let data = try JSONSerialization.data(withJSONObject: object, options: [])
         guard let text = String(data: data, encoding: .utf8) else { return }
-        try await websocketTask?.send(.string(text))
+        try await websocketTask.send(.string(text))
     }
 
     private func rms(fromPCM16LE data: Data) -> Float {
