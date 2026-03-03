@@ -93,6 +93,17 @@ struct ClawlineApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
+            CommandMenu("View") {
+                Button("Increase Font Size") {
+                    settingsManager.increaseFontScale()
+                }
+                .keyboardShortcut("=", modifiers: [.command, .shift])
+
+                Button("Decrease Font Size") {
+                    settingsManager.decreaseFontScale()
+                }
+                .keyboardShortcut("-", modifiers: .command)
+            }
         }
     }
 }

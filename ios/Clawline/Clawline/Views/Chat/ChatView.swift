@@ -700,6 +700,13 @@ struct ChatView: View {
         .onChange(of: isInputFocused) { _, _ in layoutRevision &+= 1 }
         .onChange(of: geometry.safeAreaInsets.bottom) { _, _ in layoutRevision &+= 1 }
         .onChange(of: horizontalSizeClass) { _, _ in layoutRevision &+= 1 }
+        .onChange(of: settings.fontScaleChangeSequence) { _, _ in
+            layoutRevision &+= 1
+        }
+        .onChange(of: settings.fontScaleToastSequence) { _, _ in
+            guard let message = settings.consumePendingFontScaleToastMessage() else { return }
+            toastManager.show(message, duration: .seconds(1.3))
+        }
         .overlay(alignment: .bottom) {
 #if os(visionOS)
             floatingPageDotsView(
