@@ -1321,6 +1321,82 @@ struct ChatViewModelTests {
         #expect(secondViewModel.orderedSessionKeys == [personalSessionKey])
     }
 
+    @Test("Replay message does not resurrect stream pruned by snapshot")
+    @MainActor
+    func replayDoesNotResurrectPrunedStream() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let staleKey = "agent:main:clawline:user:s_stale1234"
+
+        let firstService = TestChatService()
+        firstService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: staleKey, displayName: "Parallelism", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        let firstViewModel = ChatViewModel(
+            auth: auth,
+            chatService: firstService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+
+        await firstViewModel.onAppear()
+        firstService.emitServiceEvent(.streamSnapshot(firstService.streams))
+        for _ in 0..<50 {
+            if firstViewModel.stream(for: staleKey) != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(firstViewModel.stream(for: staleKey) != nil)
+        firstViewModel.onDisappear()
+
+        let secondService = TestChatService()
+        secondService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let secondViewModel = ChatViewModel(
+            auth: auth,
+            chatService: secondService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { secondViewModel.onDisappear() }
+
+        await secondViewModel.onAppear()
+        #expect(secondViewModel.stream(for: staleKey) != nil)
+
+        secondService.emitServiceEvent(.streamSnapshot(secondService.streams))
+        for _ in 0..<50 {
+            if secondViewModel.stream(for: staleKey) == nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(secondViewModel.stream(for: staleKey) == nil)
+
+        secondService.emit(
+            Message(
+                id: "s_stale_replay",
+                role: .assistant,
+                content: "stale replay",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: staleKey
+            )
+        )
+        try await Task.sleep(for: .milliseconds(40))
+
+        #expect(secondViewModel.stream(for: staleKey) == nil)
+        #expect(secondViewModel.messages(for: staleKey).isEmpty)
+        #expect(secondViewModel.orderedSessionKeys == [personalSessionKey])
+    }
+
     @Test("Incremental stream events update metadata")
     @MainActor
     func incrementalStreamEvents() async throws {

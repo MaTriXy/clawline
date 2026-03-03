@@ -44,6 +44,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var lastReadMessageIdBySession: [String: String] = [:]
     private(set) var hasUnreadBySession: [String: Bool] = [:]
     private var syntheticSessionKeys: Set<String> = []
+    private var serverPrunedSessionKeys: Set<String> = []
     private var didRestoreActiveSessionKey = false
 
     enum StreamSwitchSource: Equatable {
@@ -492,6 +493,7 @@ final class ChatViewModel: ChatViewModelHosting {
             connectionStableTask?.cancel()
             connectionStableTask = nil
             chatService.disconnect()
+            serverPrunedSessionKeys.removeAll()
         }
     }
 
@@ -734,6 +736,7 @@ final class ChatViewModel: ChatViewModelHosting {
         connectionStableTask = nil
         restoredSessionKeys.removeAll()
         restoredStreamMetadataForUserId = nil
+        serverPrunedSessionKeys.removeAll()
         resetSessionProvisioningState(clearPendingSend: true)
         clearMessageCache()
         clearStreamMetadataCache()
@@ -811,6 +814,13 @@ final class ChatViewModel: ChatViewModelHosting {
         logger.info(
             "incoming id=\(message.id, privacy: .public) sessionKey=\(message.sessionKey, privacy: .public) stream=\(message.stream.rawValue, privacy: .public) role=\(String(describing: message.role), privacy: .public) streaming=\(message.streaming, privacy: .public) deviceId=\(message.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
         )
+
+        if streamsBySessionKey[message.sessionKey] == nil, serverPrunedSessionKeys.contains(message.sessionKey) {
+            logger.info(
+                "dropping message for server-pruned sessionKey=\(message.sessionKey, privacy: .public) id=\(message.id, privacy: .public)"
+            )
+            return
+        }
 
         var resolvedMessage = message
         if message.role == .assistant,
@@ -1774,6 +1784,11 @@ final class ChatViewModel: ChatViewModelHosting {
                 }
                 await MainActor.run { [weak self, filtered] in
                     guard let self else { return }
+                    guard self.streamsBySessionKey[sessionKey] != nil else {
+                        self.clearCursor(for: sessionKey)
+                        self.persistMessages([], for: sessionKey)
+                        return
+                    }
                     self.setMessages(filtered, for: sessionKey)
                     let cachedLast = self.lastServerMessageId(from: filtered)
                     self.lastServerMessageIdBySession[sessionKey] = cachedLast
@@ -1942,6 +1957,8 @@ final class ChatViewModel: ChatViewModelHosting {
         streamsBySessionKey = byKey
         let validSessionKeys = Set(byKey.keys)
         let removedSessionKeys = previousSessionKeys.subtracting(validSessionKeys)
+        serverPrunedSessionKeys.subtract(validSessionKeys)
+        serverPrunedSessionKeys.formUnion(removedSessionKeys)
         for sessionKey in removedSessionKeys {
             sessionMessages.removeValue(forKey: sessionKey)
             lastServerMessageIdBySession.removeValue(forKey: sessionKey)
@@ -1975,6 +1992,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func applyStreamUpsert(_ stream: StreamSession) {
         streamsBySessionKey[stream.sessionKey] = stream
         syntheticSessionKeys.remove(stream.sessionKey)
+        serverPrunedSessionKeys.remove(stream.sessionKey)
         recalculateOrderedSessionKeys()
         ensureSessionStorage(for: stream.sessionKey)
         restoreLastServerMessageIdIfNeeded(for: stream.sessionKey)
@@ -1989,6 +2007,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func applyStreamDeletion(sessionKey: String) {
         streamsBySessionKey.removeValue(forKey: sessionKey)
         syntheticSessionKeys.remove(sessionKey)
+        serverPrunedSessionKeys.insert(sessionKey)
         recalculateOrderedSessionKeys()
         sessionMessages.removeValue(forKey: sessionKey)
         lastServerMessageIdBySession.removeValue(forKey: sessionKey)
@@ -2118,15 +2137,12 @@ final class ChatViewModel: ChatViewModelHosting {
               !userId.isEmpty,
               let url = streamMetadataCacheURL(for: userId) else { return }
         let payload = orderedStreams
-        Task.detached {
-            let encoder = JSONEncoder()
-            do {
-                let data = try encoder.encode(payload)
-                try data.write(to: url, options: [.atomic])
-            } catch {
-                let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
-                logger.error("stream cache write failed userId=\(userId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
-            }
+        let encoder = JSONEncoder()
+        do {
+            let data = try encoder.encode(payload)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            logger.error("stream cache write failed userId=\(userId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
         }
     }
 
