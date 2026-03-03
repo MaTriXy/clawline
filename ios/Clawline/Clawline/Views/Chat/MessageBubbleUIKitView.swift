@@ -233,6 +233,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var currentMessageId: String?
     private var wasOverflowingOnLastLayout = false
     private var suppressExpandTapForLinkCards = false
+    private var allowSwipeUpExpandForSingleLink = false
     private var timestampDate: Date?
     private var timestampRefreshTimer: Timer?
 
@@ -263,6 +264,12 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         bubbleTap.delaysTouchesBegan = false
         bubbleTap.delaysTouchesEnded = false
         bubbleBackgroundView.addGestureRecognizer(bubbleTap)
+        let bubbleSwipeUp = UISwipeGestureRecognizer(target: self, action: #selector(handleBubbleSwipeUp))
+        bubbleSwipeUp.direction = .up
+        bubbleSwipeUp.cancelsTouchesInView = false
+        bubbleSwipeUp.delaysTouchesBegan = false
+        bubbleSwipeUp.delaysTouchesEnded = false
+        bubbleBackgroundView.addGestureRecognizer(bubbleSwipeUp)
         addSubview(bubbleBackgroundView)
         maxWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(lessThanOrEqualToConstant: 320)
         minWidthConstraint = bubbleBackgroundView.widthAnchor.constraint(greaterThanOrEqualToConstant: 120)
@@ -728,6 +735,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             return nil
         }).first
         let shouldShowInlineReloadButton = isSingleLinkPreview && linkPreviewURL != nil
+        allowSwipeUpExpandForSingleLink = isSingleLinkPreview
 
         // Flynn: URLs should render as tappable cards per the design-system, independent of embedded preview success.
         // For multi-URL messages, cards render for each unique URL; for single-URL messages, card renders above preview.
@@ -1057,6 +1065,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     func prepareForReuse() {
         currentMessageId = nil
         suppressExpandTapForLinkCards = false
+        allowSwipeUpExpandForSingleLink = false
         timestampDate = nil
         timestampRefreshTimer?.invalidate()
         timestampRefreshTimer = nil
@@ -1362,6 +1371,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         if dynamicContentScrollView.contentSize.height > dynamicContentScrollView.bounds.height + 1 {
             onRequestExpand?()
         }
+    }
+
+    @objc private func handleBubbleSwipeUp() {
+        guard allowSwipeUpExpandForSingleLink else {
+            return
+        }
+        onRequestExpand?()
     }
 
     private func stripAttachmentSummaryIfNeeded() {
