@@ -663,6 +663,10 @@ struct ChatView: View {
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
         }
+        .handleStreamPopupCommand(
+            isPresented: $isStreamManagerPopoverPresented,
+            hasStreams: !viewModel.orderedStreams.isEmpty
+        )
         .onChange(of: viewModel.uiSelectionSequence) { _, _ in
             guard let selectedSessionKey = viewModel.lastUISelectedSessionKey else { return }
             let streamDisplayName = viewModel.stream(for: selectedSessionKey)?.displayName ?? viewModel.activeSessionDisplayName
@@ -1498,6 +1502,22 @@ private struct VisionOSInputBarDepthOffset: ViewModifier {
 private extension View {
     func visionOSInputBarDepthOffset() -> some View {
         modifier(VisionOSInputBarDepthOffset())
+    }
+
+    func handleStreamPopupCommand(isPresented: Binding<Bool>, hasStreams: Bool) -> some View {
+        modifier(StreamPopupCommandModifier(isPresented: isPresented, hasStreams: hasStreams))
+    }
+}
+
+private struct StreamPopupCommandModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    let hasStreams: Bool
+
+    func body(content: Content) -> some View {
+        content.onReceive(NotificationCenter.default.publisher(for: .clawlineOpenStreamPopupCommand)) { _ in
+            guard hasStreams else { return }
+            isPresented = true
+        }
     }
 }
 

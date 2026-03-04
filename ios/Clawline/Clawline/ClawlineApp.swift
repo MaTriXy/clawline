@@ -103,6 +103,13 @@ struct ClawlineApp: App {
                     settingsManager.decreaseFontScale()
                 }
                 .keyboardShortcut("-", modifiers: .command)
+
+                Divider()
+
+                Button("Open Streams") {
+                    NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
+                }
+                .keyboardShortcut("/", modifiers: .command)
             }
         }
     }
