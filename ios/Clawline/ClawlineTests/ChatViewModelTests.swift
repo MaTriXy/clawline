@@ -454,6 +454,84 @@ struct ChatViewModelTests {
         #expect(chatService.connectCallCount == connectCallsAfterImmediateReconnect)
     }
 
+    @Test("Persist debounce cancellation does not flush cache early")
+    @MainActor
+    func persistDebounceCancellationDoesNotFlushEarly() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        func cacheURL(for sessionKey: String) -> URL? {
+            guard let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+                return nil
+            }
+            let directoryURL = baseURL
+                .appendingPathComponent("Clawline", isDirectory: true)
+                .appendingPathComponent("MessageCache", isDirectory: true)
+            let filename = sessionKey
+                .replacingOccurrences(of: ":", with: "-")
+                .replacingOccurrences(of: "/", with: "-")
+            return directoryURL.appendingPathComponent("\(filename.isEmpty ? "session" : filename).json")
+        }
+
+        guard let cacheURL = cacheURL(for: personalSessionKey) else {
+            Issue.record("Expected cache URL for personal session")
+            return
+        }
+        try? FileManager.default.removeItem(at: cacheURL)
+
+        await viewModel.onAppear()
+        chatService.emit(
+            Message(
+                id: "s_cache_1",
+                role: .assistant,
+                content: "one",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: personalSessionKey
+            )
+        )
+        try await Task.sleep(for: .milliseconds(50))
+        chatService.emit(
+            Message(
+                id: "s_cache_2",
+                role: .assistant,
+                content: "two",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: personalSessionKey
+            )
+        )
+
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(FileManager.default.fileExists(atPath: cacheURL.path) == false)
+
+        var persisted = false
+        for _ in 0..<30 {
+            if FileManager.default.fileExists(atPath: cacheURL.path) {
+                persisted = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(persisted)
+    }
+
     @Test("canSend becomes true when attachments exist even without text")
     @MainActor
     func canSendWithAttachmentOnly() async throws {

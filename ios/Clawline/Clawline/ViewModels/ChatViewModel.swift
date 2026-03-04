@@ -1852,7 +1852,14 @@ final class ChatViewModel: ChatViewModelHosting {
         persistDebounceTasks[sessionKey]?.cancel()
         persistDebounceTasks[sessionKey] = Task { [weak self] in
             guard let self else { return }
-            try? await Task.sleep(for: .milliseconds(500))
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             guard let pendingPayload = self.pendingPersistPayloads[sessionKey] else { return }
             self.pendingPersistPayloads[sessionKey] = nil
             Task.detached { [pendingPayload, url, sessionKey] in
