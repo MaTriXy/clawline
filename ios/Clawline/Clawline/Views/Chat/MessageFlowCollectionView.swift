@@ -111,6 +111,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var bubbleSizingV2DeferredFlushTimer: Timer?
     private var bubbleSizingV2RemeasureBatchStartTime: CFAbsoluteTime?
     private var bubbleSizingV2RemeasureDeferredUntilNearBottom: Bool = false
+    private var deferredPreviewRemeasureIds: Set<String> = []
+    private var deferredPreviewRemeasureTimer: Timer?
     private var deferredBottomInsetRemeasureIds: Set<String> = []
     private var bottomInsetRemeasureTimer: Timer?
     private var bottomInsetRemeasureBypassInputGates = false
@@ -118,6 +120,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let bubbleSizingV2RemeasureDebounceSeconds: TimeInterval = 0.45
     private static let bubbleSizingV2RemeasureMaxWaitSeconds: TimeInterval = 2.5
     private static let bubbleSizingV2RestSettleDelaySeconds: TimeInterval = 0.12
+    private static let previewRemeasureRestPollSeconds: TimeInterval = 0.06
     private static let bottomInsetHeightCapInvalidationDebounceSeconds: TimeInterval = 0.20
 
     private var messagesById: [String: Message] = [:]
@@ -297,6 +300,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     deinit {
         NotificationCenter.default.removeObserver(self, name: UIApplication.willResignActiveNotification, object: nil)
+        deferredPreviewRemeasureTimer?.invalidate()
         pendingBottomInsetHeightCapInvalidation?.cancel()
     }
 
@@ -574,6 +578,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             setSalientHighlightIsScrolling(false)
         }
         if !decelerate {
+            flushDeferredPreviewRemeasuresIfPossible()
             handleUserScrollSettled()
             checkFirstUnreadCrossingIfNeeded()
             performPendingFlashIfPossible()
@@ -588,6 +593,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 #if os(visionOS)
         updateVisibleCellOpacity()
 #endif
+        flushDeferredPreviewRemeasuresIfPossible()
         setSalientHighlightIsScrolling(false)
         handleUserScrollSettled()
         checkFirstUnreadCrossingIfNeeded()
@@ -599,6 +605,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        flushDeferredPreviewRemeasuresIfPossible()
         handleProgrammaticScrollEnded()
         checkFirstUnreadCrossingIfNeeded()
         performPendingFlashIfPossible()
@@ -3044,6 +3051,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             }
             return
         }
+        guard isScrollFullyStoppedForPreviewRemeasure() else {
+            deferredPreviewRemeasureIds.insert(messageId)
+            scheduleDeferredPreviewRemeasureFlushAfterRest()
+            return
+        }
+        applyRequestedLayoutNow(messageId: messageId)
+    }
+
+    private func applyRequestedLayoutNow(messageId: String) {
         guard let viewModel, let message = messagesById[messageId] else {
             invalidateLayout(for: messageId)
             return
@@ -3083,6 +3099,37 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             verticalFittingPriority: .fittingSizeLevel
         )
         applyMeasuredSize(measured, for: messageId)
+    }
+
+    private func isScrollFullyStoppedForPreviewRemeasure() -> Bool {
+        !collectionView.isDragging && !collectionView.isTracking && !collectionView.isDecelerating
+    }
+
+    private func scheduleDeferredPreviewRemeasureFlushAfterRest() {
+        guard !deferredPreviewRemeasureIds.isEmpty else { return }
+        guard deferredPreviewRemeasureTimer == nil else { return }
+        let timer = Timer(timeInterval: Self.previewRemeasureRestPollSeconds, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.deferredPreviewRemeasureTimer = nil
+            self.flushDeferredPreviewRemeasuresIfPossible()
+            if !self.deferredPreviewRemeasureIds.isEmpty {
+                self.scheduleDeferredPreviewRemeasureFlushAfterRest()
+            }
+        }
+        deferredPreviewRemeasureTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func flushDeferredPreviewRemeasuresIfPossible() {
+        guard !deferredPreviewRemeasureIds.isEmpty else { return }
+        guard isScrollFullyStoppedForPreviewRemeasure() else { return }
+        deferredPreviewRemeasureTimer?.invalidate()
+        deferredPreviewRemeasureTimer = nil
+        let ids = Array(deferredPreviewRemeasureIds)
+        deferredPreviewRemeasureIds.removeAll()
+        for id in ids {
+            applyRequestedLayoutNow(messageId: id)
+        }
     }
 
     private func handleBubbleSizingV2LinkPreviewLayout(messageId: String) {
@@ -3364,7 +3411,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if let delta = writeMeasuredSize(messageId: messageId, measurement: snapped) {
             executeInvalidationPlan(.remeasureAndShift([(id: messageId, delta: delta)]))
         } else {
+            let viewportAnchor = captureBubbleSizingV2ViewportAnchor()
             scheduleLayoutInvalidation()
+            scheduleBubbleSizingV2ViewportAnchorCompensation(viewportAnchor)
         }
         if messageId == lastMessageId {
             scheduleScrollToBottom(animated: false, attempts: 1)
