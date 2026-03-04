@@ -250,6 +250,78 @@ struct ProviderServiceTests {
         #expect(sentAfterDisconnect == sentBeforeDisconnect)
     }
 
+    @Test("Malformed inbound auth/message frames are dropped and valid frames still process")
+    func malformedInboundFramesAreDropped() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+        var messageIterator = service.incomingMessages.makeAsyncIterator()
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: "{ this is not json")
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "message", "id": "s_bad", "role": "assistant", "content": "bad", "streaming": false, "sessionKey": "agent:main:main", "attachments": [] }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "message", "id": "s_good", "role": "assistant", "content": "ok", "timestamp": 1700000000000, "streaming": false, "sessionKey": "agent:main:main", "attachments": [] }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+        let message = await messageIterator.next()
+        #expect(message?.id == "s_good")
+        #expect(message?.content == "ok")
+    }
+
+    @Test("Malformed ack frame is dropped and valid ack still emits")
+    func malformedAckFrameIsDropped() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+        }
+        try await service.connect(token: "jwt", lastMessageId: nil)
+        try await service.send(
+            id: "c_ack_drop",
+            content: "Ack me",
+            attachments: [],
+            sessionKey: nil
+        )
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "ack" }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "ack", "id": "c_ack_drop" }"#)
+        }
+
+        var acked = false
+        for _ in 0..<10 {
+            guard let event = await eventIterator.next() else { continue }
+            if case .messageAcked(let id) = event, id == "c_ack_drop" {
+                acked = true
+                break
+            }
+        }
+
+        #expect(acked)
+    }
+
     @Test("Chat service emits stream snapshot events")
     func chatStreamSnapshotEvent() async throws {
         let mockSocket = MockWebSocketClient()

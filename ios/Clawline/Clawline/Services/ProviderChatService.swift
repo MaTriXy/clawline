@@ -380,7 +380,13 @@ final class ProviderChatService: ChatServicing {
             sessionKey: sessionKey
         )
         let data = try encoder.encode(payload)
-        guard let text = String(data: data, encoding: .utf8) else { return }
+        guard let text = String(data: data, encoding: .utf8) else {
+            logger.error("Failed to encode outbound message payload as UTF-8 id=\(id, privacy: .public)")
+            throw Error.serverError(
+                code: "client_encode_failed",
+                message: "Failed to encode outbound message payload."
+            )
+        }
 
         pendingMessages[id]?.retryTask?.cancel()
         let retryTask = scheduleRetry(for: payload)
@@ -402,7 +408,13 @@ final class ProviderChatService: ChatServicing {
             payload: .init(action: action, data: data)
         )
         let encoded = try encoder.encode(payload)
-        guard let text = String(data: encoded, encoding: .utf8) else { return }
+        guard let text = String(data: encoded, encoding: .utf8) else {
+            logger.error("Failed to encode interactive callback payload as UTF-8 sourceMessageId=\(sourceMessageId, privacy: .public)")
+            throw Error.serverError(
+                code: "client_encode_failed",
+                message: "Failed to encode interactive callback payload."
+            )
+        }
         try await socket.send(text: text)
     }
 
@@ -445,42 +457,57 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func handle(text: String) {
-        guard let data = text.data(using: .utf8) else { return }
-        if let envelope = try? decoder.decode(Envelope.self, from: data) {
-            switch envelope.type {
-            case "auth_result":
-                handleAuthResult(data: data)
-            case "message":
-                handleMessage(data: data)
-            case "ack":
-                handleAck(data: data)
-            case "error":
-                handleServerError(data: data)
-            case "user_info":
-                handleUserInfo(data: data)
-            case "typing":
-                handleTyping(data: data)
-            case "session_info":
-                handleSessionInfo(data: data)
-            case "stream_snapshot":
-                handleStreamSnapshot(data: data)
-            case "stream_created":
-                handleStreamCreated(data: data)
-            case "stream_updated":
-                handleStreamUpdated(data: data)
-            case "stream_deleted":
-                handleStreamDeleted(data: data)
-            case "event":
-                handleEvent(data: data)
-            default:
-                logger.debug("Unknown message type: \(envelope.type, privacy: .public)")
-                break
-            }
+        guard let data = text.data(using: .utf8) else {
+            logger.warning("Dropping inbound frame: failed UTF-8 conversion")
+            return
+        }
+
+        let envelope: Envelope
+        do {
+            envelope = try decoder.decode(Envelope.self, from: data)
+        } catch {
+            logger.warning("Dropping inbound frame: failed to decode envelope error=\(error.localizedDescription, privacy: .public)")
+            return
+        }
+
+        switch envelope.type {
+        case "auth_result":
+            handleAuthResult(data: data)
+        case "message":
+            handleMessage(data: data)
+        case "ack":
+            handleAck(data: data)
+        case "error":
+            handleServerError(data: data)
+        case "user_info":
+            handleUserInfo(data: data)
+        case "typing":
+            handleTyping(data: data)
+        case "session_info":
+            handleSessionInfo(data: data)
+        case "stream_snapshot":
+            handleStreamSnapshot(data: data)
+        case "stream_created":
+            handleStreamCreated(data: data)
+        case "stream_updated":
+            handleStreamUpdated(data: data)
+        case "stream_deleted":
+            handleStreamDeleted(data: data)
+        case "event":
+            handleEvent(data: data)
+        default:
+            logger.debug("Unknown message type: \(envelope.type, privacy: .public)")
         }
     }
 
     private func handleAuthResult(data: Data) {
-        guard let result = try? decoder.decode(AuthResultPayload.self, from: data) else { return }
+        let result: AuthResultPayload
+        do {
+            result = try decoder.decode(AuthResultPayload.self, from: data)
+        } catch {
+            logger.warning("Dropping auth_result: decode failed error=\(error.localizedDescription, privacy: .public)")
+            return
+        }
         if result.success {
             resolveAuthContinuation(with: .success(()))
             logger.info("state -> connected (auth success)")
@@ -506,7 +533,13 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func handleMessage(data: Data) {
-        guard let payload = try? decoder.decode(ServerMessagePayload.self, from: data) else { return }
+        let payload: ServerMessagePayload
+        do {
+            payload = try decoder.decode(ServerMessagePayload.self, from: data)
+        } catch {
+            logger.warning("Dropping message payload: decode failed error=\(error.localizedDescription, privacy: .public)")
+            return
+        }
         guard let sessionKey = resolveSessionKey(from: payload) else {
             logger.warning("Dropping message: missing sessionKey id=\(payload.id, privacy: .public)")
             return
@@ -536,7 +569,13 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func handleAck(data: Data) {
-        guard let payload = try? decoder.decode(AckPayload.self, from: data) else { return }
+        let payload: AckPayload
+        do {
+            payload = try decoder.decode(AckPayload.self, from: data)
+        } catch {
+            logger.warning("Dropping ack payload: decode failed error=\(error.localizedDescription, privacy: .public)")
+            return
+        }
         if let pending = pendingMessages.removeValue(forKey: payload.id) {
             pending.retryTask?.cancel()
         }
@@ -544,7 +583,13 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func handleServerError(data: Data) {
-        guard let payload = try? decoder.decode(ErrorPayload.self, from: data) else { return }
+        let payload: ErrorPayload
+        do {
+            payload = try decoder.decode(ErrorPayload.self, from: data)
+        } catch {
+            logger.warning("Dropping error payload: decode failed error=\(error.localizedDescription, privacy: .public)")
+            return
+        }
 
         if let messageId = payload.messageId {
             if let pending = pendingMessages.removeValue(forKey: messageId) {
