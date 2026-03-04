@@ -229,6 +229,11 @@ final class ProviderChatService: ChatServicing {
 
     private static let serverEventIDPrefix = "s_"
 
+    var isTransportReadyForSend: Bool {
+        guard socket != nil, authToken != nil else { return false }
+        return lastConnectionState == .connected
+    }
+
     init(connector: any WebSocketConnecting,
          deviceId: String,
          baseURLProvider: @escaping () -> URL? = { ProviderBaseURLStore.baseURL },

@@ -2015,6 +2015,7 @@ private final class TestChatService: ChatServicing {
     private(set) var lastSentId: String?
     private(set) var lastSessionKey: String?
     private(set) var connectCallCount: Int = 0
+    var isTransportReadyForSend: Bool = false
     var sendError: Swift.Error?
     var createStreamError: Error?
     var deleteStreamError: Error?
@@ -2052,6 +2053,7 @@ private final class TestChatService: ChatServicing {
     func connect(token: String, activeSessionKey: String?) async throws {
         _ = activeSessionKey
         connectCallCount += 1
+        isTransportReadyForSend = true
         stateContinuation?.yield(.connected)
     }
 
@@ -2077,6 +2079,7 @@ private final class TestChatService: ChatServicing {
     func stopConnectionAttempt() {}
 
     func disconnect() {
+        isTransportReadyForSend = false
         stateContinuation?.yield(.disconnected)
     }
 
@@ -2118,6 +2121,7 @@ private final class TestChatService: ChatServicing {
     }
 
     func emitConnectionState(_ state: ConnectionState) {
+        isTransportReadyForSend = (state == .connected)
         stateContinuation?.yield(state)
         switch state {
         case .connected:

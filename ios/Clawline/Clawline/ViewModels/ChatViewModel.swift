@@ -49,9 +49,9 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func observationStateFlags() -> String {
         #if DEBUG
-        return "obsTask=\(observationTask != nil) startupTask=\(observationStartupTask != nil) transportSub=\(lifecycleTransportEventsSubscription != nil) outputsSub=\(lifecycleOutputsSubscription != nil) startupCount=\(observationStartupCount)"
+        return "obsTask=\(observationTask != nil) startupTask=\(observationStartupTask != nil) transportSub=\(lifecycleTransportEventsSubscription != nil) outputsSub=\(lifecycleOutputsSubscription != nil) gateSub=\(lifecycleStartupGateDebugSubscription != nil) startupCount=\(observationStartupCount)"
         #else
-        return "obsTask=\(observationTask != nil) startupTask=\(observationStartupTask != nil) transportSub=\(lifecycleTransportEventsSubscription != nil) outputsSub=\(lifecycleOutputsSubscription != nil)"
+        return "obsTask=\(observationTask != nil) startupTask=\(observationStartupTask != nil) transportSub=\(lifecycleTransportEventsSubscription != nil) outputsSub=\(lifecycleOutputsSubscription != nil) gateSub=\(lifecycleStartupGateDebugSubscription != nil)"
         #endif
     }
 
@@ -350,6 +350,7 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
     var attachmentData: [UUID: PendingAttachment] = [:]
+    private(set) var pendingAttachmentStageCount: Int = 0
     private var stagedAttachmentProtection: Set<UUID> = []
     private(set) var isSending: Bool = false
     private(set) var isAssistantTyping: Bool = false
@@ -377,7 +378,9 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     var canSend: Bool {
-        transportSendButtonConnectionState == .connected && !inputContent.isEffectivelyEmpty
+        pendingAttachmentStageCount == 0
+            && transportSendButtonConnectionState == .connected
+            && !inputContent.isEffectivelyEmpty
     }
 
     var sendButtonConnectionState: SendButtonConnectionState {
@@ -396,6 +399,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var observationStartupTask: Task<Void, Never>?
     private var lifecycleTransportEventsSubscription: AsyncStream<LifecycleTransportEvent>?
     private var lifecycleOutputsSubscription: AsyncStream<ConnectionLifecycleOutput>?
+    private var lifecycleStartupGateDebugSubscription: AsyncStream<StartupGateDebugEvent>?
     private var sessionMessages: [String: [Message]] = [:]
     private var forceReReadGenerationBySession: [String: Int] = [:]
     private var pendingLocalMessages: [PendingLocalMessage] = []
@@ -428,6 +432,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var lifecycleDebugPhase: ConnectionLifecyclePhase = .idle
     private(set) var lifecycleDebugSignals: [LifecycleDebugSignalRecord] = []
     private(set) var lifecycleDebugObserverEvents: [LifecycleObserverDebugRecord] = []
+    private(set) var lifecycleDebugStartupGateEvents: [StartupGateDebugEvent] = []
+    private(set) var lifecycleDebugLastGateDecision: String = "none"
     private(set) var lifecycleDebugSequence: Int = 0
 #endif
     private let messageCacheLimit = 500
@@ -503,6 +509,8 @@ final class ChatViewModel: ChatViewModelHosting {
         if signal == .authChangedToken {
             lifecycleDebugSignals.removeAll(keepingCapacity: true)
             lifecycleDebugObserverEvents.removeAll(keepingCapacity: true)
+            lifecycleDebugStartupGateEvents.removeAll(keepingCapacity: true)
+            lifecycleDebugLastGateDecision = "none"
         }
         lifecycleDebugSignals.append(.init(signal: signal, timestamp: Date()))
         if lifecycleDebugSignals.count > 12 {
@@ -528,6 +536,22 @@ final class ChatViewModel: ChatViewModelHosting {
         )
         if lifecycleDebugObserverEvents.count > 12 {
             lifecycleDebugObserverEvents.removeFirst(lifecycleDebugObserverEvents.count - 12)
+        }
+        lifecycleDebugSequence &+= 1
+    }
+
+    private func recordLifecycleStartupGateEvent(_ event: StartupGateDebugEvent) {
+        lifecycleDebugStartupGateEvents.append(event)
+        if lifecycleDebugStartupGateEvents.count > 12 {
+            lifecycleDebugStartupGateEvents.removeFirst(lifecycleDebugStartupGateEvents.count - 12)
+        }
+        switch event.kind {
+        case .startIfNeededExitMissingAuthToken:
+            lifecycleDebugLastGateDecision = "missing_auth_token"
+        case .startIfNeededExitMissingViewAppeared:
+            lifecycleDebugLastGateDecision = "missing_view_appeared"
+        default:
+            break
         }
         lifecycleDebugSequence &+= 1
     }
@@ -790,6 +814,9 @@ final class ChatViewModel: ChatViewModelHosting {
             await self.ensureLifecycleOutputsSubscription()
             self.coordinatorDiag("startObservingIfNeeded after ensureLifecycleOutputsSubscription")
             if Task.isCancelled { return }
+            await self.ensureLifecycleStartupGateDebugSubscription()
+            self.coordinatorDiag("startObservingIfNeeded after ensureLifecycleStartupGateDebugSubscription")
+            if Task.isCancelled { return }
             self.ensureLifecycleTransportSubscription()
             self.coordinatorDiag("startObservingIfNeeded after ensureLifecycleTransportSubscription")
             if Task.isCancelled { return }
@@ -806,6 +833,10 @@ final class ChatViewModel: ChatViewModelHosting {
 
                     group.addTask { [weak self] in
                         await self?.observeLifecycleOutputs()
+                    }
+
+                    group.addTask { [weak self] in
+                        await self?.observeLifecycleStartupGateDebugEvents()
                     }
 
                     group.addTask { [weak self] in
@@ -830,6 +861,7 @@ final class ChatViewModel: ChatViewModelHosting {
         observationTask = nil
         lifecycleTransportEventsSubscription = nil
         lifecycleOutputsSubscription = nil
+        lifecycleStartupGateDebugSubscription = nil
         lifecycleTransportTask?.cancel()
         lifecycleTransportTask = nil
         lifecycleOutputTask?.cancel()
@@ -871,6 +903,15 @@ final class ChatViewModel: ChatViewModelHosting {
         coordinatorDiag("ensureLifecycleOutputsSubscription created")
     }
 
+    private func ensureLifecycleStartupGateDebugSubscription() async {
+        guard lifecycleStartupGateDebugSubscription == nil else {
+            coordinatorDiag("ensureLifecycleStartupGateDebugSubscription already-subscribed")
+            return
+        }
+        lifecycleStartupGateDebugSubscription = await lifecycleCoordinator.startupGateDebugEvents
+        coordinatorDiag("ensureLifecycleStartupGateDebugSubscription created")
+    }
+
     @MainActor
     private func observeLifecycleTransportEvents() async {
         guard let lifecycleTransportEventsSubscription else { return }
@@ -890,6 +931,16 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     @MainActor
+    private func observeLifecycleStartupGateDebugEvents() async {
+        guard let lifecycleStartupGateDebugSubscription else { return }
+        for await event in lifecycleStartupGateDebugSubscription {
+#if DEBUG
+            recordLifecycleStartupGateEvent(event)
+#endif
+        }
+    }
+
+    @MainActor
     private func observeServiceEvents() async {
         for await event in chatService.serviceEvents {
             handle(serviceEvent: event)
@@ -898,6 +949,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func send() {
         guard !isSending else { return }
+        guard ensureTransportPreflightReady() else { return }
         let referencedIds = Set(inputContent.pendingAttachmentIds())
         let stagedOnly = attachmentData.keys.filter { !referencedIds.contains($0) }
         if !stagedOnly.isEmpty {
@@ -913,11 +965,6 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         if pendingAttachments.isEmpty && handleSlashCommand(text) {
-            return
-        }
-
-        guard transportSendButtonConnectionState == .connected else {
-            toastManager.show("Could not send; not connected.")
             return
         }
 
@@ -945,6 +992,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func beginSend(content: String,
                            pendingAttachments: [PendingAttachment],
                            sessionKey: String) {
+        guard ensureTransportPreflightReady() else { return }
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
 
@@ -1046,6 +1094,14 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    func beginAttachmentStaging() {
+        pendingAttachmentStageCount += 1
+    }
+
+    func endAttachmentStaging() {
+        pendingAttachmentStageCount = max(0, pendingAttachmentStageCount - 1)
+    }
+
     func logout() {
         cancelSend()
         observationStartupTask?.cancel()
@@ -1055,6 +1111,7 @@ final class ChatViewModel: ChatViewModelHosting {
         observationTask = nil
         lifecycleTransportEventsSubscription = nil
         lifecycleOutputsSubscription = nil
+        lifecycleStartupGateDebugSubscription = nil
         lifecycleTransportTask?.cancel()
         lifecycleTransportTask = nil
         lifecycleOutputTask?.cancel()
@@ -1075,6 +1132,7 @@ final class ChatViewModel: ChatViewModelHosting {
         auth.clearCredentials()
         messageFailures.removeAll()
         clearInput()
+        pendingAttachmentStageCount = 0
         sessionMessages = [:]
         clearActiveSession(clearPersistedActiveSessionKey: false)
         streamsBySessionKey = [:]
@@ -1785,6 +1843,22 @@ final class ChatViewModel: ChatViewModelHosting {
         uploadedAssetIds.removeAll()
         stagedAttachmentProtection.removeAll()
         inputResetToken &+= 1
+    }
+
+    private func ensureTransportPreflightReady() -> Bool {
+        guard ProviderBaseURLStore.baseURL != nil else {
+            toastManager.show("No provider configured. Pair with a provider first.")
+            return false
+        }
+        guard transportSendButtonConnectionState == .connected else {
+            toastManager.show("Could not send; not connected.")
+            return false
+        }
+        guard chatService.isTransportReadyForSend else {
+            toastManager.show("Connection is not ready yet. Please wait a moment and try again.")
+            return false
+        }
+        return true
     }
 
 

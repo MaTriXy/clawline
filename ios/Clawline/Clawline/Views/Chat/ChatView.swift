@@ -14,6 +14,19 @@ import os.log
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ChatView")
 
+#if DEBUG
+@MainActor
+private final class T099OnDisappearProbeStore {
+    struct PendingActiveDisappear {
+        let vmObject: String
+        let chatViewId: String
+    }
+
+    static let shared = T099OnDisappearProbeStore()
+    var pendingActiveDisappear: PendingActiveDisappear?
+}
+#endif
+
 // MARK: - ⚠️⚠️⚠️ CRITICAL: DO NOT MODIFY WITHOUT READING ⚠️⚠️⚠️
 //
 // This file contains a non-obvious keyboard positioning fix that took 7+ iterations to solve.
@@ -139,6 +152,11 @@ struct ChatView: View {
     @State private var probeLatestOnAppearConnState = "unknown"
     @State private var probeLatestInstanceId = ""
     @State private var probeLatestVmObject = ""
+    @State private var probeLastOnDisappearCause = "unknown"
+    @State private var probeLastOnDisappearPreviousVMObject = "-"
+    @State private var probeLastOnDisappearPreviousChatViewId = "-"
+    @State private var probeLastOnDisappearCurrentVMObject = "-"
+    @State private var probeLastOnDisappearCurrentChatViewId = "-"
 #endif
 
     private let streamToastMinimumBusySeconds: TimeInterval = 0.45
@@ -553,7 +571,9 @@ struct ChatView: View {
         .onChange(of: photoPickerItems) { _, newItems in
             guard !newItems.isEmpty else { return }
             Task {
-                await handlePhotoPickerItems(newItems)
+                await withAttachmentStaging {
+                    await handlePhotoPickerItems(newItems)
+                }
                 await MainActor.run {
                     photoPickerItems = []
                     restoreFocusIfNeeded()
@@ -568,7 +588,9 @@ struct ChatView: View {
             switch result {
             case .success(let urls):
                 Task {
-                    await handleDocumentResults(urls)
+                    await withAttachmentStaging {
+                        await handleDocumentResults(urls)
+                    }
                     await MainActor.run { restoreFocusIfNeeded() }
                 }
             case .failure:
@@ -820,13 +842,37 @@ struct ChatView: View {
                 Text("obj: \(probeLatestVmObject)")
                     .font(.caption2)
                     .lineLimit(1)
+                Text("disappear cause: \(probeLastOnDisappearCause)")
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                Text("dis prev vm/chat: \(probeLastOnDisappearPreviousVMObject) / \(probeLastOnDisappearPreviousChatViewId)")
+                    .font(.caption2)
+                    .lineLimit(1)
+                Text("dis curr vm/chat: \(probeLastOnDisappearCurrentVMObject) / \(probeLastOnDisappearCurrentChatViewId)")
+                    .font(.caption2)
+                    .lineLimit(1)
                 Text("lifecycle: \(String(describing: viewModel.lifecycleDebugPhase))")
                     .font(.caption2.weight(.semibold))
+                Text("last gate: \(viewModel.lifecycleDebugLastGateDecision)")
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
                 ForEach(Array(viewModel.lifecycleDebugSignals.suffix(6))) { record in
                     Text("\(record.signal.rawValue) @ \(record.timestamp.formatted(date: .omitted, time: .standard))")
                         .font(.caption2)
                         .monospacedDigit()
                         .lineLimit(1)
+                }
+                if !viewModel.lifecycleDebugStartupGateEvents.isEmpty {
+                    Text("gate:")
+                        .font(.caption2.weight(.semibold))
+                    ForEach(Array(viewModel.lifecycleDebugStartupGateEvents.suffix(6).enumerated()), id: \.offset) { _, event in
+                        Text(
+                            "\(event.kind.rawValue) @ \(event.timestamp.formatted(date: .omitted, time: .standard)) t:\(event.hasToken ? "1" : "0") v:\(event.hasViewAppeared ? "1" : "0") r:\(event.reconnectEnabled ? "1" : "0") p:\(String(describing: event.phase))"
+                        )
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                    }
                 }
                 if !viewModel.lifecycleDebugObserverEvents.isEmpty {
                     Text("obs:")
@@ -881,8 +927,37 @@ struct ChatView: View {
         case .onAppear:
             probeOnAppearCount &+= 1
             probeLatestOnAppearConnState = connState
+            if scenePhase == .active {
+                let pending = T099OnDisappearProbeStore.shared.pendingActiveDisappear
+                if let pending {
+                    probeLastOnDisappearPreviousVMObject = pending.vmObject
+                    probeLastOnDisappearPreviousChatViewId = pending.chatViewId
+                    probeLastOnDisappearCurrentVMObject = vmObject
+                    probeLastOnDisappearCurrentChatViewId = chatViewTraceId
+                    if pending.vmObject != vmObject || pending.chatViewId != chatViewTraceId {
+                        probeLastOnDisappearCause = "view_replacement"
+                    } else {
+                        probeLastOnDisappearCause = "active_same_identity"
+                    }
+                    T099OnDisappearProbeStore.shared.pendingActiveDisappear = nil
+                }
+            }
         case .onDisappear:
             probeOnDisappearCount &+= 1
+            probeLastOnDisappearPreviousVMObject = vmObject
+            probeLastOnDisappearPreviousChatViewId = chatViewTraceId
+            probeLastOnDisappearCurrentVMObject = "-"
+            probeLastOnDisappearCurrentChatViewId = "-"
+            if scenePhase == .active {
+                probeLastOnDisappearCause = "pending_active_disappear"
+                T099OnDisappearProbeStore.shared.pendingActiveDisappear = .init(
+                    vmObject: vmObject,
+                    chatViewId: chatViewTraceId
+                )
+            } else {
+                probeLastOnDisappearCause = "app_background"
+                T099OnDisappearProbeStore.shared.pendingActiveDisappear = nil
+            }
         }
     }
 
@@ -1433,13 +1508,26 @@ struct ChatView: View {
     private func handlePastedImages(_ images: [UIImage]) {
         logger.info("Pasted \(images.count) image(s) from clipboard")
         Task { @MainActor in
-            let attachments = await Self.buildPastedAttachments(from: images)
+            let attachments = await withAttachmentStaging {
+                await Self.buildPastedAttachments(from: images)
+            }
             guard !attachments.isEmpty else {
                 toastManager.show(error: .invalidData)
                 return
             }
             insertAttachments(attachments)
         }
+    }
+
+    private func withAttachmentStaging<T>(_ operation: () async -> T) async -> T {
+        await MainActor.run {
+            viewModel.beginAttachmentStaging()
+        }
+        let result = await operation()
+        await MainActor.run {
+            viewModel.endAttachmentStaging()
+        }
+        return result
     }
 
     private func handlePhotoPickerItems(_ items: [PhotosPickerItem]) async {
@@ -2377,6 +2465,7 @@ private final class PreviewChatService: ChatServicing {
     var lifecycleTransportEvents: AsyncStream<LifecycleTransportEvent> {
         AsyncStream { _ in }
     }
+    var isTransportReadyForSend: Bool { true }
     func connect(token: String, activeSessionKey: String?) async throws {}
     func startConnectionAttempt(epoch: Int, lastMessageId: String?, token: String) {}
     func stopConnectionAttempt() {}
