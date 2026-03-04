@@ -986,6 +986,12 @@ final class ChatViewModel: ChatViewModelHosting {
 
         switch sendProvisioningState(for: outboundSessionKey) {
         case .ready:
+            guard ensureTransportPreflightReady(
+                content: text,
+                pendingAttachments: pendingAttachments,
+                sessionKey: outboundSessionKey,
+                announceDeferredTransport: true
+            ) else { return }
             beginSend(content: text, pendingAttachments: pendingAttachments, sessionKey: outboundSessionKey)
         case .waiting:
             pendingProvisionedSend = PendingProvisionedSend(
@@ -1000,23 +1006,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func beginSend(content: String,
                            pendingAttachments: [PendingAttachment],
-                           sessionKey: String,
-                           announceDeferredTransport: Bool = true) {
-        switch sendTransportPreflightOutcome() {
-        case .ready:
-            break
-        case .deferUntilReady:
-            queuePendingSendAndKickReconnect(
-                content: content,
-                pendingAttachments: pendingAttachments,
-                sessionKey: sessionKey,
-                announce: announceDeferredTransport
-            )
-            return
-        case .blocked(let reason):
-            toastManager.show(reason)
-            return
-        }
+                           sessionKey: String) {
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
 
@@ -1579,9 +1569,9 @@ final class ChatViewModel: ChatViewModelHosting {
 #endif
             let mapped: ConnectionState
             switch to {
-            case .live:
+            case .live, .replaying:
                 mapped = .connected
-            case .connecting, .authenticating, .replaying, .recovering:
+            case .connecting, .authenticating, .recovering:
                 mapped = .reconnecting
             case .idle:
                 mapped = .disconnected
@@ -1887,6 +1877,27 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    private func ensureTransportPreflightReady(content: String,
+                                               pendingAttachments: [PendingAttachment],
+                                               sessionKey: String,
+                                               announceDeferredTransport: Bool) -> Bool {
+        switch sendTransportPreflightOutcome() {
+        case .ready:
+            return true
+        case .deferUntilReady:
+            queuePendingSendAndKickReconnect(
+                content: content,
+                pendingAttachments: pendingAttachments,
+                sessionKey: sessionKey,
+                announce: announceDeferredTransport
+            )
+            return false
+        case .blocked(let reason):
+            toastManager.show(reason)
+            return false
+        }
+    }
+
     private func queuePendingSendAndKickReconnect(content: String,
                                                   pendingAttachments: [PendingAttachment],
                                                   sessionKey: String,
@@ -2040,12 +2051,17 @@ final class ChatViewModel: ChatViewModelHosting {
 
         switch sendProvisioningState(for: pending.sessionKey) {
         case .ready:
-            pendingProvisionedSend = nil
-            beginSend(
+            guard ensureTransportPreflightReady(
                 content: pending.content,
                 pendingAttachments: pending.attachments,
                 sessionKey: pending.sessionKey,
                 announceDeferredTransport: false
+            ) else { return }
+            pendingProvisionedSend = nil
+            beginSend(
+                content: pending.content,
+                pendingAttachments: pending.attachments,
+                sessionKey: pending.sessionKey
             )
         case .waiting:
             break
