@@ -1194,16 +1194,27 @@ final class ChatViewModel: ChatViewModelHosting {
                 delay = max(delay, .seconds(minDelay))
             }
             if delay > .zero {
-                try? await Task.sleep(forDuration: delay)
+                do {
+                    try await Task.sleep(forDuration: delay)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    return
+                }
             }
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 self.lastReconnectAttemptAt = Date()
             }
+            guard !Task.isCancelled else { return }
             let snapshot = await MainActor.run { self.connectionSnapshot() }
             guard let token = snapshot.token else { return }
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 self.auth.refreshAdminStatusFromToken()
             }
+            guard !Task.isCancelled else { return }
 
             do {
                 try await self.chatService.connect(token: token, lastMessageId: snapshot.lastMessageId)
@@ -1212,6 +1223,9 @@ final class ChatViewModel: ChatViewModelHosting {
                     self.reconnectTask = nil
                 }
             } catch {
+                if error is CancellationError {
+                    return
+                }
                 await MainActor.run {
                     if let providerError = error as? ProviderChatService.Error {
                         switch providerError {

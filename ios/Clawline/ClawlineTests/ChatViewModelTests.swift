@@ -413,6 +413,47 @@ struct ChatViewModelTests {
         #expect(chatService.connectCallCount > initialConnectCalls)
     }
 
+    @Test("Cancelled reconnect delay does not trigger an extra reconnect attempt")
+    @MainActor
+    func cancelledReconnectDelayDoesNotTriggerExtraReconnect() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        for _ in 0..<50 {
+            if chatService.connectCallCount > 0 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let baselineConnectCalls = chatService.connectCallCount
+        chatService.emitConnectionState(.disconnected)
+        try await Task.sleep(for: .milliseconds(30))
+        viewModel.reconnect()
+
+        for _ in 0..<80 {
+            if chatService.connectCallCount >= baselineConnectCalls + 1 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let connectCallsAfterImmediateReconnect = chatService.connectCallCount
+        #expect(connectCallsAfterImmediateReconnect == baselineConnectCalls + 1)
+
+        try await Task.sleep(for: .milliseconds(2300))
+        #expect(chatService.connectCallCount == connectCallsAfterImmediateReconnect)
+    }
+
     @Test("canSend becomes true when attachments exist even without text")
     @MainActor
     func canSendWithAttachmentOnly() async throws {
