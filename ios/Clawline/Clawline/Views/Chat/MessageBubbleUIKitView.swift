@@ -239,6 +239,14 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
     private var traitObservation: (any NSObjectProtocol)?
 
+    private static func gradientBottomColor(for role: Message.Role, palette: ChatFlowUIKitTheme.Palette) -> UIColor {
+        let gradient = role == .user ? palette.bubbleSelfGradient : palette.bubbleOtherGradient
+        if let bottom = gradient.last ?? gradient.first {
+            return bottom
+        }
+        return role == .user ? palette.sage : palette.cream
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -792,9 +800,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
                 if let linkPreviewURL {
                     let previewView = LinkPreviewView()
-                    let previewChromeBase = message.role == .user
-                        ? palette.bubbleSelfGradient.last!
-                        : palette.bubbleOtherGradient.last!
+                    let previewChromeBase = Self.gradientBottomColor(for: message.role, palette: palette)
                     let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight
                         ?? bubbleHeightPolicy?.linkPreviewViewportMaxHeight
                         ?? Self.linkPreviewViewportMaxHeight(heightCap: effectiveTruncationHeight, metrics: metrics)
@@ -844,9 +850,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         if let linkPreviewURL, !shouldShowInlineReloadButton {
             let previewView = LinkPreviewView()
-            let previewChromeBase = message.role == .user
-                ? palette.bubbleSelfGradient.last!
-                : palette.bubbleOtherGradient.last!
+            let previewChromeBase = Self.gradientBottomColor(for: message.role, palette: palette)
             let rawPreviewMaxHeight: CGFloat = bubbleSizingV2?.linkPreviewMaxHeight
                 ?? bubbleHeightPolicy?.linkPreviewViewportMaxHeight
                 ?? Self.linkPreviewViewportMaxHeight(heightCap: effectiveTruncationHeight, metrics: metrics)
@@ -1031,7 +1035,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         gradientLayer.endPoint = message.role == .user ? CGPoint(x: 1.0, y: 1.0) : CGPoint(x: 0.5, y: 1.0)
 
         // Fade mask matches the bubble bottom color when the outer scroll view overflows.
-        let bottomColor = gradientColors.last ?? palette.bubbleOtherGradient.last!
+        let bottomColor = gradientColors.last ?? Self.gradientBottomColor(for: message.role, palette: palette)
         fadeView.updateColors(
             top: bottomColor.withAlphaComponent(0),
             bottom: bottomColor
@@ -1292,7 +1296,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Update fade view - use bubble gradient end colors
         // Top color must match bottom color (just transparent) to avoid haze
-        let bottomColor = currentMessageRole == .user ? palette.bubbleSelfGradient.last! : palette.bubbleOtherGradient.last!
+        let bottomColor = Self.gradientBottomColor(for: currentMessageRole, palette: palette)
         fadeView.updateColors(
             top: bottomColor.withAlphaComponent(0),
             bottom: bottomColor
