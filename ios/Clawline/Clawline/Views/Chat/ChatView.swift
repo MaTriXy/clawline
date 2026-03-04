@@ -667,6 +667,11 @@ struct ChatView: View {
             isPresented: $isStreamManagerPopoverPresented,
             hasStreams: !viewModel.orderedStreams.isEmpty
         )
+        .handleKeyboardScrollCommands(
+            isEnabled: supportsKeyboardNavigationShortcuts,
+            onScrollToBottom: { scrollActiveSessionToBottom() },
+            onScrollToTop: { scrollActiveSessionToTop() }
+        )
         .onChange(of: viewModel.uiSelectionSequence) { _, _ in
             guard let selectedSessionKey = viewModel.lastUISelectedSessionKey else { return }
             let streamDisplayName = viewModel.stream(for: selectedSessionKey)?.displayName ?? viewModel.activeSessionDisplayName
@@ -1122,6 +1127,36 @@ struct ChatView: View {
         return keys
     }
 
+    private var supportsKeyboardNavigationShortcuts: Bool {
+#if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .pad
+#else
+        false
+#endif
+    }
+
+    private var keyboardNavigationSessionKey: String? {
+        let sessionKeys = viewModel.orderedStreams.map(\.sessionKey)
+        guard !sessionKeys.isEmpty else { return nil }
+        if sessionKeys.contains(viewModel.uiSelectedSessionKey), !viewModel.uiSelectedSessionKey.isEmpty {
+            return viewModel.uiSelectedSessionKey
+        }
+        if sessionKeys.contains(viewModel.engineActiveSessionKey), !viewModel.engineActiveSessionKey.isEmpty {
+            return viewModel.engineActiveSessionKey
+        }
+        return sessionKeys.first
+    }
+
+    private func scrollActiveSessionToBottom() {
+        guard let sessionKey = keyboardNavigationSessionKey else { return }
+        layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
+    }
+
+    private func scrollActiveSessionToTop() {
+        guard let sessionKey = keyboardNavigationSessionKey else { return }
+        layoutCoordinator.scrollToTop(sessionKey: sessionKey, animated: true)
+    }
+
     private var renderPolicySessionKey: String {
         let validKeys = Set(viewModel.orderedStreams.map(\.sessionKey))
         let key = viewModel.engineActiveSessionKey
@@ -1507,6 +1542,20 @@ private extension View {
     func handleStreamPopupCommand(isPresented: Binding<Bool>, hasStreams: Bool) -> some View {
         modifier(StreamPopupCommandModifier(isPresented: isPresented, hasStreams: hasStreams))
     }
+
+    func handleKeyboardScrollCommands(
+        isEnabled: Bool,
+        onScrollToBottom: @escaping () -> Void,
+        onScrollToTop: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            KeyboardScrollCommandModifier(
+                isEnabled: isEnabled,
+                onScrollToBottom: onScrollToBottom,
+                onScrollToTop: onScrollToTop
+            )
+        )
+    }
 }
 
 private struct StreamPopupCommandModifier: ViewModifier {
@@ -1518,6 +1567,24 @@ private struct StreamPopupCommandModifier: ViewModifier {
             guard hasStreams else { return }
             isPresented = true
         }
+    }
+}
+
+private struct KeyboardScrollCommandModifier: ViewModifier {
+    let isEnabled: Bool
+    let onScrollToBottom: () -> Void
+    let onScrollToTop: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToBottomCommand)) { _ in
+                guard isEnabled else { return }
+                onScrollToBottom()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToTopCommand)) { _ in
+                guard isEnabled else { return }
+                onScrollToTop()
+            }
     }
 }
 
