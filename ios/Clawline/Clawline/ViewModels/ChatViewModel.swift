@@ -379,12 +379,16 @@ final class ChatViewModel: ChatViewModelHosting {
 
     var canSend: Bool {
         pendingAttachmentStageCount == 0
+            && !pendingTransportQueueActive
             && transportSendButtonConnectionState == .connected
             && !inputContent.isEffectivelyEmpty
     }
 
     var sendButtonConnectionState: SendButtonConnectionState {
-        temporarySendButtonOverride ?? transportSendButtonConnectionState
+        if pendingTransportQueueActive {
+            return .reconnecting
+        }
+        return temporarySendButtonOverride ?? transportSendButtonConnectionState
     }
 
     let toastManager: ToastManager
@@ -417,6 +421,10 @@ final class ChatViewModel: ChatViewModelHosting {
     private var tableParseStates: [String: StreamingTableParseState] = [:]
     private var uploadedAssetIds: [UUID: String] = [:]
     private var downloadedAssetData: [String: Data] = [:]
+    private var pendingTransportQueueActive = false
+    private var pendingTransportQueueTask: Task<Void, Never>?
+    private let pendingTransportQueueTimeout: TimeInterval = 12
+    private let pendingTransportQueuePollInterval: Duration = .milliseconds(250)
     private let streamDefaults = UserDefaults.standard
     private var isChatVisible = false
     private var isAppInForeground = false
@@ -1007,6 +1015,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func beginSend(content: String,
                            pendingAttachments: [PendingAttachment],
                            sessionKey: String) {
+        clearPendingTransportQueueState()
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
 
@@ -1118,6 +1127,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func logout() {
         cancelSend()
+        clearPendingTransportQueueState()
         observationStartupTask?.cancel()
         observationStartupTask = nil
         activationTask?.cancel()
@@ -1579,6 +1589,9 @@ final class ChatViewModel: ChatViewModelHosting {
                 mapped = .failed(ProviderChatService.Error.notConnected)
             }
             transitionConnectionState(mapped, source: .lifecycleCoordinator)
+            if to == .replaying || to == .live {
+                attemptPendingProvisionedSendIfPossible()
+            }
         case .restoreCacheRequested(let epoch):
             for sessionKey in orderedSessionKeys {
                 restoreCachedMessagesIfNeeded(for: sessionKey, epoch: epoch)
@@ -1590,7 +1603,7 @@ final class ChatViewModel: ChatViewModelHosting {
         case .serverMessage(let epoch, let payload):
             handleLifecycleServerMessage(epoch: epoch, payload: payload)
         case .replayCompleted:
-            break
+            attemptPendingProvisionedSendIfPossible()
         case .historyTruncated(let epoch):
             logger.info("history truncated for epoch=\(epoch, privacy: .public)")
         }
@@ -1907,10 +1920,47 @@ final class ChatViewModel: ChatViewModelHosting {
             attachments: pendingAttachments,
             sessionKey: sessionKey
         )
+        let shouldArmWatchdog = !pendingTransportQueueActive
+        pendingTransportQueueActive = true
+        if shouldArmWatchdog {
+            armPendingTransportQueueWatchdog()
+        }
         if announce {
             toastManager.show("Reconnecting… message will send when ready.")
         }
         Task { await lifecycleCoordinator.sceneActivated() }
+    }
+
+    private func armPendingTransportQueueWatchdog() {
+        pendingTransportQueueTask?.cancel()
+        let deadline = nowProvider().addingTimeInterval(pendingTransportQueueTimeout)
+        pendingTransportQueueTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                if !self.pendingTransportQueueActive || self.pendingProvisionedSend == nil {
+                    return
+                }
+                if self.nowProvider() >= deadline {
+                    self.pendingProvisionedSend = nil
+                    self.clearPendingTransportQueueState()
+                    self.setTemporarySendButtonOverride(.disconnected)
+                    self.toastManager.show("Send failed: connection did not become ready. Please retry.")
+                    return
+                }
+                self.attemptPendingProvisionedSendIfPossible()
+                do {
+                    try await Task.sleep(for: self.pendingTransportQueuePollInterval)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func clearPendingTransportQueueState() {
+        pendingTransportQueueActive = false
+        pendingTransportQueueTask?.cancel()
+        pendingTransportQueueTask = nil
     }
 
 
@@ -2067,6 +2117,7 @@ final class ChatViewModel: ChatViewModelHosting {
             break
         case .unavailable:
             pendingProvisionedSend = nil
+            clearPendingTransportQueueState()
             toastManager.show("This stream is unavailable. Switch streams and try again.")
         }
     }
@@ -2103,6 +2154,7 @@ final class ChatViewModel: ChatViewModelHosting {
         provisionedSessionKeys.removeAll()
         if clearPendingSend {
             pendingProvisionedSend = nil
+            clearPendingTransportQueueState()
         }
     }
 
