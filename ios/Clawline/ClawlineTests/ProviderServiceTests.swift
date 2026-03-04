@@ -212,6 +212,44 @@ struct ProviderServiceTests {
         })
     }
 
+    @Test("Retry cancellation does not send message frame after disconnect")
+    func retryCancellationDoesNotSendAfterDisconnect() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(10))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+        try await service.send(
+            id: "c_retry_cancel",
+            content: "Hello",
+            attachments: [],
+            sessionKey: nil
+        )
+
+        let sentBeforeDisconnect = mockSocket.sentTexts.filter {
+            $0.contains("\"type\":\"message\"") && $0.contains("\"id\":\"c_retry_cancel\"")
+        }.count
+        #expect(sentBeforeDisconnect == 1)
+
+        service.disconnect()
+        try await Task.sleep(forDuration: .milliseconds(50))
+
+        let sentAfterDisconnect = mockSocket.sentTexts.filter {
+            $0.contains("\"type\":\"message\"") && $0.contains("\"id\":\"c_retry_cancel\"")
+        }.count
+        #expect(sentAfterDisconnect == sentBeforeDisconnect)
+    }
+
     @Test("Chat service emits stream snapshot events")
     func chatStreamSnapshotEvent() async throws {
         let mockSocket = MockWebSocketClient()
