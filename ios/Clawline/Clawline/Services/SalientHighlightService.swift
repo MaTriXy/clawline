@@ -138,7 +138,12 @@ private actor Worker {
     private let baseURL: URL
 
     init() {
-        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let caches: URL
+        if let directory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            caches = directory
+        } else {
+            caches = fileManager.temporaryDirectory
+        }
         baseURL = caches.appendingPathComponent("SalientHighlights/v1", isDirectory: true)
     }
 
