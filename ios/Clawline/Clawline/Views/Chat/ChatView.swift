@@ -2056,7 +2056,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         bottomToContainerConstraint?.constant = -gap
 #else
         hostingBottomToKeyboard?.constant = -gap
-        let hasVersionText = versionLabel.attributedText != nil && !versionLabel.attributedText!.string.isEmpty
+        let hasVersionText = !(versionLabel.attributedText?.string.isEmpty ?? true)
         versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
     }
