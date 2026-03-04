@@ -450,7 +450,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func reconnect() {
         guard auth.token != nil else { return }
-        guard transportSendButtonConnectionState == .disconnected else { return }
+        guard connectionState != .connected else { return }
         transitionConnectionState(.reconnecting, source: .manualReconnect)
         reconnectTask?.cancel()
         reconnectTask = nil
