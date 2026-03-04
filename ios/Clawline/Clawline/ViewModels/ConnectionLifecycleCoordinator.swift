@@ -143,6 +143,7 @@ actor ConnectionLifecycleCoordinator {
     var outputs: AsyncStream<ConnectionLifecycleOutput> {
         AsyncStream(bufferingPolicy: .unbounded) { continuation in
             self.coordinatorDiag("outputs subscribed replacingExisting=\(self.continuation != nil)")
+            self.continuation?.finish()
             self.continuation = continuation
         }
     }
@@ -664,7 +665,10 @@ actor ConnectionLifecycleCoordinator {
     private func scheduleReconnect(after delay: Duration, incrementRecoveringAttempt: Bool) {
         guard reconnectEnabled else { return }
         guard phase == .recovering else { return }
-        guard reconnectTask == nil else { return }
+        guard reconnectTask == nil else {
+            coordinatorDiag("scheduleReconnect suppressed existing-task delay=\(delay.components.seconds)s")
+            return
+        }
 
         reconnectTask = Task {
             do {

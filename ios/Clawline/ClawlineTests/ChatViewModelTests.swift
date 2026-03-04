@@ -506,6 +506,93 @@ struct ChatViewModelTests {
         #expect(viewModel.inputContent.string.isEmpty)
     }
 
+    @Test("send during attachment staging gap does not prune and retries cleanly after token insertion")
+    @MainActor
+    func sendDuringAttachmentStagingGapDefersThenSucceeds() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(
+                sessionKey: personalSessionKey,
+                displayName: "Personal",
+                kind: "main",
+                orderIndex: 0,
+                isBuiltIn: true
+            )
+        ]
+        _ = chatService.incomingMessages
+        _ = chatService.connectionState
+        _ = chatService.serviceEvents
+        let uploadService = TestUploadService()
+        let toastManager = ToastManager()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: uploadService,
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setConnected(chatService: chatService, viewModel: viewModel)
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.orderedSessionKeys.contains(personalSessionKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        viewModel.setActiveSessionKeyForTesting(personalSessionKey)
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey]
+            )
+        ))
+        for _ in 0..<50 {
+            if viewModel.sendButtonConnectionState == .connected { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(viewModel.sendButtonConnectionState == .connected)
+
+        let staged = makePendingAttachment(dataSize: 1024, mimeType: "image/png")
+        viewModel.stageAttachments([staged])
+        #expect(viewModel.attachmentData[staged.id] != nil)
+
+        // Trigger didSet prune path while staging gap exists (no attachment token yet).
+        viewModel.inputContent = NSAttributedString(string: "hello")
+        #expect(viewModel.attachmentData[staged.id] != nil)
+
+        viewModel.send()
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(chatService.lastSentId == nil)
+        #expect(toastManager.debugMessages.contains("Finishing attachment…"))
+        #expect(viewModel.attachmentData[staged.id] != nil)
+
+        viewModel.inputContent = makeAttributedContent(with: [staged.id])
+        try await Task.sleep(for: .milliseconds(20))
+        viewModel.send()
+        try await viewModel.sendTask?.value
+
+        #expect(chatService.lastSentId != nil)
+        #expect(chatService.lastSentAttachments.count == 1)
+        let hasAttachment = chatService.lastSentAttachments.contains { attachment in
+            switch attachment {
+            case .image:
+                return true
+            case .asset:
+                return true
+            }
+        }
+        #expect(hasAttachment)
+        #expect(viewModel.attachmentData.isEmpty)
+    }
+
     @Test("Asset-backed interactive HTML document hydrates for inline render path")
     @MainActor
     func assetBackedInteractiveHTMLHydratesForInlineRenderPath() async throws {

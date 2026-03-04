@@ -45,6 +45,34 @@ final class ChatViewModel: ChatViewModelHosting {
         print("[T099-COORD] \(Date().ISO8601Format()) vm=\(instanceId) \(message)")
     }
 
+    var debugInstanceId: String { instanceId }
+
+    private func observationStateFlags() -> String {
+        #if DEBUG
+        return "obsTask=\(observationTask != nil) startupTask=\(observationStartupTask != nil) transportSub=\(lifecycleTransportEventsSubscription != nil) outputsSub=\(lifecycleOutputsSubscription != nil) startupCount=\(observationStartupCount)"
+        #else
+        return "obsTask=\(observationTask != nil) startupTask=\(observationStartupTask != nil) transportSub=\(lifecycleTransportEventsSubscription != nil) outputsSub=\(lifecycleOutputsSubscription != nil)"
+        #endif
+    }
+
+    private func ownerStateFlags() -> String {
+        "isOwner=\(isConnectionOwner) currentOwner=\(Self.currentConnectionOwnerId ?? "nil") isRetired=\(isRetired) isChatVisible=\(isChatVisible) isAppInForeground=\(isAppInForeground)"
+    }
+
+    private func emitPinpointLog(event: String, origin: String, phaseHint: ConnectionLifecyclePhase? = nil) {
+        let phase = phaseHint ?? connectionLifecyclePhase
+        logger.info(
+            "[T099-PIN] vm=\(self.instanceId, privacy: .public) event=\(event, privacy: .public) origin=\(origin, privacy: .public) phaseHint=\(String(describing: phase), privacy: .public) \(self.ownerStateFlags(), privacy: .public) \(self.observationStateFlags(), privacy: .public)"
+        )
+        Task { [weak self] in
+            guard let self else { return }
+            let actorPhase = await lifecycleCoordinator.phase
+            logger.info(
+                "[T099-PIN] vm=\(self.instanceId, privacy: .public) event=\(event, privacy: .public) origin=\(origin, privacy: .public) actorPhase=\(String(describing: actorPhase), privacy: .public)"
+            )
+        }
+    }
+
     private var isConnectionOwner: Bool {
         Self.currentConnectionOwnerId == instanceId
     }
@@ -55,6 +83,7 @@ final class ChatViewModel: ChatViewModelHosting {
         logger.info(
             "ChatViewModel connection-owner claim id=\(self.instanceId, privacy: .public) previous=\(previousOwner, privacy: .public) reason=\(reason, privacy: .public)"
         )
+        emitPinpointLog(event: "connectionOwner_claim", origin: reason)
     }
 
     private func releaseConnectionOwnershipIfNeeded(reason: String) {
@@ -63,6 +92,7 @@ final class ChatViewModel: ChatViewModelHosting {
         logger.info(
             "ChatViewModel connection-owner release id=\(self.instanceId, privacy: .public) reason=\(reason, privacy: .public)"
         )
+        emitPinpointLog(event: "connectionOwner_release", origin: reason)
     }
     private(set) var messages: [Message] = []
     private(set) var streamsBySessionKey: [String: StreamSession] = [:]
@@ -320,6 +350,7 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
     var attachmentData: [UUID: PendingAttachment] = [:]
+    private var stagedAttachmentProtection: Set<UUID> = []
     private(set) var isSending: Bool = false
     private(set) var isAssistantTyping: Bool = false
     private(set) var typingSessionKey: String?
@@ -396,6 +427,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var observationStartupCount: Int = 0
     private(set) var lifecycleDebugPhase: ConnectionLifecyclePhase = .idle
     private(set) var lifecycleDebugSignals: [LifecycleDebugSignalRecord] = []
+    private(set) var lifecycleDebugObserverEvents: [LifecycleObserverDebugRecord] = []
     private(set) var lifecycleDebugSequence: Int = 0
 #endif
     private let messageCacheLimit = 500
@@ -440,6 +472,20 @@ final class ChatViewModel: ChatViewModelHosting {
         let signal: LifecycleDebugSignal
         let timestamp: Date
     }
+
+    enum LifecycleObserverDebugEvent: String, Equatable {
+        case onDisappear = "onDisappear"
+        case startObservingIfNeeded = "startObservingIfNeeded"
+    }
+
+    struct LifecycleObserverDebugRecord: Equatable, Identifiable {
+        let id = UUID()
+        let event: LifecycleObserverDebugEvent
+        let timestamp: Date
+        let hasObservationTask: Bool
+        let hasTransportSubscription: Bool
+        let hasOutputsSubscription: Bool
+    }
 #endif
 
     private enum SendProvisioningState {
@@ -456,6 +502,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func recordLifecycleDebugSignal(_ signal: LifecycleDebugSignal) {
         if signal == .authChangedToken {
             lifecycleDebugSignals.removeAll(keepingCapacity: true)
+            lifecycleDebugObserverEvents.removeAll(keepingCapacity: true)
         }
         lifecycleDebugSignals.append(.init(signal: signal, timestamp: Date()))
         if lifecycleDebugSignals.count > 12 {
@@ -466,6 +513,22 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func recordLifecycleDebugPhase(_ phase: ConnectionLifecyclePhase) {
         lifecycleDebugPhase = phase
+        lifecycleDebugSequence &+= 1
+    }
+
+    private func recordLifecycleObserverDebugEvent(_ event: LifecycleObserverDebugEvent) {
+        lifecycleDebugObserverEvents.append(
+            .init(
+                event: event,
+                timestamp: Date(),
+                hasObservationTask: observationTask != nil,
+                hasTransportSubscription: lifecycleTransportEventsSubscription != nil,
+                hasOutputsSubscription: lifecycleOutputsSubscription != nil
+            )
+        )
+        if lifecycleDebugObserverEvents.count > 12 {
+            lifecycleDebugObserverEvents.removeFirst(lifecycleDebugObserverEvents.count - 12)
+        }
         lifecycleDebugSequence &+= 1
     }
 #endif
@@ -533,7 +596,7 @@ final class ChatViewModel: ChatViewModelHosting {
         NotificationCenter.default.removeObserver(self, name: UIApplication.didEnterBackgroundNotification, object: nil)
     }
 
-    func onAppear() async {
+    func onAppear(origin: String = "ChatView.task") async {
         guard !isRetired else {
             coordinatorDiag("onAppear ignored retired-vm")
             return
@@ -543,36 +606,64 @@ final class ChatViewModel: ChatViewModelHosting {
             return
         }
         coordinatorDiag("onAppear enter observationTaskNil=\(observationTask == nil) startupTaskNil=\(observationStartupTask == nil) tokenPresent=\(auth.token != nil)")
-        guard observationTask == nil, auth.token != nil else {
-            coordinatorDiag("onAppear early-return observationTaskNil=\(observationTask == nil) tokenPresent=\(auth.token != nil)")
+        guard auth.token != nil else {
+            coordinatorDiag("onAppear early-return tokenPresent=\(auth.token != nil)")
             return
         }
+        emitPinpointLog(event: "onAppear_enter", origin: origin)
         isChatVisible = true
         isAppInForeground = true
 
         logger.info("ChatViewModel onAppear id=\(self.instanceId, privacy: .public)")
         coordinatorDiag("onAppear before startObservingIfNeeded")
-        await startObservingIfNeeded()
+        await startObservingIfNeeded(origin: "onAppear[\(origin)]")
+        emitPinpointLog(event: "onAppear_afterStartObserving", origin: origin)
         coordinatorDiag("onAppear after startObservingIfNeeded before viewAppeared signal")
 #if DEBUG
         recordLifecycleDebugSignal(.viewAppeared)
 #endif
         await lifecycleCoordinator.viewAppeared()
+        emitPinpointLog(event: "onAppear_afterViewAppearedSignal", origin: origin)
         coordinatorDiag("onAppear after viewAppeared signal")
     }
 
-    func onDisappear() {
+    func onDisappear(origin: String = "ChatView.onDisappear") {
+#if DEBUG
+        recordLifecycleObserverDebugEvent(.onDisappear)
+#endif
+        emitPinpointLog(event: "onDisappear_enter", origin: origin)
+        logger.info("ChatViewModel onDisappear FIRED id=\(self.instanceId, privacy: .public) isChatVisible=\(self.isChatVisible) isOwner=\(self.isConnectionOwner) hasObsTask=\(self.observationTask != nil) hasTransportSub=\(self.lifecycleTransportEventsSubscription != nil) hasOutputsSub=\(self.lifecycleOutputsSubscription != nil)")
         let ownsConnection = isConnectionOwner
+        let startupInFlight = observationStartupTask != nil
         isChatVisible = false
         logger.info("ChatViewModel onDisappear id=\(self.instanceId, privacy: .public)")
-        stopObservingLifecycle()
+        if startupInFlight {
+            observationStartupTask?.cancel()
+            observationStartupTask = nil
+            emitPinpointLog(event: "onDisappear_cancelStartup_skipStopObserving", origin: origin)
+            logger.info("ChatViewModel onDisappear canceled startup and skipped stopObservingLifecycle id=\(self.instanceId, privacy: .public)")
+        } else {
+            stopObservingLifecycle(origin: "onDisappear[\(origin)]")
+        }
         clearTemporarySendButtonOverride()
         cancelSend()
         guard ownsConnection else {
+            emitPinpointLog(event: "onDisappear_nonOwner_skipDisconnect", origin: origin)
             logger.info("ChatViewModel onDisappear skip disconnect id=\(self.instanceId, privacy: .public) reason=non_owner")
             return
         }
-        Task { await lifecycleCoordinator.disconnectRequested() }
+        Task {
+            let phaseBefore = await lifecycleCoordinator.phase
+            self.logger.info(
+                "[T099-PIN] vm=\(self.instanceId, privacy: .public) event=disconnectRequested_before origin=\(origin, privacy: .public) actorPhase=\(String(describing: phaseBefore), privacy: .public)"
+            )
+            await lifecycleCoordinator.disconnectRequested()
+            let phaseAfter = await lifecycleCoordinator.phase
+            self.logger.info(
+                "[T099-PIN] vm=\(self.instanceId, privacy: .public) event=disconnectRequested_after origin=\(origin, privacy: .public) actorPhase=\(String(describing: phaseAfter), privacy: .public)"
+            )
+        }
+        emitPinpointLog(event: "onDisappear_beforeChatServiceDisconnect", origin: origin)
         chatService.disconnect()
     }
 
@@ -582,7 +673,7 @@ final class ChatViewModel: ChatViewModelHosting {
         guard auth.token != nil else { return }
         guard sendButtonConnectionState == .disconnected else { return }
         Task {
-            await startObservingIfNeeded()
+            await startObservingIfNeeded(origin: "reconnect")
             await lifecycleCoordinator.manualRetry()
         }
     }
@@ -599,7 +690,7 @@ final class ChatViewModel: ChatViewModelHosting {
         guard isConnectionOwner else {
             coordinatorDiag("handleAuthStateChange ignored non-owner tokenPresent=\(auth.token != nil)")
             if auth.token == nil {
-                stopObservingLifecycle()
+                stopObservingLifecycle(origin: "handleAuthStateChange.nonOwnerTokenNil")
             }
             return
         }
@@ -609,7 +700,7 @@ final class ChatViewModel: ChatViewModelHosting {
             coordinatorDiag("handleAuthStateChange auth-path seededCursor=\(seededCursor ?? "nil")")
             Task {
                 self.coordinatorDiag("handleAuthStateChange task before startObservingIfNeeded")
-                await self.startObservingIfNeeded()
+                await self.startObservingIfNeeded(origin: "handleAuthStateChange.authPath")
                 self.coordinatorDiag("handleAuthStateChange task after startObservingIfNeeded before seedCanonicalCursor")
                 await lifecycleCoordinator.seedCanonicalCursor(seededCursor)
                 self.coordinatorDiag("handleAuthStateChange task after seedCanonicalCursor before authChanged signal")
@@ -625,7 +716,7 @@ final class ChatViewModel: ChatViewModelHosting {
         } else {
             coordinatorDiag("handleAuthStateChange logout-path")
             didRestoreActiveSessionKey = false
-            stopObservingLifecycle()
+            stopObservingLifecycle(origin: "handleAuthStateChange.logoutPath")
 #if DEBUG
             recordLifecycleDebugSignal(.authChangedNil)
 #endif
@@ -643,7 +734,7 @@ final class ChatViewModel: ChatViewModelHosting {
         coordinatorDiag("sceneDidBecomeActive tokenPresent=true observationTaskNil=\(observationTask == nil)")
         Task {
             self.coordinatorDiag("sceneDidBecomeActive task before startObservingIfNeeded")
-            await startObservingIfNeeded()
+            await startObservingIfNeeded(origin: "sceneDidBecomeActive")
             self.coordinatorDiag("sceneDidBecomeActive task before sceneActivated signal")
 #if DEBUG
             self.recordLifecycleDebugSignal(.sceneActivated)
@@ -663,7 +754,12 @@ final class ChatViewModel: ChatViewModelHosting {
         handleSceneDidBecomeActive()
     }
 
-    private func startObservingIfNeeded() async {
+    private func startObservingIfNeeded(origin: String) async {
+#if DEBUG
+        recordLifecycleObserverDebugEvent(.startObservingIfNeeded)
+#endif
+        emitPinpointLog(event: "startObserving_enter", origin: origin)
+        logger.info("startObservingIfNeeded CALLED id=\(self.instanceId, privacy: .public) hasObsTask=\(self.observationTask != nil) hasTransportSub=\(self.lifecycleTransportEventsSubscription != nil)")
         guard !isRetired else {
             coordinatorDiag("startObservingIfNeeded ignored retired-vm")
             return
@@ -675,6 +771,7 @@ final class ChatViewModel: ChatViewModelHosting {
         coordinatorDiag("startObservingIfNeeded enter observationTaskNil=\(observationTask == nil) startupTaskNil=\(observationStartupTask == nil) transportSubNil=\(lifecycleTransportEventsSubscription == nil) outputsSubNil=\(lifecycleOutputsSubscription == nil)")
         if observationTask != nil {
             coordinatorDiag("startObservingIfNeeded early-return observationTaskExists")
+            emitPinpointLog(event: "startObserving_earlyReturn_existingObservationTask", origin: origin)
             return
         }
         if let observationStartupTask {
@@ -683,6 +780,7 @@ final class ChatViewModel: ChatViewModelHosting {
             coordinatorDiag("startObservingIfNeeded joining in-flight startup task")
             await observationStartupTask.value
             coordinatorDiag("startObservingIfNeeded joined in-flight startup task")
+            emitPinpointLog(event: "startObserving_joinedExistingStartupTask", origin: origin)
             return
         }
 
@@ -715,14 +813,17 @@ final class ChatViewModel: ChatViewModelHosting {
                     }
                 }
             }
+            self.emitPinpointLog(event: "startObserving_observationTaskAssigned", origin: origin)
         }
         observationStartupTask = startupTask
         await startupTask.value
         observationStartupTask = nil
+        emitPinpointLog(event: "startObserving_complete", origin: origin)
         coordinatorDiag("startObservingIfNeeded complete")
     }
 
-    private func stopObservingLifecycle() {
+    private func stopObservingLifecycle(origin: String) {
+        emitPinpointLog(event: "stopObserving_enter", origin: origin)
         observationStartupTask?.cancel()
         observationStartupTask = nil
         observationTask?.cancel()
@@ -735,12 +836,13 @@ final class ChatViewModel: ChatViewModelHosting {
         lifecycleOutputTask = nil
         connectionStableTask?.cancel()
         connectionStableTask = nil
+        emitPinpointLog(event: "stopObserving_complete", origin: origin)
     }
 
     func prepareForReplacement() {
         guard !isRetired else { return }
         isRetired = true
-        stopObservingLifecycle()
+        stopObservingLifecycle(origin: "prepareForReplacement")
         cancelSend()
         guard isConnectionOwner else { return }
         Task { await lifecycleCoordinator.disconnectRequested() }
@@ -796,6 +898,12 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func send() {
         guard !isSending else { return }
+        let referencedIds = Set(inputContent.pendingAttachmentIds())
+        let stagedOnly = attachmentData.keys.filter { !referencedIds.contains($0) }
+        if !stagedOnly.isEmpty {
+            toastManager.show("Finishing attachment…")
+            return
+        }
         pruneAttachmentData()
         let (text, pendingIds) = inputContent.contentForSending()
         let pendingAttachments = pendingIds.compactMap { attachmentData[$0] }
@@ -932,7 +1040,10 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func stageAttachments(_ attachments: [PendingAttachment]) {
-        attachments.forEach { attachmentData[$0.id] = $0 }
+        attachments.forEach {
+            attachmentData[$0.id] = $0
+            stagedAttachmentProtection.insert($0.id)
+        }
     }
 
     func logout() {
@@ -1648,7 +1759,11 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func pruneAttachmentData() {
         let referencedIds = Set(inputContent.pendingAttachmentIds())
-        let orphanedKeys = attachmentData.keys.filter { !referencedIds.contains($0) }
+        stagedAttachmentProtection.formIntersection(Set(attachmentData.keys))
+        stagedAttachmentProtection.subtract(referencedIds)
+        let orphanedKeys = attachmentData.keys.filter {
+            !referencedIds.contains($0) && !stagedAttachmentProtection.contains($0)
+        }
         orphanedKeys.forEach { attachmentData.removeValue(forKey: $0) }
         orphanedKeys.forEach { uploadedAssetIds.removeValue(forKey: $0) }
     }
@@ -1668,6 +1783,7 @@ final class ChatViewModel: ChatViewModelHosting {
         inputContent = NSAttributedString(string: "")
         attachmentData.removeAll()
         uploadedAssetIds.removeAll()
+        stagedAttachmentProtection.removeAll()
         inputResetToken &+= 1
     }
 

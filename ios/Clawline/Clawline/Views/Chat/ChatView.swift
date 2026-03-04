@@ -128,9 +128,17 @@ struct ChatView: View {
     @State private var streamToastManager = StreamToastManager()
     @State private var streamToastBusySince: Date?
     @State private var streamToastBusyClearTask: Task<Void, Never>?
+    @State private var chatViewTraceId = UUID().uuidString
 #if DEBUG
+    private let isLifecycleDebugOverlayEnabled = true
     @State private var lifecycleDebugOverlayVisible = true
     @State private var lifecycleDebugOverlayDismissTask: Task<Void, Never>?
+    @State private var probeTaskEnterCount = 0
+    @State private var probeOnAppearCount = 0
+    @State private var probeOnDisappearCount = 0
+    @State private var probeLatestOnAppearConnState = "unknown"
+    @State private var probeLatestInstanceId = ""
+    @State private var probeLatestVmObject = ""
 #endif
 
     private let streamToastMinimumBusySeconds: TimeInterval = 0.45
@@ -460,11 +468,46 @@ struct ChatView: View {
 #endif
         }
         .task {
+#if DEBUG
+            recordProbeEvent(
+                kind: .taskEnter,
+                instanceId: viewModel.debugInstanceId,
+                vmObject: String(describing: ObjectIdentifier(viewModel)),
+                connState: String(describing: viewModel.connectionState)
+            )
+#endif
+            logger.info(
+                "[T099-PIN] chatView=\(self.chatViewTraceId, privacy: .public) event=task_enter vm=\(self.viewModel.debugInstanceId, privacy: .public) vmObject=\(String(describing: ObjectIdentifier(self.viewModel)), privacy: .public) scenePhase=\(String(describing: scenePhase), privacy: .public)"
+            )
             viewModel.handleSceneActiveStateChanged(isActive: scenePhase == .active)
-            await viewModel.onAppear()
+            await viewModel.onAppear(origin: "ChatView.task[\(chatViewTraceId)] scene=\(String(describing: scenePhase))")
+        }
+        .onAppear {
+#if DEBUG
+            recordProbeEvent(
+                kind: .onAppear,
+                instanceId: viewModel.debugInstanceId,
+                vmObject: String(describing: ObjectIdentifier(viewModel)),
+                connState: String(describing: viewModel.connectionState)
+            )
+#endif
+            logger.info(
+                "[T099-PIN] chatView=\(self.chatViewTraceId, privacy: .public) event=onAppear vm=\(self.viewModel.debugInstanceId, privacy: .public) vmObject=\(String(describing: ObjectIdentifier(self.viewModel)), privacy: .public) scenePhase=\(String(describing: scenePhase), privacy: .public) connState=\(String(describing: self.viewModel.connectionState), privacy: .public)"
+            )
         }
         .onDisappear {
-            viewModel.onDisappear()
+#if DEBUG
+            recordProbeEvent(
+                kind: .onDisappear,
+                instanceId: viewModel.debugInstanceId,
+                vmObject: String(describing: ObjectIdentifier(viewModel)),
+                connState: String(describing: viewModel.connectionState)
+            )
+#endif
+            logger.info(
+                "[T099-PIN] chatView=\(self.chatViewTraceId, privacy: .public) event=onDisappear vm=\(self.viewModel.debugInstanceId, privacy: .public) vmObject=\(String(describing: ObjectIdentifier(self.viewModel)), privacy: .public) scenePhase=\(String(describing: scenePhase), privacy: .public)"
+            )
+            viewModel.onDisappear(origin: "ChatView.onDisappear[\(chatViewTraceId)] scene=\(String(describing: scenePhase))")
             resetScrollButtonInteractionState()
 #if DEBUG
             lifecycleDebugOverlayDismissTask?.cancel()
@@ -763,8 +806,20 @@ struct ChatView: View {
 #if DEBUG
     @ViewBuilder
     private func lifecycleDebugOverlay(viewModel: ChatViewModel) -> some View {
-        if lifecycleDebugOverlayVisible {
+        if isLifecycleDebugOverlayEnabled, lifecycleDebugOverlayVisible {
             VStack(alignment: .leading, spacing: 4) {
+                Text("probe t:\(probeTaskEnterCount) a:\(probeOnAppearCount) d:\(probeOnDisappearCount)")
+                    .font(.caption2.weight(.semibold))
+                    .monospacedDigit()
+                Text("appear state: \(probeLatestOnAppearConnState)")
+                    .font(.caption2)
+                    .lineLimit(1)
+                Text("vm: \(probeLatestInstanceId)")
+                    .font(.caption2)
+                    .lineLimit(1)
+                Text("obj: \(probeLatestVmObject)")
+                    .font(.caption2)
+                    .lineLimit(1)
                 Text("lifecycle: \(String(describing: viewModel.lifecycleDebugPhase))")
                     .font(.caption2.weight(.semibold))
                 ForEach(Array(viewModel.lifecycleDebugSignals.suffix(6))) { record in
@@ -772,6 +827,18 @@ struct ChatView: View {
                         .font(.caption2)
                         .monospacedDigit()
                         .lineLimit(1)
+                }
+                if !viewModel.lifecycleDebugObserverEvents.isEmpty {
+                    Text("obs:")
+                        .font(.caption2.weight(.semibold))
+                    ForEach(Array(viewModel.lifecycleDebugObserverEvents.suffix(4))) { record in
+                        Text(
+                            "\(record.event.rawValue) @ \(record.timestamp.formatted(date: .omitted, time: .standard)) o:\(record.hasObservationTask ? "1" : "0") t:\(record.hasTransportSubscription ? "1" : "0") out:\(record.hasOutputsSubscription ? "1" : "0")"
+                        )
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                    }
                 }
             }
             .padding(.horizontal, 10)
@@ -794,7 +861,33 @@ struct ChatView: View {
         }
     }
 
+    private enum ProbeEventKind {
+        case taskEnter
+        case onAppear
+        case onDisappear
+    }
+
+    private func recordProbeEvent(
+        kind: ProbeEventKind,
+        instanceId: String,
+        vmObject: String,
+        connState: String
+    ) {
+        probeLatestInstanceId = instanceId
+        probeLatestVmObject = vmObject
+        switch kind {
+        case .taskEnter:
+            probeTaskEnterCount &+= 1
+        case .onAppear:
+            probeOnAppearCount &+= 1
+            probeLatestOnAppearConnState = connState
+        case .onDisappear:
+            probeOnDisappearCount &+= 1
+        }
+    }
+
     private func showLifecycleDebugOverlay() {
+        guard isLifecycleDebugOverlayEnabled else { return }
         lifecycleDebugOverlayVisible = true
         lifecycleDebugOverlayDismissTask?.cancel()
         lifecycleDebugOverlayDismissTask = Task {
