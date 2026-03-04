@@ -502,6 +502,12 @@ final class ChatViewModel: ChatViewModelHosting {
         case unavailable
     }
 
+    private enum SendTransportPreflightOutcome {
+        case ready
+        case deferUntilReady
+        case blocked(reason: String)
+    }
+
     private enum ConnectionStateMutationSource: String {
         case lifecycleCoordinator
     }
@@ -953,7 +959,6 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func send() {
         guard !isSending else { return }
-        guard ensureTransportPreflightReady() else { return }
         let referencedIds = Set(inputContent.pendingAttachmentIds())
         let stagedOnly = attachmentData.keys.filter { !referencedIds.contains($0) }
         if !stagedOnly.isEmpty {
@@ -995,8 +1000,23 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func beginSend(content: String,
                            pendingAttachments: [PendingAttachment],
-                           sessionKey: String) {
-        guard ensureTransportPreflightReady() else { return }
+                           sessionKey: String,
+                           announceDeferredTransport: Bool = true) {
+        switch sendTransportPreflightOutcome() {
+        case .ready:
+            break
+        case .deferUntilReady:
+            queuePendingSendAndKickReconnect(
+                content: content,
+                pendingAttachments: pendingAttachments,
+                sessionKey: sessionKey,
+                announce: announceDeferredTransport
+            )
+            return
+        case .blocked(let reason):
+            toastManager.show(reason)
+            return
+        }
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
 
@@ -1852,20 +1872,34 @@ final class ChatViewModel: ChatViewModelHosting {
         inputResetToken &+= 1
     }
 
-    private func ensureTransportPreflightReady() -> Bool {
+    private func sendTransportPreflightOutcome() -> SendTransportPreflightOutcome {
         guard ProviderBaseURLStore.baseURL != nil else {
-            toastManager.show("No provider configured. Pair with a provider first.")
-            return false
+            return .blocked(reason: "No provider configured. Pair with a provider first.")
         }
-        guard transportSendButtonConnectionState == .connected else {
-            toastManager.show("Could not send; not connected.")
-            return false
+        guard auth.token != nil else {
+            return .blocked(reason: "Auth is missing. Sign in again and retry.")
         }
-        guard chatService.isTransportReadyForSend else {
-            toastManager.show("Connection is not ready yet. Please wait a moment and try again.")
-            return false
+        switch transportSendButtonConnectionState {
+        case .connected:
+            return chatService.isTransportReadyForSend ? .ready : .deferUntilReady
+        case .reconnecting, .disconnected:
+            return .deferUntilReady
         }
-        return true
+    }
+
+    private func queuePendingSendAndKickReconnect(content: String,
+                                                  pendingAttachments: [PendingAttachment],
+                                                  sessionKey: String,
+                                                  announce: Bool) {
+        pendingProvisionedSend = PendingProvisionedSend(
+            content: content,
+            attachments: pendingAttachments,
+            sessionKey: sessionKey
+        )
+        if announce {
+            toastManager.show("Reconnecting… message will send when ready.")
+        }
+        Task { await lifecycleCoordinator.sceneActivated() }
     }
 
 
@@ -2010,7 +2044,8 @@ final class ChatViewModel: ChatViewModelHosting {
             beginSend(
                 content: pending.content,
                 pendingAttachments: pending.attachments,
-                sessionKey: pending.sessionKey
+                sessionKey: pending.sessionKey,
+                announceDeferredTransport: false
             )
         case .waiting:
             break
@@ -2031,6 +2066,7 @@ final class ChatViewModel: ChatViewModelHosting {
             isAssistantTyping = false
             typingSessionKey = nil
             auth.refreshAdminStatusFromToken()
+            attemptPendingProvisionedSendIfPossible()
         case .connecting, .reconnecting:
             isAssistantTyping = false
             typingSessionKey = nil
