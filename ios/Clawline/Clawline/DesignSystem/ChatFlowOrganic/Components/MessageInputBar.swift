@@ -154,22 +154,26 @@ struct MessageInputBar: View {
             : Color.white.opacity(0.5)
     }
 
-    private var placeholderColor: Color {
-#if os(visionOS)
-        return isLightModeForInputBar
-            ? ChatFlowTheme.ink(.light).opacity(0.6)
-            : ChatFlowTheme.ink(.dark).opacity(0.6)
-#else
-        return .secondary
-#endif
+    private var hasSubmittableDraft: Bool {
+        !content.isEffectivelyEmpty
     }
 
     private var editorOpacity: Double {
         isSending ? 0.5 : 1
     }
 
+    static func shouldDispatchEditorSubmitIntent(
+        isSending: Bool,
+        hasSubmittableDraft: Bool
+    ) -> Bool {
+        !isSending && hasSubmittableDraft
+    }
+
     private func handleEditorSubmitIntent() {
-        guard !isSending, canSend else { return }
+        guard Self.shouldDispatchEditorSubmitIntent(
+            isSending: isSending,
+            hasSubmittableDraft: hasSubmittableDraft
+        ) else { return }
         onSend()
     }
 
@@ -244,7 +248,6 @@ struct MessageInputBar: View {
                 onFocusChange: onFocusChange,
                 onPasteImages: onPasteImages,
                 placeholderText: placeholderText,
-                placeholderColor: placeholderColor,
                 isLightModeForInputBar: isLightModeForInputBar,
                 visionOSBorderColor: visionOSBorderColor
             )
@@ -291,7 +294,6 @@ private struct MessageEditorChrome: View {
     let onFocusChange: (Bool) -> Void
     var onPasteImages: (([UIImage]) -> Void)?
     let placeholderText: String
-    let placeholderColor: Color
     let isLightModeForInputBar: Bool
     let visionOSBorderColor: Color
 
@@ -303,6 +305,16 @@ private struct MessageEditorChrome: View {
 #else
         let tint = isLightModeForInputBar ? ChatFlowTheme.sage(.light) : ChatFlowTheme.sage(.dark)
         return (UIColor(tint), .label)
+#endif
+    }
+
+    private var placeholderColor: Color {
+#if os(visionOS)
+        isLightModeForInputBar
+            ? ChatFlowTheme.ink(.light).opacity(0.6)
+            : ChatFlowTheme.ink(.dark).opacity(0.6)
+#else
+        .secondary
 #endif
     }
 
