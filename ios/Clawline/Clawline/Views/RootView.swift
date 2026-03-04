@@ -132,6 +132,9 @@ struct RootView: View {
             logger.info(
                 "[T099-PIN] root=\(self.rootViewTraceId, privacy: .public) event=ensureChatViewModel_created origin=\(origin, privacy: .public) vm=\(created.debugInstanceId, privacy: .public) vmObject=\(String(describing: ObjectIdentifier(created)), privacy: .public)"
             )
+            Task {
+                await created.activate(origin: "RootView.ensureChatViewModel[\(origin)]")
+            }
         }
     }
 }

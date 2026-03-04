@@ -1942,9 +1942,9 @@ struct ChatViewModelTests {
         #expect(auth.isAdmin == false)
     }
 
-    @Test("Concurrent startup triggers initialize lifecycle observers once")
+    @Test("activate is idempotent and initializes lifecycle observers once")
     @MainActor
-    func concurrentStartupTriggersInitializeObservationOnce() async throws {
+    func activateInitializesObservationOnce() async throws {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
@@ -1958,11 +1958,11 @@ struct ChatViewModelTests {
             toastManager: ToastManager(),
             salientHighlightService: SalientHighlightService()
         )
-        defer { viewModel.onDisappear() }
+        defer { viewModel.prepareForReplacement() }
 
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await viewModel.onAppear() }
-            group.addTask { await viewModel.onAppear() }
+            group.addTask { await viewModel.activate(origin: "test.concurrent.1") }
+            group.addTask { await viewModel.activate(origin: "test.concurrent.2") }
             group.addTask { await MainActor.run { viewModel.handleSceneDidBecomeActive() } }
             group.addTask {
                 NotificationCenter.default.post(name: Notification.Name("AuthStateDidChange"), object: nil)
@@ -1973,6 +1973,46 @@ struct ChatViewModelTests {
             if viewModel.debugObservationStartupCount() > 0 { break }
             try await Task.sleep(for: .milliseconds(10))
         }
+        #expect(viewModel.debugObservationStartupCount() == 1)
+    }
+
+    @Test("Transient view disappearance does not tear down lifecycle observation")
+    @MainActor
+    func transientDisappearPreservesLifecycleObservation() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.prepareForReplacement() }
+
+        await viewModel.activate(origin: "test.transientDisappear")
+        for _ in 0..<50 {
+            if viewModel.debugObservationStartupCount() > 0 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(viewModel.debugObservationStartupCount() == 1)
+
+        viewModel.onDisappear(origin: "test.transient")
+        chatService.emitConnectionState(.connected)
+
+        var becameConnected = false
+        for _ in 0..<100 {
+            if viewModel.sendButtonConnectionState == .connected {
+                becameConnected = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(becameConnected)
         #expect(viewModel.debugObservationStartupCount() == 1)
     }
 }

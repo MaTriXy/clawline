@@ -397,6 +397,8 @@ final class ChatViewModel: ChatViewModelHosting {
     let salientHighlightService: any SalientHighlightServicing
     private var observationTask: Task<Void, Never>?
     private var observationStartupTask: Task<Void, Never>?
+    private var activationTask: Task<Void, Never>?
+    private var hasActivatedLifecycleOwnership = false
     private var lifecycleTransportEventsSubscription: AsyncStream<LifecycleTransportEvent>?
     private var lifecycleOutputsSubscription: AsyncStream<ConnectionLifecycleOutput>?
     private var lifecycleStartupGateDebugSubscription: AsyncStream<StartupGateDebugEvent>?
@@ -610,7 +612,6 @@ final class ChatViewModel: ChatViewModelHosting {
             object: nil
         )
         claimConnectionOwnership(reason: "init")
-        handleAuthStateChange()
     }
 
     deinit {
@@ -618,6 +619,43 @@ final class ChatViewModel: ChatViewModelHosting {
         NotificationCenter.default.removeObserver(self, name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: Notification.Name("AuthStateDidChange"), object: nil)
         NotificationCenter.default.removeObserver(self, name: UIApplication.didEnterBackgroundNotification, object: nil)
+    }
+
+    func activate(origin: String = "RootView.ensureChatViewModel") async {
+        guard !isRetired else {
+            coordinatorDiag("activate ignored retired-vm")
+            return
+        }
+        guard isConnectionOwner else {
+            coordinatorDiag("activate ignored non-owner")
+            return
+        }
+        if hasActivatedLifecycleOwnership {
+            coordinatorDiag("activate early-return already-activated")
+            return
+        }
+        if let activationTask {
+            coordinatorDiag("activate joining in-flight activation task")
+            await activationTask.value
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.coordinatorDiag("activate begin")
+            await self.startObservingIfNeeded(origin: "activate[\(origin)]")
+#if DEBUG
+            self.recordLifecycleDebugSignal(.viewAppeared)
+#endif
+            await self.lifecycleCoordinator.viewAppeared()
+            self.hasActivatedLifecycleOwnership = true
+            self.coordinatorDiag("activate after viewAppeared -> handleAuthStateChange")
+            self.handleAuthStateChange()
+        }
+        activationTask = task
+        await task.value
+        activationTask = nil
+        coordinatorDiag("activate complete")
     }
 
     func onAppear(origin: String = "ChatView.task") async {
@@ -629,26 +667,11 @@ final class ChatViewModel: ChatViewModelHosting {
             coordinatorDiag("onAppear ignored non-owner")
             return
         }
-        coordinatorDiag("onAppear enter observationTaskNil=\(observationTask == nil) startupTaskNil=\(observationStartupTask == nil) tokenPresent=\(auth.token != nil)")
-        guard auth.token != nil else {
-            coordinatorDiag("onAppear early-return tokenPresent=\(auth.token != nil)")
-            return
-        }
+        coordinatorDiag("onAppear enter visibility-only tokenPresent=\(auth.token != nil)")
         emitPinpointLog(event: "onAppear_enter", origin: origin)
         isChatVisible = true
         isAppInForeground = true
-
-        logger.info("ChatViewModel onAppear id=\(self.instanceId, privacy: .public)")
-        coordinatorDiag("onAppear before startObservingIfNeeded")
-        await startObservingIfNeeded(origin: "onAppear[\(origin)]")
-        emitPinpointLog(event: "onAppear_afterStartObserving", origin: origin)
-        coordinatorDiag("onAppear after startObservingIfNeeded before viewAppeared signal")
-#if DEBUG
-        recordLifecycleDebugSignal(.viewAppeared)
-#endif
-        await lifecycleCoordinator.viewAppeared()
-        emitPinpointLog(event: "onAppear_afterViewAppearedSignal", origin: origin)
-        coordinatorDiag("onAppear after viewAppeared signal")
+        logger.info("ChatViewModel onAppear id=\(self.instanceId, privacy: .public) visibility-only")
     }
 
     func onDisappear(origin: String = "ChatView.onDisappear") {
@@ -657,38 +680,8 @@ final class ChatViewModel: ChatViewModelHosting {
 #endif
         emitPinpointLog(event: "onDisappear_enter", origin: origin)
         logger.info("ChatViewModel onDisappear FIRED id=\(self.instanceId, privacy: .public) isChatVisible=\(self.isChatVisible) isOwner=\(self.isConnectionOwner) hasObsTask=\(self.observationTask != nil) hasTransportSub=\(self.lifecycleTransportEventsSubscription != nil) hasOutputsSub=\(self.lifecycleOutputsSubscription != nil)")
-        let ownsConnection = isConnectionOwner
-        let startupInFlight = observationStartupTask != nil
         isChatVisible = false
-        logger.info("ChatViewModel onDisappear id=\(self.instanceId, privacy: .public)")
-        if startupInFlight {
-            observationStartupTask?.cancel()
-            observationStartupTask = nil
-            emitPinpointLog(event: "onDisappear_cancelStartup_skipStopObserving", origin: origin)
-            logger.info("ChatViewModel onDisappear canceled startup and skipped stopObservingLifecycle id=\(self.instanceId, privacy: .public)")
-        } else {
-            stopObservingLifecycle(origin: "onDisappear[\(origin)]")
-        }
-        clearTemporarySendButtonOverride()
-        cancelSend()
-        guard ownsConnection else {
-            emitPinpointLog(event: "onDisappear_nonOwner_skipDisconnect", origin: origin)
-            logger.info("ChatViewModel onDisappear skip disconnect id=\(self.instanceId, privacy: .public) reason=non_owner")
-            return
-        }
-        Task {
-            let phaseBefore = await lifecycleCoordinator.phase
-            self.logger.info(
-                "[T099-PIN] vm=\(self.instanceId, privacy: .public) event=disconnectRequested_before origin=\(origin, privacy: .public) actorPhase=\(String(describing: phaseBefore), privacy: .public)"
-            )
-            await lifecycleCoordinator.disconnectRequested()
-            let phaseAfter = await lifecycleCoordinator.phase
-            self.logger.info(
-                "[T099-PIN] vm=\(self.instanceId, privacy: .public) event=disconnectRequested_after origin=\(origin, privacy: .public) actorPhase=\(String(describing: phaseAfter), privacy: .public)"
-            )
-        }
-        emitPinpointLog(event: "onDisappear_beforeChatServiceDisconnect", origin: origin)
-        chatService.disconnect()
+        logger.info("ChatViewModel onDisappear id=\(self.instanceId, privacy: .public) visibility-only")
     }
 
     func reconnect() {
@@ -709,6 +702,10 @@ final class ChatViewModel: ChatViewModelHosting {
     private func handleAuthStateChange() {
         guard !isRetired else {
             coordinatorDiag("handleAuthStateChange ignored retired-vm tokenPresent=\(auth.token != nil)")
+            return
+        }
+        guard hasActivatedLifecycleOwnership else {
+            coordinatorDiag("handleAuthStateChange deferred until activate tokenPresent=\(auth.token != nil)")
             return
         }
         guard isConnectionOwner else {
@@ -753,6 +750,10 @@ final class ChatViewModel: ChatViewModelHosting {
         guard !isRetired else { return }
         guard isConnectionOwner else { return }
         isAppInForeground = true
+        guard hasActivatedLifecycleOwnership else {
+            coordinatorDiag("sceneDidBecomeActive deferred until activate")
+            return
+        }
         guard auth.token != nil else { return }
         logger.info("ChatViewModel sceneDidBecomeActive id=\(self.instanceId, privacy: .public) state=\(String(describing: self.connectionState), privacy: .public)")
         coordinatorDiag("sceneDidBecomeActive tokenPresent=true observationTaskNil=\(observationTask == nil)")
@@ -857,6 +858,8 @@ final class ChatViewModel: ChatViewModelHosting {
         emitPinpointLog(event: "stopObserving_enter", origin: origin)
         observationStartupTask?.cancel()
         observationStartupTask = nil
+        activationTask?.cancel()
+        activationTask = nil
         observationTask?.cancel()
         observationTask = nil
         lifecycleTransportEventsSubscription = nil
@@ -874,6 +877,7 @@ final class ChatViewModel: ChatViewModelHosting {
     func prepareForReplacement() {
         guard !isRetired else { return }
         isRetired = true
+        hasActivatedLifecycleOwnership = false
         stopObservingLifecycle(origin: "prepareForReplacement")
         cancelSend()
         guard isConnectionOwner else { return }
@@ -1106,6 +1110,9 @@ final class ChatViewModel: ChatViewModelHosting {
         cancelSend()
         observationStartupTask?.cancel()
         observationStartupTask = nil
+        activationTask?.cancel()
+        activationTask = nil
+        hasActivatedLifecycleOwnership = false
         clearTemporarySendButtonOverride()
         observationTask?.cancel()
         observationTask = nil
