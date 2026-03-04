@@ -267,7 +267,14 @@ struct ChatView: View {
         scrollButtonSuppressNextTap = true
         scrollButtonTapSuppressionTask?.cancel()
         scrollButtonTapSuppressionTask = Task { @MainActor in
-            try? await Task.sleep(for: scrollButtonTapSuppressionDuration)
+            do {
+                try await Task.sleep(for: scrollButtonTapSuppressionDuration)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             scrollButtonSuppressNextTap = false
         }
     }
@@ -326,7 +333,14 @@ struct ChatView: View {
             scrollButtonIsDetentSettling = true
             scrollButtonSettleTask?.cancel()
             scrollButtonSettleTask = Task { @MainActor in
-                try? await Task.sleep(for: scrollButtonSettleDuration)
+                do {
+                    try await Task.sleep(for: scrollButtonSettleDuration)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
                 scrollButtonIsDetentSettling = false
                 scrollButtonSettleStartOffset = nil
             }
@@ -1232,10 +1246,17 @@ struct ChatView: View {
         let remaining = max(0, streamToastMinimumBusySeconds - elapsed)
         streamToastBusyClearTask = Task {
             if remaining > 0 {
-                try? await Task.sleep(for: .seconds(remaining))
+                do {
+                    try await Task.sleep(for: .seconds(remaining))
+                } catch is CancellationError {
+                    return
+                } catch {
+                    return
+                }
             }
             guard !Task.isCancelled else { return }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     streamToastManager.setBusy(false)
                 }
@@ -1286,7 +1307,14 @@ struct ChatView: View {
         prepareForAttachmentPicker()
         activeSheet = nil
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
+            do {
+                try await Task.sleep(for: .milliseconds(150))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             isPhotosPickerPresented = true
         }
     }
@@ -1296,7 +1324,14 @@ struct ChatView: View {
         prepareForAttachmentPicker()
         activeSheet = nil
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(150))
+            do {
+                try await Task.sleep(for: .milliseconds(150))
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
             isFileImporterPresented = true
         }
     }
