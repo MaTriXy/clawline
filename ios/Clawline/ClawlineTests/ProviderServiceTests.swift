@@ -437,6 +437,49 @@ struct ProviderServiceTests {
         }
     }
 
+    @Test("Create stream uses fallback auth token provider when transport token is unavailable")
+    func createStreamUsesFallbackAuthTokenProvider() async throws {
+        let baseURL = URL(string: "https://example.com")!
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StreamAPIMockURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let streamAPIClient = StreamAPIClient(baseURLProvider: { baseURL }, session: session)
+        let service = ProviderChatService(
+            connector: MockWebSocketConnector(client: MockWebSocketClient()),
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            authTokenProvider: { "jwt_fallback" },
+            streamAPIClient: streamAPIClient
+        )
+
+        StreamAPIMockURLProtocol.requestHandler = { request in
+            #expect(request.httpMethod == "POST")
+            #expect(request.url?.path == "/api/streams")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer jwt_fallback")
+            let body = #"{ "stream": { "sessionKey": "agent:main:clawline:user:s_new", "displayName": "Research", "kind": "custom", "orderIndex": 1, "isBuiltIn": false, "createdAt": 1700000000000, "updatedAt": 1700000000000 } }"#
+            guard let requestURL = request.url else {
+                throw URLError(.badURL)
+            }
+            guard let response = HTTPURLResponse(
+                url: requestURL,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ) else {
+                throw URLError(.badServerResponse)
+            }
+            return (response, Data(body.utf8))
+        }
+        defer {
+            StreamAPIMockURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+        }
+
+        let stream = try await service.createStream(displayName: "Research", idempotencyKey: "req_1")
+        #expect(stream.sessionKey == "agent:main:clawline:user:s_new")
+        #expect(stream.displayName == "Research")
+    }
+
     @Test("Lifecycle attempt emits coordinator epoch on transport and auth events")
     func lifecycleAttemptUsesProvidedEpoch() async throws {
         let mockSocket = MockWebSocketClient()
@@ -1048,4 +1091,34 @@ private final class StartAttemptCapture {
         defer { lock.unlock() }
         return attempts
     }
+}
+
+private final class StreamAPIMockURLProtocol: URLProtocol {
+    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            let error = NSError(domain: "StreamAPIMockURLProtocol", code: -1)
+            client?.urlProtocol(self, didFailWithError: error)
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
