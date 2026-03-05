@@ -143,7 +143,6 @@ struct ChatView: View {
     @State private var streamToastBusyClearTask: Task<Void, Never>?
     @State private var chatViewTraceId = UUID().uuidString
 #if DEBUG
-    private let isLifecycleDebugOverlayEnabled = true
     @State private var lifecycleDebugOverlayVisible = true
     @State private var lifecycleDebugOverlayDismissTask: Task<Void, Never>?
     @State private var probeTaskEnterCount = 0
@@ -157,6 +156,10 @@ struct ChatView: View {
     @State private var probeLastOnDisappearPreviousChatViewId = "-"
     @State private var probeLastOnDisappearCurrentVMObject = "-"
     @State private var probeLastOnDisappearCurrentChatViewId = "-"
+
+    private var isLifecycleDebugOverlayEnabled: Bool {
+        settings.isLifecycleDebugOverlayEnabled
+    }
 #endif
 
     private let streamToastMinimumBusySeconds: TimeInterval = 0.45
@@ -540,6 +543,15 @@ struct ChatView: View {
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
             showLifecycleDebugOverlay()
+        }
+        .onChange(of: settings.isLifecycleDebugOverlayEnabled) { _, enabled in
+            if enabled {
+                showLifecycleDebugOverlay()
+            } else {
+                lifecycleDebugOverlayVisible = false
+                lifecycleDebugOverlayDismissTask?.cancel()
+                lifecycleDebugOverlayDismissTask = nil
+            }
         }
 #endif
         .background(
