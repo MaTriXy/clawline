@@ -1912,12 +1912,9 @@ struct ChatViewModelTests {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
-        let customKey = "agent:main:clawline:user:s_retry_delete"
         chatService.streams = [
             makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
-            makeStreamSession(sessionKey: customKey, displayName: "Retry Delete", kind: "custom", orderIndex: 1, isBuiltIn: false),
         ]
-        chatService.deleteStreamErrorSequence = [ProviderChatService.Error.notConnected]
         let viewModel = ChatViewModel(
             auth: auth,
             chatService: chatService,
@@ -1931,10 +1928,14 @@ struct ChatViewModelTests {
 
         await viewModel.onAppear()
         chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
-        for _ in 0..<50 {
-            if viewModel.stream(for: customKey) != nil { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
+
+        let created = await viewModel.createStream(displayName: "Retry Delete")
+        #expect(created)
+        let customKeys = viewModel.orderedSessionKeys.filter { $0 != personalSessionKey }
+        #expect(customKeys.count == 1)
+        guard let customKey = customKeys.first else { return }
+
+        chatService.deleteStreamErrorSequence = [ProviderChatService.Error.notConnected]
 
         let connectCountBeforeDelete = chatService.connectCallCount
         let deleted = await viewModel.deleteStream(sessionKey: customKey)
