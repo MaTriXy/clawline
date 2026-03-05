@@ -886,6 +886,22 @@ struct ChatView: View {
                         .lineLimit(1)
                     }
                 }
+                if !viewModel.imageSendDebugRecords.isEmpty {
+                    Text("image/send:")
+                        .font(.caption2.weight(.semibold))
+                    Text("send snapshot: \(viewModel.imageSendLastTransportSnapshot)")
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                    ForEach(Array(viewModel.imageSendDebugRecords.suffix(6))) { record in
+                        Text(
+                            "\(record.kind.rawValue) @ \(record.timestamp.formatted(date: .omitted, time: .standard)) \(record.detail)"
+                        )
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                    }
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -1500,7 +1516,7 @@ struct ChatView: View {
             return
         }
         await MainActor.run {
-            insertAttachments([attachment])
+            insertAttachments([attachment], source: "camera")
         }
     }
 
@@ -1515,7 +1531,7 @@ struct ChatView: View {
                 toastManager.show(error: .invalidData)
                 return
             }
-            insertAttachments(attachments)
+            insertAttachments(attachments, source: "paste")
         }
     }
 
@@ -1550,7 +1566,7 @@ struct ChatView: View {
             return
         }
         await MainActor.run {
-            insertAttachments(attachments)
+            insertAttachments(attachments, source: "photo_picker")
         }
     }
 
@@ -1585,14 +1601,14 @@ struct ChatView: View {
         }
         guard !attachments.isEmpty else { return }
         await MainActor.run {
-            insertAttachments(attachments)
+            insertAttachments(attachments, source: "file_importer")
         }
     }
 
     @MainActor
-    private func insertAttachments(_ attachments: [PendingAttachment]) {
+    private func insertAttachments(_ attachments: [PendingAttachment], source: String) {
         guard !attachments.isEmpty else { return }
-        viewModel.stageAttachments(attachments)
+        viewModel.stageAttachments(attachments, source: source)
         pendingInputInsertions = attachments
     }
 

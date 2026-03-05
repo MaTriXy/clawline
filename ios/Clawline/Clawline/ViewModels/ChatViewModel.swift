@@ -436,6 +436,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var lifecycleDebugObserverEvents: [LifecycleObserverDebugRecord] = []
     private(set) var lifecycleDebugStartupGateEvents: [StartupGateDebugEvent] = []
     private(set) var lifecycleDebugLastGateDecision: String = "none"
+    private(set) var imageSendDebugRecords: [ImageSendDebugRecord] = []
+    private(set) var imageSendLastTransportSnapshot: String = "-"
     private(set) var lifecycleDebugSequence: Int = 0
 #endif
     private let messageCacheLimit = 500
@@ -468,6 +470,22 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
 #if DEBUG
+    enum ImageSendDebugEventKind: String, Equatable {
+        case attachmentAdded = "attachment_added"
+        case attachmentStagingStarted = "attachment_staging_started"
+        case attachmentStagingCompleted = "attachment_staging_completed"
+        case sendTapped = "send_tapped"
+        case sendDispatched = "send_dispatched"
+        case sendResult = "send_result"
+    }
+
+    struct ImageSendDebugRecord: Equatable, Identifiable {
+        let id = UUID()
+        let kind: ImageSendDebugEventKind
+        let timestamp: Date
+        let detail: String
+    }
+
     enum LifecycleDebugSignal: String, Equatable {
         case authChangedToken = "authChanged(token)"
         case authChangedNil = "authChanged(nil)"
@@ -513,10 +531,20 @@ final class ChatViewModel: ChatViewModelHosting {
             lifecycleDebugObserverEvents.removeAll(keepingCapacity: true)
             lifecycleDebugStartupGateEvents.removeAll(keepingCapacity: true)
             lifecycleDebugLastGateDecision = "none"
+            imageSendDebugRecords.removeAll(keepingCapacity: true)
+            imageSendLastTransportSnapshot = "-"
         }
         lifecycleDebugSignals.append(.init(signal: signal, timestamp: Date()))
         if lifecycleDebugSignals.count > 12 {
             lifecycleDebugSignals.removeFirst(lifecycleDebugSignals.count - 12)
+        }
+        lifecycleDebugSequence &+= 1
+    }
+
+    private func recordImageSendDebugEvent(_ kind: ImageSendDebugEventKind, detail: String) {
+        imageSendDebugRecords.append(.init(kind: kind, timestamp: Date(), detail: detail))
+        if imageSendDebugRecords.count > 12 {
+            imageSendDebugRecords.removeFirst(imageSendDebugRecords.count - 12)
         }
         lifecycleDebugSequence &+= 1
     }
@@ -951,11 +979,31 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    private func sendTransportSnapshot() -> String {
+        let providerReady = ProviderBaseURLStore.baseURL != nil
+        let transportReady = chatService.isTransportReadyForSend
+        return "connectionState=\(String(describing: connectionState)) providerReady=\(providerReady ? "1" : "0") transportReady=\(transportReady ? "1" : "0")"
+    }
+
     func send() {
         guard !isSending else { return }
         let referencedIds = Set(inputContent.pendingAttachmentIds())
+#if DEBUG
+        let transportSnapshot = sendTransportSnapshot()
+        imageSendLastTransportSnapshot = transportSnapshot
+        recordImageSendDebugEvent(
+            .sendTapped,
+            detail: "textLen=\(inputContent.length) attachmentCount=\(referencedIds.count) \(transportSnapshot)"
+        )
+#endif
         let stagedOnly = attachmentData.keys.filter { !referencedIds.contains($0) }
         if !stagedOnly.isEmpty {
+#if DEBUG
+            recordImageSendDebugEvent(
+                .sendResult,
+                detail: "failure reason=staging_incomplete pending=\(stagedOnly.count)"
+            )
+#endif
             toastManager.show("Finishing attachment…")
             return
         }
@@ -964,6 +1012,9 @@ final class ChatViewModel: ChatViewModelHosting {
         let pendingAttachments = pendingIds.compactMap { attachmentData[$0] }
 
         guard !text.isEmpty || !pendingAttachments.isEmpty else {
+#if DEBUG
+            recordImageSendDebugEvent(.sendResult, detail: "failure reason=empty_input")
+#endif
             return
         }
 
@@ -974,6 +1025,9 @@ final class ChatViewModel: ChatViewModelHosting {
         ensureDefaultActiveSessionIfNeeded()
         let outboundSessionKey = engineActiveSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !outboundSessionKey.isEmpty else {
+#if DEBUG
+            recordImageSendDebugEvent(.sendResult, detail: "failure reason=no_stream_selected")
+#endif
             toastManager.show("No stream selected.")
             return
         }
@@ -981,17 +1035,35 @@ final class ChatViewModel: ChatViewModelHosting {
         switch sendProvisioningState(for: outboundSessionKey) {
         case .ready:
             guard transportSendButtonConnectionState == .connected else {
+#if DEBUG
+                recordImageSendDebugEvent(
+                    .sendResult,
+                    detail: "failure reason=not_connected \(sendTransportSnapshot())"
+                )
+#endif
                 toastManager.show("Could not send; not connected.")
                 return
             }
             beginSend(content: text, pendingAttachments: pendingAttachments, sessionKey: outboundSessionKey)
         case .waiting:
+#if DEBUG
+            recordImageSendDebugEvent(
+                .sendResult,
+                detail: "queued reason=provisioning_waiting \(sendTransportSnapshot())"
+            )
+#endif
             pendingProvisionedSend = PendingProvisionedSend(
                 content: text,
                 attachments: pendingAttachments,
                 sessionKey: outboundSessionKey
             )
         case .unavailable:
+#if DEBUG
+            recordImageSendDebugEvent(
+                .sendResult,
+                detail: "failure reason=stream_unavailable \(sendTransportSnapshot())"
+            )
+#endif
             toastManager.show("This stream is unavailable. Switch streams and try again.")
         }
     }
@@ -1001,6 +1073,12 @@ final class ChatViewModel: ChatViewModelHosting {
                            sessionKey: String) {
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
+#if DEBUG
+        recordImageSendDebugEvent(
+            .sendDispatched,
+            detail: "localId=\(clientId) at=\(Date().formatted(date: .omitted, time: .standard))"
+        )
+#endif
 
         isSending = true  // Set immediately to prevent double-tap race condition
         let placeholder = Message(
@@ -1093,19 +1171,37 @@ final class ChatViewModel: ChatViewModelHosting {
         isSending = false
     }
 
-    func stageAttachments(_ attachments: [PendingAttachment]) {
+    func stageAttachments(_ attachments: [PendingAttachment], source: String = "unknown") {
         attachments.forEach {
             attachmentData[$0.id] = $0
             stagedAttachmentProtection.insert($0.id)
         }
+#if DEBUG
+        recordImageSendDebugEvent(
+            .attachmentAdded,
+            detail: "count=\(attachments.count) source=\(source)"
+        )
+#endif
     }
 
     func beginAttachmentStaging() {
         pendingAttachmentStageCount += 1
+#if DEBUG
+        recordImageSendDebugEvent(
+            .attachmentStagingStarted,
+            detail: "pending=\(pendingAttachmentStageCount)"
+        )
+#endif
     }
 
     func endAttachmentStaging() {
         pendingAttachmentStageCount = max(0, pendingAttachmentStageCount - 1)
+#if DEBUG
+        recordImageSendDebugEvent(
+            .attachmentStagingCompleted,
+            detail: "pending=\(pendingAttachmentStageCount)"
+        )
+#endif
     }
 
     func logout() {
@@ -1620,18 +1716,30 @@ final class ChatViewModel: ChatViewModelHosting {
                 sessionKey: sessionKey
             )
             await MainActor.run {
+#if DEBUG
+                self.recordImageSendDebugEvent(.sendResult, detail: "success localId=\(clientId)")
+#endif
                 clearInput()
                 isSending = false
                 activeClientMessageId = nil
             }
         } catch is CancellationError {
             await MainActor.run {
+#if DEBUG
+                self.recordImageSendDebugEvent(.sendResult, detail: "failure localId=\(clientId) reason=cancelled")
+#endif
                 removePlaceholder(withId: clientId)
                 isSending = false
                 activeClientMessageId = nil
             }
         } catch let attachmentError as AttachmentError {
             await MainActor.run {
+#if DEBUG
+                self.recordImageSendDebugEvent(
+                    .sendResult,
+                    detail: "failure localId=\(clientId) reason=attachment_\(attachmentError.localizedDescription)"
+                )
+#endif
                 toastManager.show(error: attachmentError)
                 markLocalMessageFailed(
                     id: clientId,
@@ -1643,6 +1751,12 @@ final class ChatViewModel: ChatViewModelHosting {
             }
         } catch {
             await MainActor.run {
+#if DEBUG
+                self.recordImageSendDebugEvent(
+                    .sendResult,
+                    detail: "failure localId=\(clientId) reason=\(error.localizedDescription)"
+                )
+#endif
                 toastManager.show(error.localizedDescription)
                 markLocalMessageFailed(
                     id: clientId,
@@ -1670,17 +1784,29 @@ final class ChatViewModel: ChatViewModelHosting {
                 sessionKey: sessionKey
             )
             await MainActor.run {
+#if DEBUG
+                self.recordImageSendDebugEvent(.sendResult, detail: "success localId=\(clientId) retry=1")
+#endif
                 isSending = false
                 activeClientMessageId = nil
             }
         } catch is CancellationError {
             await MainActor.run {
+#if DEBUG
+                self.recordImageSendDebugEvent(.sendResult, detail: "failure localId=\(clientId) reason=cancelled retry=1")
+#endif
                 removePlaceholder(withId: clientId)
                 isSending = false
                 activeClientMessageId = nil
             }
         } catch let attachmentError as AttachmentError {
             await MainActor.run {
+#if DEBUG
+                self.recordImageSendDebugEvent(
+                    .sendResult,
+                    detail: "failure localId=\(clientId) reason=attachment_\(attachmentError.localizedDescription) retry=1"
+                )
+#endif
                 toastManager.show(error: attachmentError)
                 markLocalMessageFailed(
                     id: clientId,
@@ -1692,6 +1818,12 @@ final class ChatViewModel: ChatViewModelHosting {
             }
         } catch {
             await MainActor.run {
+#if DEBUG
+                self.recordImageSendDebugEvent(
+                    .sendResult,
+                    detail: "failure localId=\(clientId) reason=\(error.localizedDescription) retry=1"
+                )
+#endif
                 toastManager.show(error.localizedDescription)
                 markLocalMessageFailed(
                     id: clientId,
