@@ -3087,6 +3087,8 @@ The injected Surf Ace instruction text MUST teach agents how to interpret surfac
 - `event.pane_created` / `event.pane_removed` / `event.pane_focused` / `event.pane_renamed`
 - `event.tab_created` / `event.tab_removed` / `event.tab_focused`
 
+Standalone-provider note: Surf Ace MAY run as a standalone extension without Clawline coupling, provided it implements gateway wake/routing plumbing comparable to existing channel extensions (for example, Discord-style wake + route behavior) rather than relying on Clawline-specific internal helpers.
+
 ## 15. Surface UI Design
 
 This section is **normative**. Surface implementations MUST conform to the requirements described here. This section does not specify pixel sizes, exact colors, fonts, or precise layout coordinates — those are implementation details left to each platform. It specifies what must be shown and the behavioral rules governing each UI element.
