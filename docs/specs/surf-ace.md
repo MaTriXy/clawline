@@ -130,6 +130,7 @@ These are normative, settled statements about Surf Ace behavior. Implementations
 11. **Annotation buffer is tab-scoped.** The annotation buffer (live dirty channel, closed frame queue, and all non-annotation registers) is keyed per tab: `(surfaceId, paneId, tabId)`. Tabs in the same pane do not share annotation state.
 12. **Lifecycle events are always-on.** Surface lifecycle events (`event.surface_appeared`, `event.surface_removed`), pane lifecycle events (`event.pane_created`, `event.pane_removed`, `event.pane_focused`, `event.pane_renamed`), and tab lifecycle events (`event.tab_created`, `event.tab_removed`, `event.tab_focused`) are never profile-gated. They fire regardless of `eventProfile` setting and do not appear in `pair.response.eventConfig.activeEvents`.
 13. **Platform target floor policy.** Surf Ace targets the newest released OS major version as the minimum deployment target (current decision: iOS/iPadOS 26 and macOS 26 for native surface builds).
+14. **Portable extension packaging.** Surf Ace MUST remain installable as a standalone OpenClaw extension bundle that can be dropped into any compatible OpenClaw installation (without requiring Clawline as a dependency and without requiring core patches). Any needed wake/routing behavior must be implemented through extension-local code and published SDK surfaces.
 
 ## 3. Transport and Discovery
 
@@ -3265,6 +3266,23 @@ This section is the authoritative list of unresolved design decisions. Items her
 **Decision:** Surf Ace targets the newest released OS major version as the minimum deployment target. Current floor: iOS/iPadOS 26 and macOS 26 for native surface builds.
 
 **Status:** Resolved. Moved into Core Invariants (#13).
+
+### OT-5: Distribution Method for Portable Surf Ace Extension
+
+**Problem:** Surf Ace is now required to be portable as a standalone extension bundle for any OpenClaw install. The distribution mechanism is not selected yet.
+
+**Candidate distribution methods:**
+1. Source drop-in folder (`extensions/surf-ace/`) with build step.
+2. Prebuilt `.zip` artifact containing extension code + manifest + required assets.
+3. Versioned package artifact with install script.
+
+**Selection criteria:**
+- Works on fresh OpenClaw installs without Clawline dependency.
+- Requires no core patching.
+- Supports repeatable upgrades/rollback.
+- Includes verification step to ensure skills + instruction injection paths are present.
+
+**Status:** Open. Requires packaging decision before implementation completion.
 
 ---
 
