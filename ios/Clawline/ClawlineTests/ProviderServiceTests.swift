@@ -254,6 +254,48 @@ struct ProviderServiceTests {
         #expect(sentAfterDisconnect == sentBeforeDisconnect)
     }
 
+    @Test("Retry send failure emits message error instead of silent drop")
+    func retrySendFailureEmitsMessageError() async throws {
+        let mockSocket = MockWebSocketClient()
+        mockSocket.sendErrorsByAttempt[3] = URLError(.dataLengthExceedsMaximum)
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+
+        let recorder = ServiceEventRecorder()
+        let observerTask = Task {
+            for await event in service.serviceEvents {
+                await recorder.append(event)
+            }
+        }
+        defer { observerTask.cancel() }
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(10))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+        try await service.send(
+            id: "c_retry_send_fail",
+            content: "Hello",
+            attachments: [],
+            sessionKey: nil
+        )
+
+        try await Task.sleep(forDuration: .seconds(6))
+
+        let hasRetryFailure = await recorder.containsMessageError(
+            messageId: "c_retry_send_fail",
+            code: "queue_failed"
+        )
+        #expect(hasRetryFailure)
+    }
+
     @Test("Malformed inbound auth/message frames are dropped and valid frames still process")
     func malformedInboundFramesAreDropped() async throws {
         let mockSocket = MockWebSocketClient()
@@ -899,6 +941,8 @@ private final class MockWebSocketClient: WebSocketClient {
     private let continuation: AsyncStream<String>.Continuation
 
     private(set) var sentTexts: [String] = []
+    var sendErrorsByAttempt: [Int: any Swift.Error] = [:]
+    private var sendAttempt: Int = 0
 
     init() {
         var continuation: AsyncStream<String>.Continuation!
@@ -909,6 +953,10 @@ private final class MockWebSocketClient: WebSocketClient {
     var incomingTextMessages: AsyncStream<String> { stream }
 
     func send(text: String) async throws {
+        sendAttempt += 1
+        if let error = sendErrorsByAttempt[sendAttempt] {
+            throw error
+        }
         sentTexts.append(text)
     }
 
@@ -918,6 +966,21 @@ private final class MockWebSocketClient: WebSocketClient {
 
     func enqueue(text: String) {
         continuation.yield(text)
+    }
+}
+
+private actor ServiceEventRecorder {
+    private var events: [ChatServiceEvent] = []
+
+    func append(_ event: ChatServiceEvent) {
+        events.append(event)
+    }
+
+    func containsMessageError(messageId: String, code: String) -> Bool {
+        events.contains {
+            guard case .messageError(let eventMessageId, let eventCode, _) = $0 else { return false }
+            return eventMessageId == messageId && eventCode == code
+        }
     }
 }
 

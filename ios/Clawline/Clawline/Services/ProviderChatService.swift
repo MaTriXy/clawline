@@ -486,8 +486,14 @@ final class ProviderChatService: ChatServicing {
         pendingMessages[id]?.retryTask?.cancel()
         let retryTask = scheduleRetry(for: payload)
         pendingMessages[id] = PendingMessage(payload: payload, retryTask: retryTask)
-
-        try await socket.send(text: text)
+        do {
+            try await socket.send(text: text)
+        } catch {
+            if let pending = pendingMessages.removeValue(forKey: id) {
+                pending.retryTask?.cancel()
+            }
+            throw error
+        }
     }
 
     func sendInteractiveCallback(
@@ -1222,7 +1228,22 @@ final class ProviderChatService: ChatServicing {
                 }
 
                 guard !Task.isCancelled else { return }
-                try? await socket.send(text: text)
+                do {
+                    try await socket.send(text: text)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    self.pendingMessages.removeValue(forKey: payload.id)
+                    self.emitServiceEvent(.messageError(
+                        messageId: payload.id,
+                        code: "queue_failed",
+                        message: error.localizedDescription
+                    ))
+                    logger.error(
+                        "retry send failed for messageId=\(payload.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                    )
+                    return
+                }
             }
         }
     }
