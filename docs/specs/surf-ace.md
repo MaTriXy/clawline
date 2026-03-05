@@ -3269,20 +3269,14 @@ This section is the authoritative list of unresolved design decisions. Items her
 
 ### OT-5: Distribution Method for Portable Surf Ace Extension
 
-**Problem:** Surf Ace is now required to be portable as a standalone extension bundle for any OpenClaw install. The distribution mechanism is not selected yet.
+**Decision:**
+- **Development:** `openclaw plugins install -l ~/src/surf-ace` (official link mode; `git pull` = immediately live after gateway restart)
+- **Distribution:** `openclaw plugins install ./surf-ace.zip` (official OpenClaw zip install path; no custom packaging scripts required)
+- **Separate repo:** Surf Ace lives in its own standalone repo (not bundled with Clawline). Fresh implementation — no porting from the clawline-rebase branch.
 
-**Candidate distribution methods:**
-1. Source drop-in folder (`extensions/surf-ace/`) with build step.
-2. Prebuilt `.zip` artifact containing extension code + manifest + required assets.
-3. Versioned package artifact with install script.
+Both dev and distribution use the standard `openclaw plugins install` CLI. This satisfies all selection criteria: no Clawline dependency, no core patching, repeatable upgrades/rollback via zip replacement, skills and instruction injection verified at install time.
 
-**Selection criteria:**
-- Works on fresh OpenClaw installs without Clawline dependency.
-- Requires no core patching.
-- Supports repeatable upgrades/rollback.
-- Includes verification step to ensure skills + instruction injection paths are present.
-
-**Status:** Open. Requires packaging decision before implementation completion.
+**Status:** Resolved. Moved into Core Invariants (#14).
 
 ---
 
