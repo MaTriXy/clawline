@@ -408,6 +408,35 @@ struct ProviderServiceTests {
         #expect(sawDeleted)
     }
 
+    // T140: deleteStream must fail fast with notConnected when authToken is nil (not authenticated).
+    // Previously, the nil token was passed through to StreamAPIClient which omitted the Authorization
+    // header, causing the server to return 401 "Missing authorization" — confusing the user.
+    @Test("T140: deleteStream fails with notConnected when not authenticated")
+    func deleteStreamFailsNotConnectedWhenUnauthenticated() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+        // Do NOT connect — authToken remains nil.
+        do {
+            _ = try await service.deleteStream(sessionKey: "agent:main:clawline:user:s_abcd1234", idempotencyKey: nil)
+            Issue.record("Expected notConnected error, but deleteStream succeeded")
+        } catch let error as ProviderChatService.Error {
+            switch error {
+            case .notConnected:
+                break // ✓ expected
+            default:
+                Issue.record("Expected notConnected, got \(error)")
+            }
+        } catch {
+            Issue.record("Unexpected error type: \(error)")
+        }
+    }
+
     @Test("Lifecycle attempt emits coordinator epoch on transport and auth events")
     func lifecycleAttemptUsesProvidedEpoch() async throws {
         let mockSocket = MockWebSocketClient()

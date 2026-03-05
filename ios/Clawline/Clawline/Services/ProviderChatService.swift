@@ -289,11 +289,14 @@ final class ProviderChatService: ChatServicing {
     }
 
     func deleteStream(sessionKey: String, idempotencyKey: String?) async throws -> String {
+        guard let token = authToken else {
+            throw Error.notConnected
+        }
         do {
             return try await streamAPIClient.deleteStream(
                 sessionKey: sessionKey,
                 idempotencyKey: idempotencyKey,
-                token: authToken
+                token: token
             )
         } catch {
             throw mapStreamAPIError(error)
