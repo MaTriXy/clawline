@@ -55,7 +55,10 @@ struct ClawlineApp: App {
             }
         )
         self.chatService = chatService
-        self.uploadService = UploadService(auth: authManager)
+        self.uploadService = UploadService(
+            auth: authManager,
+            session: connector.tlsAwareURLSession
+        )
 
         let sharedKeychain = KeychainSecureStore(accessGroup: "group.co.clicketyclacks.Clawline")
         let sonioxKeyStore = SonioxKeyStore(keychain: sharedKeychain)
