@@ -1,6 +1,6 @@
 # Clawline Watch App — Voice Terminal
 
-**Status:** Revised — Pending Flynn review of pushback items (P1–P3)
+**Status:** Revised — P1/P2 resolved, P3 (swipe gesture conflict on 40mm) pending
 **Date:** 2026-03-05 (revised from 2026-02-27)
 **Owner:** Clawline Apple Watch
 
@@ -884,7 +884,7 @@ Where:
 
 **Mic button:** The mic/stop icon within the ring should be ~40% of ring diameter, with a minimum of 44×44 pt tap target per Apple HIG.
 
-> **PUSHBACK — Open Question for Flynn:** The 40mm display has ~330 pt of usable vertical content height after safe area insets. With route chip + status text + page dots + channel name consuming ~120 pt, only ~210 pt remain. A ring at ~105 pt leaves ~105 pt of breathing room — tight but workable. However, if we need to show longer status text (multi-line transcript preview) or add any additional elements, 40mm will not fit. **Should we consider dropping the channel name label on 40mm and showing it only in the page dots tooltip, or is 40mm a "fits but tight" acceptable tradeoff?**
+**40mm policy (Flynn-resolved, 2026-03-05):** All UI elements (route chip, ring, status text, page dots, channel name) are present on ALL device sizes including 40mm. The GeometryReader-driven ring sizing adapts to the available space — no elements are dropped or hidden on smaller screens. The ring scales down to fit; this is the intended behavior.
 
 #### Device Size Targets
 
@@ -1520,9 +1520,9 @@ The channel name label and page dots read from `WatchConnectionPresentationState
 
 These items flag potential incompatibilities between Flynn's UI design and good watchOS UX on certain device sizes. They are not blockers — they are decision points that need Flynn's call.
 
-**P1. Ring size vs. 40mm content budget.** The 40mm display has ~330 pt usable vertical height after safe area insets. Route chip + status text + page dots + channel name + spacing consume ~120 pt, leaving ~210 pt for the ring and breathing room. An adaptive ring at ~105 pt works, but it's tight. If we ever need multi-line status text (e.g., scrolling transcript preview) or additional UI elements, 40mm will not fit without removing something. **Options:** (a) Accept "tight but works" on 40mm, (b) drop channel name label on 40mm (show only in page dots), (c) designate 40mm as "supported but degraded" and optimize for 45mm+.
+~~**P1. Ring size vs. 40mm content budget.**~~ **RESOLVED (Flynn, 2026-03-05):** Ring scales down on 40mm via GeometryReader. All elements present on all device sizes. No elements dropped.
 
-**P2. Page dots + channel name redundancy on small screens.** The current design shows both page dots AND a channel name label. On 40mm, these together consume ~34 pt of scarce vertical space. The page dots alone communicate position; the channel name adds context but costs space. **Option:** On 40mm, show only page dots. On 45mm+, show both. This is a device-size-adaptive layout choice.
+~~**P2. Page dots + channel name redundancy on small screens.**~~ **RESOLVED (Flynn, 2026-03-05):** Keep both page dots and channel name on all sizes including 40mm. GeometryReader-driven ring sizing absorbs the constraint.
 
 **P3. Swipe gesture conflict surface.** The full-screen horizontal swipe for channel switching conflicts with the hold gesture on the waveform ring. The spec now defines explicit arbitration (10 pt horizontal threshold vs. 200ms hold threshold), but the swipe target overlaps the ring. On 40mm where the ring fills more of the screen, accidental swipes during press-and-hold are more likely. **Mitigation options:** (a) Limit swipe recognition to the area *below* the ring (status text / page dots region), (b) increase horizontal threshold to 15 pt on 40mm, (c) accept the current arbitration and tune thresholds based on real-device testing.
 
