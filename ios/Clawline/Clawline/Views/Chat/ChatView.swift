@@ -851,14 +851,17 @@ struct ChatView: View {
         }
 #if DEBUG
         .overlay(alignment: .topTrailing) {
-            lifecycleDebugOverlay(viewModel: viewModel)
+            lifecycleDebugOverlay(
+                viewModel: viewModel,
+                containerHeight: geometry.size.height
+            )
         }
 #endif
     }
 
 #if DEBUG
     @ViewBuilder
-    private func lifecycleDebugOverlay(viewModel: ChatViewModel) -> some View {
+    private func lifecycleDebugOverlay(viewModel: ChatViewModel, containerHeight: CGFloat) -> some View {
         if isLifecycleDebugOverlayEnabled, lifecycleDebugOverlayVisible {
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -938,7 +941,7 @@ struct ChatView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
             }
-            .frame(maxHeight: UIScreen.main.bounds.height * 0.5)
+            .frame(maxHeight: containerHeight * 0.5)
             .padding(.horizontal, 10)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
