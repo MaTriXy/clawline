@@ -91,6 +91,21 @@ Rules:
 
 Ownership: `extensions/surf-ace/` owns the Surf Ace provider runtime — mDNS discovery, WS connection management, local state buffers, and all `surf_ace_*` CLU tools. The corresponding surface-side core module (if needed) lives in `src/surf-ace/`. Neither Clawline nor any other extension imports from these paths.
 
+### 2.5 Architecture Decision Record: Canvas API Extension Rejected
+
+Surf Ace explicitly evaluated extending OpenClaw Canvas APIs/foundations instead of defining its own wire protocol and state model.
+
+Decision: **Rejected.**
+
+Rationale:
+1. Canvas abstractions are presentation-oriented and do not define Surf Ace's required persistent connection ownership model.
+2. Canvas assumptions are single-surface-first, while Surf Ace is explicitly multi-surface and window/pane/tab scoped.
+3. Surf Ace requires annotation-heavy lifecycle semantics (flush gating, local read buffers, replay/snapshot sync) that are first-class protocol concerns, not renderer concerns.
+
+Normative outcome:
+1. Surf Ace owns its protocol contracts and state model in this spec.
+2. Canvas MAY be used as a renderer implementation detail for specific content types, but MUST NOT be treated as the control-plane foundation for Surf Ace lifecycle/state semantics.
+
 ## 2a. Concepts
 
 Before the protocol details, these terms are used consistently throughout this spec:
@@ -129,8 +144,9 @@ These are normative, settled statements about Surf Ace behavior. Implementations
 10. **Monotonic revision gate.** Content mutations (`content.set`, `content.clear`, `content.append`, `content.patch`) carry a monotonic `revision`. The surface applies mutations only when `revision == currentRevision + 1`. Out-of-order mutations are rejected with `stale_revision`.
 11. **Annotation buffer is tab-scoped.** The annotation buffer (live dirty channel, closed frame queue, and all non-annotation registers) is keyed per tab: `(surfaceId, paneId, tabId)`. Tabs in the same pane do not share annotation state.
 12. **Lifecycle events are always-on.** Surface lifecycle events (`event.surface_appeared`, `event.surface_removed`), pane lifecycle events (`event.pane_created`, `event.pane_removed`, `event.pane_focused`, `event.pane_renamed`), and tab lifecycle events (`event.tab_created`, `event.tab_removed`, `event.tab_focused`) are never profile-gated. They fire regardless of `eventProfile` setting and do not appear in `pair.response.eventConfig.activeEvents`.
-13. **Platform target floor policy.** Surf Ace targets the newest released OS major version as the minimum deployment target (current decision: iOS/iPadOS 26 and macOS 26 for native surface builds).
-14. **Portable extension packaging.** Surf Ace MUST remain installable as a standalone OpenClaw extension bundle that can be dropped into any compatible OpenClaw installation (without requiring Clawline as a dependency and without requiring core patches). Any needed wake/routing behavior must be implemented through extension-local code and published SDK surfaces.
+13. **Schema-prose parity is mandatory.** Every normative field, default value, and scope constraint MUST exist in both normative prose sections and Section 10 JSON schema definitions. Any drift is a spec violation. CI enforcement of this parity is a target requirement for spec hygiene.
+14. **Platform target floor policy.** Surf Ace targets the newest released OS major version as the minimum deployment target (current decision: iOS/iPadOS 26 and macOS 26 for native surface builds).
+15. **Portable extension packaging.** Surf Ace MUST remain installable as a standalone OpenClaw extension bundle that can be dropped into any compatible OpenClaw installation (without requiring Clawline as a dependency and without requiring core patches). Any needed wake/routing behavior must be implemented through extension-local code and published SDK surfaces.
 
 ## 3. Transport and Discovery
 
@@ -318,6 +334,27 @@ Requests above limit return `content_too_large`; severe violations may close soc
 Severe violation threshold:
 1. Message size > 2x `maxMessageBytes`, or
 2. 3+ `content_too_large` responses on one connection within 60s.
+
+### 5.6 Canonical Naming and Boundary Mapping
+
+The following table is normative and defines canonical field naming across three boundaries:
+1. Wire payload fields (Sections 3–10).
+2. Provider local registers (Section 13).
+3. CLU tool response fields (Section 14).
+
+| Concept | Wire payload field | Provider register field | CLU tool response field | Boundary mapping notes |
+|---|---|---|---|---|
+| Surface identity | `surfaceId` | `surfaceId` | `fingerprint` | `fingerprint` is a deliberate CLU-layer alias of wire `surfaceId`; tools MUST map one-to-one. |
+| Pane identity | `paneId` | `paneId` | `paneId` | Same canonical name across all boundaries. |
+| Tab identity | `tabId` | `tabId` | `tabId` | Same canonical name across all boundaries. |
+| Content type | `contentType` | `contentType` | `contentType` | Same canonical name across all boundaries. |
+| Event timestamp | `sentAt` (event envelope) | register-specific timestamp field | response-specific timestamp field | If renamed at a boundary, mapping must be explicitly documented at that boundary section. |
+| Navigation timestamp | `NavigationEvent.sentAt` | `lastNavigation.navigatedAt` | `lastNavigation.navigatedAt` | Explicit mapping required and already defined in §13.2. |
+
+Normative rules:
+1. This table is the single canonical naming source for boundary crossings.
+2. Any renamed field at any boundary MUST include explicit mapping notes in both source and destination boundary sections.
+3. Unmapped or implicit renames are spec violations.
 
 ## 6. Operations
 
@@ -648,6 +685,26 @@ The stream is still always-on; expansions are negotiated at pair time, not throu
 | `event.tab_removed` | Lifecycle — **not profile-gated** | Always | Emitted when a tab is closed (user or `tab.close`). Always active. Does NOT appear in `activeEvents`. |
 | `event.tab_focused` | Lifecycle — **not profile-gated** | Always | Emitted when the user switches to a different tab within a pane. Always active. Does NOT appear in `activeEvents`. |
 | `event.scroll` | Context-rich but high-volume | No (`deep_plus_scroll` only) | Useful but not strictly required for minimum usefulness. |
+
+### 7.3.1 Event Scope Matrix (Normative)
+
+No event has implied content scope. Validity is defined explicitly below.
+
+| Event | Valid content types | Invalid combinations | Required provider behavior on invalid combination |
+|---|---|---|---|
+| `event.drawing_flush` | `html`, `image`, `pdf`, `terminal`, `markdown`, `video`, `canvas` | None (content-agnostic in v1 wire model) | Accept event normally. |
+| `event.tap` | `html`, `image`, `pdf`, `terminal`, `markdown`, `video`, `canvas` | None (content-agnostic in v1 wire model) | Accept event normally. |
+| `event.selection` | `html`, `pdf`, `markdown`, `terminal` | `image`, `video`, `canvas` | Discard event; leave selection register unchanged. |
+| `event.page` | `pdf` | `html`, `image`, `terminal`, `markdown`, `video`, `canvas` | Discard event; leave page register unchanged. |
+| `event.navigation` | `html` | `pdf`, `image`, `terminal`, `markdown`, `video`, `canvas` | Discard event silently (already required in §7.1). |
+| `event.scroll` | `html`, `pdf`, `terminal`, `markdown` | `image`, `video`, `canvas` | Discard event; leave scroll register unchanged. |
+| `event.snapshot_hint` | `html`, `image`, `pdf`, `terminal`, `markdown`, `video`, `canvas` | None (control-plane) | Accept event normally. |
+| Lifecycle events (`event.surface_*`, `event.pane_*`, `event.tab_*`) | All (content-agnostic lifecycle) | None | Accept event normally. |
+
+Scope enforcement rules:
+1. Surface implementations MUST NOT emit invalid event/contentType combinations from this matrix.
+2. Provider implementations MUST treat any invalid combination as malformed-in-context input and discard it without mutating state.
+3. Silent discard is required for invalid combinations unless a stricter behavior is explicitly defined for a specific event.
 
 Event behavior rules:
 1. Events are in-order and reliable while socket is healthy.
