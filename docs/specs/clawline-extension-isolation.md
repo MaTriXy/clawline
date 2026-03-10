@@ -107,3 +107,37 @@ Gate:
 - Implement phases in order, running tests between phases.
 - Do not implement Gap D or extra architecture changes.
 - If a blocker requires Gap D behavior, stop and request clarification.
+
+---
+
+## Appendix: Preserved Notes
+
+### From: specs/clawline-pure-extension-feasibility.md
+
+**Clawline pure-extension feasibility: YES (0.79 confidence), but not flip-ready without bounded migration.**
+
+**Exact core gaps blocking pure-extension parity:**
+
+Gap A: Clawline runtime lives in core, not extension.
+- Core service bootstrap still in `src/clawline/service.ts`
+- Core provider server still in `src/clawline/server.ts`
+- Extension (`extensions/clawline/index.ts`) starts the core service rather than owning its own engine
+
+Gap B: Clawline-specific plugin-sdk carveouts remain.
+- `ClawlineDeliveryTarget` and `sendClawlineOutboundMessage` exported from `src/plugin-sdk/index.ts`
+- Extension depends directly on these from `channel.ts`, `outbound.ts`, `index.ts`
+
+**Migration path:** Phase 1 — move core Clawline engine into extension; Phase 2 — generalize plugin-sdk surface and remove Clawline-specific carveouts. Keep session-key invariants and mobile protocol behavior stable throughout.
+
+---
+
+### From: investigations/clawline-extension-consolidation.md
+
+**Skills that belong in `extensions/clawline/` (not upstream `skills/`):**
+`clawline-alert-overlay`, `clawline-allowlist`, `clawline-gateway-ops`, `clawline-media`, `clawline-pairing` — all are fork-only contributions.
+
+**Missing skill:** No skill exists for the `webRootPath` feature (serves static files at `/www`).
+
+**Device management consolidation needed:** `allowlist` and `pairing` skills should be merged into one `device-management` skill.
+
+**Agent guidance files** (`AGENTS.md`, `CLAUDE.md` in `src/clawline/`) should move into `extensions/clawline/` alongside code.

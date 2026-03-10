@@ -3558,3 +3558,60 @@ Model markups may become full interactive UIs embedded in the surface — widget
 **Protocol support:** The wire protocol as specified (`tab.list`, `tab.close`, `event.tab_focused`, `content.set` routing by `sessionId`) can support any of the three candidate policies in OT-1 without wire-level changes. The policy choice is a provider-side behavior decision.
 
 **Related sections:** §3.1.1 (topology), §6.1.1 (pane/tab lifecycle ops), §6.2 (content routing), §13.2 (annotation buffering), §14.3 (`surf_ace_list` occupancy).
+
+---
+
+## Appendix: Preserved Notes
+
+### From: retros/surf-ace-a1-resolution.md
+
+**Annotation coordinate space decision: viewport coordinates.**
+Strokes are captured, stored, and composited in viewport coordinates. CLU uses the per-annotation `scrollOffset` field to reconstruct content position when needed.
+
+Rationale:
+- `drawBuffer` is a pixel image matching the viewport — viewport-space strokes composite at raw captured positions with zero transform.
+- iOS: place `PKCanvasView` as fixed overlay over scroll view's visible area (not inside it) to get viewport coordinates naturally. Placing inside the scroll view for content coordinates requires unbounded canvas and coordinate remapping.
+- Electron: `position: fixed` canvas over content frame gives viewport coordinates natively.
+
+---
+
+### From: retros/surf-ace-extension-recon.md
+
+**Surf Ace extraction feasibility — feasible with 3 meaningful engineering tasks:**
+
+Coupling points ranked:
+- 🟢 Easy: Tool layer (`surf-ace-tools.ts`) — only imports from typebox, plugin-sdk, local runtime shim. Moves verbatim.
+- 🟢 Easy: Runtime singleton shim (`surf-ace-runtime.ts`) — 35 lines. Moves verbatim.
+- 🟡 Medium: `SurfAceManager` class (`src/clawline/surf-ace.ts`) — imports `runCommandWithTimeout` from core (available via `api.runtime.system.runCommandWithTimeout`). Move to extension + swap two core imports.
+- 🔴 Hard: Alert routing — `postActivityAlert` POSTs to Clawline HTTP server port 18800. `wakeGatewayForAlert`/`enqueueAnnounce`/`callGateway` are NOT exposed in plugin SDK. Options: (1) inject alert callback at service start (inter-extension dep); (2) use `enqueueSystemEvent` only (degraded, no proactive wake); (3) expose `api.runtime.system.postAlert` in SDK (right long-term fix); (4) expose Clawline alert URL via config (cheapest "works today" path).
+
+---
+
+### From: specs/surf-ace-canvas-foundation-analysis.md / loupe-canvas-foundation-analysis.md
+
+**Decision: Do NOT use OpenClaw Canvas as kernel for Surf Ace.**
+
+Canvas is command-oriented (`present/hide/navigate/eval/snapshot`, A2UI v0.8), foreground-gated on mobile nodes, and optimized for single-node visual control — not multi-surface state orchestration.
+
+Surf Ace needs first-class concepts Canvas doesn't provide:
+- Surface registration/discovery model
+- Frame lifecycle as domain objects
+- Surface context table + contextual injection into CLU processing
+- Reliable multi-surface orchestration semantics independent of node UI implementation
+
+**Use Canvas as rendering adapter/prototyping surface only.** Build dedicated Surface Control Plane in Gateway/Provider for production Surf Ace.
+
+---
+
+### From: retros/surf-ace-inbound-seam-critique-2026-03-02.md
+
+**Surf Ace inbound seam architectural constraint:**
+Do NOT call `surfAceManager.buildContextInjection()` (or any live network call) inside the core Clawline inbound message handling path before `agent_run_start`. This creates:
+- Live network dependency in the critical inbound path
+- Messages that are persisted+acked (`ackSent=1, streaming=1`) but never advanced to completion
+- Queue head poisoning: one stuck item blocks all subsequent inbound on that per-stream queue
+
+**Required seam:** Use a formal "inbound context enricher" extension interface with:
+- Bounded timeout (context enrichment must not stall dispatch indefinitely)
+- Async/non-blocking execution
+- Graceful degradation if enrichment fails/times out
