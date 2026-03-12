@@ -1738,6 +1738,213 @@ struct ChatViewModelTests {
         #expect(displayName == "Research v2")
     }
 
+    @Test("Track adopts untracked session and preserves it across snapshots")
+    @MainActor
+    func trackAdoptsUntrackedSessionAcrossSnapshots() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        let adoptedKey = "agent:main:clawline:user:s_trackme"
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey, adoptedKey]
+            )
+        ))
+        for _ in 0..<50 {
+            if viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey])
+        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        for _ in 0..<50 {
+            if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
+        #expect(viewModel.canUntrackStream(sessionKey: adoptedKey))
+        #expect(!viewModel.canDeleteStream(sessionKey: adoptedKey))
+
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.stream(for: adoptedKey) != nil, viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.stream(for: adoptedKey) != nil)
+        #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
+    }
+
+    @Test("Untrack removes Clawline linkage without deleting underlying session")
+    @MainActor
+    func untrackRemovesLocalLinkOnly() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        let adoptedKey = "agent:main:clawline:user:s_untrack"
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey, adoptedKey]
+            )
+        ))
+        for _ in 0..<50 {
+            if viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        for _ in 0..<50 {
+            if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        chatService.emit(
+            Message(
+                id: "s_adopted_1",
+                role: .assistant,
+                content: "Preserve me",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: adoptedKey
+            )
+        )
+        for _ in 0..<50 {
+            if viewModel.messages(for: adoptedKey).last?.content == "Preserve me" { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.untrackStream(sessionKey: adoptedKey))
+        #expect(viewModel.stream(for: adoptedKey) == nil)
+        #expect(viewModel.messages(for: adoptedKey).last?.content == "Preserve me")
+        #expect(viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey])
+        #expect(chatService.deleteStreamCallCount == 0)
+        #expect(chatService.lastDeletedSessionKey == nil)
+    }
+
+    @Test("Adopted session restores as last saved chat on startup")
+    @MainActor
+    func adoptedSessionRestoresAsLastSavedChat() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let firstService = TestChatService()
+        firstService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let firstViewModel = ChatViewModel(
+            auth: auth,
+            chatService: firstService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+
+        let adoptedKey = "agent:main:clawline:user:s_restore"
+
+        await firstViewModel.onAppear()
+        firstService.emitServiceEvent(.streamSnapshot(firstService.streams))
+        firstService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey, adoptedKey]
+            )
+        ))
+        for _ in 0..<50 {
+            if firstViewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(firstViewModel.trackSession(sessionKey: adoptedKey))
+        for _ in 0..<50 {
+            if firstViewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        firstViewModel.setActiveSessionKeyForTesting(adoptedKey)
+        #expect(firstViewModel.activeSessionKey == adoptedKey)
+        try await Task.sleep(for: .milliseconds(80))
+        firstViewModel.onDisappear()
+
+        let secondService = TestChatService()
+        secondService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let secondViewModel = ChatViewModel(
+            auth: auth,
+            chatService: secondService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { secondViewModel.onDisappear() }
+
+        await secondViewModel.onAppear()
+        secondService.emitServiceEvent(.streamSnapshot(secondService.streams))
+        secondService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "dm",
+                sessionKeys: [personalSessionKey, adoptedKey]
+            )
+        ))
+        for _ in 0..<50 {
+            if secondViewModel.activeSessionKey == adoptedKey, secondViewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(secondViewModel.activeSessionKey == adoptedKey)
+        #expect(secondViewModel.isAdoptedStream(sessionKey: adoptedKey))
+    }
+
     @Test("Deleting active stream falls back to main stream")
     @MainActor
     func deletingActiveStreamFallsBack() async throws {

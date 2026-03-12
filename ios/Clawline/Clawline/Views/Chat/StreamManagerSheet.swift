@@ -21,9 +21,10 @@ struct StreamManagerSheet: View {
     @State private var searchQuery = ""
     @State private var activeEditor: EditorMode?
     @State private var isWorking = false
-    @State private var deletingSessionKeys: Set<String> = []
+    @State private var removingSessionKeys: Set<String> = []
     @State private var pendingCreateRows: [PendingCreateRow] = []
-    @State private var pendingDeleteStream: StreamSession?
+    @State private var pendingRemovalStream: StreamSession?
+    @State private var isTrackPickerPresented = false
     @State private var renderedContainerHeight: CGFloat = 0
     @FocusState private var focusedEditor: EditorMode?
 
@@ -48,6 +49,8 @@ struct StreamManagerSheet: View {
     private let toolbarBorderWidth: CGFloat = 0.8
     private let plusBorderOpacity: CGFloat = 0.34
     private let plusBorderWidth: CGFloat = 1
+    private let secondaryButtonBorderOpacity: CGFloat = 0.24
+    private let secondaryButtonBorderWidth: CGFloat = 0.8
 
     private var listItemCount: Int {
         filteredStreams.count + filteredPendingCreateRows.count
@@ -149,12 +152,12 @@ struct StreamManagerSheet: View {
                             .tint(canPerformRenameAction(for: stream) ? .blue : Color.gray.opacity(0.35))
 
                             Button {
-                                pendingDeleteStream = stream
+                                pendingRemovalStream = stream
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                Label(removalActionTitle(for: stream), systemImage: removalActionImage(for: stream))
                             }
-                            .disabled(!canPerformDeleteAction(for: stream))
-                            .tint(canPerformDeleteAction(for: stream) ? .red : Color.gray.opacity(0.35))
+                            .disabled(!canPerformRemovalAction(for: stream))
+                            .tint(canPerformRemovalAction(for: stream) ? .red : Color.gray.opacity(0.35))
                         }
                 }
 
@@ -214,26 +217,44 @@ struct StreamManagerSheet: View {
             .padding(.vertical, listOuterVerticalPadding)
             .disabled(isWorking)
 
-            // Keep add affordance optically centered in a fixed-height toolbar regardless of keyboard changes.
-            Button {
-                addStreamDirectly()
-            } label: {
-                Image(systemName: "plus")
-                    .font(.clawline(.subsectionHeader).weight(.regular))
-                    .foregroundStyle(.primary)
-                    .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color.white.opacity(plusBorderOpacity), lineWidth: plusBorderWidth)
-                    }
-                    .contentShape(Rectangle())
+            HStack(spacing: 12) {
+                Button {
+                    isTrackPickerPresented = true
+                } label: {
+                    Text("Track")
+                        .font(.clawline(.secondaryLabel).weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .frame(minWidth: 88, maxWidth: .infinity)
+                        .frame(height: functionBarHeight, alignment: .center)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.white.opacity(secondaryButtonBorderOpacity), lineWidth: secondaryButtonBorderWidth)
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(activeEditor != nil || viewModel.untrackedSessionCandidates.isEmpty)
+                .accessibilityHint("Tracks an existing untracked session")
+
+                // Keep add affordance optically centered in a fixed-height toolbar regardless of keyboard changes.
+                Button {
+                    addStreamDirectly()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.clawline(.subsectionHeader).weight(.regular))
+                        .foregroundStyle(.primary)
+                        .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.white.opacity(plusBorderOpacity), lineWidth: plusBorderWidth)
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(activeEditor != nil)
+                .accessibilityLabel("Add stream")
+                .accessibilityHint("Creates a new stream")
             }
-            .buttonStyle(.plain)
-            .disabled(activeEditor != nil)
-            .accessibilityLabel("Add stream")
-            .accessibilityHint("Creates a new stream")
-            .frame(maxHeight: .infinity, alignment: .center)
-            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, listRowHorizontalInset)
             .frame(height: functionBarHeight, alignment: .center)
             .overlay {
                 Rectangle()
@@ -267,22 +288,36 @@ struct StreamManagerSheet: View {
             }
         }
         .alert(
-            "Are you sure?",
+            pendingRemovalTitle,
             isPresented: Binding(
-                get: { pendingDeleteStream != nil },
+                get: { pendingRemovalStream != nil },
                 set: { isPresented in
                     if !isPresented {
-                        pendingDeleteStream = nil
+                        pendingRemovalStream = nil
                     }
                 }
             ),
-            presenting: pendingDeleteStream
+            presenting: pendingRemovalStream
         ) { stream in
             Button("Cancel", role: .cancel) {}
-            Button("Confirm", role: .destructive) {
-                pendingDeleteStream = nil
-                Task { await deleteStream(stream) }
+            Button(removalActionTitle(for: stream), role: .destructive) {
+                pendingRemovalStream = nil
+                Task { await removeStream(stream) }
             }
+        }
+        .confirmationDialog(
+            "Track Session",
+            isPresented: $isTrackPickerPresented,
+            titleVisibility: .visible
+        ) {
+            ForEach(viewModel.untrackedSessionCandidates) { candidate in
+                Button(candidate.displayName) {
+                    trackSession(candidate.sessionKey)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose an untracked session to adopt as a Clawline chat.")
         }
     }
 
@@ -324,7 +359,7 @@ struct StreamManagerSheet: View {
                     Text(stream.displayName)
                         .font(.clawline(.subsectionHeader).weight(isActive ? .semibold : .regular))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if isDeletingStream(stream.sessionKey) {
+                    if isRemovingStream(stream.sessionKey) {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.secondary)
@@ -334,7 +369,7 @@ struct StreamManagerSheet: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(isWorking || isDeletingStream(stream.sessionKey))
+            .disabled(isWorking || isRemovingStream(stream.sessionKey))
         }
     }
 
@@ -350,27 +385,29 @@ struct StreamManagerSheet: View {
         activeEditor = nil
         draftName = ""
         focusedEditor = nil
-        deletingSessionKeys.removeAll()
+        removingSessionKeys.removeAll()
         pendingCreateRows.removeAll()
-        pendingDeleteStream = nil
+        pendingRemovalStream = nil
     }
 
     private func canPerformRenameAction(for stream: StreamSession) -> Bool {
         guard !isWorking else { return false }
-        guard !isDeletingStream(stream.sessionKey) else { return false }
+        guard !isRemovingStream(stream.sessionKey) else { return false }
         guard activeEditor != .renaming(stream.sessionKey) else { return false }
         return viewModel.canRenameStream(sessionKey: stream.sessionKey)
     }
 
-    private func canPerformDeleteAction(for stream: StreamSession) -> Bool {
+    private func canPerformRemovalAction(for stream: StreamSession) -> Bool {
         guard !isWorking else { return false }
-        guard !isDeletingStream(stream.sessionKey) else { return false }
+        guard !isRemovingStream(stream.sessionKey) else { return false }
         guard activeEditor != .renaming(stream.sessionKey) else { return false }
-        return viewModel.canDeleteStream(sessionKey: stream.sessionKey)
+        return viewModel.isAdoptedStream(sessionKey: stream.sessionKey)
+            ? viewModel.canUntrackStream(sessionKey: stream.sessionKey)
+            : viewModel.canDeleteStream(sessionKey: stream.sessionKey)
     }
 
-    private func isDeletingStream(_ sessionKey: String) -> Bool {
-        deletingSessionKeys.contains(sessionKey)
+    private func isRemovingStream(_ sessionKey: String) -> Bool {
+        removingSessionKeys.contains(sessionKey)
     }
 
     private func addStreamDirectly() {
@@ -397,16 +434,39 @@ struct StreamManagerSheet: View {
         resetInlineEditing()
     }
 
-    private func deleteStream(_ stream: StreamSession) async {
-        guard !isDeletingStream(stream.sessionKey) else { return }
-        deletingSessionKeys.insert(stream.sessionKey)
-        let succeeded = await viewModel.deleteStream(sessionKey: stream.sessionKey)
+    private func removeStream(_ stream: StreamSession) async {
+        guard !isRemovingStream(stream.sessionKey) else { return }
+        removingSessionKeys.insert(stream.sessionKey)
+        let succeeded: Bool
+        if viewModel.isAdoptedStream(sessionKey: stream.sessionKey) {
+            succeeded = viewModel.untrackStream(sessionKey: stream.sessionKey)
+        } else {
+            succeeded = await viewModel.deleteStream(sessionKey: stream.sessionKey)
+        }
         if !succeeded {
-            deletingSessionKeys.remove(stream.sessionKey)
+            removingSessionKeys.remove(stream.sessionKey)
         }
         if activeEditor == .renaming(stream.sessionKey) {
             resetInlineEditing()
         }
+    }
+
+    private var pendingRemovalTitle: String {
+        guard let stream = pendingRemovalStream else { return "Are you sure?" }
+        return viewModel.isAdoptedStream(sessionKey: stream.sessionKey) ? "Untrack this session?" : "Delete this stream?"
+    }
+
+    private func removalActionTitle(for stream: StreamSession) -> String {
+        viewModel.isAdoptedStream(sessionKey: stream.sessionKey) ? "Untrack" : "Delete"
+    }
+
+    private func removalActionImage(for stream: StreamSession) -> String {
+        viewModel.isAdoptedStream(sessionKey: stream.sessionKey) ? "minus.circle" : "trash"
+    }
+
+    private func trackSession(_ sessionKey: String) {
+        guard viewModel.trackSession(sessionKey: sessionKey) else { return }
+        isTrackPickerPresented = false
     }
 }
 

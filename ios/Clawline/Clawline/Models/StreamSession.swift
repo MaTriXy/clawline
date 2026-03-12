@@ -8,6 +8,11 @@
 import Foundation
 
 struct StreamSession: Codable, Equatable, Identifiable {
+    enum TrackingMode: String, Codable, Equatable {
+        case serverManaged
+        case adopted
+    }
+
     var id: String { sessionKey }
     let sessionKey: String
     var displayName: String
@@ -16,6 +21,7 @@ struct StreamSession: Codable, Equatable, Identifiable {
     let isBuiltIn: Bool
     let createdAt: Date
     let updatedAt: Date
+    var trackingMode: TrackingMode
 
     enum CodingKeys: String, CodingKey {
         case sessionKey
@@ -25,6 +31,7 @@ struct StreamSession: Codable, Equatable, Identifiable {
         case isBuiltIn
         case createdAt
         case updatedAt
+        case trackingMode
     }
 
     init(sessionKey: String,
@@ -33,7 +40,8 @@ struct StreamSession: Codable, Equatable, Identifiable {
          orderIndex: Int,
          isBuiltIn: Bool,
          createdAt: Date,
-         updatedAt: Date) {
+         updatedAt: Date,
+         trackingMode: TrackingMode = .serverManaged) {
         self.sessionKey = sessionKey
         self.displayName = displayName
         self.kind = kind
@@ -41,6 +49,7 @@ struct StreamSession: Codable, Equatable, Identifiable {
         self.isBuiltIn = isBuiltIn
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.trackingMode = trackingMode
     }
 
     init(from decoder: Decoder) throws {
@@ -52,6 +61,7 @@ struct StreamSession: Codable, Equatable, Identifiable {
         isBuiltIn = try container.decode(Bool.self, forKey: .isBuiltIn)
         createdAt = try container.decodeUnixMillisDate(forKey: .createdAt)
         updatedAt = try container.decodeUnixMillisDate(forKey: .updatedAt)
+        trackingMode = try container.decodeIfPresent(TrackingMode.self, forKey: .trackingMode) ?? .serverManaged
     }
 
     func encode(to encoder: Encoder) throws {
@@ -63,6 +73,7 @@ struct StreamSession: Codable, Equatable, Identifiable {
         try container.encode(isBuiltIn, forKey: .isBuiltIn)
         try container.encode(createdAt.timeIntervalSince1970 * 1000, forKey: .createdAt)
         try container.encode(updatedAt.timeIntervalSince1970 * 1000, forKey: .updatedAt)
+        try container.encode(trackingMode, forKey: .trackingMode)
     }
 }
 

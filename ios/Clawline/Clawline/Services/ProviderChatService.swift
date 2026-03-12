@@ -200,13 +200,16 @@ final class ProviderChatService: ChatServicing {
     private let messageBroadcaster = AsyncStreamBroadcaster<Message>()
     private let stateBroadcaster = AsyncStreamBroadcaster<ConnectionState>()
     private let serviceEventBroadcaster = AsyncStreamBroadcaster<ChatServiceEvent>()
+    private let lifecycleBroadcaster = AsyncStreamBroadcaster<LifecycleTransportEvent>()
     private var lastConnectionState: ConnectionState = .disconnected
 
     private var socket: (any WebSocketClient)?
     private var receiveTask: Task<Void, Never>?
+    private var connectionAttemptTask: Task<Void, Never>?
     private var authContinuation: CheckedContinuation<Void, Swift.Error>?
     private var pendingMessages: Set<String> = []
     private var sentMessageIDs: Set<String> = []
+    private var replayCursorBySessionKey: [String: String] = [:]
     private var shouldNotifyDisconnect = true
     private var pendingDisconnectReason: String?
     private var isConnecting = false
@@ -231,6 +234,8 @@ final class ProviderChatService: ChatServicing {
     var incomingMessages: AsyncStream<Message> { messageBroadcaster.stream() }
     var connectionState: AsyncStream<ConnectionState> { stateBroadcaster.stream(initial: lastConnectionState) }
     var serviceEvents: AsyncStream<ChatServiceEvent> { serviceEventBroadcaster.stream() }
+    var lifecycleTransportEvents: AsyncStream<LifecycleTransportEvent> { lifecycleBroadcaster.stream() }
+    var isTransportReadyForSend: Bool { lastConnectionState == .connected }
 
     func fetchStreams() async throws -> [StreamSession] {
         do {
@@ -276,7 +281,63 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
+    func connect(token: String, activeSessionKey: String?) async throws {
+        _ = activeSessionKey
+        try await connectInternal(token: token, lastMessageId: nil)
+    }
+
     func connect(token: String, lastMessageId: String?) async throws {
+        try await connectInternal(token: token, lastMessageId: lastMessageId)
+    }
+
+    func startConnectionAttempt(epoch: Int, lastMessageId: String?, token: String) {
+        connectionAttemptTask?.cancel()
+        connectionAttemptTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.connectInternal(token: token, lastMessageId: lastMessageId)
+                self.lifecycleBroadcaster.send(.init(epoch: epoch, payload: .transportOpened))
+                self.lifecycleBroadcaster.send(
+                    .init(
+                        epoch: epoch,
+                        payload: .authResult(
+                            success: true,
+                            replayCount: 0,
+                            replayTruncated: false,
+                            historyReset: false,
+                            failureReason: nil
+                        )
+                    )
+                )
+            } catch {
+                self.lifecycleBroadcaster.send(.init(epoch: epoch, payload: .transportClosed(reason: .error)))
+            }
+        }
+    }
+
+    func stopConnectionAttempt() {
+        connectionAttemptTask?.cancel()
+        connectionAttemptTask = nil
+        disconnect()
+    }
+
+    func replayCursorSnapshot() -> [String: String] {
+        replayCursorBySessionKey
+    }
+
+    func setReplayCursor(_ cursor: String?, for sessionKey: String) {
+        if let cursor, !cursor.isEmpty {
+            replayCursorBySessionKey[sessionKey] = cursor
+        } else {
+            replayCursorBySessionKey.removeValue(forKey: sessionKey)
+        }
+    }
+
+    func clearReplayCursors() {
+        replayCursorBySessionKey.removeAll()
+    }
+
+    private func connectInternal(token: String, lastMessageId: String?) async throws {
         if isConnecting {
             logger.info("connect suppressed: already connecting")
             resolveAuthContinuation(with: .failure(Error.notConnected))

@@ -49,10 +49,7 @@ struct ClawlineApp: App {
         let chatService = ProviderChatService(
             connector: connector,
             deviceId: device.deviceId,
-            userIdProvider: { authManager.currentUserId },
-            authTokenProvider: {
-                await MainActor.run { authManager.token }
-            }
+            userIdProvider: { authManager.currentUserId }
         )
         self.chatService = chatService
         self.uploadService = UploadService(
