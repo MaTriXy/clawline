@@ -321,11 +321,6 @@ final class ProviderChatService: ChatServicing {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    func connect(token: String, activeSessionKey: String?) async throws {
-        _ = activeSessionKey
-        try await connect(token: token, lastMessageId: nil)
-    }
-
     func connect(token: String, lastMessageId: String?) async throws {
         if isConnecting {
             logger.info("connect suppressed: already connecting")
