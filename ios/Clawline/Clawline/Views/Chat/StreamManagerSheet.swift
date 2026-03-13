@@ -51,6 +51,9 @@ struct StreamManagerSheet: View {
     private let plusBorderWidth: CGFloat = 1
     private let secondaryButtonBorderOpacity: CGFloat = 0.24
     private let secondaryButtonBorderWidth: CGFloat = 0.8
+    private let trackDebugBorderOuterWidth: CGFloat = 2
+    private let trackDebugBorderMiddleWidth: CGFloat = 2
+    private let trackDebugBorderInnerWidth: CGFloat = 1
 
     private var listItemCount: Int {
         filteredStreams.count + filteredPendingCreateRows.count
@@ -227,8 +230,18 @@ struct StreamManagerSheet: View {
                         .frame(minWidth: 88, maxWidth: .infinity)
                         .frame(height: functionBarHeight, alignment: .center)
                         .overlay {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(Color.white.opacity(secondaryButtonBorderOpacity), lineWidth: secondaryButtonBorderWidth)
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.white.opacity(secondaryButtonBorderOpacity), lineWidth: secondaryButtonBorderWidth)
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.red.opacity(0.95), lineWidth: trackDebugBorderOuterWidth)
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .inset(by: 4)
+                                    .stroke(Color.yellow.opacity(0.95), lineWidth: trackDebugBorderMiddleWidth)
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .inset(by: 8)
+                                    .stroke(Color.blue.opacity(0.95), lineWidth: trackDebugBorderInnerWidth)
+                            }
                         }
                 }
                 .buttonStyle(.plain)
