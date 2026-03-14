@@ -426,6 +426,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var sessionMessages: [String: [Message]] = [:]
     private var forceReReadGenerationBySession: [String: Int] = [:]
     private var pendingLocalMessages: [PendingLocalMessage] = []
+    private var ackedPendingLocalMessageIDs: Set<String> = []
     private let lifecycleCoordinator: ConnectionLifecycleCoordinator
     private var lifecycleTransportTask: Task<Void, Never>?
     private var lifecycleOutputTask: Task<Void, Never>?
@@ -1167,6 +1168,7 @@ final class ChatViewModel: ChatViewModelHosting {
         setMessages(messageList, for: sessionKey)
 
         pendingLocalMessages.removeAll { $0.id == messageId }
+        ackedPendingLocalMessageIDs.remove(messageId)
         pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
         messageFailures.removeValue(forKey: messageId)
 
@@ -1267,6 +1269,7 @@ final class ChatViewModel: ChatViewModelHosting {
         orderedSessionKeys = []
         syntheticSessionKeys = []
         pendingLocalMessages.removeAll()
+        ackedPendingLocalMessageIDs.removeAll()
         isAssistantTyping = false
         typingSessionKey = nil
         shouldMorphTypingIndicator = false
@@ -1429,9 +1432,8 @@ final class ChatViewModel: ChatViewModelHosting {
         guard let token = auth.token else {
             throw ProviderChatService.Error.notConnected
         }
-        let activeKey = engineActiveSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let activeSessionKey = activeKey.isEmpty ? nil : activeKey
-        try await chatService.connect(token: token, activeSessionKey: activeSessionKey)
+        let lastMessageId = chatService.replayCursorSnapshot().values.max()
+        try await chatService.connect(token: token, lastMessageId: lastMessageId)
     }
 
     private static func makeIdempotencyKey() -> String {
@@ -1541,6 +1543,7 @@ final class ChatViewModel: ChatViewModelHosting {
         sessionMessages.removeAll()
         messages.removeAll()
         pendingLocalMessages.removeAll()
+        ackedPendingLocalMessageIDs.removeAll()
         messageFailures.removeAll()
         chatService.clearReplayCursors()
         clearMessageCache()
@@ -1681,6 +1684,7 @@ final class ChatViewModel: ChatViewModelHosting {
         }
 
         let pending = pendingLocalMessages.remove(at: pendingIndex)
+        ackedPendingLocalMessageIDs.remove(pending.id)
         var placeholderSessionKey = pending.sessionKey
         ensureSessionStorage(for: placeholderSessionKey)
         var pendingList = sessionMessages[placeholderSessionKey] ?? []
@@ -1768,6 +1772,7 @@ final class ChatViewModel: ChatViewModelHosting {
         if let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == id }) {
             pendingLocalMessages.remove(at: pendingIndex)
         }
+        ackedPendingLocalMessageIDs.remove(id)
         messageFailures.removeValue(forKey: id)
     }
 
@@ -1820,10 +1825,12 @@ final class ChatViewModel: ChatViewModelHosting {
     private func markPendingMessagesAsFailedForConnectionLoss() {
         guard !pendingLocalMessages.isEmpty else { return }
         let pendingIds = Set(pendingLocalMessages.map(\.id))
-        for id in pendingIds {
+        let failedIds = pendingIds.subtracting(ackedPendingLocalMessageIDs)
+        for id in failedIds {
             messageFailures[id] = MessageFailure(code: "connection_lost", message: nil)
         }
         pendingLocalMessages.removeAll()
+        ackedPendingLocalMessageIDs.removeAll()
         if let activeClientMessageId, pendingIds.contains(activeClientMessageId) {
             self.activeClientMessageId = nil
             self.isSending = false
@@ -1837,6 +1844,7 @@ final class ChatViewModel: ChatViewModelHosting {
             messageFailures[id] = MessageFailure(code: code, message: message)
         }
         pendingLocalMessages.removeAll()
+        ackedPendingLocalMessageIDs.removeAll()
         if let activeClientMessageId, pendingIds.contains(activeClientMessageId) {
             self.activeClientMessageId = nil
         }
@@ -2191,12 +2199,18 @@ final class ChatViewModel: ChatViewModelHosting {
             if let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == messageId }) {
                 pendingLocalMessages.remove(at: pendingIndex)
             }
+            ackedPendingLocalMessageIDs.remove(messageId)
             if activeClientMessageId == messageId {
                 activeClientMessageId = nil
             }
             isSending = false
-        case .messageAcked:
-            break
+        case .messageAcked(let messageId):
+            ackedPendingLocalMessageIDs.insert(messageId)
+            messageFailures.removeValue(forKey: messageId)
+            if activeClientMessageId == messageId {
+                activeClientMessageId = nil
+                isSending = false
+            }
         case .connectionInterrupted(let reason):
             logger.info("connection interrupted reason=\(reason ?? "unknown", privacy: .public)")
             markPendingMessagesAsFailedForConnectionLoss()
@@ -2641,7 +2655,9 @@ final class ChatViewModel: ChatViewModelHosting {
             sessionMessages.removeValue(forKey: sessionKey)
             lastReadMessageIdBySession.removeValue(forKey: sessionKey)
             hasUnreadBySession.removeValue(forKey: sessionKey)
+            let removedIDs = Set(pendingLocalMessages.filter { $0.sessionKey == sessionKey }.map(\.id))
             pendingLocalMessages.removeAll { $0.sessionKey == sessionKey }
+            ackedPendingLocalMessageIDs.subtract(removedIDs)
             chatService.setReplayCursor(nil, for: sessionKey)
             persistLastReadMessageId(nil, for: sessionKey)
             persistMessages([], for: sessionKey)
@@ -2687,7 +2703,9 @@ final class ChatViewModel: ChatViewModelHosting {
         chatService.setReplayCursor(nil, for: sessionKey)
         persistLastReadMessageId(nil, for: sessionKey)
         persistMessages([], for: sessionKey)
+        let removedIDs = Set(pendingLocalMessages.filter { $0.sessionKey == sessionKey }.map(\.id))
         pendingLocalMessages.removeAll { $0.sessionKey == sessionKey }
+        ackedPendingLocalMessageIDs.subtract(removedIDs)
         if typingSessionKey == sessionKey {
             typingSessionKey = nil
             isAssistantTyping = false
@@ -2897,6 +2915,7 @@ final class ChatViewModel: ChatViewModelHosting {
         if let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == id }) {
             pendingLocalMessages.remove(at: pendingIndex)
         }
+        ackedPendingLocalMessageIDs.remove(id)
     }
 
     private func isNoReply(code: String, message: String?) -> Bool {
@@ -2930,6 +2949,7 @@ final class ChatViewModel: ChatViewModelHosting {
            let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == messageId }) {
             resolvedSessionKey = pendingLocalMessages[pendingIndex].sessionKey
             pendingLocalMessages.remove(at: pendingIndex)
+            ackedPendingLocalMessageIDs.remove(messageId)
         }
         if let messageId, activeClientMessageId == messageId {
             activeClientMessageId = nil
