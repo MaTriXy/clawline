@@ -170,6 +170,11 @@ struct MessageInputBar: View {
         !isSending && hasSubmittableDraft
     }
 
+    static func reconnectBubbleScale(phase: CGFloat) -> CGFloat {
+        let clampedPhase = min(1, max(0, phase))
+        return 0.75 + (0.25 * clampedPhase)
+    }
+
     private func handleEditorSubmitIntent() {
         guard Self.shouldDispatchEditorSubmitIntent(
             isSending: isSending,
@@ -443,8 +448,7 @@ private struct MessageSendControl: View {
         case .active, .error:
             return 1
         case .reconnecting:
-            let phase = reconnectPulsePhase(at: date)
-            return 0.5 + (0.5 * phase)
+            return MessageInputBar.reconnectBubbleScale(phase: reconnectPulsePhase(at: date))
         }
     }
 
