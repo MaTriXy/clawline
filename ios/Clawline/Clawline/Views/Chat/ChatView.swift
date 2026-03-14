@@ -2071,6 +2071,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         let t0 = CFAbsoluteTimeGetCurrent()
         uiView.hostingController.rootView = content
         uiView.updateVersionText(versionText)
+        uiView.setDesiredBottomGap(desiredBottomGap, isKeyboardVisible: isKeyboardVisible)
         uiView.updateScrollButton(
             scrollButtonView,
             gap: scrollButtonGap,

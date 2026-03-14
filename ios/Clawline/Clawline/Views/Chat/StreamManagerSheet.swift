@@ -24,7 +24,6 @@ struct StreamManagerSheet: View {
     @State private var removingSessionKeys: Set<String> = []
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
-    @State private var isTrackPickerPresented = false
     @State private var renderedContainerHeight: CGFloat = 0
     @FocusState private var focusedEditor: EditorMode?
 
@@ -40,8 +39,8 @@ struct StreamManagerSheet: View {
     private let listRowHeight: CGFloat = 52
     private let listRowSpacing: CGFloat = 2
     private let listRowHorizontalInset: CGFloat = 12
-    private let searchBarHeight: CGFloat = 56
     private let functionBarHeight: CGFloat = 40
+    private let actionBarVerticalPadding: CGFloat = 12
     private let listOuterVerticalPadding: CGFloat = 20
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
@@ -54,6 +53,10 @@ struct StreamManagerSheet: View {
     private let trackDebugBorderOuterWidth: CGFloat = 2
     private let trackDebugBorderMiddleWidth: CGFloat = 2
     private let trackDebugBorderInnerWidth: CGFloat = 1
+
+    private var actionBarHeight: CGFloat {
+        functionBarHeight + (actionBarVerticalPadding * 2)
+    }
 
     private var listItemCount: Int {
         filteredStreams.count + filteredPendingCreateRows.count
@@ -90,7 +93,7 @@ struct StreamManagerSheet: View {
     }
 
     private var listViewportHeight: CGFloat {
-        max(0, effectiveContainerHeight - functionBarHeight - searchBarHeight)
+        max(0, effectiveContainerHeight - actionBarHeight)
     }
 
     private var allowsListScrolling: Bool {
@@ -103,7 +106,7 @@ struct StreamManagerSheet: View {
             showsCreateInlineRow: false,
             rowHeight: listRowHeight,
             rowSpacing: listRowSpacing,
-            functionBarHeight: functionBarHeight + searchBarHeight,
+            functionBarHeight: actionBarHeight,
             outerVerticalPadding: listOuterVerticalPadding,
             maxAvailableHeight: maxAvailableHeight,
             minimumPopoverHeight: minimumPopoverHeight
@@ -112,25 +115,6 @@ struct StreamManagerSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search streams", text: $searchQuery)
-                    .font(.clawline(.uiLabel))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 38)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.08))
-            )
-            .padding(.horizontal, listRowHorizontalInset)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
-            .frame(height: searchBarHeight)
-
             List {
                 ForEach(filteredStreams) { stream in
                     rowContent(for: stream)
@@ -221,30 +205,48 @@ struct StreamManagerSheet: View {
             .disabled(isWorking)
 
             HStack(spacing: 12) {
-                Button {
-                    isTrackPickerPresented = true
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search streams", text: $searchQuery)
+                        .font(.clawline(.uiLabel))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .frame(height: functionBarHeight)
+                .contentShape(Rectangle())
+                .overlay {
+                    debugBorderOverlay(
+                        cornerRadius: 10,
+                        baseOpacity: secondaryButtonBorderOpacity,
+                        baseWidth: secondaryButtonBorderWidth
+                    )
+                }
+
+                Menu {
+                    ForEach(viewModel.untrackedSessionCandidates) { candidate in
+                        Button(candidate.displayName) {
+                            trackSession(candidate.sessionKey)
+                        }
+                    }
                 } label: {
                     Text("Track")
                         .font(.clawline(.secondaryLabel).weight(.semibold))
                         .foregroundStyle(.primary)
                         .frame(minWidth: 88, maxWidth: .infinity)
                         .frame(height: functionBarHeight, alignment: .center)
+                        .contentShape(Rectangle())
                         .overlay {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.white.opacity(secondaryButtonBorderOpacity), lineWidth: secondaryButtonBorderWidth)
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.red.opacity(0.95), lineWidth: trackDebugBorderOuterWidth)
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .inset(by: 4)
-                                    .stroke(Color.yellow.opacity(0.95), lineWidth: trackDebugBorderMiddleWidth)
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .inset(by: 8)
-                                    .stroke(Color.blue.opacity(0.95), lineWidth: trackDebugBorderInnerWidth)
-                            }
+                            debugBorderOverlay(
+                                cornerRadius: 10,
+                                baseOpacity: secondaryButtonBorderOpacity,
+                                baseWidth: secondaryButtonBorderWidth
+                            )
                         }
                 }
-                .buttonStyle(.plain)
+                .menuStyle(.borderlessButton)
                 .disabled(activeEditor != nil || viewModel.untrackedSessionCandidates.isEmpty)
                 .accessibilityHint("Tracks an existing untracked session")
 
@@ -257,8 +259,11 @@ struct StreamManagerSheet: View {
                         .foregroundStyle(.primary)
                         .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
                         .overlay {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(Color.white.opacity(plusBorderOpacity), lineWidth: plusBorderWidth)
+                            debugBorderOverlay(
+                                cornerRadius: 10,
+                                baseOpacity: plusBorderOpacity,
+                                baseWidth: plusBorderWidth
+                            )
                         }
                         .contentShape(Rectangle())
                 }
@@ -268,10 +273,13 @@ struct StreamManagerSheet: View {
                 .accessibilityHint("Creates a new stream")
             }
             .padding(.horizontal, listRowHorizontalInset)
-            .frame(height: functionBarHeight, alignment: .center)
+            .padding(.vertical, actionBarVerticalPadding)
             .overlay {
-                Rectangle()
-                    .stroke(Color.white.opacity(toolbarBorderOpacity), lineWidth: toolbarBorderWidth)
+                debugBorderOverlay(
+                    cornerRadius: 16,
+                    baseOpacity: toolbarBorderOpacity,
+                    baseWidth: toolbarBorderWidth
+                )
             }
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
@@ -317,20 +325,6 @@ struct StreamManagerSheet: View {
                 pendingRemovalStream = nil
                 Task { await removeStream(stream) }
             }
-        }
-        .confirmationDialog(
-            "Track Session",
-            isPresented: $isTrackPickerPresented,
-            titleVisibility: .visible
-        ) {
-            ForEach(viewModel.untrackedSessionCandidates) { candidate in
-                Button(candidate.displayName) {
-                    trackSession(candidate.sessionKey)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Choose an untracked session to adopt as a Clawline chat.")
         }
     }
 
@@ -478,8 +472,23 @@ struct StreamManagerSheet: View {
     }
 
     private func trackSession(_ sessionKey: String) {
-        guard viewModel.trackSession(sessionKey: sessionKey) else { return }
-        isTrackPickerPresented = false
+        _ = viewModel.trackSession(sessionKey: sessionKey)
+    }
+
+    @ViewBuilder
+    private func debugBorderOverlay(cornerRadius: CGFloat, baseOpacity: CGFloat, baseWidth: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(baseOpacity), lineWidth: baseWidth)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.red.opacity(0.95), lineWidth: trackDebugBorderOuterWidth)
+            RoundedRectangle(cornerRadius: max(0, cornerRadius - 2), style: .continuous)
+                .inset(by: 4)
+                .stroke(Color.yellow.opacity(0.95), lineWidth: trackDebugBorderMiddleWidth)
+            RoundedRectangle(cornerRadius: max(0, cornerRadius - 4), style: .continuous)
+                .inset(by: 8)
+                .stroke(Color.blue.opacity(0.95), lineWidth: trackDebugBorderInnerWidth)
+        }
     }
 }
 
