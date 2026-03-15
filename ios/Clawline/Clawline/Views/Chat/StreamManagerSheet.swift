@@ -237,8 +237,9 @@ struct StreamManagerSheet: View {
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .frame(height: cappedContainerHeight)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
 #if !os(visionOS)
-        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
 #endif
         .overlay(
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
