@@ -116,9 +116,9 @@ struct StreamManagerSheet: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 38)
-            .background(
+            .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.08))
+                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.18 : 0.14), lineWidth: 0.8)
             )
             .padding(.horizontal, listRowHorizontalInset)
             .padding(.top, 12)

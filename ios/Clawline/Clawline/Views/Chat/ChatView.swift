@@ -1493,6 +1493,7 @@ struct ChatView: View {
                 }
             )
             .presentationCompactAdaptation(.popover)
+            .presentationBackground(.clear)
         }
     }
 
