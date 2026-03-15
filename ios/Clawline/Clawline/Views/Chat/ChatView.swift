@@ -2245,6 +2245,8 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             host.view.isOpaque = false
             host.view.translatesAutoresizingMaskIntoConstraints = false
             if #available(iOS 16.0, visionOS 1.0, *) {
+                // Give the raw UIKit host its real capsule size on first layout so
+                // the pinned-container hit test matches the visible pager control.
                 host.sizingOptions = [.intrinsicContentSize]
                 host.safeAreaRegions = []
             }
