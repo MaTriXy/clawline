@@ -41,7 +41,8 @@ struct StreamManagerSheet: View {
     private let listRowSpacing: CGFloat = 2
     private let listRowHorizontalInset: CGFloat = 12
     private let functionBarHeight: CGFloat = 40
-    private let actionBarVerticalPadding: CGFloat = 12
+    private let actionBarTopPadding: CGFloat = 12
+    private let actionBarBottomPadding: CGFloat = 20
     private let listOuterVerticalPadding: CGFloat = 20
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
@@ -54,7 +55,7 @@ struct StreamManagerSheet: View {
     private let debugBorderWidth: CGFloat = 2
 
     private var actionBarHeight: CGFloat {
-        functionBarHeight + (actionBarVerticalPadding * 2)
+        functionBarHeight + actionBarTopPadding + actionBarBottomPadding
     }
 
     private var listItemCount: Int {
@@ -268,7 +269,8 @@ struct StreamManagerSheet: View {
                 .accessibilityHint("Creates a new stream")
             }
             .padding(.horizontal, listRowHorizontalInset)
-            .padding(.vertical, actionBarVerticalPadding)
+            .padding(.top, actionBarTopPadding)
+            .padding(.bottom, actionBarBottomPadding)
             .overlay {
                 debugBorderOverlay(
                     cornerRadius: 16,
