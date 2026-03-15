@@ -175,7 +175,7 @@ struct ProviderServiceTests {
             mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
         }
 
-        try await service.connect(token: "jwt", activeSessionKey: nil)
+        try await service.connect(token: "jwt", lastMessageId: nil)
 
         #expect(connector.connectedURLs.count == 2)
         #expect(connector.connectedURLs.first?.absoluteString == "wss://example.com/ws")
@@ -198,7 +198,7 @@ struct ProviderServiceTests {
             mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
         }
 
-        try await service.connect(token: "jwt", activeSessionKey: nil)
+        try await service.connect(token: "jwt", lastMessageId: nil)
         try await service.send(
             id: "c_test",
             content: "Hello",
@@ -228,7 +228,7 @@ struct ProviderServiceTests {
             mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
         }
 
-        try await service.connect(token: "jwt", activeSessionKey: nil)
+        try await service.connect(token: "jwt", lastMessageId: nil)
         try await service.send(
             id: "c_single_send",
             content: "Hello once",
@@ -260,7 +260,7 @@ struct ProviderServiceTests {
             mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
         }
 
-        try await service.connect(token: "jwt", activeSessionKey: nil)
+        try await service.connect(token: "jwt", lastMessageId: nil)
         try await service.send(
             id: "c_dedup",
             content: "Hello",
@@ -296,7 +296,7 @@ struct ProviderServiceTests {
             mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
         }
 
-        try await service.connect(token: "jwt", activeSessionKey: nil)
+        try await service.connect(token: "jwt", lastMessageId: nil)
         try await service.send(
             id: "c_retry_cancel",
             content: "Hello",
@@ -341,7 +341,7 @@ struct ProviderServiceTests {
             mockSocket.enqueue(text: #"{ "type": "message", "id": "s_good", "role": "assistant", "content": "ok", "timestamp": 1700000000000, "streaming": false, "sessionKey": "agent:main:main", "attachments": [] }"#)
         }
 
-        try await service.connect(token: "jwt", activeSessionKey: nil)
+        try await service.connect(token: "jwt", lastMessageId: nil)
         let message = await messageIterator.next()
         #expect(message?.id == "s_good")
         #expect(message?.content == "ok")
@@ -363,7 +363,7 @@ struct ProviderServiceTests {
             try await Task.sleep(forDuration: .milliseconds(20))
             mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
         }
-        try await service.connect(token: "jwt", activeSessionKey: nil)
+        try await service.connect(token: "jwt", lastMessageId: nil)
         try await service.send(
             id: "c_ack_drop",
             content: "Ack me",
@@ -409,7 +409,7 @@ struct ProviderServiceTests {
             mockSocket.enqueue(text: #"{ "type": "stream_snapshot", "streams": [{ "sessionKey": "agent:main:clawline:user:main", "displayName": "Personal", "kind": "main", "orderIndex": 0, "isBuiltIn": true, "createdAt": 1700000000000, "updatedAt": 1700000000000 }] }"#)
         }
 
-        try await service.connect(token: "jwt", activeSessionKey: nil)
+        try await service.connect(token: "jwt", lastMessageId: nil)
 
         var snapshot: [StreamSession] = []
         for _ in 0..<20 {
@@ -445,7 +445,7 @@ struct ProviderServiceTests {
             mockSocket.enqueue(text: #"{ "type": "stream_deleted", "sessionKey": "agent:main:clawline:user:s_abcd1234" }"#)
         }
 
-        try await service.connect(token: "jwt", activeSessionKey: nil)
+        try await service.connect(token: "jwt", lastMessageId: nil)
 
         var sawCreated = false
         var sawUpdated = false

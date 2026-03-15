@@ -21,6 +21,7 @@ struct StreamManagerSheet: View {
     @State private var searchQuery = ""
     @State private var activeEditor: EditorMode?
     @State private var isWorking = false
+    @State private var isTrackPickerPresented = false
     @State private var removingSessionKeys: Set<String> = []
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
@@ -217,6 +218,9 @@ struct StreamManagerSheet: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: functionBarHeight)
                 .contentShape(Rectangle())
+                .background {
+                    tapTargetBackground(cornerRadius: 10)
+                }
                 .overlay {
                     debugBorderOverlay(
                         cornerRadius: 10,
@@ -225,12 +229,8 @@ struct StreamManagerSheet: View {
                     )
                 }
 
-                Menu {
-                    ForEach(viewModel.untrackedSessionCandidates) { candidate in
-                        Button(candidate.displayName) {
-                            trackSession(candidate.sessionKey)
-                        }
-                    }
+                Button {
+                    isTrackPickerPresented = true
                 } label: {
                     Text("Track")
                         .font(.clawline(.secondaryLabel).weight(.semibold))
@@ -238,6 +238,9 @@ struct StreamManagerSheet: View {
                         .frame(minWidth: 88, maxWidth: .infinity)
                         .frame(height: functionBarHeight, alignment: .center)
                         .contentShape(Rectangle())
+                        .background {
+                            tapTargetBackground(cornerRadius: 10)
+                        }
                         .overlay {
                             debugBorderOverlay(
                                 cornerRadius: 10,
@@ -246,7 +249,7 @@ struct StreamManagerSheet: View {
                             )
                         }
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.plain)
                 .disabled(activeEditor != nil || viewModel.untrackedSessionCandidates.isEmpty)
                 .accessibilityHint("Tracks an existing untracked session")
 
@@ -258,6 +261,9 @@ struct StreamManagerSheet: View {
                         .font(.clawline(.subsectionHeader).weight(.regular))
                         .foregroundStyle(.primary)
                         .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
+                        .background {
+                            tapTargetBackground(cornerRadius: 10)
+                        }
                         .overlay {
                             debugBorderOverlay(
                                 cornerRadius: 10,
@@ -325,6 +331,20 @@ struct StreamManagerSheet: View {
                 pendingRemovalStream = nil
                 Task { await removeStream(stream) }
             }
+        }
+        .confirmationDialog(
+            "Track Session",
+            isPresented: $isTrackPickerPresented,
+            titleVisibility: .visible
+        ) {
+            ForEach(viewModel.untrackedSessionCandidates) { candidate in
+                Button(candidate.displayName) {
+                    trackSession(candidate.sessionKey)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose an untracked session to adopt as a Clawline chat.")
         }
     }
 
@@ -473,6 +493,12 @@ struct StreamManagerSheet: View {
 
     private func trackSession(_ sessionKey: String) {
         _ = viewModel.trackSession(sessionKey: sessionKey)
+    }
+
+    @ViewBuilder
+    private func tapTargetBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color.white.opacity(0.001))
     }
 
     @ViewBuilder

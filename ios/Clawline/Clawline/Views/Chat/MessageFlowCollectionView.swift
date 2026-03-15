@@ -2075,6 +2075,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         return previousLastMessageId == nil
     }
 
+    static func shouldFallbackToAbsoluteBottom(lastMessageId: String?, hasMessageAnchor: Bool) -> Bool {
+        guard lastMessageId != nil else { return true }
+        return !hasMessageAnchor
+    }
+
     private func isNonMessageItemID(_ id: String) -> Bool {
         id == TypingIndicatorCell.itemId || DateSeparatorCell.isDateSeparatorItemID(id)
     }
@@ -3905,10 +3910,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     func scrollToBottom(animated: Bool) {
         let t0 = CFAbsoluteTimeGetCurrent()
-        guard let lastMessageId,
-              dataSource.indexPath(for: lastMessageId) != nil else {
-            return
+        let hasMessageAnchor: Bool
+        if let lastMessageId {
+            hasMessageAnchor = dataSource.indexPath(for: lastMessageId) != nil
+        } else {
+            hasMessageAnchor = false
         }
+        let usesAbsoluteBottomFallback = Self.shouldFallbackToAbsoluteBottom(
+            lastMessageId: lastMessageId,
+            hasMessageAnchor: hasMessageAnchor
+        )
         collectionView.layoutIfNeeded()
         NSLog("[KBTIMING] scrollToBottom.layoutIfNeeded dt=%.4f", CFAbsoluteTimeGetCurrent() - t0)
         let contentInset = collectionView.contentInset
@@ -3929,7 +3940,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if !animated, let sessionKey = callbackSessionKey() {
             refreshLastKnownScrollSnapshot(sessionKey: sessionKey)
         }
-        NSLog("[KBTIMING] scrollToBottom animated=%d targetY=%.1f dt=%.4f", animated ? 1 : 0, clampedY, CFAbsoluteTimeGetCurrent() - t0)
+        NSLog(
+            "[KBTIMING] scrollToBottom animated=%d targetY=%.1f fallback=%d dt=%.4f",
+            animated ? 1 : 0,
+            clampedY,
+            usesAbsoluteBottomFallback ? 1 : 0,
+            CFAbsoluteTimeGetCurrent() - t0
+        )
     }
 
     func scrollToTop(animated: Bool) {
