@@ -1365,15 +1365,31 @@ final class ChatViewModel: ChatViewModelHosting {
     func createStream(displayName: String) async -> Bool {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
+        let idempotencyKey = Self.makeIdempotencyKey()
         do {
             let stream = try await chatService.createStream(
                 displayName: trimmed,
-                idempotencyKey: Self.makeIdempotencyKey()
+                idempotencyKey: idempotencyKey
             )
             applyStreamUpsert(stream)
             setEngineActiveSessionKey(stream.sessionKey)
             return true
         } catch {
+            if shouldRetryCreateOnActiveConnection(after: error) {
+                do {
+                    try await reconnectActiveTransportForControlPlane()
+                    let stream = try await chatService.createStream(
+                        displayName: trimmed,
+                        idempotencyKey: idempotencyKey
+                    )
+                    applyStreamUpsert(stream)
+                    setEngineActiveSessionKey(stream.sessionKey)
+                    return true
+                } catch {
+                    toastManager.show(error.localizedDescription)
+                    return false
+                }
+            }
             toastManager.show(error.localizedDescription)
             return false
         }
@@ -1424,6 +1440,19 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func shouldRetryDeleteOnActiveConnection(after error: Swift.Error) -> Bool {
+        guard auth.token != nil else { return false }
+        if let providerError = error as? ProviderChatService.Error,
+           case .notConnected = providerError {
+            return true
+        }
+        if let streamError = error as? StreamAPIError,
+           streamError.code == "not_connected" {
+            return true
+        }
+        return false
+    }
+
+    private func shouldRetryCreateOnActiveConnection(after error: Swift.Error) -> Bool {
         guard auth.token != nil else { return false }
         if let providerError = error as? ProviderChatService.Error,
            case .notConnected = providerError {
