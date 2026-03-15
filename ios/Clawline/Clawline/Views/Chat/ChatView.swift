@@ -1980,8 +1980,9 @@ private final class KeyboardLayoutGuideObserverView: UIView {
                 result.isFloating ? 1 : 0
             )
         } else {
-            let screenHeight = window?.windowScene?.screen.bounds.height
-                ?? UIScreen.main.bounds.height
+            let screenHeight = UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.screen.bounds.height }
+                .first ?? endFrame.maxY
             height = max(0, screenHeight - endFrame.origin.y)
         }
 #endif
