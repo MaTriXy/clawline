@@ -2102,7 +2102,6 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private var pageDotsBottomToBarTop: NSLayoutConstraint?
     private var minHeightConstraint: NSLayoutConstraint?
     private var hostingBottomToKeyboard: NSLayoutConstraint?
-    private var hostingBottomToContainer: NSLayoutConstraint?
     private var versionLabelBottomToKeyboard: NSLayoutConstraint?
     private var versionLabelBottomToContainer: NSLayoutConstraint?
     private var bottomToContainerConstraint: NSLayoutConstraint?
@@ -2268,11 +2267,6 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         bottomToContainerConstraint?.constant = -gap
 #else
         hostingBottomToKeyboard?.constant = -gap
-        hostingBottomToContainer?.constant = -gap
-        hostingBottomToKeyboard?.isActive = isKeyboardVisible
-        hostingBottomToContainer?.isActive = !isKeyboardVisible
-        versionLabelBottomToKeyboard?.isActive = isKeyboardVisible
-        versionLabelBottomToContainer?.isActive = !isKeyboardVisible
         let hasVersionText = versionLabel.attributedText != nil && !versionLabel.attributedText!.string.isEmpty
         versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
@@ -2357,10 +2351,6 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 equalTo: keyboardLayoutGuide.topAnchor,
                 constant: -desiredBottomGap
             )
-            let hostingToContainer = hostingView.bottomAnchor.constraint(
-                equalTo: bottomAnchor,
-                constant: -desiredBottomGap
-            )
 
             let versionToKeyboard = versionLabel.bottomAnchor.constraint(
                 equalTo: keyboardLayoutGuide.topAnchor,
@@ -2377,15 +2367,15 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
                 minHeight,
                 topConstraint,
-                hostingToContainer,
+                hostingToKeyboard,
                 versionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
                 versionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
+                versionToKeyboard,
                 versionToContainer,
             ])
 
             minHeightConstraint = minHeight
             hostingBottomToKeyboard = hostingToKeyboard
-            hostingBottomToContainer = hostingToContainer
             versionLabelBottomToKeyboard = versionToKeyboard
             versionLabelBottomToContainer = versionToContainer
         }
