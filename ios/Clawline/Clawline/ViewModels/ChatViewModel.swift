@@ -163,6 +163,10 @@ final class ChatViewModel: ChatViewModelHosting {
         SessionRegistry.shared.stream(for: engineActiveSessionKey)
     }
 
+    var canUseTrackFeature: Bool {
+        auth.isAdmin
+    }
+
     struct UntrackedSessionCandidate: Identifiable, Equatable {
         var id: String { sessionKey }
         let sessionKey: String
@@ -170,7 +174,8 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     var untrackedSessionCandidates: [UntrackedSessionCandidate] {
-        trackableSessionKeyOrder
+        guard canUseTrackFeature else { return [] }
+        return trackableSessionKeyOrder
             .filter { canTrackSession(sessionKey: $0) }
             .map { sessionKey in
                 let displayName =
@@ -1321,6 +1326,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func canTrackSession(sessionKey: String) -> Bool {
+        guard canUseTrackFeature else { return false }
         guard !sessionKey.isEmpty else { return false }
         let trackedSessionKeys = Set(
             orderedStreams
@@ -2432,6 +2438,10 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func refreshTrackableSessions(reason: String) {
         refreshTrackableSessionsTask?.cancel()
+        guard canUseTrackFeature else {
+            replaceTrackableSessions(with: [])
+            return
+        }
         refreshTrackableSessionsTask = Task { [weak self] in
             guard let self else { return }
             do {

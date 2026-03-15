@@ -236,31 +236,33 @@ struct StreamManagerSheet: View {
                     )
                 }
 
-                Button {
-                    selectedTrackCandidateSessionKey = nil
-                    isTrackPickerPresented = true
-                } label: {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.clear)
-                        .frame(minWidth: 88, maxWidth: .infinity)
-                        .frame(height: functionBarHeight, alignment: .center)
-                        .overlay {
-                            Text("Track")
-                                .font(.clawline(.secondaryLabel).weight(.semibold))
-                                .foregroundStyle(.primary)
-                        }
-                        .overlay {
-                            debugBorderOverlay(
-                                cornerRadius: 10,
-                                baseOpacity: secondaryButtonBorderOpacity,
-                                baseWidth: secondaryButtonBorderWidth
-                            )
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                if viewModel.canUseTrackFeature {
+                    Button {
+                        selectedTrackCandidateSessionKey = nil
+                        isTrackPickerPresented = true
+                    } label: {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.clear)
+                            .frame(minWidth: 88, maxWidth: .infinity)
+                            .frame(height: functionBarHeight, alignment: .center)
+                            .overlay {
+                                Text("Track")
+                                    .font(.clawline(.secondaryLabel).weight(.semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            .overlay {
+                                debugBorderOverlay(
+                                    cornerRadius: 10,
+                                    baseOpacity: secondaryButtonBorderOpacity,
+                                    baseWidth: secondaryButtonBorderWidth
+                                )
+                            }
+                            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(activeEditor != nil || trackCandidates.isEmpty)
+                    .accessibilityHint("Tracks an existing untracked session")
                 }
-                .buttonStyle(.plain)
-                .disabled(activeEditor != nil || trackCandidates.isEmpty)
-                .accessibilityHint("Tracks an existing untracked session")
 
                 // Keep add affordance optically centered in a fixed-height toolbar regardless of keyboard changes.
                 Button {

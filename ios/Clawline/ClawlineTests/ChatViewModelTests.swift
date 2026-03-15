@@ -1857,6 +1857,46 @@ struct ChatViewModelTests {
         #expect(!toastManager.debugMessages.contains("This stream is unavailable. Switch streams and try again."))
     }
 
+    @Test("Non-admin users do not fetch or expose Track candidates")
+    @MainActor
+    func nonAdminUsersDoNotFetchOrExposeTrackCandidates() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        auth.isAdmin = false
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        chatService.trackableSessions = [
+            TrackableSession(
+                sessionKey: "agent:main:openclaw:user:s_trackme",
+                displayName: "Tracked Session",
+                updatedAt: Date()
+            )
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(!viewModel.canUseTrackFeature)
+        #expect(viewModel.untrackedSessionCandidates.isEmpty)
+        #expect(chatService.fetchTrackableSessionsCallCount == 0)
+        #expect(!toastManager.debugMessages.contains(where: { $0.contains("Could not load Track candidates.") }))
+    }
+
     @Test("Track candidates load from provider trackable sessions endpoint")
     @MainActor
     func trackCandidatesLoadFromProviderEndpoint() async throws {
@@ -2562,6 +2602,7 @@ private final class TestChatService: ChatServicing {
     var fetchTrackableSessionsError: Error?
     var streams: [StreamSession] = []
     var trackableSessions: [TrackableSession] = []
+    private(set) var fetchTrackableSessionsCallCount: Int = 0
     private(set) var deleteStreamCallCount: Int = 0
     private(set) var lastDeletedSessionKey: String?
 
@@ -2702,6 +2743,7 @@ private final class TestChatService: ChatServicing {
     }
 
     func fetchTrackableSessions() async throws -> [TrackableSession] {
+        fetchTrackableSessionsCallCount += 1
         if let fetchTrackableSessionsError { throw fetchTrackableSessionsError }
         return trackableSessions
     }
