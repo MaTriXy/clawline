@@ -63,11 +63,11 @@ struct StreamPageDotsView: View {
                         .frame(width: 7, height: 7)
                         .shadow(
                             color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
-                            radius: isActive ? 16 : 0
+                            radius: isActive ? StreamDotColor.activeOuterGlowRadius(colorScheme: colorScheme) : 0
                         )
                         .shadow(
                             color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
-                            radius: isActive ? 6 : 0
+                            radius: isActive ? StreamDotColor.activeInnerGlowRadius(colorScheme: colorScheme) : 0
                         )
                 }
                 if showsTrailingOverflow {
