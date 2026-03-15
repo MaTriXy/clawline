@@ -113,6 +113,10 @@ struct StreamManagerSheet: View {
         )
     }
 
+    private var trackCandidates: [ChatViewModel.UntrackedSessionCandidate] {
+        viewModel.untrackedSessionCandidates
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             List {
@@ -228,12 +232,15 @@ struct StreamManagerSheet: View {
                 Button {
                     isTrackPickerPresented = true
                 } label: {
-                    Text("Track")
-                        .font(.clawline(.secondaryLabel).weight(.semibold))
-                        .foregroundStyle(.primary)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.clear)
                         .frame(minWidth: 88, maxWidth: .infinity)
                         .frame(height: functionBarHeight, alignment: .center)
-                        .contentShape(Rectangle())
+                        .overlay {
+                            Text("Track")
+                                .font(.clawline(.secondaryLabel).weight(.semibold))
+                                .foregroundStyle(.primary)
+                        }
                         .overlay {
                             debugBorderOverlay(
                                 cornerRadius: 10,
@@ -241,19 +248,24 @@ struct StreamManagerSheet: View {
                                 baseWidth: secondaryButtonBorderWidth
                             )
                         }
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .disabled(activeEditor != nil || viewModel.untrackedSessionCandidates.isEmpty)
+                .disabled(activeEditor != nil || trackCandidates.isEmpty)
                 .accessibilityHint("Tracks an existing untracked session")
 
                 // Keep add affordance optically centered in a fixed-height toolbar regardless of keyboard changes.
                 Button {
                     addStreamDirectly()
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.clawline(.subsectionHeader).weight(.regular))
-                        .foregroundStyle(.primary)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.clear)
                         .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
+                        .overlay {
+                            Image(systemName: "plus")
+                                .font(.clawline(.subsectionHeader).weight(.regular))
+                                .foregroundStyle(.primary)
+                        }
                         .overlay {
                             debugBorderOverlay(
                                 cornerRadius: 10,
@@ -261,7 +273,7 @@ struct StreamManagerSheet: View {
                                 baseWidth: plusBorderWidth
                             )
                         }
-                        .contentShape(Rectangle())
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(activeEditor != nil)
@@ -329,7 +341,7 @@ struct StreamManagerSheet: View {
             isPresented: $isTrackPickerPresented,
             titleVisibility: .visible
         ) {
-            ForEach(viewModel.untrackedSessionCandidates) { candidate in
+            ForEach(trackCandidates) { candidate in
                 Button(candidate.displayName) {
                     trackSession(candidate.sessionKey)
                 }

@@ -170,14 +170,11 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     var untrackedSessionCandidates: [UntrackedSessionCandidate] {
-        let trackedSessionKeys = Set(
-            orderedStreams
-                .filter { !syntheticSessionKeys.contains($0.sessionKey) }
-                .map(\.sessionKey)
-        )
-        let orderedKeys = accessibleSessionKeyOrder.isEmpty ? Array(accessibleSessionKeys) : accessibleSessionKeyOrder
+        let orderedAccessibleKeys = accessibleSessionKeyOrder.isEmpty ? Array(accessibleSessionKeys) : accessibleSessionKeyOrder
+        let orderedSyntheticKeys = orderedSessionKeys.filter { syntheticSessionKeys.contains($0) }
+        let orderedKeys = normalizeSessionKeyList(orderedSyntheticKeys + orderedAccessibleKeys)
         return orderedKeys
-            .filter { !trackedSessionKeys.contains($0) }
+            .filter { canTrackSession(sessionKey: $0) }
             .map { sessionKey in
                 let displayName = streamsBySessionKey[sessionKey]?.displayName ?? fallbackDisplayName(for: sessionKey)
                 return UntrackedSessionCandidate(sessionKey: sessionKey, displayName: displayName)
@@ -1313,11 +1310,22 @@ final class ChatViewModel: ChatViewModelHosting {
         return stream.trackingMode == .adopted && !syntheticSessionKeys.contains(sessionKey)
     }
 
-    func trackSession(sessionKey: String) -> Bool {
-        guard accessibleSessionKeys.contains(sessionKey) else { return false }
-        guard !orderedStreams.filter({ !syntheticSessionKeys.contains($0.sessionKey) }).map(\.sessionKey).contains(sessionKey) else {
-            return false
+    func canTrackSession(sessionKey: String) -> Bool {
+        guard !sessionKey.isEmpty else { return false }
+        let trackedSessionKeys = Set(
+            orderedStreams
+                .filter { !syntheticSessionKeys.contains($0.sessionKey) }
+                .map(\.sessionKey)
+        )
+        guard !trackedSessionKeys.contains(sessionKey) else { return false }
+        if accessibleSessionKeys.contains(sessionKey) {
+            return true
         }
+        return syntheticSessionKeys.contains(sessionKey)
+    }
+
+    func trackSession(sessionKey: String) -> Bool {
+        guard canTrackSession(sessionKey: sessionKey) else { return false }
 
         let updatedStream: StreamSession
         if var existing = streamsBySessionKey[sessionKey] {
