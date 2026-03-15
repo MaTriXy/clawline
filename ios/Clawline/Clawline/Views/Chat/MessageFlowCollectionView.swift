@@ -4020,9 +4020,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     var isUserInteracting: Bool {
-        // Shared SBB interaction gate across iOS + visionOS.
-        // Include deceleration so SBB state transitions do not settle mid-fling.
+#if os(visionOS)
         collectionView.isDragging || collectionView.isTracking || collectionView.isDecelerating
+#else
+        collectionView.isDragging || collectionView.isTracking
+#endif
     }
 
     var isActivelyDraggingOrTracking: Bool {

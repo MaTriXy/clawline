@@ -445,24 +445,6 @@ struct ChatView: View {
         )
     }
 
-    private func sharedScrollButtonView(
-        sessionKey: String,
-        containerWidth: CGFloat,
-        viewModel: ChatViewModel
-    ) -> AnyView? {
-        let state = scrollButtonState(for: sessionKey)
-        guard state.isVisible else { return nil }
-        return AnyView(
-            scrollButtonControl(
-                state: state,
-                containerWidth: containerWidth,
-                onTap: {
-                    handleScrollButtonTap(sessionKey: sessionKey, viewModel: viewModel)
-                }
-            )
-        )
-    }
-
     @ViewBuilder
     private func floatingPageDotsView(
         viewModel: ChatViewModel,
@@ -835,16 +817,15 @@ struct ChatView: View {
             // visionOS: keep the scroll-to-bottom button in the main SwiftUI overlay.
             // iOS/iPadOS: we pin it to the UIKit keyboardLayoutGuide via KeyboardPinnedContainerView.
             let sessionKey = viewModel.uiSelectedSessionKey
-            if let scrollButtonView = sharedScrollButtonView(
-                sessionKey: sessionKey,
+            let state = scrollButtonState(for: sessionKey)
+            scrollButtonControl(
+                state: state,
                 containerWidth: geometry.size.width,
-                viewModel: viewModel
-            ) {
-                scrollButtonView
-                    .offset(x: activeScrollButtonHorizontalOffset(containerWidth: geometry.size.width))
-                    .padding(.bottom, inputBarTopFromScreenBottom + floatingScrollButtonBottomGap)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            }
+                onTap: { handleScrollButtonTap(sessionKey: sessionKey, viewModel: viewModel) }
+            )
+            .offset(x: activeScrollButtonHorizontalOffset(containerWidth: geometry.size.width))
+            .padding(.bottom, inputBarTopFromScreenBottom + floatingScrollButtonBottomGap)
+            .frame(maxWidth: .infinity, alignment: .center)
 #else
             EmptyView()
 #endif
@@ -1134,10 +1115,15 @@ struct ChatView: View {
                                  streamSelectorMaxHeight: CGFloat) -> some View {
         let sessionKey = viewModel.uiSelectedSessionKey
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
-        let scrollButtonView = sharedScrollButtonView(
-            sessionKey: sessionKey,
-            containerWidth: geometry.size.width,
-            viewModel: viewModel
+        let state = scrollButtonState(for: sessionKey)
+        let scrollButtonView: AnyView = AnyView(
+            scrollButtonControl(
+                state: state,
+                containerWidth: geometry.size.width,
+                onTap: {
+                    handleScrollButtonTap(sessionKey: sessionKey, viewModel: viewModel)
+                }
+            )
         )
         let pageDotsView: AnyView? = effectiveSessionKeys.isEmpty
             ? nil
