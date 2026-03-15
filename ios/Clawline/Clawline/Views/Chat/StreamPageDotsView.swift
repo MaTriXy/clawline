@@ -63,11 +63,11 @@ struct StreamPageDotsView: View {
                         .frame(width: 7, height: 7)
                         .shadow(
                             color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
-                            radius: isActive ? 16 : 0
+                            radius: isActive ? StreamDotColor.activeOuterGlowRadius(colorScheme: colorScheme) : 0
                         )
                         .shadow(
                             color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
-                            radius: isActive ? 6 : 0
+                            radius: isActive ? StreamDotColor.activeInnerGlowRadius(colorScheme: colorScheme) : 0
                         )
                 }
                 if showsTrailingOverflow {
@@ -78,6 +78,10 @@ struct StreamPageDotsView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: Capsule())
+#if !os(visionOS)
+            .glassEffect(.regular, in: Capsule())
+#endif
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Manage streams")

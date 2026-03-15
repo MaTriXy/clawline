@@ -29,6 +29,14 @@ enum StreamDotColor {
     }
 
     static func activeGlow(colorScheme: ColorScheme) -> Color {
-        avatarGreen.opacity(colorScheme == .dark ? 0.94 : 0.68)
+        avatarGreen.opacity(colorScheme == .dark ? 0.94 : 0.86)
+    }
+
+    static func activeOuterGlowRadius(colorScheme: ColorScheme) -> CGFloat {
+        colorScheme == .dark ? 16 : 20
+    }
+
+    static func activeInnerGlowRadius(colorScheme: ColorScheme) -> CGFloat {
+        colorScheme == .dark ? 6 : 8
     }
 }
