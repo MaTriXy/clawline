@@ -290,7 +290,7 @@ enum MessagePresentationBuilder {
         let hasAttachments = !attachmentBuckets.richParts.isEmpty || !imageAttachments.isEmpty || !fileAttachments.isEmpty
         var parts: [MessagePart] = []
         var markdownParts: [MessagePart] = []
-        var hasTextual = markdownPlan.containsTextualContent
+        let hasTextual = markdownPlan.containsTextualContent
         var emojiOnly = markdownPlan.isEmojiOnly
         var hasBlockedParts = hasAttachments
         var detectedURLOccurrences: [URL] = []

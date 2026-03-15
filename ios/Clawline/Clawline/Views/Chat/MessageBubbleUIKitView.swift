@@ -969,7 +969,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 return max(120, effectiveTruncationHeight - (headerHeight + headerSpacing + padding))
             }
         }()
-        var didRenderImages = false
         var didRenderAttachments = !fileParts.isEmpty
         for part in presentation.parts {
             switch part {
@@ -982,7 +981,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 ) {
                     dynamicContentStack.addArrangedSubview(imageView)
                     dynamicContentViews.append(imageView)
-                    didRenderImages = true
                     didRenderAttachments = true
                 }
             case .gallery(let attachments):
@@ -995,11 +993,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     ) {
                         dynamicContentStack.addArrangedSubview(imageView)
                         dynamicContentViews.append(imageView)
-                        didRenderImages = true
                         didRenderAttachments = true
                     }
                 }
-            case .file(let attachment):
+            case .file:
                 continue
             default:
                 continue
@@ -1213,7 +1210,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         dynamicContentScrollView.alwaysBounceVertical = isOverflowing
         dynamicContentScrollView.contentInset.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
 #if !os(visionOS)
-        dynamicContentScrollView.scrollIndicatorInsets.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+        var indicatorInsets = dynamicContentScrollView.verticalScrollIndicatorInsets
+        indicatorInsets.bottom = isOverflowing ? Self.bubbleScrollFadeHeight : 0
+        dynamicContentScrollView.verticalScrollIndicatorInsets = indicatorInsets
 #endif
         fadeView.isHidden = !isOverflowing
 
@@ -1760,7 +1759,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         return container
     }
 
-    private static func formatFileSize(_ bytes: Int) -> String {
+    nonisolated private static func formatFileSize(_ bytes: Int) -> String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useKB, .useMB, .useGB]
         formatter.countStyle = .file

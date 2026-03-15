@@ -55,15 +55,6 @@ private final class BubbleSafeAreaNeutralWebView: WKWebView {
     }
 }
 
-final class LinkPreviewSharedResources {
-    static let shared = LinkPreviewSharedResources()
-
-    private(set) var processPool: WKProcessPool = WKProcessPool()
-
-    private init() {
-    }
-}
-
 final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestureRecognizerDelegate {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "LinkPreview")
     private static let heightCache = NSCache<NSString, NSNumber>()
@@ -250,7 +241,6 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     override init(frame: CGRect) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = WKWebsiteDataStore.nonPersistent()
-        configuration.processPool = LinkPreviewSharedResources.shared.processPool
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.mediaTypesRequiringUserActionForPlayback = .all
