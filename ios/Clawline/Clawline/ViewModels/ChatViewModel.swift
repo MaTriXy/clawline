@@ -472,6 +472,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private var trackableSessionKeyOrder: [String] = []
     private var refreshTrackableSessionsTask: Task<Void, Never>?
     private var pendingUntrackRecovery: StreamSession?
+    private var hasLoadedTrackableSessionsOnce = false
+    private var hasSurfacedInitialTrackableSessionsFailure = false
     private var pendingProvisionedSend: PendingProvisionedSend?
 
     func forceReReadGeneration(for sessionKey: String) -> Int {
@@ -2388,6 +2390,8 @@ final class ChatViewModel: ChatViewModelHosting {
         refreshTrackableSessionsTask?.cancel()
         refreshTrackableSessionsTask = nil
         pendingUntrackRecovery = nil
+        hasLoadedTrackableSessionsOnce = false
+        hasSurfacedInitialTrackableSessionsFailure = false
         if clearPendingSend {
             pendingProvisionedSend = nil
         }
@@ -2415,6 +2419,8 @@ final class ChatViewModel: ChatViewModelHosting {
         trackableSessionsBySessionKey = Dictionary(
             uniqueKeysWithValues: sessions.map { ($0.sessionKey, $0) }
         )
+        hasLoadedTrackableSessionsOnce = true
+        hasSurfacedInitialTrackableSessionsFailure = false
     }
 
     private func refreshTrackableSessions(reason: String) {
@@ -2427,7 +2433,13 @@ final class ChatViewModel: ChatViewModelHosting {
                 self.replaceTrackableSessions(with: sessions)
             } catch {
                 guard !Task.isCancelled else { return }
-                self.logger.info("trackable sessions refresh failed reason=\(reason, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                let errorDescription = error.localizedDescription
+                self.logger.error("trackable sessions refresh failed reason=\(reason, privacy: .public) error=\(errorDescription, privacy: .public)")
+                print("[TRACKABLE_SESSIONS] reason=\(reason) error=\(errorDescription)")
+                if !self.hasLoadedTrackableSessionsOnce && !self.hasSurfacedInitialTrackableSessionsFailure {
+                    self.hasSurfacedInitialTrackableSessionsFailure = true
+                    self.toastManager.show("Could not load Track candidates. \(errorDescription)")
+                }
             }
         }
     }

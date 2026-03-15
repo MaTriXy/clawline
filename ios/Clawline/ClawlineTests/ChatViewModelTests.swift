@@ -1841,6 +1841,47 @@ struct ChatViewModelTests {
         #expect(viewModel.isAdoptedStream(sessionKey: agentSessionKey))
     }
 
+    @Test("Initial trackable sessions load failure is surfaced")
+    @MainActor
+    func initialTrackableSessionsLoadFailureIsSurfaced() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        chatService.fetchTrackableSessionsError = StreamAPIError(
+            code: "trackable_fetch_failed",
+            message: "trackable session load failed",
+            statusCode: 500
+        )
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+
+        for _ in 0..<50 {
+            if toastManager.debugMessages.contains("Could not load Track candidates. trackable session load failed") {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(toastManager.debugMessages.contains("Could not load Track candidates. trackable session load failed"))
+        #expect(viewModel.untrackedSessionCandidates.isEmpty)
+    }
+
     @Test("Untrack removes Clawline linkage without deleting underlying session")
     @MainActor
     func untrackRemovesLocalLinkOnly() async throws {
@@ -2456,6 +2497,7 @@ private final class TestChatService: ChatServicing {
     var createStreamError: Error?
     var deleteStreamError: Error?
     var deleteStreamErrorSequence: [Error] = []
+    var fetchTrackableSessionsError: Error?
     var streams: [StreamSession] = []
     var trackableSessions: [TrackableSession] = []
     private(set) var deleteStreamCallCount: Int = 0
@@ -2598,7 +2640,8 @@ private final class TestChatService: ChatServicing {
     }
 
     func fetchTrackableSessions() async throws -> [TrackableSession] {
-        trackableSessions
+        if let fetchTrackableSessionsError { throw fetchTrackableSessionsError }
+        return trackableSessions
     }
 
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
