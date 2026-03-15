@@ -2566,6 +2566,7 @@ private final class PreviewChatService: ChatServicing {
     func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String?) async throws {}
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {}
     func fetchStreams() async throws -> [StreamSession] { [] }
+    func fetchTrackableSessions() async throws -> [TrackableSession] { [] }
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
         StreamSession(
             sessionKey: "preview",

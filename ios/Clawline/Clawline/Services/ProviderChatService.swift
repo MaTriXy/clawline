@@ -266,6 +266,17 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
+    func fetchTrackableSessions() async throws -> [TrackableSession] {
+        guard let token = await resolveControlPlaneToken() else {
+            throw Error.notConnected
+        }
+        do {
+            return try await streamAPIClient.fetchTrackableSessions(token: token)
+        } catch {
+            throw mapStreamAPIError(error)
+        }
+    }
+
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
         guard let token = await resolveControlPlaneToken() else {
             throw Error.notConnected

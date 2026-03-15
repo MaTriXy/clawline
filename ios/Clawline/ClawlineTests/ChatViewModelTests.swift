@@ -1760,17 +1760,16 @@ struct ChatViewModelTests {
         defer { viewModel.onDisappear() }
 
         let adoptedKey = "agent:main:clawline:user:s_trackme"
+        chatService.trackableSessions = [
+            TrackableSession(
+                sessionKey: adoptedKey,
+                displayName: "Tracked Session",
+                updatedAt: Date()
+            )
+        ]
 
         await viewModel.onAppear()
         chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
-        chatService.emitServiceEvent(.sessionInfo(
-            SessionInfo(
-                userId: "user",
-                isAdmin: false,
-                dmScope: "dm",
-                sessionKeys: [personalSessionKey, adoptedKey]
-            )
-        ))
         for _ in 0..<50 {
             if viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
             try await Task.sleep(for: .milliseconds(20))
@@ -1796,6 +1795,52 @@ struct ChatViewModelTests {
         #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
     }
 
+    @Test("Track candidates load from provider trackable sessions endpoint")
+    @MainActor
+    func trackCandidatesLoadFromProviderEndpoint() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        let agentSessionKey = "agent:main:openclaw:user:s_tracklocal"
+        chatService.trackableSessions = [
+            TrackableSession(
+                sessionKey: agentSessionKey,
+                displayName: "OpenClaw Session",
+                updatedAt: Date()
+            )
+        ]
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+
+        for _ in 0..<50 {
+            if viewModel.untrackedSessionCandidates.map(\.sessionKey).contains(agentSessionKey) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.untrackedSessionCandidates.map(\.sessionKey).contains(agentSessionKey))
+        #expect(viewModel.canTrackSession(sessionKey: agentSessionKey))
+        #expect(viewModel.trackSession(sessionKey: agentSessionKey))
+        #expect(viewModel.isAdoptedStream(sessionKey: agentSessionKey))
+    }
+
     @Test("Untrack removes Clawline linkage without deleting underlying session")
     @MainActor
     func untrackRemovesLocalLinkOnly() async throws {
@@ -1818,17 +1863,16 @@ struct ChatViewModelTests {
         defer { viewModel.onDisappear() }
 
         let adoptedKey = "agent:main:clawline:user:s_untrack"
+        chatService.trackableSessions = [
+            TrackableSession(
+                sessionKey: adoptedKey,
+                displayName: "Adoptable Session",
+                updatedAt: Date()
+            )
+        ]
 
         await viewModel.onAppear()
         chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
-        chatService.emitServiceEvent(.sessionInfo(
-            SessionInfo(
-                userId: "user",
-                isAdmin: false,
-                dmScope: "dm",
-                sessionKeys: [personalSessionKey, adoptedKey]
-            )
-        ))
         for _ in 0..<50 {
             if viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
             try await Task.sleep(for: .milliseconds(20))
@@ -2355,6 +2399,7 @@ private final class TestChatService: ChatServicing {
     var deleteStreamError: Error?
     var deleteStreamErrorSequence: [Error] = []
     var streams: [StreamSession] = []
+    var trackableSessions: [TrackableSession] = []
     private(set) var deleteStreamCallCount: Int = 0
     private(set) var lastDeletedSessionKey: String?
 
@@ -2492,6 +2537,10 @@ private final class TestChatService: ChatServicing {
 
     func fetchStreams() async throws -> [StreamSession] {
         streams
+    }
+
+    func fetchTrackableSessions() async throws -> [TrackableSession] {
+        trackableSessions
     }
 
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {

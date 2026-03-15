@@ -170,13 +170,13 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     var untrackedSessionCandidates: [UntrackedSessionCandidate] {
-        let orderedAccessibleKeys = accessibleSessionKeyOrder.isEmpty ? Array(accessibleSessionKeys) : accessibleSessionKeyOrder
-        let orderedSyntheticKeys = orderedSessionKeys.filter { syntheticSessionKeys.contains($0) }
-        let orderedKeys = normalizeSessionKeyList(orderedSyntheticKeys + orderedAccessibleKeys)
-        return orderedKeys
+        trackableSessionKeyOrder
             .filter { canTrackSession(sessionKey: $0) }
             .map { sessionKey in
-                let displayName = streamsBySessionKey[sessionKey]?.displayName ?? fallbackDisplayName(for: sessionKey)
+                let displayName =
+                    trackableSessionsBySessionKey[sessionKey]?.displayName
+                    ?? streamsBySessionKey[sessionKey]?.displayName
+                    ?? fallbackDisplayName(for: sessionKey)
                 return UntrackedSessionCandidate(sessionKey: sessionKey, displayName: displayName)
             }
     }
@@ -468,6 +468,9 @@ final class ChatViewModel: ChatViewModelHosting {
     private var hasReceivedExplicitSessionInfo = false
     private var accessibleSessionKeys: Set<String> = []
     private var accessibleSessionKeyOrder: [String] = []
+    private var trackableSessionsBySessionKey: [String: TrackableSession] = [:]
+    private var trackableSessionKeyOrder: [String] = []
+    private var refreshTrackableSessionsTask: Task<Void, Never>?
     private var pendingProvisionedSend: PendingProvisionedSend?
 
     func forceReReadGeneration(for sessionKey: String) -> Int {
@@ -1322,10 +1325,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 .map(\.sessionKey)
         )
         guard !trackedSessionKeys.contains(sessionKey) else { return false }
-        if accessibleSessionKeys.contains(sessionKey) {
-            return true
-        }
-        return syntheticSessionKeys.contains(sessionKey)
+        return trackableSessionsBySessionKey[sessionKey] != nil
     }
 
     func trackSession(sessionKey: String) -> Bool {
@@ -1338,7 +1338,7 @@ final class ChatViewModel: ChatViewModelHosting {
         } else {
             updatedStream = StreamSession(
                 sessionKey: sessionKey,
-                displayName: fallbackDisplayName(for: sessionKey),
+                displayName: trackableSessionsBySessionKey[sessionKey]?.displayName ?? fallbackDisplayName(for: sessionKey),
                 kind: "custom",
                 orderIndex: nextSyntheticOrderIndex(),
                 isBuiltIn: false,
@@ -2281,6 +2281,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 mergeAccessibleSessionKeys(streams.map(\.sessionKey))
             }
             applyStreamSnapshot(streams)
+            refreshTrackableSessions(reason: "streamSnapshot")
             attemptPendingProvisionedSendIfPossible()
         case .streamCreated(let stream):
             hasResolvedProvisioningCapability = true
@@ -2288,6 +2289,7 @@ final class ChatViewModel: ChatViewModelHosting {
             hasReceivedSessionProvisioning = true
             mergeAccessibleSessionKeys([stream.sessionKey])
             applyStreamUpsert(stream)
+            refreshTrackableSessions(reason: "streamCreated")
             attemptPendingProvisionedSendIfPossible()
         case .streamUpdated(let stream):
             applyStreamUpsert(stream)
@@ -2296,6 +2298,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 removeAccessibleSessionKey(sessionKey)
             }
             applyStreamDeletion(sessionKey: sessionKey)
+            refreshTrackableSessions(reason: "streamDeleted")
             attemptPendingProvisionedSendIfPossible()
         case .sessionProvisioningAvailable(let supported):
             hasResolvedProvisioningCapability = true
@@ -2307,6 +2310,7 @@ final class ChatViewModel: ChatViewModelHosting {
             hasReceivedSessionProvisioning = true
             hasReceivedExplicitSessionInfo = true
             replaceAccessibleSessionKeys(with: info.sessionKeys)
+            refreshTrackableSessions(reason: "sessionInfo")
             attemptPendingProvisionedSendIfPossible()
         }
     }
@@ -2376,6 +2380,10 @@ final class ChatViewModel: ChatViewModelHosting {
         hasReceivedExplicitSessionInfo = false
         accessibleSessionKeys.removeAll()
         accessibleSessionKeyOrder.removeAll()
+        trackableSessionsBySessionKey.removeAll()
+        trackableSessionKeyOrder.removeAll()
+        refreshTrackableSessionsTask?.cancel()
+        refreshTrackableSessionsTask = nil
         if clearPendingSend {
             pendingProvisionedSend = nil
         }
@@ -2396,6 +2404,28 @@ final class ChatViewModel: ChatViewModelHosting {
     private func removeAccessibleSessionKey(_ sessionKey: String) {
         accessibleSessionKeys.remove(sessionKey)
         accessibleSessionKeyOrder.removeAll { $0 == sessionKey }
+    }
+
+    private func replaceTrackableSessions(with sessions: [TrackableSession]) {
+        trackableSessionKeyOrder = normalizeSessionKeyList(sessions.map(\.sessionKey))
+        trackableSessionsBySessionKey = Dictionary(
+            uniqueKeysWithValues: sessions.map { ($0.sessionKey, $0) }
+        )
+    }
+
+    private func refreshTrackableSessions(reason: String) {
+        refreshTrackableSessionsTask?.cancel()
+        refreshTrackableSessionsTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let sessions = try await self.chatService.fetchTrackableSessions()
+                guard !Task.isCancelled else { return }
+                self.replaceTrackableSessions(with: sessions)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.logger.info("trackable sessions refresh failed reason=\(reason, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     private func normalizeSessionKeyList(_ sessionKeys: [String]) -> [String] {

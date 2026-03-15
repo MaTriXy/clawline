@@ -77,6 +77,59 @@ struct StreamSession: Codable, Equatable, Identifiable {
     }
 }
 
+struct TrackableSession: Codable, Equatable, Identifiable {
+    var id: String { sessionKey }
+    let sessionKey: String
+    let displayName: String
+    let updatedAt: Date
+    let channel: String?
+    let lastChannel: String?
+    let lastTo: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sessionKey
+        case displayName
+        case updatedAt
+        case channel
+        case lastChannel
+        case lastTo
+    }
+
+    init(sessionKey: String,
+         displayName: String,
+         updatedAt: Date,
+         channel: String? = nil,
+         lastChannel: String? = nil,
+         lastTo: String? = nil) {
+        self.sessionKey = sessionKey
+        self.displayName = displayName
+        self.updatedAt = updatedAt
+        self.channel = channel
+        self.lastChannel = lastChannel
+        self.lastTo = lastTo
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sessionKey = try container.decode(String.self, forKey: .sessionKey)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        updatedAt = try container.decodeUnixMillisDate(forKey: .updatedAt)
+        channel = try container.decodeIfPresent(String.self, forKey: .channel)
+        lastChannel = try container.decodeIfPresent(String.self, forKey: .lastChannel)
+        lastTo = try container.decodeIfPresent(String.self, forKey: .lastTo)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sessionKey, forKey: .sessionKey)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(updatedAt.timeIntervalSince1970 * 1000, forKey: .updatedAt)
+        try container.encodeIfPresent(channel, forKey: .channel)
+        try container.encodeIfPresent(lastChannel, forKey: .lastChannel)
+        try container.encodeIfPresent(lastTo, forKey: .lastTo)
+    }
+}
+
 private extension KeyedDecodingContainer {
     func decodeUnixMillisDate(forKey key: Key) throws -> Date {
         if let milliseconds = try? decode(Double.self, forKey: key) {
