@@ -359,11 +359,11 @@ final class ProviderChatService: ChatServicing {
             logger.info("connect start attempt=\(index + 1, privacy: .public)/\(wsURLs.count, privacy: .public) ws=\(wsURL.absoluteString, privacy: .public)")
             updateState(.connecting)
             do {
+                authToken = token
                 let client = try await connector.connect(to: wsURL)
                 socket = client
                 startListening(on: client)
                 try await awaitAuthResult(client: client, token: token, lastMessageId: lastMessageId)
-                authToken = token
                 return
             } catch {
                 lastError = error

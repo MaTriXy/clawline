@@ -424,6 +424,70 @@ struct ProviderServiceTests {
         #expect(snapshot.first?.sessionKey == "agent:main:clawline:user:main")
     }
 
+    @Test("Trackable sessions fetch is authorized during initial stream snapshot")
+    func trackableSessionsFetchDuringInitialSnapshot() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        defer { HTTPStubURLProtocol.requestHandler = nil }
+        HTTPStubURLProtocol.requestHandler = { request in
+            #expect(request.url?.path == "/api/trackable-sessions")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer jwt")
+            let data = #"""
+            {
+              "sessions": [
+                {
+                  "sessionKey": "agent:main:clawline:user:s_trackable",
+                  "displayName": "Trackable Session",
+                  "updatedAt": 1700000000000
+                }
+              ]
+            }
+            """#.data(using: .utf8) ?? Data()
+            return (
+                HTTPURLResponse(
+                    url: request.url ?? baseURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPStubURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let streamAPIClient = StreamAPIClient(baseURLProvider: { baseURL }, session: urlSession)
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            streamAPIClient: streamAPIClient
+        )
+
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+        let fetchTask = Task {
+            while let event = await eventIterator.next() {
+                if case .streamSnapshot = event {
+                    return try await service.fetchTrackableSessions()
+                }
+            }
+            return [TrackableSession]()
+        }
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "stream_snapshot", "streams": [{ "sessionKey": "agent:main:clawline:user:main", "displayName": "Personal", "kind": "main", "orderIndex": 0, "isBuiltIn": true, "createdAt": 1700000000000, "updatedAt": 1700000000000 }] }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+        let sessions = try await fetchTask.value
+
+        #expect(sessions.map(\.sessionKey) == ["agent:main:clawline:user:s_trackable"])
+    }
+
     @Test("Chat service emits incremental stream events")
     func chatIncrementalStreamEvents() async throws {
         let mockSocket = MockWebSocketClient()
@@ -487,6 +551,31 @@ private final class MockWebSocketConnector: WebSocketConnecting {
         connectedURL = url
         return client
     }
+}
+
+private final class HTTPStubURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
 
 private final class FallbackMockWebSocketConnector: WebSocketConnecting {
