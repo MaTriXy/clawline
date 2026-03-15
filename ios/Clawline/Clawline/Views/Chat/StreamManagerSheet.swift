@@ -87,10 +87,6 @@ struct StreamManagerSheet: View {
         max(0, effectiveContainerHeight - functionBarHeight - searchBarHeight)
     }
 
-    private var allowsListScrolling: Bool {
-        listContentHeight > listViewportHeight + 0.5
-    }
-
     private var cappedContainerHeight: CGFloat {
         StreamSelectorLayout.containerHeight(
             itemCount: listItemCount,
@@ -206,7 +202,6 @@ struct StreamManagerSheet: View {
             .listStyle(.plain)
             .environment(\.defaultMinListRowHeight, listRowHeight)
             .listRowSpacing(listRowSpacing)
-            .scrollDisabled(!allowsListScrolling)
             .scrollBounceBehavior(.always)
             .contentMargins(.vertical, 0, for: .scrollContent)
             .scrollContentBackground(.hidden)
