@@ -216,9 +216,6 @@ struct StreamManagerSheet: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: functionBarHeight)
                 .contentShape(Rectangle())
-                .background {
-                    tapTargetBackground(cornerRadius: 10)
-                }
                 .overlay {
                     debugBorderOverlay(
                         cornerRadius: 10,
@@ -236,9 +233,6 @@ struct StreamManagerSheet: View {
                         .frame(minWidth: 88, maxWidth: .infinity)
                         .frame(height: functionBarHeight, alignment: .center)
                         .contentShape(Rectangle())
-                        .background {
-                            tapTargetBackground(cornerRadius: 10)
-                        }
                         .overlay {
                             debugBorderOverlay(
                                 cornerRadius: 10,
@@ -259,9 +253,6 @@ struct StreamManagerSheet: View {
                         .font(.clawline(.subsectionHeader).weight(.regular))
                         .foregroundStyle(.primary)
                         .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
-                        .background {
-                            tapTargetBackground(cornerRadius: 10)
-                        }
                         .overlay {
                             debugBorderOverlay(
                                 cornerRadius: 10,
@@ -382,6 +373,10 @@ struct StreamManagerSheet: View {
                             )
                         )
                         .frame(width: 8, height: 8)
+                        .shadow(
+                            color: isActive ? StreamDotColor.activeGlow(colorScheme) : .clear,
+                            radius: isActive ? 6 : 0
+                        )
                     Text(stream.displayName)
                         .font(.clawline(.subsectionHeader).weight(isActive ? .semibold : .regular))
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -492,12 +487,6 @@ struct StreamManagerSheet: View {
 
     private func trackSession(_ sessionKey: String) {
         _ = viewModel.trackSession(sessionKey: sessionKey)
-    }
-
-    @ViewBuilder
-    private func tapTargetBackground(cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color.white.opacity(0.001))
     }
 
     @ViewBuilder
