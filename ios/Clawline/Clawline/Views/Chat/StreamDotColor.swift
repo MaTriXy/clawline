@@ -16,7 +16,7 @@ enum StreamDotColor {
         colorScheme: ColorScheme
     ) -> Color {
         if hasUnread {
-            return ChatFlowTheme.terracotta(colorScheme)
+            return ChatFlowTheme.unreadIndicator(colorScheme)
         }
         if isActive {
             return avatarGreen
