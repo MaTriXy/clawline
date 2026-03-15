@@ -471,6 +471,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var trackableSessionsBySessionKey: [String: TrackableSession] = [:]
     private var trackableSessionKeyOrder: [String] = []
     private var refreshTrackableSessionsTask: Task<Void, Never>?
+    private var pendingUntrackRecovery: StreamSession?
     private var pendingProvisionedSend: PendingProvisionedSend?
 
     func forceReReadGeneration(for sessionKey: String) -> Int {
@@ -1348,21 +1349,23 @@ final class ChatViewModel: ChatViewModelHosting {
             )
         }
 
-        streamsBySessionKey[sessionKey] = updatedStream
-        syntheticSessionKeys.remove(sessionKey)
-        recalculateOrderedSessionKeys()
-        ensureSessionStorage(for: sessionKey)
-        restoreLastReadMessageIdIfNeeded(for: sessionKey)
-        restoreCachedMessagesIfNeeded(for: sessionKey)
-        refreshUnreadState(for: sessionKey)
-        persistStreamMetadata()
-        SessionRegistry.shared.upsert(updatedStream)
+        pendingUntrackRecovery = nil
+        linkTrackedSession(updatedStream)
         return true
     }
 
     func untrackStream(sessionKey: String) -> Bool {
         guard canUntrackStream(sessionKey: sessionKey) else { return false }
+        guard let stream = streamsBySessionKey[sessionKey] else { return false }
+        pendingUntrackRecovery = stream
         unlinkTrackedSession(sessionKey: sessionKey)
+        toastManager.show(
+            "Session untracked.",
+            actionTitle: "Undo",
+            action: { [weak self] in
+                self?.undoPendingUntrack()
+            }
+        )
         return true
     }
 
@@ -2384,6 +2387,7 @@ final class ChatViewModel: ChatViewModelHosting {
         trackableSessionKeyOrder.removeAll()
         refreshTrackableSessionsTask?.cancel()
         refreshTrackableSessionsTask = nil
+        pendingUntrackRecovery = nil
         if clearPendingSend {
             pendingProvisionedSend = nil
         }
@@ -2825,6 +2829,24 @@ final class ChatViewModel: ChatViewModelHosting {
 
         SessionRegistry.shared.remove(sessionKey: sessionKey)
         persistStreamMetadata()
+    }
+
+    private func linkTrackedSession(_ stream: StreamSession) {
+        streamsBySessionKey[stream.sessionKey] = stream
+        syntheticSessionKeys.remove(stream.sessionKey)
+        recalculateOrderedSessionKeys()
+        ensureSessionStorage(for: stream.sessionKey)
+        restoreLastReadMessageIdIfNeeded(for: stream.sessionKey)
+        restoreCachedMessagesIfNeeded(for: stream.sessionKey)
+        refreshUnreadState(for: stream.sessionKey)
+        persistStreamMetadata()
+        SessionRegistry.shared.upsert(stream)
+    }
+
+    private func undoPendingUntrack() {
+        guard let stream = pendingUntrackRecovery else { return }
+        pendingUntrackRecovery = nil
+        linkTrackedSession(stream)
     }
 
     private func recalculateOrderedSessionKeys() {

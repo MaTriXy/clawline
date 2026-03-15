@@ -1848,6 +1848,7 @@ struct ChatViewModelTests {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
+        let toastManager = ToastManager()
         chatService.streams = [
             makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
         ]
@@ -1857,7 +1858,7 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: ToastManager(),
+            toastManager: toastManager,
             salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
@@ -1903,9 +1904,66 @@ struct ChatViewModelTests {
         #expect(viewModel.untrackStream(sessionKey: adoptedKey))
         #expect(viewModel.stream(for: adoptedKey) == nil)
         #expect(viewModel.messages(for: adoptedKey).last?.content == "Preserve me")
+        #expect(toastManager.toast?.message == "Session untracked.")
+        #expect(toastManager.toast?.actionTitle == "Undo")
         #expect(viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey])
         #expect(chatService.deleteStreamCallCount == 0)
         #expect(chatService.lastDeletedSessionKey == nil)
+    }
+
+    @Test("Undo after untrack restores adopted session linkage")
+    @MainActor
+    func untrackUndoRestoresAdoptedSession() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        let adoptedKey = "agent:main:clawline:user:s_undo"
+        chatService.trackableSessions = [
+            TrackableSession(
+                sessionKey: adoptedKey,
+                displayName: "Undo Session",
+                updatedAt: Date()
+            )
+        ]
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        for _ in 0..<50 {
+            if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.untrackStream(sessionKey: adoptedKey))
+        #expect(viewModel.stream(for: adoptedKey) == nil)
+        #expect(toastManager.toast?.actionTitle == "Undo")
+
+        toastManager.performAction()
+
+        #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
+        #expect(viewModel.stream(for: adoptedKey)?.displayName == "Undo Session")
+        #expect(toastManager.toast == nil)
     }
 
     @Test("Adopted session restores as last saved chat on startup")

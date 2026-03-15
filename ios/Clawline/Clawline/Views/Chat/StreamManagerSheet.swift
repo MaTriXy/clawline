@@ -22,6 +22,7 @@ struct StreamManagerSheet: View {
     @State private var activeEditor: EditorMode?
     @State private var isWorking = false
     @State private var isTrackPickerPresented = false
+    @State private var selectedTrackCandidateSessionKey: String?
     @State private var removingSessionKeys: Set<String> = []
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
@@ -115,6 +116,11 @@ struct StreamManagerSheet: View {
 
     private var trackCandidates: [ChatViewModel.UntrackedSessionCandidate] {
         viewModel.untrackedSessionCandidates
+    }
+
+    private var selectedTrackCandidate: ChatViewModel.UntrackedSessionCandidate? {
+        guard let selectedTrackCandidateSessionKey else { return nil }
+        return trackCandidates.first { $0.sessionKey == selectedTrackCandidateSessionKey }
     }
 
     var body: some View {
@@ -230,6 +236,7 @@ struct StreamManagerSheet: View {
                 }
 
                 Button {
+                    selectedTrackCandidateSessionKey = nil
                     isTrackPickerPresented = true
                 } label: {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -318,6 +325,12 @@ struct StreamManagerSheet: View {
                 searchQuery = ""
             }
         }
+        .onChange(of: trackCandidates.map(\.sessionKey)) { _, sessionKeys in
+            guard let selectedTrackCandidateSessionKey else { return }
+            if !sessionKeys.contains(selectedTrackCandidateSessionKey) {
+                self.selectedTrackCandidateSessionKey = nil
+            }
+        }
         .alert(
             pendingRemovalTitle,
             isPresented: Binding(
@@ -336,19 +349,11 @@ struct StreamManagerSheet: View {
                 Task { await removeStream(stream) }
             }
         }
-        .confirmationDialog(
-            "Track Session",
+        .sheet(
             isPresented: $isTrackPickerPresented,
-            titleVisibility: .visible
+            onDismiss: { selectedTrackCandidateSessionKey = nil }
         ) {
-            ForEach(trackCandidates) { candidate in
-                Button(candidate.displayName) {
-                    trackSession(candidate.sessionKey)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Choose an untracked session to adopt as a Clawline chat.")
+            trackPickerSheet
         }
     }
 
@@ -503,8 +508,68 @@ struct StreamManagerSheet: View {
         viewModel.isAdoptedStream(sessionKey: stream.sessionKey) ? "minus.circle" : "trash"
     }
 
-    private func trackSession(_ sessionKey: String) {
-        _ = viewModel.trackSession(sessionKey: sessionKey)
+    private func dismissTrackPicker() {
+        selectedTrackCandidateSessionKey = nil
+        isTrackPickerPresented = false
+    }
+
+    private func adoptSelectedTrackSession() {
+        guard let selectedTrackCandidate else { return }
+        guard viewModel.trackSession(sessionKey: selectedTrackCandidate.sessionKey) else { return }
+        dismissTrackPicker()
+    }
+
+    private var trackPickerSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text("Choose an untracked session to adopt as a Clawline chat.")
+                        .font(.clawline(.secondaryLabel))
+                        .foregroundStyle(.secondary)
+                        .listRowBackground(Color.clear)
+                }
+
+                Section("Other Sessions") {
+                    ForEach(trackCandidates) { candidate in
+                        Button {
+                            selectedTrackCandidateSessionKey = candidate.sessionKey
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(candidate.displayName)
+                                        .font(.clawline(.subsectionHeader))
+                                        .foregroundStyle(.primary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text("Agent session")
+                                        .font(.clawline(.secondaryLabel))
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Image(systemName: selectedTrackCandidateSessionKey == candidate.sessionKey ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedTrackCandidateSessionKey == candidate.sessionKey ? .primary : .secondary)
+                            }
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle("Track Session")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismissTrackPicker()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Adopt") {
+                        adoptSelectedTrackSession()
+                    }
+                    .disabled(selectedTrackCandidate == nil)
+                }
+            }
+        }
     }
 
     @ViewBuilder

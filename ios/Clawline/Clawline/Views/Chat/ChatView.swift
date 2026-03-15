@@ -1097,7 +1097,13 @@ struct ChatView: View {
     private func toastBannerView(geometry: GeometryProxy,
                                  toastManager: ToastManager) -> some View {
         if let toast = toastManager.toast {
-            ToastBanner(message: toast.message) {
+            ToastBanner(
+                message: toast.message,
+                actionTitle: toast.actionTitle,
+                action: toast.actionTitle == nil ? nil : {
+                    toastManager.performAction()
+                }
+            ) {
                 toastManager.dismiss()
             }
             .padding(.top, geometry.safeAreaInsets.top + 12)
@@ -1775,39 +1781,51 @@ struct ChatView: View {
 
     private struct ToastBanner: View {
         let message: String
+        let actionTitle: String?
+        let action: (() -> Void)?
         let dismiss: () -> Void
 
         var body: some View {
-            Text(message)
-                .font(.clawline(.uiLabel).weight(.medium))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-#if os(visionOS)
-                .background(
-                    Capsule()
-                        .fill(Color.white.opacity(0.3))
-                )
-#else
-                .glassEffect(.regular, in: Capsule())
-#endif
-                .onTapGesture(perform: dismiss)
-                .gesture(
-                    DragGesture(minimumDistance: 8)
-                        .onEnded { value in
-                            if value.translation.height < -10 {
-                                dismiss()
-                            }
-                        }
-                )
-                .accessibilityLabel(message)
-                .accessibilityHint("Dismiss with tap or swipe up.")
-                .accessibilityAddTraits(.isStaticText)
-                .onAppear {
-                    UIAccessibility.post(notification: .announcement, argument: message)
+            HStack(spacing: 12) {
+                Text(message)
+                    .font(.clawline(.uiLabel).weight(.medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let actionTitle, let action {
+                    Button(actionTitle, action: action)
+                        .font(.clawline(.uiLabel).weight(.semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.primary)
                 }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+#if os(visionOS)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.3))
+            )
+#else
+            .glassEffect(.regular, in: Capsule())
+#endif
+            .onTapGesture(perform: dismiss)
+            .gesture(
+                DragGesture(minimumDistance: 8)
+                    .onEnded { value in
+                        if value.translation.height < -10 {
+                            dismiss()
+                        }
+                    }
+            )
+            .accessibilityLabel(message)
+            .accessibilityHint(actionTitle == nil ? "Dismiss with tap or swipe up." : "Tap Undo to restore or tap elsewhere to dismiss.")
+            .accessibilityAddTraits(.isStaticText)
+            .onAppear {
+                UIAccessibility.post(notification: .announcement, argument: message)
+            }
         }
     }
 
