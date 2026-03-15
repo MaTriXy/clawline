@@ -78,10 +78,6 @@ struct StreamPageDotsView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
-#if !os(visionOS)
-            .glassEffect(.regular, in: Capsule())
-#endif
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Manage streams")
