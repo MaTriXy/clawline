@@ -208,10 +208,11 @@ struct StreamManagerSheet: View {
             .listRowSpacing(listRowSpacing)
             .scrollDisabled(!allowsListScrolling)
             .scrollBounceBehavior(.always)
-            .contentMargins(.vertical, 0, for: .scrollContent)
+            .contentMargins(.top, listOuterVerticalPadding, for: .scrollContent)
+            .contentMargins(.bottom, listOuterVerticalPadding, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
-            .padding(.vertical, listOuterVerticalPadding)
+            .frame(height: listViewportHeight)
             .disabled(isWorking)
 
             HStack(spacing: 12) {
