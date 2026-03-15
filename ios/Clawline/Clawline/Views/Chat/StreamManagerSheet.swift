@@ -237,9 +237,8 @@ struct StreamManagerSheet: View {
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .frame(height: cappedContainerHeight)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
 #if !os(visionOS)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
+        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
 #endif
         .overlay(
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
@@ -256,7 +255,6 @@ struct StreamManagerSheet: View {
                     }
             }
         )
-        .background(PopoverAncestorBackgroundClearView())
         .onChange(of: isPresented) { _, presented in
             if !presented {
                 resetInlineEditing()
@@ -411,35 +409,6 @@ struct StreamManagerSheet: View {
         }
         if activeEditor == .renaming(stream.sessionKey) {
             resetInlineEditing()
-        }
-    }
-}
-
-private struct PopoverAncestorBackgroundClearView: UIViewRepresentable {
-    func makeUIView(context: Context) -> BackgroundClearUIView {
-        BackgroundClearUIView()
-    }
-
-    func updateUIView(_ uiView: BackgroundClearUIView, context: Context) {
-        uiView.clearAncestorBackgrounds()
-    }
-}
-
-private final class BackgroundClearUIView: UIView {
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        clearAncestorBackgrounds()
-    }
-
-    func clearAncestorBackgrounds() {
-        var ancestor = superview
-        while let view = ancestor {
-            let className = NSStringFromClass(type(of: view))
-            if className.contains("Popover") || className.contains("Presentation") || className.contains("Hosting") {
-                view.backgroundColor = .clear
-                view.isOpaque = false
-            }
-            ancestor = view.superview
         }
     }
 }
