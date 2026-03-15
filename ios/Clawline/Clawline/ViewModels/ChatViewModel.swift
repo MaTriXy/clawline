@@ -613,10 +613,14 @@ final class ChatViewModel: ChatViewModelHosting {
         self.salientHighlightService = salientHighlightService
         self.lifecycleCoordinator = ConnectionLifecycleCoordinator(
             startAttempt: { [weak chatService] epoch, lastMessageId, token in
-                chatService?.startConnectionAttempt(epoch: epoch, lastMessageId: lastMessageId, token: token)
+                Task { @MainActor [weak chatService] in
+                    chatService?.startConnectionAttempt(epoch: epoch, lastMessageId: lastMessageId, token: token)
+                }
             },
             stopAttempt: { [weak chatService] in
-                chatService?.stopConnectionAttempt()
+                Task { @MainActor [weak chatService] in
+                    chatService?.stopConnectionAttempt()
+                }
             }
         )
         self.nowProvider = nowProvider

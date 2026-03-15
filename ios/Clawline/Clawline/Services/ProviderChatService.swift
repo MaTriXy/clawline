@@ -212,6 +212,7 @@ final class ProviderChatService: ChatServicing {
     private var socket: (any WebSocketClient)?
     private var receiveTask: Task<Void, Never>?
     private var authContinuation: CheckedContinuation<Void, Swift.Error>?
+    private var authTimeoutTask: Task<Void, Never>?
     private var pendingMessages: Set<String> = []
     private var sentMessageIDs: Set<String> = []
     private var shouldNotifyDisconnect = true
@@ -1204,6 +1205,8 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func resolveAuthContinuation(with result: Result<Void, Swift.Error>) {
+        authTimeoutTask?.cancel()
+        authTimeoutTask = nil
         guard let continuation = authContinuation else { return }
         authContinuation = nil
         switch result {
@@ -1225,46 +1228,24 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func awaitAuthResult(client: any WebSocketClient, token: String, lastMessageId: String?) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { [weak self] in
-                guard let self else { return }
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Swift.Error>) in
-                    self.authContinuation = continuation
-                    Task {
-                        do {
-                            let normalizedLastMessageId = self.normalizeServerEventID(lastMessageId)
-                            let authPayload = AuthPayload(
-                                token: token,
-                                deviceId: self.deviceId,
-                                lastMessageId: normalizedLastMessageId,
-                                replayCursorsBySessionKey: nil,
-                                clientFeatures: self.supportedClientFeatures,
-                                client: ClientDescriptor(
-                                    id: Self.clientID,
-                                    features: self.supportedClientFeatures
-                                )
-                            )
-                            let data = try self.encoder.encode(authPayload)
-                            guard let text = String(data: data, encoding: .utf8) else {
-                                self.resolveAuthContinuation(with: .failure(Error.notConnected))
-                                return
-                            }
-                            try await client.send(text: text)
-                        } catch {
-                            self.resolveAuthContinuation(with: .failure(error))
-                        }
-                    }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Swift.Error>) in
+            authContinuation = continuation
+            authTimeoutTask?.cancel()
+            authTimeoutTask = Task { @MainActor [authTimeout] in
+                do {
+                    try await Task.sleep(forDuration: authTimeout)
+                } catch {
+                    return
+                }
+                self.resolveAuthContinuation(with: .failure(Error.authTimeout))
+            }
+            Task { @MainActor in
+                do {
+                    try await self.sendAuth(client: client, token: token, lastMessageId: lastMessageId)
+                } catch {
+                    self.resolveAuthContinuation(with: .failure(error))
                 }
             }
-            group.addTask { [authTimeout] in
-                try await Task.sleep(forDuration: authTimeout)
-                throw Error.authTimeout
-            }
-
-            guard let _ = try await group.next() else {
-                throw Error.authTimeout
-            }
-            group.cancelAll()
         }
     }
 

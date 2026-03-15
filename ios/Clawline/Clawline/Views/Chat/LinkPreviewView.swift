@@ -59,14 +59,23 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "LinkPreview")
     private static let heightCache = NSCache<NSString, NSNumber>()
 
-    enum State {
+    enum State: Equatable, Sendable {
         case idle
         case loading
         case loaded
         case failed
+
+        nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+            switch (lhs, rhs) {
+            case (.idle, .idle), (.loading, .loading), (.loaded, .loaded), (.failed, .failed):
+                return true
+            default:
+                return false
+            }
+        }
     }
 
-    enum FailureReason: String {
+    enum FailureReason: String, Sendable {
         case timeout
         case missingHost
         case hostBlocked
@@ -80,7 +89,7 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         case unknown
     }
 
-    enum CancelReason: String {
+    enum CancelReason: String, Sendable {
         case deinitCancel
         case removedFromWindow
         case reuse
