@@ -4003,11 +4003,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     var isUserInteracting: Bool {
-#if os(visionOS)
         collectionView.isDragging || collectionView.isTracking || collectionView.isDecelerating
-#else
-        collectionView.isDragging || collectionView.isTracking
-#endif
     }
 
     var isActivelyDraggingOrTracking: Bool {
