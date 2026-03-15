@@ -2244,6 +2244,10 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             host.view.backgroundColor = .clear
             host.view.isOpaque = false
             host.view.translatesAutoresizingMaskIntoConstraints = false
+            if #available(iOS 16.0, visionOS 1.0, *) {
+                host.sizingOptions = [.intrinsicContentSize]
+                host.safeAreaRegions = []
+            }
             addSubview(host.view)
             pageDotsHost = host
 
