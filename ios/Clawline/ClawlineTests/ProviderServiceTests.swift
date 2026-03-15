@@ -159,6 +159,63 @@ struct ProviderServiceTests {
         #expect(message?.content == "Hi")
     }
 
+    @Test("Chat connect reports adopted session keys during auth")
+    @MainActor
+    func chatConnectReportsAdoptedSessionKeysDuringAuth() async throws {
+        SessionRegistry.shared.replace(with: [])
+        defer { SessionRegistry.shared.replace(with: []) }
+
+        let adoptedKey = "agent:main:openclaw:user:s_trackme"
+        SessionRegistry.shared.upsert(
+            StreamSession(
+                sessionKey: adoptedKey,
+                displayName: "Tracked Session",
+                kind: "custom",
+                orderIndex: 1,
+                isBuiltIn: false,
+                createdAt: Date(),
+                updatedAt: Date(),
+                trackingMode: .adopted
+            )
+        )
+        SessionRegistry.shared.upsert(
+            StreamSession(
+                sessionKey: "agent:main:clawline:user:main",
+                displayName: "Personal",
+                kind: "main",
+                orderIndex: 0,
+                isBuiltIn: true,
+                createdAt: Date(),
+                updatedAt: Date(),
+                trackingMode: .serverManaged
+            )
+        )
+
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            adoptedSessionKeysProvider: { SessionRegistry.shared.adoptedSessionKeys() }
+        )
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+
+        #expect(
+            mockSocket.sentTexts.contains {
+                $0.contains("\"type\":\"auth\"")
+                    && $0.contains("\"adoptedSessionKeys\":[\"agent:main:openclaw:user:s_trackme\"]")
+            }
+        )
+    }
+
     @Test("Chat connect falls back from wss to ws when TLS handshake fails")
     func chatConnectFallsBackToPlainWebSocket() async throws {
         let mockSocket = MockWebSocketClient()

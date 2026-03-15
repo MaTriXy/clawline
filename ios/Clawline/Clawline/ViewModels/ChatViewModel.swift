@@ -2322,7 +2322,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func sendProvisioningState(for sessionKey: String) -> SendProvisioningState {
         if hasReceivedSessionProvisioning {
-            return accessibleSessionKeys.contains(sessionKey) ? .ready : .unavailable
+            return isLocallySendableSessionKey(sessionKey) ? .ready : .unavailable
         }
         if supportsSessionProvisioning {
             return .waiting
@@ -2351,6 +2351,13 @@ final class ChatViewModel: ChatViewModelHosting {
             pendingProvisionedSend = nil
             toastManager.show("This stream is unavailable. Switch streams and try again.")
         }
+    }
+
+    private func isLocallySendableSessionKey(_ sessionKey: String) -> Bool {
+        if accessibleSessionKeys.contains(sessionKey) {
+            return true
+        }
+        return isAdoptedStream(sessionKey: sessionKey)
     }
 
     private func transitionConnectionState(_ state: ConnectionState,

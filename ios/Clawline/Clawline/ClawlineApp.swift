@@ -50,7 +50,8 @@ struct ClawlineApp: App {
             connector: connector,
             deviceId: device.deviceId,
             userIdProvider: { authManager.currentUserId },
-            authTokenProvider: { @MainActor in authManager.token }
+            authTokenProvider: { @MainActor in authManager.token },
+            adoptedSessionKeysProvider: { SessionRegistry.shared.adoptedSessionKeys() }
         )
         self.chatService = chatService
         self.uploadService = UploadService(

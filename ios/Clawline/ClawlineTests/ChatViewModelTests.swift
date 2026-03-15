@@ -1795,6 +1795,68 @@ struct ChatViewModelTests {
         #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
     }
 
+    @Test("Adopted gateway session remains sendable when session info stays stream-only")
+    @MainActor
+    func adoptedGatewaySessionSendBypassesStreamOnlySessionInfo() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let adoptedKey = "agent:main:openclaw:user:s_trackme"
+        chatService.trackableSessions = [
+            TrackableSession(
+                sessionKey: adoptedKey,
+                displayName: "Tracked Session",
+                updatedAt: Date()
+            )
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitConnectionState(.connected)
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        viewModel.setActiveSessionKeyForTesting(adoptedKey)
+
+        chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
+        chatService.emitServiceEvent(.sessionInfo(
+            SessionInfo(
+                userId: "user",
+                isAdmin: false,
+                dmScope: "main",
+                sessionKeys: [personalSessionKey]
+            )
+        ))
+
+        viewModel.inputContent = NSAttributedString(string: "hello adopted")
+        viewModel.send()
+        for _ in 0..<50 {
+            if chatService.lastSentId != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(chatService.lastSessionKey == adoptedKey)
+        #expect(!toastManager.debugMessages.contains("This stream is unavailable. Switch streams and try again."))
+    }
+
     @Test("Track candidates load from provider trackable sessions endpoint")
     @MainActor
     func trackCandidatesLoadFromProviderEndpoint() async throws {
