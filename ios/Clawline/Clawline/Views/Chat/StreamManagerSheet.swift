@@ -51,9 +51,7 @@ struct StreamManagerSheet: View {
     private let plusBorderWidth: CGFloat = 1
     private let secondaryButtonBorderOpacity: CGFloat = 0.24
     private let secondaryButtonBorderWidth: CGFloat = 0.8
-    private let trackDebugBorderOuterWidth: CGFloat = 2
-    private let trackDebugBorderMiddleWidth: CGFloat = 2
-    private let trackDebugBorderInnerWidth: CGFloat = 1
+    private let debugBorderWidth: CGFloat = 2
 
     private var actionBarHeight: CGFloat {
         functionBarHeight + (actionBarVerticalPadding * 2)
@@ -296,6 +294,7 @@ struct StreamManagerSheet: View {
         .overlay(
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
                 .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                .allowsHitTesting(false)
         )
         .background(
             GeometryReader { proxy in
@@ -503,18 +502,9 @@ struct StreamManagerSheet: View {
 
     @ViewBuilder
     private func debugBorderOverlay(cornerRadius: CGFloat, baseOpacity: CGFloat, baseWidth: CGFloat) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(baseOpacity), lineWidth: baseWidth)
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.red.opacity(0.95), lineWidth: trackDebugBorderOuterWidth)
-            RoundedRectangle(cornerRadius: max(0, cornerRadius - 2), style: .continuous)
-                .inset(by: 4)
-                .stroke(Color.yellow.opacity(0.95), lineWidth: trackDebugBorderMiddleWidth)
-            RoundedRectangle(cornerRadius: max(0, cornerRadius - 4), style: .continuous)
-                .inset(by: 8)
-                .stroke(Color.blue.opacity(0.95), lineWidth: trackDebugBorderInnerWidth)
-        }
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(Color.red.opacity(max(baseOpacity, 0.9)), lineWidth: max(baseWidth, debugBorderWidth))
+            .allowsHitTesting(false)
     }
 }
 
