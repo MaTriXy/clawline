@@ -119,7 +119,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var channelOverride: String?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var flowLayout: MessageFlowLayout!
-    private let uiKitBubbleSizer = MessageBubbleUIKitView()
+    private let uiKitBubbleSizer = MessageBubbleUIKitView(enableDataDetectors: false)
     private var currentIsDark: Bool = false
     private let bubbleSizingV2Enabled = BubbleSizingV2.isEnabled
     private let bubbleSizingV2MeasurementCache = BubbleSizingV2.LRUCache<BubbleSizingV2.CacheKey, BubbleSizingV2.Measurement>(maxEntries: 800)

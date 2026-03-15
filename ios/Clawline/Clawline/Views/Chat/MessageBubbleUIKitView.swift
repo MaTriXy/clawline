@@ -168,6 +168,7 @@ final class MessageBubbleUIKitContainerView: UIView {
 final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "BubbleTheme")
     override var safeAreaInsets: UIEdgeInsets { .zero }
+    private let enableDataDetectors: Bool
     private let shadowContainerView = UIView()  // Separate view for shadow (masks clip shadows)
     private let bubbleBackgroundView = UIView()
     private let contentStack = UIStackView()
@@ -248,7 +249,18 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     override init(frame: CGRect) {
+        self.enableDataDetectors = true
         super.init(frame: frame)
+        configureViewHierarchy()
+    }
+
+    init(frame: CGRect = .zero, enableDataDetectors: Bool) {
+        self.enableDataDetectors = enableDataDetectors
+        super.init(frame: frame)
+        configureViewHierarchy()
+    }
+
+    private func configureViewHierarchy() {
         backgroundColor = .clear
         insetsLayoutMarginsFromSafeArea = false
         preservesSuperviewLayoutMargins = false
@@ -365,7 +377,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         senderLabel.firstBaselineAnchor.constraint(equalTo: timestampLabel.firstBaselineAnchor).isActive = true
 
         bodyLabel.translatesAutoresizingMaskIntoConstraints = false
-        UnifiedMarkdownRenderer.configureTextView(bodyLabel, delegate: self)
+        UnifiedMarkdownRenderer.configureTextView(
+            bodyLabel,
+            delegate: self,
+            enableDataDetectors: enableDataDetectors
+        )
         let bodyTap = UITapGestureRecognizer(target: self, action: #selector(handleBubbleTap))
         bodyTap.cancelsTouchesInView = false
         bodyTap.delaysTouchesBegan = false
