@@ -2103,9 +2103,9 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private var pageDotsBottomToBarTop: NSLayoutConstraint?
     private var minHeightConstraint: NSLayoutConstraint?
     private var hostingBottomToKeyboard: NSLayoutConstraint?
+    private var hostingBottomToContainer: NSLayoutConstraint?
     private var versionLabelBottomToKeyboard: NSLayoutConstraint?
     private var versionLabelBottomToContainer: NSLayoutConstraint?
-    private var bottomToContainerConstraint: NSLayoutConstraint?
     private var onBarHeightChange: ((CGFloat) -> Void)?
     private var lastMeasuredHeight: CGFloat = 0
 
@@ -2271,10 +2271,17 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     func setDesiredBottomGap(_ gap: CGFloat, isKeyboardVisible: Bool) {
         ensureConstraints(desiredBottomGap: gap)
 #if os(visionOS)
-        bottomToContainerConstraint?.constant = -gap
+        hostingBottomToContainer?.constant = -gap
 #else
         hostingBottomToKeyboard?.constant = -gap
+        hostingBottomToContainer?.constant = -gap
+        // `keyboardLayoutGuide` can report a stale non-zero frame on cold launch.
+        // Stay pinned to the container bottom until we know the keyboard is truly visible.
+        hostingBottomToKeyboard?.isActive = isKeyboardVisible
+        hostingBottomToContainer?.isActive = !isKeyboardVisible
         let hasVersionText = versionLabel.attributedText != nil && !versionLabel.attributedText!.string.isEmpty
+        versionLabelBottomToKeyboard?.isActive = isKeyboardVisible
+        versionLabelBottomToContainer?.isActive = !isKeyboardVisible
         versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
     }
@@ -2311,7 +2318,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private func ensureConstraints(desiredBottomGap: CGFloat) {
         guard let hostingView = hostingController.view else { return }
 #if os(visionOS)
-        if bottomToContainerConstraint == nil {
+        if hostingBottomToContainer == nil {
             hostingView.translatesAutoresizingMaskIntoConstraints = false
             hostingView.setContentHuggingPriority(.required, for: .vertical)
             hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -2338,7 +2345,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 versionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
                 versionLabel.bottomAnchor.constraint(equalTo: hostingView.topAnchor, constant: -4),
             ])
-            self.bottomToContainerConstraint = bottomToContainerConstraint
+            hostingBottomToContainer = bottomToContainerConstraint
         }
 #else
         if minHeightConstraint == nil {
@@ -2358,6 +2365,11 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 equalTo: keyboardLayoutGuide.topAnchor,
                 constant: -desiredBottomGap
             )
+            let hostingToContainer = hostingView.bottomAnchor.constraint(
+                equalTo: bottomAnchor,
+                constant: -desiredBottomGap
+            )
+            hostingToContainer.isActive = false
 
             let versionToKeyboard = versionLabel.bottomAnchor.constraint(
                 equalTo: keyboardLayoutGuide.topAnchor,
@@ -2368,6 +2380,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 constant: -4
             )
             versionToContainer.priority = .defaultLow
+            versionToContainer.isActive = false
 
             NSLayoutConstraint.activate([
                 hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -2375,6 +2388,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 minHeight,
                 topConstraint,
                 hostingToKeyboard,
+                hostingToContainer,
                 versionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
                 versionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
                 versionToKeyboard,
@@ -2383,6 +2397,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
 
             minHeightConstraint = minHeight
             hostingBottomToKeyboard = hostingToKeyboard
+            hostingBottomToContainer = hostingToContainer
             versionLabelBottomToKeyboard = versionToKeyboard
             versionLabelBottomToContainer = versionToContainer
         }
