@@ -10,14 +10,8 @@ import SwiftUI
 enum StreamDotColor {
     private static let avatarGreen = Color(red: 0.42, green: 0.61, blue: 0.42)
 
-    static func unread(_ colorScheme: ColorScheme) -> Color {
-        ChatFlowTheme.terracotta(colorScheme)
-    }
-
-    static func activeGlow(_ colorScheme: ColorScheme) -> Color {
-        colorScheme == .dark
-            ? avatarGreen.opacity(0.55)
-            : avatarGreen.opacity(0.32)
+    static func inactive(colorScheme: ColorScheme) -> Color {
+        ChatFlowTheme.stone(colorScheme).opacity(colorScheme == .dark ? 0.46 : 0.34)
     }
 
     static func resolve(
@@ -26,11 +20,15 @@ enum StreamDotColor {
         colorScheme: ColorScheme
     ) -> Color {
         if hasUnread {
-            return unread(colorScheme)
+            return ChatFlowTheme.unreadIndicator(colorScheme)
         }
         if isActive {
             return avatarGreen
         }
-        return ChatFlowTheme.stone(colorScheme)
+        return inactive(colorScheme: colorScheme)
+    }
+
+    static func activeGlow(colorScheme: ColorScheme) -> Color {
+        avatarGreen.opacity(colorScheme == .dark ? 0.88 : 0.62)
     }
 }

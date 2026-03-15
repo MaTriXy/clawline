@@ -36,7 +36,7 @@ struct ScrollToBottomButton: View {
     }
 
     private var badgeBackground: Color {
-        StreamDotColor.unread(resolvedScheme)
+        ChatFlowTheme.unreadIndicator(resolvedScheme)
     }
 
     var body: some View {

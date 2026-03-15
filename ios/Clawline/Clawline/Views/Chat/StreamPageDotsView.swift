@@ -45,7 +45,7 @@ struct StreamPageDotsView: View {
             HStack(spacing: 7) {
                 if showsLeadingOverflow {
                     Circle()
-                        .fill(Color.primary.opacity(0.35))
+                        .fill(StreamDotColor.inactive(colorScheme: colorScheme))
                         .frame(width: 4, height: 4)
                 }
                 ForEach(visibleDotIndices, id: \.self) { index in
@@ -62,13 +62,17 @@ struct StreamPageDotsView: View {
                         )
                         .frame(width: 7, height: 7)
                         .shadow(
-                            color: isActive ? StreamDotColor.activeGlow(colorScheme) : .clear,
-                            radius: isActive ? 6 : 0
+                            color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                            radius: isActive ? 11 : 0
+                        )
+                        .shadow(
+                            color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                            radius: isActive ? 4 : 0
                         )
                 }
                 if showsTrailingOverflow {
                     Circle()
-                        .fill(Color.primary.opacity(0.35))
+                        .fill(StreamDotColor.inactive(colorScheme: colorScheme))
                         .frame(width: 4, height: 4)
                 }
             }

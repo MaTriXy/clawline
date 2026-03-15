@@ -2067,6 +2067,10 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             horizontalAnimationToken: scrollButtonHorizontalAnimationToken
         )
         uiView.updatePageDots(pageDotsView, gap: pageDotsGap)
+        // Seed the pinned gap immediately on every SwiftUI update so launch layout matches the
+        // steady-state hidden-keyboard position even before coordinator-driven transitions fire.
+        uiView.setDesiredBottomGap(desiredBottomGap, isKeyboardVisible: isKeyboardVisible)
+        uiView.layoutIfNeeded()
         uiView.setOnBarHeightChange { [weak layoutCoordinator] height in
             // Break potential SwiftUI layout cycles by only propagating meaningful bar height changes.
             // (On some iOS 26.2 devices we observed AttributeGraph "cycle detected" during launch.)
@@ -2099,6 +2103,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private var pageDotsBottomToBarTop: NSLayoutConstraint?
     private var minHeightConstraint: NSLayoutConstraint?
     private var hostingBottomToKeyboard: NSLayoutConstraint?
+    private var hostingBottomToContainer: NSLayoutConstraint?
     private var versionLabelBottomToKeyboard: NSLayoutConstraint?
     private var versionLabelBottomToContainer: NSLayoutConstraint?
     private var bottomToContainerConstraint: NSLayoutConstraint?
@@ -2264,6 +2269,11 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         bottomToContainerConstraint?.constant = -gap
 #else
         hostingBottomToKeyboard?.constant = -gap
+        hostingBottomToContainer?.constant = -gap
+        hostingBottomToKeyboard?.isActive = isKeyboardVisible
+        hostingBottomToContainer?.isActive = !isKeyboardVisible
+        versionLabelBottomToKeyboard?.isActive = isKeyboardVisible
+        versionLabelBottomToContainer?.isActive = !isKeyboardVisible
         let hasVersionText = versionLabel.attributedText != nil && !versionLabel.attributedText!.string.isEmpty
         versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
@@ -2348,6 +2358,10 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 equalTo: keyboardLayoutGuide.topAnchor,
                 constant: -desiredBottomGap
             )
+            let hostingToContainer = hostingView.bottomAnchor.constraint(
+                equalTo: bottomAnchor,
+                constant: -desiredBottomGap
+            )
 
             let versionToKeyboard = versionLabel.bottomAnchor.constraint(
                 equalTo: keyboardLayoutGuide.topAnchor,
@@ -2364,15 +2378,15 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
                 hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
                 minHeight,
                 topConstraint,
-                hostingToKeyboard,
+                hostingToContainer,
                 versionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
                 versionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-                versionToKeyboard,
                 versionToContainer,
             ])
 
             minHeightConstraint = minHeight
             hostingBottomToKeyboard = hostingToKeyboard
+            hostingBottomToContainer = hostingToContainer
             versionLabelBottomToKeyboard = versionToKeyboard
             versionLabelBottomToContainer = versionToContainer
         }
