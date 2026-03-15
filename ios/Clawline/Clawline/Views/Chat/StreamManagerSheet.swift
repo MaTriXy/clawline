@@ -321,6 +321,14 @@ struct StreamManagerSheet: View {
                             )
                         )
                         .frame(width: 8, height: 8)
+                        .shadow(
+                            color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                            radius: isActive ? 11 : 0
+                        )
+                        .shadow(
+                            color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                            radius: isActive ? 4 : 0
+                        )
                     Text(stream.displayName)
                         .font(.clawline(.subsectionHeader).weight(isActive ? .semibold : .regular))
                         .frame(maxWidth: .infinity, alignment: .leading)

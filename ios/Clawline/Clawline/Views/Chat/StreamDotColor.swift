@@ -16,11 +16,15 @@ enum StreamDotColor {
         colorScheme: ColorScheme
     ) -> Color {
         if hasUnread {
-            return ChatFlowTheme.connectionDisconnected(colorScheme)
+            return ChatFlowTheme.terracotta(colorScheme)
         }
         if isActive {
             return avatarGreen
         }
         return ChatFlowTheme.stone(colorScheme)
+    }
+
+    static func activeGlow(colorScheme: ColorScheme) -> Color {
+        avatarGreen.opacity(colorScheme == .dark ? 0.88 : 0.62)
     }
 }
