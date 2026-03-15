@@ -2066,6 +2066,10 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             horizontalAnimationToken: scrollButtonHorizontalAnimationToken
         )
         uiView.updatePageDots(pageDotsView, gap: pageDotsGap)
+        // Seed the pinned gap immediately on every SwiftUI update so launch layout matches the
+        // steady-state hidden-keyboard position even before coordinator-driven transitions fire.
+        uiView.setDesiredBottomGap(desiredBottomGap, isKeyboardVisible: isKeyboardVisible)
+        uiView.layoutIfNeeded()
         uiView.setOnBarHeightChange { [weak layoutCoordinator] height in
             // Break potential SwiftUI layout cycles by only propagating meaningful bar height changes.
             // (On some iOS 26.2 devices we observed AttributeGraph "cycle detected" during launch.)
