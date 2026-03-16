@@ -133,7 +133,11 @@ struct StreamManagerSheet: View {
         let normalized = trackSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return trackCandidates }
         return trackCandidates.filter {
-            StreamSelectorLayout.matchesStreamName($0.displayName, query: normalized)
+            StreamSelectorLayout.matchesTrackCandidate(
+                displayName: $0.displayName,
+                sessionKey: $0.sessionKey,
+                query: normalized
+            )
         }
     }
 
@@ -727,14 +731,12 @@ struct StreamManagerSheet: View {
                 .frame(width: 24, height: 24)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(candidate.displayName)
+                    highlightedTrackPickerDisplayName(for: candidate)
                         .font(.clawline(.subsectionHeader).weight(isSelected ? .semibold : .regular))
-                        .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    Text(shortenedTrackSessionKey(candidate.sessionKey))
+                    highlightedTrackPickerSessionKey(for: candidate)
                         .font(.clawline(.secondaryLabel, design: .monospaced))
-                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -762,6 +764,91 @@ struct StreamManagerSheet: View {
         .buttonStyle(.plain)
     }
 
+    private func highlightedTrackPickerDisplayName(for candidate: ChatViewModel.UntrackedSessionCandidate) -> Text {
+        highlightedText(
+            candidate.displayName,
+            query: trackSearchQuery,
+            defaultColor: .primary,
+            highlightColor: .primary
+        )
+    }
+
+    private func highlightedTrackPickerSessionKey(for candidate: ChatViewModel.UntrackedSessionCandidate) -> Text {
+        let snippet = sessionKeySnippet(candidate.sessionKey, query: trackSearchQuery)
+        return highlightedText(
+            snippet.text,
+            highlightedRange: snippet.highlightedRange,
+            defaultColor: .secondary,
+            highlightColor: .primary
+        )
+    }
+
+    private func highlightedText(
+        _ text: String,
+        query: String,
+        defaultColor: Color,
+        highlightColor: Color
+    ) -> Text {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty,
+            let range = text.range(of: normalized, options: .caseInsensitive)
+        else {
+            return Text(text).foregroundColor(defaultColor)
+        }
+        return highlightedText(
+            text,
+            highlightedRange: range,
+            defaultColor: defaultColor,
+            highlightColor: highlightColor
+        )
+    }
+
+    private func highlightedText(
+        _ text: String,
+        highlightedRange: Range<String.Index>?,
+        defaultColor: Color,
+        highlightColor: Color
+    ) -> Text {
+        var attributed = AttributedString(text)
+        attributed.foregroundColor = defaultColor
+
+        guard let highlightedRange,
+            let attributedRange = Range(highlightedRange, in: attributed)
+        else {
+            return Text(attributed)
+        }
+
+        attributed[attributedRange].foregroundColor = highlightColor
+        attributed[attributedRange].inlinePresentationIntent = .stronglyEmphasized
+        return Text(attributed)
+    }
+
+    private func sessionKeySnippet(_ sessionKey: String, query: String) -> (text: String, highlightedRange: Range<String.Index>?) {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty,
+            let matchRange = sessionKey.range(of: normalized, options: .caseInsensitive)
+        else {
+            let shortened = shortenedTrackSessionKey(sessionKey)
+            return (shortened, nil)
+        }
+
+        let lowerOffset = sessionKey.distance(from: sessionKey.startIndex, to: matchRange.lowerBound)
+        let upperOffset = sessionKey.distance(from: sessionKey.startIndex, to: matchRange.upperBound)
+        let snippetStartOffset = max(0, lowerOffset - 8)
+        let snippetEndOffset = min(sessionKey.count, upperOffset + 8)
+        let snippetStart = sessionKey.index(sessionKey.startIndex, offsetBy: snippetStartOffset)
+        let snippetEnd = sessionKey.index(sessionKey.startIndex, offsetBy: snippetEndOffset)
+        let needsLeadingEllipsis = snippetStartOffset > 0
+        let needsTrailingEllipsis = snippetEndOffset < sessionKey.count
+        let coreSnippet = String(sessionKey[snippetStart..<snippetEnd])
+        let snippetText = "\(needsLeadingEllipsis ? "…" : "")\(coreSnippet)\(needsTrailingEllipsis ? "…" : "")"
+        let highlightStartOffset = (needsLeadingEllipsis ? 1 : 0) + sessionKey.distance(from: snippetStart, to: matchRange.lowerBound)
+        let highlightEndOffset = highlightStartOffset + sessionKey.distance(from: matchRange.lowerBound, to: matchRange.upperBound)
+        let snippetHighlightStart = snippetText.index(snippetText.startIndex, offsetBy: highlightStartOffset)
+        let snippetHighlightEnd = snippetText.index(snippetText.startIndex, offsetBy: highlightEndOffset)
+        return (snippetText, snippetHighlightStart..<snippetHighlightEnd)
+    }
+
     private func shortenedTrackSessionKey(_ sessionKey: String) -> String {
         guard sessionKey.count > 34 else { return sessionKey }
         let start = sessionKey.prefix(18)
@@ -784,6 +871,13 @@ enum StreamSelectorLayout {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return true }
         return displayName.localizedCaseInsensitiveContains(normalized)
+    }
+
+    static func matchesTrackCandidate(displayName: String, sessionKey: String, query: String) -> Bool {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return true }
+        return displayName.localizedCaseInsensitiveContains(normalized)
+            || sessionKey.localizedCaseInsensitiveContains(normalized)
     }
 
     static func listContentHeight(
