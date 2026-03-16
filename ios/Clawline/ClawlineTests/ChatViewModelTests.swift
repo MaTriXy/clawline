@@ -2118,6 +2118,7 @@ struct ChatViewModelTests {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
+        chatService.renameReturnedTrackingMode = .serverManaged
         chatService.streams = [
             makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
         ]
@@ -2162,6 +2163,68 @@ struct ChatViewModelTests {
         #expect(renamed)
         #expect(chatService.renameStreamCallCount == 1)
         #expect(viewModel.stream(for: adoptedKey)?.displayName == "Renamed")
+        #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
+        #expect(viewModel.canUntrackStream(sessionKey: adoptedKey))
+        #expect(!viewModel.canDeleteStream(sessionKey: adoptedKey))
+    }
+
+    @Test("Adopted sessions stay untrackable when provider snapshot returns server-managed rows")
+    @MainActor
+    func adoptedSessionsPreserveUntrackSemanticsAcrossServerSnapshot() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.adoptStreamReturnedTrackingMode = .serverManaged
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        let adoptedKey = "agent:main:clawline:user:s_snapshot"
+        chatService.trackableSessions = [
+            TrackableSession(
+                sessionKey: adoptedKey,
+                displayName: "Snapshot Session",
+                updatedAt: Date()
+            )
+        ]
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(await viewModel.trackSession(sessionKey: adoptedKey))
+        for _ in 0..<50 {
+            if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        if let index = chatService.streams.firstIndex(where: { $0.sessionKey == adoptedKey }) {
+            chatService.streams[index].trackingMode = .serverManaged
+        }
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+
+        for _ in 0..<50 {
+            if viewModel.stream(for: adoptedKey) != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
+        #expect(viewModel.canUntrackStream(sessionKey: adoptedKey))
+        #expect(!viewModel.canDeleteStream(sessionKey: adoptedKey))
     }
 
     @Test("Adopted session restores as last saved chat on startup")
@@ -2663,6 +2726,8 @@ private final class TestChatService: ChatServicing {
     private(set) var renameStreamCallCount: Int = 0
     private(set) var adoptStreamCallCount: Int = 0
     private(set) var lastAdoptedSessionKey: String?
+    var adoptStreamReturnedTrackingMode: StreamSession.TrackingMode = .adopted
+    var renameReturnedTrackingMode: StreamSession.TrackingMode?
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -2835,7 +2900,7 @@ private final class TestChatService: ChatServicing {
             isBuiltIn: false,
             createdAt: Date(),
             updatedAt: Date(),
-            trackingMode: .adopted
+            trackingMode: adoptStreamReturnedTrackingMode
         )
         streams.append(stream)
         return stream
@@ -2846,6 +2911,9 @@ private final class TestChatService: ChatServicing {
         if let index = streams.firstIndex(where: { $0.sessionKey == sessionKey }) {
             var stream = streams[index]
             stream.displayName = displayName
+            if let renameReturnedTrackingMode {
+                stream.trackingMode = renameReturnedTrackingMode
+            }
             streams[index] = stream
             return stream
         }

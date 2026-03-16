@@ -1340,7 +1340,8 @@ final class ChatViewModel: ChatViewModelHosting {
     func trackSession(sessionKey: String) async -> Bool {
         guard canTrackSession(sessionKey: sessionKey) else { return false }
         do {
-            let stream = try await chatService.adoptStream(sessionKey: sessionKey)
+            var stream = try await chatService.adoptStream(sessionKey: sessionKey)
+            stream.trackingMode = .adopted
             pendingUntrackRecovery = nil
             applyStreamUpsert(stream)
             refreshTrackableSessions(reason: "trackSuccess")
@@ -2730,11 +2731,12 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func applyStreamSnapshot(_ streams: [StreamSession]) {
         let previousSessionKeys = Set(streamsBySessionKey.keys)
-        let serverKeys = Set(streams.map(\.sessionKey))
+        let normalizedStreams = streams.map { normalizedStreamTrackingMode($0) }
+        let serverKeys = Set(normalizedStreams.map(\.sessionKey))
         let adoptedStreams = streamsBySessionKey.values.filter {
             $0.trackingMode == .adopted && !serverKeys.contains($0.sessionKey)
         }
-        let mergedStreams = streams + adoptedStreams
+        let mergedStreams = normalizedStreams + adoptedStreams
         let byKey: [String: StreamSession] = Dictionary(uniqueKeysWithValues: mergedStreams.map { ($0.sessionKey, $0) })
         syntheticSessionKeys = Set(
             byKey.values
@@ -2774,16 +2776,24 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func applyStreamUpsert(_ stream: StreamSession) {
-        streamsBySessionKey[stream.sessionKey] = stream
+        let normalized = normalizedStreamTrackingMode(stream)
+        streamsBySessionKey[normalized.sessionKey] = normalized
         syntheticSessionKeys.remove(stream.sessionKey)
         recalculateOrderedSessionKeys()
-        ensureSessionStorage(for: stream.sessionKey)
-        restoreLastReadMessageIdIfNeeded(for: stream.sessionKey)
-        restoreCachedMessagesIfNeeded(for: stream.sessionKey)
-        refreshUnreadState(for: stream.sessionKey)
+        ensureSessionStorage(for: normalized.sessionKey)
+        restoreLastReadMessageIdIfNeeded(for: normalized.sessionKey)
+        restoreCachedMessagesIfNeeded(for: normalized.sessionKey)
+        refreshUnreadState(for: normalized.sessionKey)
         ensureDefaultActiveSessionIfNeeded()
-        SessionRegistry.shared.upsert(stream)
+        SessionRegistry.shared.upsert(normalized)
         persistStreamMetadata()
+    }
+
+    private func normalizedStreamTrackingMode(_ stream: StreamSession) -> StreamSession {
+        guard streamsBySessionKey[stream.sessionKey]?.trackingMode == .adopted else { return stream }
+        var normalized = stream
+        normalized.trackingMode = .adopted
+        return normalized
     }
 
     private func applyStreamDeletion(sessionKey: String) {

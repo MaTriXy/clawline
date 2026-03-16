@@ -1503,6 +1503,7 @@ struct ChatView: View {
                 onTrackPickerDidDismiss: {
                     Task { @MainActor in
                         await Task.yield()
+                        await Task.yield()
                         restoreFocusIfNeeded()
                     }
                 }

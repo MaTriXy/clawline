@@ -374,8 +374,12 @@ struct StreamManagerSheet: View {
         .sheet(
             isPresented: $isTrackPickerPresented,
             onDismiss: {
+                isTrackSearchFieldFocused = false
                 selectedTrackCandidateSessionKey = nil
-                onTrackPickerDidDismiss()
+                Task { @MainActor in
+                    await Task.yield()
+                    onTrackPickerDidDismiss()
+                }
             }
         ) {
             trackPickerSheet
@@ -577,6 +581,9 @@ struct StreamManagerSheet: View {
                         dismissTrackPicker()
                     }
                 }
+            }
+            .onDisappear {
+                isTrackSearchFieldFocused = false
             }
         }
     }
