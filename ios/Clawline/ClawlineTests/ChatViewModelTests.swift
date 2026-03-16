@@ -2168,16 +2168,26 @@ struct ChatViewModelTests {
         #expect(!viewModel.canDeleteStream(sessionKey: adoptedKey))
     }
 
-    @Test("Adopted sessions stay untrackable when provider snapshot returns server-managed rows")
+    @Test("Server-adopted streams from provider override websocket snapshot without adopted flag")
     @MainActor
-    func adoptedSessionsPreserveUntrackSemanticsAcrossServerSnapshot() async throws {
+    func adoptedSessionsUseServerAdoptedFlagFromSnapshot() async throws {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
-        chatService.adoptStreamReturnedTrackingMode = .serverManaged
+        let adoptedKey = "agent:main:clawline:user:s_snapshot"
         chatService.streams = [
             makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            StreamSession(
+                sessionKey: adoptedKey,
+                displayName: "Snapshot Session",
+                kind: "custom",
+                orderIndex: 1,
+                isBuiltIn: false,
+                createdAt: Date(),
+                updatedAt: Date(),
+                trackingMode: .adopted
+            )
         ]
         let viewModel = ChatViewModel(
             auth: auth,
@@ -2190,38 +2200,19 @@ struct ChatViewModelTests {
         )
         defer { viewModel.onDisappear() }
 
-        let adoptedKey = "agent:main:clawline:user:s_snapshot"
-        chatService.trackableSessions = [
-            TrackableSession(
-                sessionKey: adoptedKey,
-                displayName: "Snapshot Session",
-                updatedAt: Date()
-            )
-        ]
-
         await viewModel.onAppear()
-        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        chatService.emitServiceEvent(
+            .streamSnapshot([
+                makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+                makeStreamSession(sessionKey: adoptedKey, displayName: "Snapshot Session", kind: "custom", orderIndex: 1, isBuiltIn: false),
+            ])
+        )
         for _ in 0..<50 {
-            if viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
+            if viewModel.isAdoptedStream(sessionKey: adoptedKey), chatService.fetchStreamsCallCount > 0 { break }
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(await viewModel.trackSession(sessionKey: adoptedKey))
-        for _ in 0..<50 {
-            if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-
-        if let index = chatService.streams.firstIndex(where: { $0.sessionKey == adoptedKey }) {
-            chatService.streams[index].trackingMode = .serverManaged
-        }
-        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
-
-        for _ in 0..<50 {
-            if viewModel.stream(for: adoptedKey) != nil { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-
+        #expect(chatService.fetchStreamsCallCount > 0)
         #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
         #expect(viewModel.canUntrackStream(sessionKey: adoptedKey))
         #expect(!viewModel.canDeleteStream(sessionKey: adoptedKey))
@@ -2720,6 +2711,7 @@ private final class TestChatService: ChatServicing {
     var fetchTrackableSessionsError: Error?
     var streams: [StreamSession] = []
     var trackableSessions: [TrackableSession] = []
+    private(set) var fetchStreamsCallCount: Int = 0
     private(set) var fetchTrackableSessionsCallCount: Int = 0
     private(set) var deleteStreamCallCount: Int = 0
     private(set) var lastDeletedSessionKey: String?
@@ -2862,7 +2854,8 @@ private final class TestChatService: ChatServicing {
     }
 
     func fetchStreams() async throws -> [StreamSession] {
-        streams
+        fetchStreamsCallCount += 1
+        return streams
     }
 
     func fetchTrackableSessions() async throws -> [TrackableSession] {

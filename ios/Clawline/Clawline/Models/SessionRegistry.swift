@@ -56,7 +56,7 @@ final class SessionRegistry {
     func adoptedSessionKeys() -> [String] {
         lock.lock()
         let values = streamsBySessionKey.values
-            .filter { $0.trackingMode == .adopted }
+            .filter(\.adopted)
             .sorted { lhs, rhs in
                 if lhs.orderIndex == rhs.orderIndex {
                     return lhs.sessionKey < rhs.sessionKey
