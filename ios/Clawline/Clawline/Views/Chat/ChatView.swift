@@ -1496,6 +1496,12 @@ struct ChatView: View {
                 maxAvailableHeight: streamSelectorMaxHeight,
                 onSelectStream: { sessionKey in
                     selectStream(sessionKey, source: .programmatic)
+                },
+                onTrackPickerWillPresent: {
+                    prepareForAttachmentPicker()
+                },
+                onTrackPickerDidDismiss: {
+                    restoreFocusIfNeeded()
                 }
             )
             .presentationCompactAdaptation(.popover)

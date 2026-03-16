@@ -16,6 +16,8 @@ struct StreamManagerSheet: View {
     @Binding var isPresented: Bool
     let maxAvailableHeight: CGFloat
     let onSelectStream: (String) -> Void
+    let onTrackPickerWillPresent: () -> Void
+    let onTrackPickerDidDismiss: () -> Void
 
     @State private var draftName = ""
     @State private var searchQuery = ""
@@ -236,6 +238,7 @@ struct StreamManagerSheet: View {
 
                 if viewModel.canUseTrackFeature {
                     Button {
+                        onTrackPickerWillPresent()
                         selectedTrackCandidateSessionKey = nil
                         isTrackPickerPresented = true
                     } label: {
@@ -329,7 +332,10 @@ struct StreamManagerSheet: View {
         }
         .sheet(
             isPresented: $isTrackPickerPresented,
-            onDismiss: { selectedTrackCandidateSessionKey = nil }
+            onDismiss: {
+                selectedTrackCandidateSessionKey = nil
+                onTrackPickerDidDismiss()
+            }
         ) {
             trackPickerSheet
         }
