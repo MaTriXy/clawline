@@ -198,6 +198,7 @@ struct StreamManagerSheet: View {
             .scrollContentBackground(.hidden)
             .background(Color.clear)
             .frame(height: listViewportHeight)
+            .clipShape(Rectangle())
             .disabled(isWorking)
 
             sectionSeparator
@@ -428,18 +429,12 @@ struct StreamManagerSheet: View {
     private func removeStream(_ stream: StreamSession) async {
         guard !isRemovingStream(stream.sessionKey) else { return }
         removingSessionKeys.insert(stream.sessionKey)
-        let succeeded: Bool
-        if viewModel.isAdoptedStream(sessionKey: stream.sessionKey) {
-            succeeded = viewModel.untrackStream(sessionKey: stream.sessionKey)
-        } else {
-            succeeded = await viewModel.deleteStream(sessionKey: stream.sessionKey)
-        }
-        if !succeeded {
-            removingSessionKeys.remove(stream.sessionKey)
-        }
+        let succeeded = await viewModel.deleteStream(sessionKey: stream.sessionKey)
+        removingSessionKeys.remove(stream.sessionKey)
         if activeEditor == .renaming(stream.sessionKey) {
             resetInlineEditing()
         }
+        guard succeeded else { return }
     }
 
     private var pendingRemovalTitle: String {

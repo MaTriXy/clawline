@@ -1357,25 +1357,6 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    func untrackStream(sessionKey: String) -> Bool {
-        guard canUntrackStream(sessionKey: sessionKey) else { return false }
-        guard let stream = streamsBySessionKey[sessionKey] else { return false }
-        pendingUntrackRecovery = stream
-        unlinkTrackedSession(sessionKey: sessionKey)
-        // Tell server to remove the adopted stream entry
-        Task { [weak self] in
-            _ = try? await self?.chatService.deleteStream(sessionKey: sessionKey, idempotencyKey: nil)
-        }
-        toastManager.show(
-            "Session untracked.",
-            actionTitle: "Undo",
-            action: { [weak self] in
-                self?.undoPendingUntrack()
-            }
-        )
-        return true
-    }
-
     func createStream(displayName: String) async -> Bool {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
@@ -1424,14 +1405,15 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func deleteStream(sessionKey: String) async -> Bool {
-        guard canDeleteStream(sessionKey: sessionKey) else { return false }
-        let idempotencyKey = Self.makeIdempotencyKey()
+        guard let stream = streamsBySessionKey[sessionKey] else { return false }
+        guard stream.adopted || canDeleteStream(sessionKey: sessionKey) else { return false }
+        let idempotencyKey = stream.adopted ? nil : Self.makeIdempotencyKey()
         do {
             _ = try await chatService.deleteStream(
                 sessionKey: sessionKey,
                 idempotencyKey: idempotencyKey
             )
-            applyStreamDeletion(sessionKey: sessionKey)
+            applyDeleteSuccess(for: stream)
             return true
         } catch {
             if shouldRetryDeleteOnActiveConnection(after: error) {
@@ -1441,7 +1423,7 @@ final class ChatViewModel: ChatViewModelHosting {
                         sessionKey: sessionKey,
                         idempotencyKey: idempotencyKey
                     )
-                    applyStreamDeletion(sessionKey: sessionKey)
+                    applyDeleteSuccess(for: stream)
                     return true
                 } catch {
                     toastManager.show(error.localizedDescription)
@@ -2315,7 +2297,7 @@ final class ChatViewModel: ChatViewModelHosting {
             if !hasReceivedExplicitSessionInfo {
                 removeAccessibleSessionKey(sessionKey)
             }
-            applyStreamDeletion(sessionKey: sessionKey)
+            applyDeletedStreamMutation(sessionKey: sessionKey)
             refreshStreamsFromProvider(reason: "streamDeleted")
             refreshTrackableSessions(reason: "streamDeleted")
             attemptPendingProvisionedSendIfPossible()
@@ -2863,6 +2845,33 @@ final class ChatViewModel: ChatViewModelHosting {
         persistStreamMetadata()
     }
 
+    private func applyDeleteSuccess(for stream: StreamSession) {
+        if stream.adopted {
+            pendingUntrackRecovery = stream
+            applyDeletedStreamMutation(sessionKey: stream.sessionKey)
+            refreshTrackableSessions(reason: "deleteSuccess")
+            toastManager.show(
+                "Session untracked.",
+                actionTitle: "Undo",
+                action: { [weak self] in
+                    Task { @MainActor [weak self] in
+                        await self?.undoPendingUntrack()
+                    }
+                }
+            )
+            return
+        }
+        applyDeletedStreamMutation(sessionKey: stream.sessionKey)
+    }
+
+    private func applyDeletedStreamMutation(sessionKey: String) {
+        if pendingUntrackRecovery?.sessionKey == sessionKey || streamsBySessionKey[sessionKey]?.adopted == true {
+            unlinkTrackedSession(sessionKey: sessionKey)
+            return
+        }
+        applyStreamDeletion(sessionKey: sessionKey)
+    }
+
     private func unlinkTrackedSession(sessionKey: String) {
         streamsBySessionKey.removeValue(forKey: sessionKey)
         syntheticSessionKeys.remove(sessionKey)
@@ -2891,22 +2900,10 @@ final class ChatViewModel: ChatViewModelHosting {
         persistStreamMetadata()
     }
 
-    private func linkTrackedSession(_ stream: StreamSession) {
-        streamsBySessionKey[stream.sessionKey] = stream
-        syntheticSessionKeys.remove(stream.sessionKey)
-        recalculateOrderedSessionKeys()
-        ensureSessionStorage(for: stream.sessionKey)
-        restoreLastReadMessageIdIfNeeded(for: stream.sessionKey)
-        restoreCachedMessagesIfNeeded(for: stream.sessionKey)
-        refreshUnreadState(for: stream.sessionKey)
-        persistStreamMetadata()
-        SessionRegistry.shared.upsert(stream)
-    }
-
-    private func undoPendingUntrack() {
+    private func undoPendingUntrack() async {
         guard let stream = pendingUntrackRecovery else { return }
         pendingUntrackRecovery = nil
-        linkTrackedSession(stream)
+        _ = await trackSession(sessionKey: stream.sessionKey)
     }
 
     private func recalculateOrderedSessionKeys() {

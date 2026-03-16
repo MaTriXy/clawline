@@ -1986,7 +1986,7 @@ struct ChatViewModelTests {
         #expect(viewModel.untrackedSessionCandidates.isEmpty)
     }
 
-    @Test("Untrack removes Clawline linkage without deleting underlying session")
+    @Test("Adopted delete removes Clawline linkage without deleting preserved messages")
     @MainActor
     func untrackRemovesLocalLinkOnly() async throws {
         resetChatPersistence()
@@ -2046,17 +2046,21 @@ struct ChatViewModelTests {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(viewModel.untrackStream(sessionKey: adoptedKey))
+        #expect(!viewModel.canDeleteStream(sessionKey: adoptedKey))
+        #expect(await viewModel.deleteStream(sessionKey: adoptedKey))
         #expect(viewModel.stream(for: adoptedKey) == nil)
         #expect(viewModel.messages(for: adoptedKey).last?.content == "Preserve me")
         #expect(toastManager.toast?.message == "Session untracked.")
         #expect(toastManager.toast?.actionTitle == "Undo")
-        #expect(viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey])
-        #expect(chatService.deleteStreamCallCount == 0)
-        #expect(chatService.lastDeletedSessionKey == nil)
+        #expect(chatService.deleteStreamCallCount == 1)
+        #expect(chatService.lastDeletedSessionKey == adoptedKey)
+
+        chatService.emitServiceEvent(.streamDeleted(sessionKey: adoptedKey))
+
+        #expect(viewModel.messages(for: adoptedKey).last?.content == "Preserve me")
     }
 
-    @Test("Undo after untrack restores adopted session linkage")
+    @Test("Undo after adopted delete restores session linkage through track")
     @MainActor
     func untrackUndoRestoresAdoptedSession() async throws {
         resetChatPersistence()
@@ -2100,15 +2104,21 @@ struct ChatViewModelTests {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(viewModel.untrackStream(sessionKey: adoptedKey))
+        #expect(await viewModel.deleteStream(sessionKey: adoptedKey))
         #expect(viewModel.stream(for: adoptedKey) == nil)
         #expect(toastManager.toast?.actionTitle == "Undo")
 
         toastManager.performAction()
 
+        for _ in 0..<50 {
+            if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
         #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
         #expect(viewModel.stream(for: adoptedKey)?.displayName == "Undo Session")
         #expect(toastManager.toast == nil)
+        #expect(chatService.adoptStreamCallCount == 2)
     }
 
     @Test("Adopted sessions remain renameable while delete stays unavailable")
