@@ -1362,6 +1362,10 @@ final class ChatViewModel: ChatViewModelHosting {
         guard let stream = streamsBySessionKey[sessionKey] else { return false }
         pendingUntrackRecovery = stream
         unlinkTrackedSession(sessionKey: sessionKey)
+        // Tell server to remove the adopted stream entry
+        Task { [weak self] in
+            _ = try? await self?.chatService.deleteStream(sessionKey: sessionKey, idempotencyKey: nil)
+        }
         toastManager.show(
             "Session untracked.",
             actionTitle: "Undo",
