@@ -2111,14 +2111,13 @@ struct ChatViewModelTests {
         #expect(toastManager.toast == nil)
     }
 
-    @Test("Adopted sessions cannot be renamed through the provider path")
+    @Test("Adopted sessions remain renameable while delete stays unavailable")
     @MainActor
-    func adoptedSessionsCannotBeRenamed() async throws {
+    func adoptedSessionsCanBeRenamedWithoutDelete() async throws {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
-        let toastManager = ToastManager()
         chatService.streams = [
             makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
         ]
@@ -2128,7 +2127,7 @@ struct ChatViewModelTests {
             settings: SettingsManager(),
             device: TestDevice(),
             uploadService: TestUploadService(),
-            toastManager: toastManager,
+            toastManager: ToastManager(),
             salientHighlightService: SalientHighlightService()
         )
         defer { viewModel.onDisappear() }
@@ -2155,13 +2154,14 @@ struct ChatViewModelTests {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(!viewModel.canRenameStream(sessionKey: adoptedKey))
+        #expect(viewModel.canRenameStream(sessionKey: adoptedKey))
+        #expect(!viewModel.canDeleteStream(sessionKey: adoptedKey))
+        #expect(viewModel.canUntrackStream(sessionKey: adoptedKey))
         let renamed = await viewModel.renameStream(sessionKey: adoptedKey, displayName: "Renamed")
 
-        #expect(!renamed)
-        #expect(chatService.renameStreamCallCount == 0)
-        #expect(toastManager.debugMessages.contains("Tracked sessions can't be renamed."))
-        #expect(viewModel.stream(for: adoptedKey)?.displayName == "Rename Me")
+        #expect(renamed)
+        #expect(chatService.renameStreamCallCount == 1)
+        #expect(viewModel.stream(for: adoptedKey)?.displayName == "Renamed")
     }
 
     @Test("Adopted session restores as last saved chat on startup")

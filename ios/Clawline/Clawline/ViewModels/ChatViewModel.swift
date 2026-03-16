@@ -1298,7 +1298,6 @@ final class ChatViewModel: ChatViewModelHosting {
     func canRenameStream(sessionKey: String) -> Bool {
         guard let stream = streamsBySessionKey[sessionKey] else { return false }
         guard !syntheticSessionKeys.contains(sessionKey) else { return false }
-        guard stream.trackingMode != .adopted else { return false }
         if stream.kind == "main" { return true }
         if SessionKey.isClawlinePersonalDM(stream.sessionKey) { return true }
         return !stream.isBuiltIn
@@ -1401,10 +1400,6 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func renameStream(sessionKey: String, displayName: String) async -> Bool {
-        if isAdoptedStream(sessionKey: sessionKey) {
-            toastManager.show("Tracked sessions can't be renamed.")
-            return false
-        }
         guard canRenameStream(sessionKey: sessionKey) else { return false }
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
