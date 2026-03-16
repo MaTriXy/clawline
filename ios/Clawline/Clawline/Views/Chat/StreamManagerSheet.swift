@@ -47,13 +47,8 @@ struct StreamManagerSheet: View {
     private let listOuterVerticalPadding: CGFloat = 20
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
-    private let toolbarBorderOpacity: CGFloat = 0.22
-    private let toolbarBorderWidth: CGFloat = 0.8
-    private let plusBorderOpacity: CGFloat = 0.34
-    private let plusBorderWidth: CGFloat = 1
-    private let secondaryButtonBorderOpacity: CGFloat = 0.24
-    private let secondaryButtonBorderWidth: CGFloat = 0.8
-    private let debugBorderWidth: CGFloat = 2
+    private let actionBarSeparatorOpacity: CGFloat = 0.12
+    private let actionBarSeparatorInset: CGFloat = 12
 
     private var actionBarHeight: CGFloat {
         functionBarHeight + actionBarTopPadding + actionBarBottomPadding
@@ -219,7 +214,7 @@ struct StreamManagerSheet: View {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
-                    TextField("Search streams", text: $searchQuery)
+                    TextField("Filter…", text: $searchQuery)
                         .font(.clawline(.uiLabel))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -228,13 +223,6 @@ struct StreamManagerSheet: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: functionBarHeight)
                 .contentShape(Rectangle())
-                .overlay {
-                    debugBorderOverlay(
-                        cornerRadius: 10,
-                        baseOpacity: secondaryButtonBorderOpacity,
-                        baseWidth: secondaryButtonBorderWidth
-                    )
-                }
 
                 if viewModel.canUseTrackFeature {
                     Button {
@@ -246,16 +234,9 @@ struct StreamManagerSheet: View {
                             .frame(minWidth: 88, maxWidth: .infinity)
                             .frame(height: functionBarHeight, alignment: .center)
                             .overlay {
-                                Text("Track")
+                                Label("Track", systemImage: "eye")
                                     .font(.clawline(.secondaryLabel).weight(.semibold))
                                     .foregroundStyle(.primary)
-                            }
-                            .overlay {
-                                debugBorderOverlay(
-                                    cornerRadius: 10,
-                                    baseOpacity: secondaryButtonBorderOpacity,
-                                    baseWidth: secondaryButtonBorderWidth
-                                )
                             }
                             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
@@ -276,13 +257,6 @@ struct StreamManagerSheet: View {
                                 .font(.clawline(.subsectionHeader).weight(.regular))
                                 .foregroundStyle(.primary)
                         }
-                        .overlay {
-                            debugBorderOverlay(
-                                cornerRadius: 10,
-                                baseOpacity: plusBorderOpacity,
-                                baseWidth: plusBorderWidth
-                            )
-                        }
                         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -293,12 +267,12 @@ struct StreamManagerSheet: View {
             .padding(.horizontal, listRowHorizontalInset)
             .padding(.top, actionBarTopPadding)
             .padding(.bottom, actionBarBottomPadding)
-            .overlay {
-                debugBorderOverlay(
-                    cornerRadius: 16,
-                    baseOpacity: toolbarBorderOpacity,
-                    baseWidth: toolbarBorderWidth
-                )
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color.white.opacity(actionBarSeparatorOpacity))
+                    .frame(height: 0.5)
+                    .padding(.horizontal, actionBarSeparatorInset)
+                    .allowsHitTesting(false)
             }
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
@@ -506,7 +480,7 @@ struct StreamManagerSheet: View {
     }
 
     private func removalActionImage(for stream: StreamSession) -> String {
-        viewModel.isAdoptedStream(sessionKey: stream.sessionKey) ? "minus.circle" : "trash"
+        viewModel.isAdoptedStream(sessionKey: stream.sessionKey) ? "eye.slash" : "trash"
     }
 
     private func dismissTrackPicker() {
@@ -573,12 +547,6 @@ struct StreamManagerSheet: View {
         }
     }
 
-    @ViewBuilder
-    private func debugBorderOverlay(cornerRadius: CGFloat, baseOpacity: CGFloat, baseWidth: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .stroke(Color.red.opacity(max(baseOpacity, 0.9)), lineWidth: max(baseWidth, debugBorderWidth))
-            .allowsHitTesting(false)
-    }
 }
 
 enum StreamSelectorLayout {
