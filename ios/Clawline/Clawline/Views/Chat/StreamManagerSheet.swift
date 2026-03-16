@@ -165,6 +165,14 @@ struct StreamManagerSheet: View {
         Color.white.opacity(hasSelectedTrackCandidate ? 0.12 : 0.04)
     }
 
+    private var trackPickerMatchHighlightColor: Color {
+        StreamDotColor.resolve(
+            isActive: true,
+            hasUnread: false,
+            colorScheme: colorScheme
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             List {
@@ -769,7 +777,7 @@ struct StreamManagerSheet: View {
             candidate.displayName,
             query: trackSearchQuery,
             defaultColor: .primary,
-            highlightColor: .primary
+            highlightColor: trackPickerMatchHighlightColor
         )
     }
 
@@ -779,7 +787,7 @@ struct StreamManagerSheet: View {
             snippet.text,
             highlightedRange: snippet.highlightedRange,
             defaultColor: .secondary,
-            highlightColor: .primary
+            highlightColor: trackPickerMatchHighlightColor
         )
     }
 
