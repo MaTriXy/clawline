@@ -138,16 +138,20 @@ struct StreamManagerSheet: View {
                             Button {
                                 beginRenaming(stream)
                             } label: {
-                                Label("Rename", systemImage: "pencil")
+                                Image(systemName: "pencil")
+                                    .font(.title3.weight(.semibold))
                             }
+                            .accessibilityLabel("Rename")
                             .disabled(!canPerformRenameAction(for: stream))
                             .tint(canPerformRenameAction(for: stream) ? .blue : Color.gray.opacity(0.35))
 
                             Button {
                                 pendingRemovalStream = stream
                             } label: {
-                                Label(removalActionTitle(for: stream), systemImage: removalActionImage(for: stream))
+                                Image(systemName: removalActionImage(for: stream))
+                                    .font(.title3.weight(.semibold))
                             }
+                            .accessibilityLabel(removalActionTitle(for: stream))
                             .disabled(!canPerformRemovalAction(for: stream))
                             .tint(canPerformRemovalAction(for: stream) ? .red : Color.gray.opacity(0.35))
                         }
@@ -210,6 +214,12 @@ struct StreamManagerSheet: View {
             .frame(height: listViewportHeight)
             .disabled(isWorking)
 
+            Rectangle()
+                .fill(Color.white.opacity(actionBarSeparatorOpacity))
+                .frame(height: 0.5)
+                .padding(.horizontal, actionBarSeparatorInset)
+                .allowsHitTesting(false)
+
             HStack(spacing: 12) {
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
@@ -231,17 +241,17 @@ struct StreamManagerSheet: View {
                     } label: {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(Color.clear)
-                            .frame(minWidth: 88, maxWidth: .infinity)
-                            .frame(height: functionBarHeight, alignment: .center)
+                            .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
                             .overlay {
-                                Label("Track", systemImage: "eye")
-                                    .font(.clawline(.secondaryLabel).weight(.semibold))
+                                Image(systemName: "eye")
+                                    .font(.clawline(.subsectionHeader).weight(.regular))
                                     .foregroundStyle(.primary)
                             }
                             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .disabled(activeEditor != nil || trackCandidates.isEmpty)
+                    .accessibilityLabel("Track")
                     .accessibilityHint("Tracks an existing untracked session")
                 }
 
@@ -267,13 +277,6 @@ struct StreamManagerSheet: View {
             .padding(.horizontal, listRowHorizontalInset)
             .padding(.top, actionBarTopPadding)
             .padding(.bottom, actionBarBottomPadding)
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(Color.white.opacity(actionBarSeparatorOpacity))
-                    .frame(height: 0.5)
-                    .padding(.horizontal, actionBarSeparatorInset)
-                    .allowsHitTesting(false)
-            }
         }
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .frame(height: cappedContainerHeight)
