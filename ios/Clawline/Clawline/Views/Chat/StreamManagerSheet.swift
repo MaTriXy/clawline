@@ -52,6 +52,7 @@ struct StreamManagerSheet: View {
     private let popupCornerRadius: CGFloat = 20
     private let actionBarSeparatorOpacity: CGFloat = 0.12
     private let actionBarSeparatorInset: CGFloat = 12
+    private let trackPickerRowCornerRadius: CGFloat = 14
 
     private var actionBarHeight: CGFloat {
         functionBarHeight + actionBarTopPadding + actionBarBottomPadding
@@ -519,6 +520,7 @@ struct StreamManagerSheet: View {
             List {
                 Section {
                     ForEach(filteredTrackCandidates) { candidate in
+                        let isSelected = selectedTrackCandidateSessionKey == candidate.sessionKey
                         Button {
                             selectedTrackCandidateSessionKey = candidate.sessionKey
                         } label: {
@@ -528,13 +530,36 @@ struct StreamManagerSheet: View {
                                     .foregroundStyle(.primary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                                Image(systemName: selectedTrackCandidateSessionKey == candidate.sessionKey ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selectedTrackCandidateSessionKey == candidate.sessionKey ? .primary : .secondary)
+                                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(isSelected ? .primary : .secondary)
                             }
-                            .padding(.vertical, 4)
-                            .contentShape(Rectangle())
+                            .padding(.horizontal, 14)
+                            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                            .background {
+                                RoundedRectangle(cornerRadius: trackPickerRowCornerRadius, style: .continuous)
+                                    .fill(isSelected ? Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.07) : Color.clear)
+                            }
+                            .overlay {
+                                RoundedRectangle(cornerRadius: trackPickerRowCornerRadius, style: .continuous)
+                                    .stroke(
+                                        isSelected ? Color.primary.opacity(0.18) : Color.white.opacity(0.06),
+                                        lineWidth: isSelected ? 1 : 0.5
+                                    )
+                            }
+                            .contentShape(RoundedRectangle(cornerRadius: trackPickerRowCornerRadius, style: .continuous))
                         }
                         .buttonStyle(.plain)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 4,
+                                leading: 16,
+                                bottom: 4,
+                                trailing: 16
+                            )
+                        )
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
 
                     if filteredTrackCandidates.isEmpty {
@@ -542,11 +567,18 @@ struct StreamManagerSheet: View {
                             .font(.clawline(.secondaryLabel))
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 20)
+                            .listRowSeparator(.hidden)
                             .listRowBackground(Color.clear)
                     }
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+            .contentMargins(.vertical, 12, for: .scrollContent)
             .navigationTitle("Track Session")
+            .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     Rectangle()
@@ -554,13 +586,19 @@ struct StreamManagerSheet: View {
                         .frame(height: 0.5)
                         .allowsHitTesting(false)
 
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Filter…", text: $trackSearchQuery)
-                            .font(.clawline(.uiLabel))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                    HStack {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+                            TextField("Filter…", text: $trackSearchQuery)
+                                .font(.clawline(.uiLabel))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 40)
+                        .background(Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
@@ -577,6 +615,7 @@ struct StreamManagerSheet: View {
                     Button("Adopt") {
                         adoptSelectedTrackSession()
                     }
+                    .font(.clawline(.subsectionHeader).weight(.semibold))
                     .disabled(selectedTrackCandidate == nil)
                 }
             }
