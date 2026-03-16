@@ -555,6 +555,7 @@ struct StreamManagerSheet: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: trackPickerSectionSpacing) {
+                        trackPickerIntroCard
                         trackPickerCandidateSection
                     }
                     .padding(.horizontal, trackPickerContentHorizontalPadding)
@@ -584,6 +585,41 @@ struct StreamManagerSheet: View {
             .frame(height: 0.5)
             .padding(.horizontal, actionBarSeparatorInset)
             .allowsHitTesting(false)
+    }
+
+    private var trackPickerIntroCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "eye")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        Circle()
+                            .fill(Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.08))
+                    )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Bring an existing agent session into Clawline")
+                        .font(.clawline(.subsectionHeader).weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Choose a session below, then confirm with Adopt. Until then, nothing is tracked.")
+                        .font(.clawline(.secondaryLabel))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.05))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        }
     }
 
     private var trackPickerSearchField: some View {
