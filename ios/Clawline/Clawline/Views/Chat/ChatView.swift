@@ -1501,7 +1501,10 @@ struct ChatView: View {
                     prepareForAttachmentPicker()
                 },
                 onTrackPickerDidDismiss: {
-                    restoreFocusIfNeeded()
+                    Task { @MainActor in
+                        await Task.yield()
+                        restoreFocusIfNeeded()
+                    }
                 }
             )
             .presentationCompactAdaptation(.popover)

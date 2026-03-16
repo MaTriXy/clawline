@@ -31,6 +31,7 @@ struct StreamManagerSheet: View {
     @State private var pendingRemovalStream: StreamSession?
     @State private var renderedContainerHeight: CGFloat = 0
     @FocusState private var focusedEditor: EditorMode?
+    @FocusState private var isTrackSearchFieldFocused: Bool
 
     private enum EditorMode: Hashable {
         case renaming(String)
@@ -54,7 +55,7 @@ struct StreamManagerSheet: View {
     private let actionBarSeparatorInset: CGFloat = 12
     private let trackPickerRowCornerRadius: CGFloat = 14
     private let trackPickerContentHorizontalPadding: CGFloat = 20
-    private let trackPickerSectionSpacing: CGFloat = 18
+    private let trackPickerSectionSpacing: CGFloat = 14
     private let trackPickerBottomBarHeight: CGFloat = 88
     private let trackPickerSearchFieldHeight: CGFloat = 44
     private let trackPickerActionButtonHeight: CGFloat = 48
@@ -142,23 +143,8 @@ struct StreamManagerSheet: View {
             : "No matching sessions"
     }
 
-    private var trackPickerSelectionTitle: String {
-        selectedTrackCandidate?.displayName ?? "Select a session to adopt"
-    }
-
-    private var trackPickerSelectionSubtitle: String {
-        guard let selectedTrackCandidate else {
-            return "Nothing changes until you tap Adopt."
-        }
-        return shortenedTrackSessionKey(selectedTrackCandidate.sessionKey)
-    }
-
     private var hasSelectedTrackCandidate: Bool {
         selectedTrackCandidate != nil
-    }
-
-    private var trackPickerSelectionTitleColor: Color {
-        hasSelectedTrackCandidate ? .primary : .secondary
     }
 
     private var trackPickerActionForegroundColor: Color {
@@ -544,6 +530,7 @@ struct StreamManagerSheet: View {
     }
 
     private func dismissTrackPicker() {
+        isTrackSearchFieldFocused = false
         selectedTrackCandidateSessionKey = nil
         trackSearchQuery = ""
         isTrackPickerPresented = false
@@ -560,12 +547,10 @@ struct StreamManagerSheet: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: trackPickerSectionSpacing) {
-                        trackPickerIntroCard
-                        trackPickerSearchField
                         trackPickerCandidateSection
                     }
                     .padding(.horizontal, trackPickerContentHorizontalPadding)
-                    .padding(.top, 20)
+                    .padding(.top, 16)
                     .padding(.bottom, 24)
                 }
             }
@@ -593,41 +578,6 @@ struct StreamManagerSheet: View {
             .allowsHitTesting(false)
     }
 
-    private var trackPickerIntroCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "eye")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        Circle()
-                            .fill(Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.08))
-                    )
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Bring an existing agent session into Clawline")
-                        .font(.clawline(.subsectionHeader).weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("Choose a session below, then confirm with Adopt. Until then, nothing is tracked.")
-                        .font(.clawline(.secondaryLabel))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.05))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
-        }
-    }
-
     private var trackPickerSearchField: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
@@ -636,6 +586,7 @@ struct StreamManagerSheet: View {
                 .font(.clawline(.uiLabel))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($isTrackSearchFieldFocused)
         }
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, minHeight: trackPickerSearchFieldHeight, alignment: .leading)
@@ -714,30 +665,19 @@ struct StreamManagerSheet: View {
 
     private var trackPickerBottomBar: some View {
         VStack(spacing: 0) {
-            sectionSeparator
+            trackPickerBottomSeparator
 
             HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(trackPickerSelectionTitle)
-                        .font(.clawline(.subsectionHeader).weight(.semibold))
-                        .foregroundStyle(trackPickerSelectionTitleColor)
-                        .lineLimit(1)
-                    Text(trackPickerSelectionSubtitle)
-                        .font(.clawline(.secondaryLabel))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 12)
+                trackPickerSearchField
 
                 Button {
                     adoptSelectedTrackSession()
                 } label: {
                     Text("Adopt")
                         .font(.clawline(.subsectionHeader).weight(.semibold))
-                        .frame(minWidth: 104)
+                        .frame(minWidth: 96)
                         .frame(height: trackPickerActionButtonHeight)
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 6)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(trackPickerActionForegroundColor)
@@ -757,6 +697,14 @@ struct StreamManagerSheet: View {
             .frame(minHeight: trackPickerBottomBarHeight)
             .background(.regularMaterial)
         }
+    }
+
+    private var trackPickerBottomSeparator: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.18))
+            .frame(maxWidth: .infinity)
+            .frame(height: 0.5)
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -784,20 +732,10 @@ struct StreamManagerSheet: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
-                    HStack(spacing: 8) {
-                        Text("Agent session")
-                            .font(.clawline(.secondaryLabel).weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06))
-                            .clipShape(Capsule())
-
-                        Text(shortenedTrackSessionKey(candidate.sessionKey))
-                            .font(.clawline(.secondaryLabel, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    Text(shortenedTrackSessionKey(candidate.sessionKey))
+                        .font(.clawline(.secondaryLabel, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
