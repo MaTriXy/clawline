@@ -2615,6 +2615,18 @@ private final class PreviewChatService: ChatServicing {
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {}
     func fetchStreams() async throws -> [StreamSession] { [] }
     func fetchTrackableSessions() async throws -> [TrackableSession] { [] }
+    func adoptStream(sessionKey: String) async throws -> StreamSession {
+        StreamSession(
+            sessionKey: sessionKey,
+            displayName: "Preview Adopted",
+            kind: "custom",
+            orderIndex: 0,
+            isBuiltIn: false,
+            createdAt: Date(),
+            updatedAt: Date(),
+            trackingMode: .adopted
+        )
+    }
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
         StreamSession(
             sessionKey: "preview",

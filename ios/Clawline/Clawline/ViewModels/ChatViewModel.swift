@@ -1338,29 +1338,18 @@ final class ChatViewModel: ChatViewModelHosting {
         return trackableSessionsBySessionKey[sessionKey] != nil
     }
 
-    func trackSession(sessionKey: String) -> Bool {
+    func trackSession(sessionKey: String) async -> Bool {
         guard canTrackSession(sessionKey: sessionKey) else { return false }
-
-        let updatedStream: StreamSession
-        if var existing = streamsBySessionKey[sessionKey] {
-            existing.trackingMode = .adopted
-            updatedStream = existing
-        } else {
-            updatedStream = StreamSession(
-                sessionKey: sessionKey,
-                displayName: trackableSessionsBySessionKey[sessionKey]?.displayName ?? fallbackDisplayName(for: sessionKey),
-                kind: "custom",
-                orderIndex: nextSyntheticOrderIndex(),
-                isBuiltIn: false,
-                createdAt: Date(),
-                updatedAt: Date(),
-                trackingMode: .adopted
-            )
+        do {
+            let stream = try await chatService.adoptStream(sessionKey: sessionKey)
+            pendingUntrackRecovery = nil
+            applyStreamUpsert(stream)
+            refreshTrackableSessions(reason: "trackSuccess")
+            return true
+        } catch {
+            toastManager.show(error.localizedDescription)
+            return false
         }
-
-        pendingUntrackRecovery = nil
-        linkTrackedSession(updatedStream)
-        return true
     }
 
     func untrackStream(sessionKey: String) -> Bool {

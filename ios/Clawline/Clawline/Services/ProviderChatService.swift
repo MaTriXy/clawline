@@ -296,6 +296,20 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
+    func adoptStream(sessionKey: String) async throws -> StreamSession {
+        guard let token = await resolveControlPlaneToken() else {
+            throw Error.notConnected
+        }
+        do {
+            return try await streamAPIClient.adoptStream(
+                sessionKey: sessionKey,
+                token: token
+            )
+        } catch {
+            throw mapStreamAPIError(error)
+        }
+    }
+
     func renameStream(sessionKey: String, displayName: String) async throws -> StreamSession {
         guard let token = await resolveControlPlaneToken() else {
             throw Error.notConnected

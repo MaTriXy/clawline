@@ -545,6 +545,61 @@ struct ProviderServiceTests {
         #expect(sessions.map(\.sessionKey) == ["agent:main:clawline:user:s_trackable"])
     }
 
+    @Test("Adopt stream request posts session key to provider")
+    func adoptStreamPostsSessionKeyToProvider() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        defer { HTTPStubURLProtocol.requestHandler = nil }
+        HTTPStubURLProtocol.requestHandler = { request in
+            #expect(request.url?.path == "/api/streams/adopt")
+            #expect(request.httpMethod == "POST")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer jwt")
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
+            #expect(body?["sessionKey"] as? String == "agent:main:openclaw:user:s_trackable")
+            let data = #"""
+            {
+              "stream": {
+                "sessionKey": "agent:main:openclaw:user:s_trackable",
+                "displayName": "Trackable Session",
+                "kind": "custom",
+                "orderIndex": 3,
+                "isBuiltIn": false,
+                "createdAt": 1700000000000,
+                "updatedAt": 1700000000000,
+                "trackingMode": "adopted"
+              }
+            }
+            """#.data(using: .utf8) ?? Data()
+            return (
+                HTTPURLResponse(
+                    url: request.url ?? baseURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPStubURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let streamAPIClient = StreamAPIClient(baseURLProvider: { baseURL }, session: urlSession)
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            authTokenProvider: { "jwt" },
+            streamAPIClient: streamAPIClient
+        )
+
+        let stream = try await service.adoptStream(sessionKey: "agent:main:openclaw:user:s_trackable")
+
+        #expect(stream.sessionKey == "agent:main:openclaw:user:s_trackable")
+        #expect(stream.displayName == "Trackable Session")
+        #expect(stream.trackingMode == .adopted)
+    }
+
     @Test("Chat service emits incremental stream events")
     func chatIncrementalStreamEvents() async throws {
         let mockSocket = MockWebSocketClient()

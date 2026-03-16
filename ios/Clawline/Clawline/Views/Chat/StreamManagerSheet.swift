@@ -546,8 +546,16 @@ struct StreamManagerSheet: View {
 
     private func adoptSelectedTrackSession() {
         guard let selectedTrackCandidate else { return }
-        guard viewModel.trackSession(sessionKey: selectedTrackCandidate.sessionKey) else { return }
-        dismissTrackPicker()
+        guard !isWorking else { return }
+        isWorking = true
+        Task {
+            let succeeded = await viewModel.trackSession(sessionKey: selectedTrackCandidate.sessionKey)
+            await MainActor.run {
+                isWorking = false
+                guard succeeded else { return }
+                dismissTrackPicker()
+            }
+        }
     }
 
     private var trackPickerSheet: some View {
@@ -733,7 +741,7 @@ struct StreamManagerSheet: View {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(trackPickerActionBorderColor, lineWidth: 0.5)
                 }
-                .disabled(!hasSelectedTrackCandidate)
+                .disabled(!hasSelectedTrackCandidate || isWorking)
             }
             .padding(.horizontal, trackPickerContentHorizontalPadding)
             .padding(.top, 14)

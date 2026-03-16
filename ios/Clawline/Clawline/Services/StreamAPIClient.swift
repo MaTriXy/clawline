@@ -51,6 +51,10 @@ final class StreamAPIClient {
         let displayName: String
     }
 
+    private struct AdoptStreamRequest: Encodable {
+        let sessionKey: String
+    }
+
     private struct RenameStreamRequest: Encodable {
         let displayName: String
     }
@@ -105,6 +109,16 @@ final class StreamAPIClient {
             path: "/api/streams",
             token: token,
             body: CreateStreamRequest(idempotencyKey: idempotencyKey, displayName: displayName)
+        )
+        return response.stream
+    }
+
+    func adoptStream(sessionKey: String, token: String?) async throws -> StreamSession {
+        let response: MutateStreamResponse = try await sendRequest(
+            method: "POST",
+            path: "/api/streams/adopt",
+            token: token,
+            body: AdoptStreamRequest(sessionKey: sessionKey)
         )
         return response.stream
     }

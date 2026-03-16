@@ -1776,7 +1776,7 @@ struct ChatViewModelTests {
         }
 
         #expect(viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey])
-        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        #expect(await viewModel.trackSession(sessionKey: adoptedKey))
         for _ in 0..<50 {
             if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
             try await Task.sleep(for: .milliseconds(20))
@@ -1784,6 +1784,8 @@ struct ChatViewModelTests {
         #expect(viewModel.isAdoptedStream(sessionKey: adoptedKey))
         #expect(viewModel.canUntrackStream(sessionKey: adoptedKey))
         #expect(!viewModel.canDeleteStream(sessionKey: adoptedKey))
+        #expect(chatService.adoptStreamCallCount == 1)
+        #expect(chatService.lastAdoptedSessionKey == adoptedKey)
 
         chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
         for _ in 0..<50 {
@@ -1833,7 +1835,7 @@ struct ChatViewModelTests {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        #expect(await viewModel.trackSession(sessionKey: adoptedKey))
         viewModel.setActiveSessionKeyForTesting(adoptedKey)
 
         chatService.emitServiceEvent(.sessionProvisioningAvailable(true))
@@ -1939,7 +1941,7 @@ struct ChatViewModelTests {
 
         #expect(viewModel.untrackedSessionCandidates.map(\.sessionKey).contains(agentSessionKey))
         #expect(viewModel.canTrackSession(sessionKey: agentSessionKey))
-        #expect(viewModel.trackSession(sessionKey: agentSessionKey))
+        #expect(await viewModel.trackSession(sessionKey: agentSessionKey))
         #expect(viewModel.isAdoptedStream(sessionKey: agentSessionKey))
     }
 
@@ -2022,7 +2024,7 @@ struct ChatViewModelTests {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        #expect(await viewModel.trackSession(sessionKey: adoptedKey))
         for _ in 0..<50 {
             if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
             try await Task.sleep(for: .milliseconds(20))
@@ -2092,7 +2094,7 @@ struct ChatViewModelTests {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        #expect(await viewModel.trackSession(sessionKey: adoptedKey))
         for _ in 0..<50 {
             if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
             try await Task.sleep(for: .milliseconds(20))
@@ -2147,7 +2149,7 @@ struct ChatViewModelTests {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        #expect(await viewModel.trackSession(sessionKey: adoptedKey))
         for _ in 0..<50 {
             if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
             try await Task.sleep(for: .milliseconds(20))
@@ -2199,7 +2201,7 @@ struct ChatViewModelTests {
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(firstViewModel.trackSession(sessionKey: adoptedKey))
+        #expect(await firstViewModel.trackSession(sessionKey: adoptedKey))
         for _ in 0..<50 {
             if firstViewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
             try await Task.sleep(for: .milliseconds(20))
@@ -2659,6 +2661,8 @@ private final class TestChatService: ChatServicing {
     private(set) var deleteStreamCallCount: Int = 0
     private(set) var lastDeletedSessionKey: String?
     private(set) var renameStreamCallCount: Int = 0
+    private(set) var adoptStreamCallCount: Int = 0
+    private(set) var lastAdoptedSessionKey: String?
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -2812,6 +2816,26 @@ private final class TestChatService: ChatServicing {
             isBuiltIn: false,
             createdAt: Date(),
             updatedAt: Date()
+        )
+        streams.append(stream)
+        return stream
+    }
+
+    func adoptStream(sessionKey: String) async throws -> StreamSession {
+        adoptStreamCallCount += 1
+        lastAdoptedSessionKey = sessionKey
+        if let existing = streams.first(where: { $0.sessionKey == sessionKey }) {
+            return existing
+        }
+        let stream = StreamSession(
+            sessionKey: sessionKey,
+            displayName: trackableSessions.first(where: { $0.sessionKey == sessionKey })?.displayName ?? sessionKey,
+            kind: "custom",
+            orderIndex: streams.count,
+            isBuiltIn: false,
+            createdAt: Date(),
+            updatedAt: Date(),
+            trackingMode: .adopted
         )
         streams.append(stream)
         return stream
