@@ -102,7 +102,7 @@ struct ClawlineApp: App {
                 Button("Increase Font Size") {
                     settingsManager.increaseFontScale()
                 }
-                .keyboardShortcut("=", modifiers: [.command, .shift])
+                .keyboardShortcut("=", modifiers: .command)
 
                 Button("Decrease Font Size") {
                     settingsManager.decreaseFontScale()
