@@ -53,12 +53,12 @@ struct StreamManagerSheet: View {
     private let popupCornerRadius: CGFloat = 20
     private let actionBarSeparatorOpacity: CGFloat = 0.12
     private let actionBarSeparatorInset: CGFloat = 12
-    private let trackPickerRowCornerRadius: CGFloat = 14
+    private let trackPickerRowCornerRadius: CGFloat = 12
     private let trackPickerContentHorizontalPadding: CGFloat = 20
-    private let trackPickerSectionSpacing: CGFloat = 14
+    private let trackPickerSectionSpacing: CGFloat = 20
     private let trackPickerBottomBarHeight: CGFloat = 88
-    private let trackPickerSearchFieldHeight: CGFloat = 44
-    private let trackPickerActionButtonHeight: CGFloat = 48
+    private let trackPickerSearchFieldHeight: CGFloat = 40
+    private let trackPickerActionButtonHeight: CGFloat = 44
 
     private var actionBarHeight: CGFloat {
         functionBarHeight + actionBarTopPadding + actionBarBottomPadding
@@ -155,10 +155,6 @@ struct StreamManagerSheet: View {
         hasSelectedTrackCandidate
             ? Color.white.opacity(colorScheme == .dark ? 0.92 : 0.98)
             : Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06)
-    }
-
-    private var trackPickerActionBorderColor: Color {
-        Color.white.opacity(hasSelectedTrackCandidate ? 0.12 : 0.04)
     }
 
     private var trackPickerMatchHighlightColor: Color {
@@ -560,16 +556,14 @@ struct StreamManagerSheet: View {
 
     private var trackPickerSheet: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: trackPickerSectionSpacing) {
-                        trackPickerIntroCard
-                        trackPickerCandidateSection
-                    }
-                    .padding(.horizontal, trackPickerContentHorizontalPadding)
-                    .padding(.top, 16)
-                    .padding(.bottom, 24)
+            ScrollView {
+                VStack(alignment: .leading, spacing: trackPickerSectionSpacing) {
+                    trackPickerIntroCard
+                    trackPickerCandidateSection
                 }
+                .padding(.horizontal, trackPickerContentHorizontalPadding)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
             .background(Color.clear)
             .navigationTitle("Track Session")
@@ -596,82 +590,76 @@ struct StreamManagerSheet: View {
     }
 
     private var trackPickerIntroCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "eye")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        Circle()
-                            .fill(Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.08))
-                    )
+        VStack(alignment: .leading, spacing: 14) {
+            Image(systemName: "eye")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.primary.opacity(0.7))
+                .frame(width: 40, height: 40)
+                .background(
+                    Circle()
+                        .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.06))
+                )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Bring an existing agent session into Clawline")
-                        .font(.clawline(.subsectionHeader).weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("Choose a session below, then confirm with Adopt. Until then, nothing is tracked.")
-                        .font(.clawline(.secondaryLabel))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Adopt an agent session")
+                    .font(.clawline(.uiLabel, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text("Select a session below, then tap Adopt. Nothing is tracked until you confirm.")
+                    .font(.clawline(.secondaryLabel))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.05))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.04))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.06), lineWidth: 0.5)
         }
     }
 
     private var trackPickerSearchField: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.tertiary)
             TextField("Filter sessions", text: $trackSearchQuery)
                 .font(.clawline(.uiLabel))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .focused($isTrackSearchFieldFocused)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: trackPickerSearchFieldHeight, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.06))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.05))
         }
     }
 
     private var trackPickerCandidateSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text("Agent Sessions")
-                    .font(.clawline(.secondaryLabel).weight(.semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text("Sessions")
+                    .font(.clawline(.timestamp, weight: .semibold))
                     .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
+                    .textCase(.uppercase)
+                    .tracking(0.6)
                 if !trackCandidates.isEmpty {
                     Text("\(filteredTrackCandidates.count)")
-                        .font(.clawline(.secondaryLabel).weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06))
-                        .clipShape(Capsule())
+                        .font(.clawline(.timestamp, weight: .medium))
+                        .foregroundStyle(.secondary.opacity(0.7))
+                        .monospacedDigit()
                 }
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 4)
 
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 if filteredTrackCandidates.isEmpty {
                     trackPickerEmptyState
                 } else {
@@ -680,71 +668,59 @@ struct StreamManagerSheet: View {
                     }
                 }
             }
-            .padding(10)
-            .background {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.035))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
-            }
         }
     }
 
     private var trackPickerEmptyState: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             Image(systemName: trackSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "eye.slash" : "magnifyingglass")
-                .font(.title3.weight(.medium))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 24, weight: .light))
+                .foregroundStyle(.tertiary)
+                .padding(.bottom, 4)
             Text(trackPickerEmptyStateTitle)
-                .font(.clawline(.subsectionHeader).weight(.semibold))
-                .foregroundStyle(.primary)
+                .font(.clawline(.uiLabel, weight: .medium))
+                .foregroundStyle(.secondary)
             Text(
                 trackSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? "No adoptable agent sessions are available right now."
                     : "Try a different filter to find the session you want to adopt."
             )
                 .font(.clawline(.secondaryLabel))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
-        .padding(.vertical, 36)
+        .padding(.vertical, 32)
     }
 
     private var trackPickerBottomBar: some View {
         VStack(spacing: 0) {
             trackPickerBottomSeparator
 
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
                 trackPickerSearchField
 
                 Button {
                     adoptSelectedTrackSession()
                 } label: {
                     Text("Adopt")
-                        .font(.clawline(.subsectionHeader).weight(.semibold))
-                        .frame(minWidth: 96)
+                        .font(.clawline(.uiLabel, weight: .semibold))
+                        .frame(minWidth: 80)
                         .frame(height: trackPickerActionButtonHeight)
-                        .padding(.horizontal, 6)
+                        .padding(.horizontal, 4)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(trackPickerActionForegroundColor)
                 .background {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(trackPickerActionBackgroundColor)
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(trackPickerActionBorderColor, lineWidth: 0.5)
                 }
                 .disabled(!hasSelectedTrackCandidate || isWorking)
             }
             .padding(.horizontal, trackPickerContentHorizontalPadding)
-            .padding(.top, 14)
+            .padding(.top, 12)
             .padding(.bottom, 20)
             .frame(minHeight: trackPickerBottomBarHeight)
             .background(.regularMaterial)
@@ -753,7 +729,7 @@ struct StreamManagerSheet: View {
 
     private var trackPickerBottomSeparator: some View {
         Rectangle()
-            .fill(Color.white.opacity(0.18))
+            .fill(Color.primary.opacity(0.10))
             .frame(maxWidth: .infinity)
             .frame(height: 0.5)
             .allowsHitTesting(false)
@@ -766,45 +742,56 @@ struct StreamManagerSheet: View {
         Button {
             selectedTrackCandidateSessionKey = candidate.sessionKey
         } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(isSelected ? Color.primary : Color.primary.opacity(colorScheme == .dark ? 0.22 : 0.10))
+                        .strokeBorder(
+                            isSelected
+                                ? Color.primary.opacity(0.8)
+                                : Color.primary.opacity(colorScheme == .dark ? 0.25 : 0.18),
+                            lineWidth: isSelected ? 0 : 1.5
+                        )
+                        .background(
+                            Circle()
+                                .fill(isSelected ? Color.primary : Color.clear)
+                        )
                     if isSelected {
                         Image(systemName: "checkmark")
-                            .font(.caption.weight(.bold))
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(colorScheme == .dark ? .black : .white)
                     }
                 }
-                .frame(width: 24, height: 24)
+                .frame(width: 22, height: 22)
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
                     highlightedTrackPickerDisplayName(for: candidate)
-                        .font(.clawline(.subsectionHeader).weight(isSelected ? .semibold : .regular))
+                        .font(.clawline(.uiLabel, weight: isSelected ? .semibold : .regular))
                         .lineLimit(1)
 
                     highlightedTrackPickerSessionKey(for: candidate)
-                        .font(.clawline(.secondaryLabel, design: .monospaced))
+                        .font(.clawline(.timestamp, design: .monospaced))
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: trackPickerRowCornerRadius, style: .continuous)
                     .fill(
                         isSelected
-                            ? Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.08)
-                            : Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.02)
+                            ? Color.primary.opacity(colorScheme == .dark ? 0.12 : 0.06)
+                            : Color.primary.opacity(colorScheme == .dark ? 0.04 : 0.02)
                     )
             }
             .overlay {
                 RoundedRectangle(cornerRadius: trackPickerRowCornerRadius, style: .continuous)
                     .stroke(
-                        isSelected ? Color.primary.opacity(0.22) : Color.white.opacity(0.06),
-                        lineWidth: isSelected ? 1 : 0.5
+                        isSelected
+                            ? Color.primary.opacity(colorScheme == .dark ? 0.20 : 0.14)
+                            : Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.04),
+                        lineWidth: 0.5
                     )
             }
             .contentShape(RoundedRectangle(cornerRadius: trackPickerRowCornerRadius, style: .continuous))
