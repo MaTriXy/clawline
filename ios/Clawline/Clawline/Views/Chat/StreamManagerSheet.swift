@@ -25,6 +25,7 @@ struct StreamManagerSheet: View {
     @State private var isWorking = false
     @State private var isTrackPickerPresented = false
     @State private var selectedTrackCandidateSessionKey: String?
+    @State private var trackSearchQuery = ""
     @State private var removingSessionKeys: Set<String> = []
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
@@ -117,7 +118,16 @@ struct StreamManagerSheet: View {
 
     private var selectedTrackCandidate: ChatViewModel.UntrackedSessionCandidate? {
         guard let selectedTrackCandidateSessionKey else { return nil }
-        return trackCandidates.first { $0.sessionKey == selectedTrackCandidateSessionKey }
+        return filteredTrackCandidates.first { $0.sessionKey == selectedTrackCandidateSessionKey }
+            ?? trackCandidates.first { $0.sessionKey == selectedTrackCandidateSessionKey }
+    }
+
+    private var filteredTrackCandidates: [ChatViewModel.UntrackedSessionCandidate] {
+        let normalized = trackSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return trackCandidates }
+        return trackCandidates.filter {
+            StreamSelectorLayout.matchesStreamName($0.displayName, query: normalized)
+        }
     }
 
     var body: some View {
@@ -494,6 +504,7 @@ struct StreamManagerSheet: View {
 
     private func dismissTrackPicker() {
         selectedTrackCandidateSessionKey = nil
+        trackSearchQuery = ""
         isTrackPickerPresented = false
     }
 
@@ -507,27 +518,15 @@ struct StreamManagerSheet: View {
         NavigationStack {
             List {
                 Section {
-                    Text("Choose an untracked session to adopt as a Clawline chat.")
-                        .font(.clawline(.secondaryLabel))
-                        .foregroundStyle(.secondary)
-                        .listRowBackground(Color.clear)
-                }
-
-                Section("Other Sessions") {
-                    ForEach(trackCandidates) { candidate in
+                    ForEach(filteredTrackCandidates) { candidate in
                         Button {
                             selectedTrackCandidateSessionKey = candidate.sessionKey
                         } label: {
                             HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(candidate.displayName)
-                                        .font(.clawline(.subsectionHeader))
-                                        .foregroundStyle(.primary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    Text("Agent session")
-                                        .font(.clawline(.secondaryLabel))
-                                        .foregroundStyle(.secondary)
-                                }
+                                Text(candidate.displayName)
+                                    .font(.clawline(.subsectionHeader))
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
 
                                 Image(systemName: selectedTrackCandidateSessionKey == candidate.sessionKey ? "checkmark.circle.fill" : "circle")
                                     .foregroundStyle(selectedTrackCandidateSessionKey == candidate.sessionKey ? .primary : .secondary)
@@ -537,9 +536,37 @@ struct StreamManagerSheet: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    if filteredTrackCandidates.isEmpty {
+                        Text("No sessions found")
+                            .font(.clawline(.secondaryLabel))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .listRowBackground(Color.clear)
+                    }
                 }
             }
             .navigationTitle("Track Session")
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(Color.white.opacity(actionBarSeparatorOpacity))
+                        .frame(height: 0.5)
+                        .allowsHitTesting(false)
+
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Filter…", text: $trackSearchQuery)
+                            .font(.clawline(.uiLabel))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(.regularMaterial)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
