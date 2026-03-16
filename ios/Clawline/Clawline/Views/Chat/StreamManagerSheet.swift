@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct StreamManagerSheet: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -16,22 +17,17 @@ struct StreamManagerSheet: View {
     @Binding var isPresented: Bool
     let maxAvailableHeight: CGFloat
     let onSelectStream: (String) -> Void
-    let onTrackPickerWillPresent: () -> Void
-    let onTrackPickerDidDismiss: () -> Void
+    let onPresentTrackPicker: () -> Void
 
     @State private var draftName = ""
     @State private var searchQuery = ""
     @State private var activeEditor: EditorMode?
     @State private var isWorking = false
-    @State private var isTrackPickerPresented = false
-    @State private var selectedTrackCandidateSessionKey: String?
-    @State private var trackSearchQuery = ""
     @State private var removingSessionKeys: Set<String> = []
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
     @State private var renderedContainerHeight: CGFloat = 0
     @FocusState private var focusedEditor: EditorMode?
-    @FocusState private var isTrackSearchFieldFocused: Bool
 
     private enum EditorMode: Hashable {
         case renaming(String)
@@ -53,13 +49,6 @@ struct StreamManagerSheet: View {
     private let popupCornerRadius: CGFloat = 20
     private let actionBarSeparatorOpacity: CGFloat = 0.12
     private let actionBarSeparatorInset: CGFloat = 12
-    private let trackPickerRowCornerRadius: CGFloat = 12
-    private let trackPickerContentHorizontalPadding: CGFloat = 20
-    private let trackPickerSectionSpacing: CGFloat = 20
-    private let trackPickerBottomBarHeight: CGFloat = 88
-    private let trackPickerSearchFieldHeight: CGFloat = 40
-    private let trackPickerActionButtonHeight: CGFloat = 44
-
     private var actionBarHeight: CGFloat {
         functionBarHeight + actionBarTopPadding + actionBarBottomPadding
     }
@@ -112,56 +101,6 @@ struct StreamManagerSheet: View {
             outerVerticalPadding: listOuterVerticalPadding,
             maxAvailableHeight: maxAvailableHeight,
             minimumPopoverHeight: minimumPopoverHeight
-        )
-    }
-
-    private var trackCandidates: [ChatViewModel.UntrackedSessionCandidate] {
-        viewModel.untrackedSessionCandidates
-    }
-
-    private var selectedTrackCandidate: ChatViewModel.UntrackedSessionCandidate? {
-        guard let selectedTrackCandidateSessionKey else { return nil }
-        return filteredTrackCandidates.first { $0.sessionKey == selectedTrackCandidateSessionKey }
-            ?? trackCandidates.first { $0.sessionKey == selectedTrackCandidateSessionKey }
-    }
-
-    private var filteredTrackCandidates: [ChatViewModel.UntrackedSessionCandidate] {
-        let normalized = trackSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return trackCandidates }
-        return trackCandidates.filter {
-            StreamSelectorLayout.matchesTrackCandidate(
-                displayName: $0.displayName,
-                sessionKey: $0.sessionKey,
-                query: normalized
-            )
-        }
-    }
-
-    private var trackPickerEmptyStateTitle: String {
-        trackSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "No sessions available"
-            : "No matching sessions"
-    }
-
-    private var hasSelectedTrackCandidate: Bool {
-        selectedTrackCandidate != nil
-    }
-
-    private var trackPickerActionForegroundColor: Color {
-        hasSelectedTrackCandidate ? .black : .secondary
-    }
-
-    private var trackPickerActionBackgroundColor: Color {
-        hasSelectedTrackCandidate
-            ? Color.white.opacity(colorScheme == .dark ? 0.92 : 0.98)
-            : Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06)
-    }
-
-    private var trackPickerMatchHighlightColor: Color {
-        StreamDotColor.resolve(
-            isActive: true,
-            hasUnread: false,
-            colorScheme: colorScheme
         )
     }
 
@@ -279,9 +218,7 @@ struct StreamManagerSheet: View {
 
                 if viewModel.canUseTrackFeature {
                     Button {
-                        onTrackPickerWillPresent()
-                        selectedTrackCandidateSessionKey = nil
-                        isTrackPickerPresented = true
+                        onPresentTrackPicker()
                     } label: {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(Color.clear)
@@ -294,7 +231,7 @@ struct StreamManagerSheet: View {
                             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .disabled(activeEditor != nil || trackCandidates.isEmpty)
+                    .disabled(activeEditor != nil || isWorking)
                     .accessibilityLabel("Track")
                     .accessibilityHint("Tracks an existing untracked session")
                 }
@@ -347,12 +284,6 @@ struct StreamManagerSheet: View {
                 searchQuery = ""
             }
         }
-        .onChange(of: trackCandidates.map(\.sessionKey)) { _, sessionKeys in
-            guard let selectedTrackCandidateSessionKey else { return }
-            if !sessionKeys.contains(selectedTrackCandidateSessionKey) {
-                self.selectedTrackCandidateSessionKey = nil
-            }
-        }
         .alert(
             pendingRemovalTitle,
             isPresented: Binding(
@@ -370,19 +301,6 @@ struct StreamManagerSheet: View {
                 pendingRemovalStream = nil
                 Task { await removeStream(stream) }
             }
-        }
-        .sheet(
-            isPresented: $isTrackPickerPresented,
-            onDismiss: {
-                isTrackSearchFieldFocused = false
-                selectedTrackCandidateSessionKey = nil
-                Task { @MainActor in
-                    await Task.yield()
-                    onTrackPickerDidDismiss()
-                }
-            }
-        ) {
-            trackPickerSheet
         }
     }
 
@@ -537,28 +455,87 @@ struct StreamManagerSheet: View {
         viewModel.isAdoptedStream(sessionKey: stream.sessionKey) ? "eye.slash" : "trash"
     }
 
-    private func dismissTrackPicker() {
-        isTrackSearchFieldFocused = false
-        selectedTrackCandidateSessionKey = nil
-        trackSearchQuery = ""
-        isTrackPickerPresented = false
+    private var sectionSeparator: some View {
+        Rectangle()
+            .fill(Color.white.opacity(actionBarSeparatorOpacity))
+            .frame(height: 0.5)
+            .padding(.horizontal, actionBarSeparatorInset)
+            .allowsHitTesting(false)
     }
 
-    private func adoptSelectedTrackSession() {
-        guard let selectedTrackCandidate else { return }
-        guard !isWorking else { return }
-        isWorking = true
-        Task {
-            let succeeded = await viewModel.trackSession(sessionKey: selectedTrackCandidate.sessionKey)
-            await MainActor.run {
-                isWorking = false
-                guard succeeded else { return }
-                dismissTrackPicker()
-            }
+}
+
+struct TrackPickerSheet: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
+
+    @Bindable var viewModel: ChatViewModel
+
+    @State private var selectedTrackCandidateSessionKey: String?
+    @State private var trackSearchQuery = ""
+    @State private var isWorking = false
+    @FocusState private var isTrackSearchFieldFocused: Bool
+
+    private let trackPickerRowCornerRadius: CGFloat = 12
+    private let trackPickerContentHorizontalPadding: CGFloat = 20
+    private let trackPickerSectionSpacing: CGFloat = 20
+    private let trackPickerBottomBarHeight: CGFloat = 88
+    private let trackPickerSearchFieldHeight: CGFloat = 40
+    private let trackPickerActionButtonHeight: CGFloat = 44
+
+    private var trackCandidates: [ChatViewModel.UntrackedSessionCandidate] {
+        viewModel.untrackedSessionCandidates
+    }
+
+    private var selectedTrackCandidate: ChatViewModel.UntrackedSessionCandidate? {
+        guard let selectedTrackCandidateSessionKey else { return nil }
+        return filteredTrackCandidates.first { $0.sessionKey == selectedTrackCandidateSessionKey }
+            ?? trackCandidates.first { $0.sessionKey == selectedTrackCandidateSessionKey }
+    }
+
+    private var filteredTrackCandidates: [ChatViewModel.UntrackedSessionCandidate] {
+        let normalized = trackSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return trackCandidates }
+        return trackCandidates.filter {
+            StreamSelectorLayout.matchesTrackCandidate(
+                displayName: $0.displayName,
+                sessionKey: $0.sessionKey,
+                query: normalized
+            )
         }
     }
 
-    private var trackPickerSheet: some View {
+    private var trackPickerEmptyStateTitle: String {
+        trackSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "No sessions available"
+            : "No matching sessions"
+    }
+
+    private var hasSelectedTrackCandidate: Bool {
+        selectedTrackCandidate != nil
+    }
+
+    private var trackPickerActionBackgroundColor: Color {
+        hasSelectedTrackCandidate && !isWorking
+            ? Color.primary
+            : Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.08)
+    }
+
+    private var trackPickerActionForegroundColor: Color {
+        hasSelectedTrackCandidate && !isWorking
+            ? (colorScheme == .dark ? .black : .white)
+            : .secondary
+    }
+
+    private var trackPickerMatchHighlightColor: Color {
+        StreamDotColor.resolve(
+            isActive: true,
+            hasUnread: false,
+            colorScheme: colorScheme
+        )
+    }
+
+    var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: trackPickerSectionSpacing) {
@@ -582,18 +559,47 @@ struct StreamManagerSheet: View {
                     }
                 }
             }
-            .onDisappear {
-                isTrackSearchFieldFocused = false
+        }
+        .onChange(of: trackCandidates.map(\.sessionKey)) { _, sessionKeys in
+            guard let selectedTrackCandidateSessionKey else { return }
+            if !sessionKeys.contains(selectedTrackCandidateSessionKey) {
+                self.selectedTrackCandidateSessionKey = nil
             }
+        }
+        .onDisappear {
+            clearTrackPickerFirstResponder()
         }
     }
 
-    private var sectionSeparator: some View {
-        Rectangle()
-            .fill(Color.white.opacity(actionBarSeparatorOpacity))
-            .frame(height: 0.5)
-            .padding(.horizontal, actionBarSeparatorInset)
-            .allowsHitTesting(false)
+    private func dismissTrackPicker() {
+        clearTrackPickerFirstResponder()
+        selectedTrackCandidateSessionKey = nil
+        trackSearchQuery = ""
+        dismiss()
+    }
+
+    private func clearTrackPickerFirstResponder() {
+        isTrackSearchFieldFocused = false
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+    }
+
+    private func adoptSelectedTrackSession() {
+        guard let selectedTrackCandidate else { return }
+        guard !isWorking else { return }
+        isWorking = true
+        Task {
+            let succeeded = await viewModel.trackSession(sessionKey: selectedTrackCandidate.sessionKey)
+            await MainActor.run {
+                isWorking = false
+                guard succeeded else { return }
+                dismissTrackPicker()
+            }
+        }
     }
 
     private var trackPickerIntroCard: some View {
@@ -897,7 +903,6 @@ struct StreamManagerSheet: View {
         let end = sessionKey.suffix(12)
         return "\(start)…\(end)"
     }
-
 }
 
 enum StreamSelectorLayout {

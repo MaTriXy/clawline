@@ -113,6 +113,7 @@ struct ChatView: View {
     @State private var pendingInputInsertions: [PendingAttachment] = []
     @State private var activeSheet: ChatSheet?
     @State private var isStreamManagerPopoverPresented = false
+    @State private var isTrackPickerPresented = false
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
@@ -1497,19 +1498,25 @@ struct ChatView: View {
                 onSelectStream: { sessionKey in
                     selectStream(sessionKey, source: .programmatic)
                 },
-                onTrackPickerWillPresent: {
+                onPresentTrackPicker: {
                     prepareForAttachmentPicker()
-                },
-                onTrackPickerDidDismiss: {
+                    isStreamManagerPopoverPresented = false
                     Task { @MainActor in
                         await Task.yield()
-                        await Task.yield()
-                        restoreFocusIfNeeded()
+                        isTrackPickerPresented = true
                     }
                 }
             )
             .presentationCompactAdaptation(.popover)
             .presentationBackground(.clear)
+        }
+        .sheet(
+            isPresented: $isTrackPickerPresented,
+            onDismiss: {
+                restoreFocusIfNeeded()
+            }
+        ) {
+            TrackPickerSheet(viewModel: viewModel)
         }
     }
 
