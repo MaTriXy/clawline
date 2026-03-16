@@ -1321,7 +1321,13 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func isAdoptedStream(sessionKey: String) -> Bool {
-        guard let stream = streamsBySessionKey[sessionKey] else { return false }
+        guard let stream = streamsBySessionKey[sessionKey] else {
+            logger.info("adopted_check sessionKey=\(sessionKey, privacy: .public) result=false source=missing_stream")
+            return false
+        }
+        logger.info(
+            "adopted_check sessionKey=\(sessionKey, privacy: .public) adopted=\(stream.adopted, privacy: .public) result=\(stream.adopted, privacy: .public)"
+        )
         return stream.adopted
     }
 
@@ -2275,6 +2281,11 @@ final class ChatViewModel: ChatViewModelHosting {
             hasResolvedProvisioningCapability = true
             supportsSessionProvisioning = true
             hasReceivedSessionProvisioning = true
+            for stream in streams {
+                logger.info(
+                    "stream_snapshot_debug sessionKey=\(stream.sessionKey, privacy: .public) adopted=\(stream.adopted, privacy: .public)"
+                )
+            }
             if accessibleSessionKeyOrder.isEmpty {
                 replaceAccessibleSessionKeys(with: streams.map(\.sessionKey))
             } else {
