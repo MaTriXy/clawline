@@ -2109,6 +2109,59 @@ struct ChatViewModelTests {
         #expect(toastManager.toast == nil)
     }
 
+    @Test("Adopted sessions cannot be renamed through the provider path")
+    @MainActor
+    func adoptedSessionsCannotBeRenamed() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        let adoptedKey = "agent:main:clawline:user:s_rename"
+        chatService.trackableSessions = [
+            TrackableSession(
+                sessionKey: adoptedKey,
+                displayName: "Rename Me",
+                updatedAt: Date()
+            )
+        ]
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.untrackedSessionCandidates.map(\.sessionKey) == [adoptedKey] { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.trackSession(sessionKey: adoptedKey))
+        for _ in 0..<50 {
+            if viewModel.isAdoptedStream(sessionKey: adoptedKey) { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(!viewModel.canRenameStream(sessionKey: adoptedKey))
+        let renamed = await viewModel.renameStream(sessionKey: adoptedKey, displayName: "Renamed")
+
+        #expect(!renamed)
+        #expect(chatService.renameStreamCallCount == 0)
+        #expect(toastManager.debugMessages.contains("Tracked sessions can't be renamed."))
+        #expect(viewModel.stream(for: adoptedKey)?.displayName == "Rename Me")
+    }
+
     @Test("Adopted session restores as last saved chat on startup")
     @MainActor
     func adoptedSessionRestoresAsLastSavedChat() async throws {
@@ -2605,6 +2658,7 @@ private final class TestChatService: ChatServicing {
     private(set) var fetchTrackableSessionsCallCount: Int = 0
     private(set) var deleteStreamCallCount: Int = 0
     private(set) var lastDeletedSessionKey: String?
+    private(set) var renameStreamCallCount: Int = 0
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -2764,6 +2818,7 @@ private final class TestChatService: ChatServicing {
     }
 
     func renameStream(sessionKey: String, displayName: String) async throws -> StreamSession {
+        renameStreamCallCount += 1
         if let index = streams.firstIndex(where: { $0.sessionKey == sessionKey }) {
             var stream = streams[index]
             stream.displayName = displayName
