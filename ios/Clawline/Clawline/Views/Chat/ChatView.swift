@@ -546,6 +546,9 @@ struct ChatView: View {
             guard phase == .active else { return }
             keyboardRefreshToken &+= 1
         }
+        .onChange(of: settings.fontScaleToastSequence) { _, _ in
+            showPendingFontScaleToastIfNeeded(toastManager: toastManager)
+        }
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
             showLifecycleDebugOverlay()
@@ -1553,6 +1556,12 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    @MainActor
+    private func showPendingFontScaleToastIfNeeded(toastManager: ToastManager) {
+        guard let message = settings.consumePendingFontScaleToastMessage() else { return }
+        toastManager.show(message, duration: .milliseconds(1500))
     }
 
     private func deviceCornerRadius() -> CGFloat {

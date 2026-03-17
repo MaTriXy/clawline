@@ -109,6 +109,11 @@ struct ClawlineApp: App {
                 }
                 .keyboardShortcut("-", modifiers: .command)
 
+                Button("Reset Font Size") {
+                    settingsManager.resetFontScale()
+                }
+                .keyboardShortcut("0", modifiers: .command)
+
                 Divider()
 
                 Button("Open Streams") {
