@@ -139,6 +139,8 @@ struct ChatView: View {
     @Environment(\.settingsManager) private var settings
 
     @State private var inputBarHeight: CGFloat = 0
+    @State private var isTypingActive = false
+    @State private var typingActivityResetTask: Task<Void, Never>?
     @State private var streamToastManager = StreamToastManager()
     @State private var streamToastBusySince: Date?
     @State private var streamToastBusyClearTask: Task<Void, Never>?
@@ -164,6 +166,7 @@ struct ChatView: View {
 #endif
 
     private let streamToastMinimumBusySeconds: TimeInterval = 0.45
+    private let typingActivitySettleDelay: Duration = .milliseconds(180)
 
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0.5
@@ -566,7 +569,6 @@ struct ChatView: View {
         .background(
             KeyboardLayoutGuideReader(refreshToken: keyboardRefreshToken) { height, duration, curve in
                 if abs(height - keyboardHeight) > 0.5 {
-                    NSLog("[KBTIMING] keyboardHeight state set %.1f -> %.1f", keyboardHeight, height)
                     withAnimation(nil) {
                         keyboardHeight = height
                     }
@@ -1199,6 +1201,7 @@ struct ChatView: View {
                 bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
                 isKeyboardVisible: isKeyboardVisible,
                 onSend: {
+                    clearTypingActivity()
                     viewModel.send()
                 },
                 onCancel: { viewModel.cancelSend() },
@@ -1208,7 +1211,15 @@ struct ChatView: View {
                 },
                 // ⚠️ This callback is how focus state survives view recreation.
                 // DO NOT replace with @Binding or try to use @FocusState directly.
-                onFocusChange: { focused in isInputFocused = focused },
+                onFocusChange: { focused in
+                    isInputFocused = focused
+                    if !focused {
+                        clearTypingActivity()
+                    }
+                },
+                onTextEditActivity: {
+                    recordTypingActivity()
+                },
                 onPasteImages: handlePastedImages,
                 isCompact: horizontalSizeClass == .compact
             )
@@ -1272,6 +1283,7 @@ struct ChatView: View {
             isActiveSession: sessionKey == renderPolicySessionKey,
             isRenderPolicyFrozen: viewModel.isRenderPolicyFrozen,
             isInputActive: isInputFocused,
+            isTypingActive: isTypingActive,
             truncationBottomInset: truncationBottomInset,
             firstUnreadMessageId: state.firstUnreadMessageId,
             unreadCount: state.unreadCount,
@@ -1421,6 +1433,7 @@ struct ChatView: View {
                 isActiveSession: false,
                 isRenderPolicyFrozen: false,
                 isInputActive: isInputFocused,
+                isTypingActive: isTypingActive,
                 truncationBottomInset: truncationBottomInset,
                 firstUnreadMessageId: nil,
                 unreadCount: 0,
@@ -1562,6 +1575,27 @@ struct ChatView: View {
     private func showPendingFontScaleToastIfNeeded(toastManager: ToastManager) {
         guard let message = settings.consumePendingFontScaleToastMessage() else { return }
         toastManager.show(message, duration: .milliseconds(1500))
+    }
+
+    private func recordTypingActivity() {
+        if !isTypingActive {
+            isTypingActive = true
+        }
+        typingActivityResetTask?.cancel()
+        typingActivityResetTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: typingActivitySettleDelay)
+            } catch {
+                return
+            }
+            clearTypingActivity()
+        }
+    }
+
+    private func clearTypingActivity() {
+        typingActivityResetTask?.cancel()
+        typingActivityResetTask = nil
+        isTypingActive = false
     }
 
     private func deviceCornerRadius() -> CGFloat {
@@ -1969,12 +2003,6 @@ private final class KeyboardLayoutGuideObserverView: UIView {
         if abs(height - lastHeight) > 0.5 {
             lastHeight = height
         }
-        NSLog(
-            "[KBTIMING] keyboardFrameChanged foreground frame=%@ win=%@ floating=%d",
-            NSCoder.string(for: frameInWindow),
-            NSCoder.string(for: windowBounds),
-            result.isFloating ? 1 : 0
-        )
         onChange?(height, lastDuration, lastCurve)
     }
 
@@ -2014,7 +2042,6 @@ private final class KeyboardLayoutGuideObserverView: UIView {
     }
 
     @objc private func keyboardFrameChanged(_ notification: Notification) {
-        let t0 = CFAbsoluteTimeGetCurrent()
         guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
         let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.3
         let curveRaw = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.intValue ?? UIView.AnimationCurve.easeInOut.rawValue
@@ -2029,12 +2056,6 @@ private final class KeyboardLayoutGuideObserverView: UIView {
             let windowBounds = window.bounds
             let result = heightFromFrame(frameInWindow, windowBounds: windowBounds)
             height = result.height
-            NSLog(
-                "[KBTIMING] keyboardFrameChanged frame=%@ win=%@ floating=%d",
-                NSCoder.string(for: frameInWindow),
-                NSCoder.string(for: windowBounds),
-                result.isFloating ? 1 : 0
-            )
         } else {
             let screenHeight = UIApplication.shared.connectedScenes
                 .compactMap { ($0 as? UIWindowScene)?.screen.bounds.height }
@@ -2052,7 +2073,6 @@ private final class KeyboardLayoutGuideObserverView: UIView {
             lastCurve = curve
         }
         onChange?(height, duration, curve)
-        NSLog("[KBTIMING] keyboardFrameChanged h=%.1f dur=%.2f curve=%d dt=%.4f", height, duration, curve.rawValue, CFAbsoluteTimeGetCurrent() - t0)
     }
 }
 
@@ -2112,7 +2132,6 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: KeyboardPinnedContainerView<Content>, context: Context) {
-        let t0 = CFAbsoluteTimeGetCurrent()
         uiView.hostingController.rootView = content
         uiView.updateVersionText(versionText)
         uiView.setDesiredBottomGap(desiredBottomGap, isKeyboardVisible: isKeyboardVisible)
@@ -2145,7 +2164,6 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         layoutCoordinator.registerBarView(uiView)
         layoutCoordinator.applyTransitionIfPossible(reason: "KeyboardPinnedContainer.updateUIView")
         _ = layoutKey
-        NSLog("[KBTIMING] KBPinnedContainer.updateUIView gap=%.1f kbVis=%d dt=%.4f", desiredBottomGap, isKeyboardVisible ? 1 : 0, CFAbsoluteTimeGetCurrent() - t0)
     }
 }
 

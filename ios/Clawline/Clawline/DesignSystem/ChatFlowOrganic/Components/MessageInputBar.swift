@@ -7,10 +7,7 @@
 
 import SwiftUI
 import UIKit
-import OSLog
 import Foundation
-
-private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessageInputBar")
 
 // MARK: - ⚠️⚠️⚠️ CRITICAL: READ ChatView.swift HEADER BEFORE MODIFYING ⚠️⚠️⚠️
 //
@@ -61,9 +58,11 @@ struct MessageInputBar: View {
     let onReconnect: () -> Void
     let onAdd: () -> Void
     let onFocusChange: (Bool) -> Void
+    let onTextEditActivity: () -> Void
     var onPasteImages: (([UIImage]) -> Void)?
 
     @State private var editorHeight: CGFloat = 44
+    @State private var cachedMaxBarWidth: CGFloat?
     let isCompact: Bool
 
     private var metrics: MessageInputBarMetrics {
@@ -107,15 +106,20 @@ struct MessageInputBar: View {
         ChatFlowTheme.Metrics(isCompact: isCompact).inputBarPaddingHorizontal
     }
 
-    private var maxBarWidth: CGFloat? {
-        guard !isCompact else { return nil }
+    private func refreshMaxBarWidth() {
+        guard !isCompact else {
+            cachedMaxBarWidth = nil
+            return
+        }
+
         let themeMetrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-        let textWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: themeMetrics.bodyFontSize)
+        let bodyFont = UIFont.clawline(.bodyText)
+        let textWidth = ChatFlowTheme.maxLineWidth(bodyFont: bodyFont)
         let chromeWidth = (themeMetrics.inputBarPaddingHorizontal * 2)
             + metrics.inputBarHeight
             + metrics.inputBarHeight
             + (MessageInputBarMetrics.elementSpacing * 2)
-        return textWidth + chromeWidth
+        cachedMaxBarWidth = textWidth + chromeWidth
     }
 
     // #61: On visionOS, keep the input bar in dark mode regardless of the global theme toggle.
@@ -255,6 +259,7 @@ struct MessageInputBar: View {
                 editorOpacity: editorOpacity,
                 onSubmitRequested: handleEditorSubmitIntent,
                 onFocusChange: onFocusChange,
+                onTextEditActivity: onTextEditActivity,
                 onPasteImages: onPasteImages,
                 placeholderText: placeholderText,
                 isLightModeForInputBar: isLightModeForInputBar,
@@ -277,15 +282,20 @@ struct MessageInputBar: View {
         }
         .padding(.horizontal, containerPadding)
         .padding(.bottom, metrics.bottomPadding)
-        .frame(maxWidth: maxBarWidth)
+        .frame(maxWidth: cachedMaxBarWidth)
         .frame(maxWidth: .infinity, alignment: .center)
-        .simultaneousGesture(TapGesture().onEnded {
-            logger.info("Input bar tap gesture")
-            NSLog("DIAG: Input bar tap gesture")
-        })
         .onChange(of: content.length) { _, newValue in
             guard newValue == 0 else { return }
             editorHeight = metrics.inputBarHeight
+        }
+        .onAppear {
+            refreshMaxBarWidth()
+        }
+        .onChange(of: isCompact) { _, _ in
+            refreshMaxBarWidth()
+        }
+        .onChange(of: settings.fontScale) { _, _ in
+            refreshMaxBarWidth()
         }
     }
 }
@@ -303,6 +313,7 @@ private struct MessageEditorChrome: View {
     let editorOpacity: Double
     let onSubmitRequested: () -> Void
     let onFocusChange: (Bool) -> Void
+    let onTextEditActivity: () -> Void
     var onPasteImages: (([UIImage]) -> Void)?
     let placeholderText: String
     let isLightModeForInputBar: Bool
@@ -343,6 +354,7 @@ private struct MessageEditorChrome: View {
                 tintColor: chrome.tintColor,
                 textColor: chrome.textColor,
                 onFocusChange: onFocusChange,
+                onTextEditActivity: onTextEditActivity,
                 onSubmit: {
                     onSubmitRequested()
                 },
@@ -541,6 +553,7 @@ private struct MessageSendControl: View {
                 onReconnect: {},
                 onAdd: {},
                 onFocusChange: { _ in },
+                onTextEditActivity: {},
                 onPasteImages: nil,
                 isCompact: true
             )

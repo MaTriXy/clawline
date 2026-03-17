@@ -24,6 +24,7 @@ struct RichTextEditor: UIViewRepresentable {
     var tintColor: UIColor
     var textColor: UIColor = .label
     var onFocusChange: (Bool) -> Void
+    var onTextEditActivity: (() -> Void)?
     var onSubmit: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
     var trailingPadding: CGFloat = 20
@@ -86,7 +87,6 @@ struct RichTextEditor: UIViewRepresentable {
                 textView.selectedRange = selectionRange
                 context.coordinator.isApplyingParentSelection = false
             }
-            logger.info("[trace] updateUIView applied reset len=\(attributedText.length)")
         }
         context.coordinator.isApplyingLocalEdit = false
 
@@ -163,13 +163,12 @@ struct RichTextEditor: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             guard !isUpdatingFromSwiftUI else { return }
             isApplyingLocalEdit = true
+            parent.onTextEditActivity?()
             parent.attributedText = textView.attributedText
             setSelectionRange(textView.selectedRange)
             updateHeight(for: textView, allowAutoScroll: true)
             ensureCaretVisible(in: textView)
             ensureTypingAttributes(on: textView)
-            let length = textView.attributedText?.length ?? 0
-            logger.info("[trace] textViewDidChange len=\(length) sel=\(textView.selectedRange.location),\(textView.selectedRange.length)")
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {

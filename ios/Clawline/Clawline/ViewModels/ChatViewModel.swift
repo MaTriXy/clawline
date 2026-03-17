@@ -369,7 +369,6 @@ final class ChatViewModel: ChatViewModelHosting {
     var inputContent: NSAttributedString = NSAttributedString() {
         didSet {
             pruneAttachmentData()
-            logger.info("[trace] inputContent len=\(self.inputContent.length) empty=\(self.inputContent.isEffectivelyEmpty) canSend=\(self.canSend) state=\(String(describing: self.connectionState))")
         }
     }
     var attachmentData: [UUID: PendingAttachment] = [:]
@@ -2140,6 +2139,9 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func pruneAttachmentData() {
+        guard !attachmentData.isEmpty || !stagedAttachmentProtection.isEmpty || !uploadedAssetIds.isEmpty else {
+            return
+        }
         let referencedIds = Set(inputContent.pendingAttachmentIds())
         stagedAttachmentProtection.formIntersection(Set(attachmentData.keys))
         stagedAttachmentProtection.subtract(referencedIds)
