@@ -55,7 +55,7 @@ struct StreamManagerSheet: View {
     }
 
     private var actionBarReservedHeight: CGFloat {
-        actionBarContentHeight + actionBarSeparatorHeight
+        actionBarContentHeight
     }
 
     private var listItemCount: Int {
@@ -236,65 +236,64 @@ struct StreamManagerSheet: View {
     }
 
     private var bottomActionBar: some View {
-        VStack(spacing: 0) {
-            sectionSeparator
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Filter…", text: $searchQuery)
+                    .font(.clawline(.uiLabel))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: functionBarHeight)
+            .contentShape(Rectangle())
 
-            HStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Filter…", text: $searchQuery)
-                        .font(.clawline(.uiLabel))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity)
-                .frame(height: functionBarHeight)
-                .contentShape(Rectangle())
-
-                if viewModel.canUseTrackFeature {
-                    Button {
-                        onPresentTrackPicker()
-                    } label: {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.clear)
-                            .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
-                            .overlay {
-                                Image(systemName: "eye")
-                                    .font(.clawline(.subsectionHeader).weight(.regular))
-                                    .foregroundStyle(.primary)
-                            }
-                            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(activeEditor != nil || isWorking)
-                    .accessibilityLabel("Track")
-                    .accessibilityHint("Tracks an existing untracked session")
-                }
-
-                // Keep add affordance optically centered in a fixed-height toolbar regardless of keyboard changes.
+            if viewModel.canUseTrackFeature {
                 Button {
-                    addStreamDirectly()
+                    onPresentTrackPicker()
                 } label: {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color.clear)
                         .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
                         .overlay {
-                            Image(systemName: "plus")
+                            Image(systemName: "eye")
                                 .font(.clawline(.subsectionHeader).weight(.regular))
                                 .foregroundStyle(.primary)
                         }
                         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .disabled(activeEditor != nil)
-                .accessibilityLabel("Add stream")
-                .accessibilityHint("Creates a new stream")
+                .disabled(activeEditor != nil || isWorking)
+                .accessibilityLabel("Track")
+                .accessibilityHint("Tracks an existing untracked session")
             }
-            .padding(.horizontal, listRowHorizontalInset)
-            .padding(.top, actionBarTopPadding)
-            .padding(.bottom, actionBarBottomPadding)
+
+            // Keep add affordance optically centered in a fixed-height toolbar regardless of keyboard changes.
+            Button {
+                addStreamDirectly()
+            } label: {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.clear)
+                    .frame(width: functionBarHeight, height: functionBarHeight, alignment: .center)
+                    .overlay {
+                        Image(systemName: "plus")
+                            .font(.clawline(.subsectionHeader).weight(.regular))
+                            .foregroundStyle(.primary)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(activeEditor != nil)
+            .accessibilityLabel("Add stream")
+            .accessibilityHint("Creates a new stream")
+        }
+        .padding(.horizontal, listRowHorizontalInset)
+        .padding(.top, actionBarTopPadding)
+        .padding(.bottom, actionBarBottomPadding)
+        .overlay(alignment: .top) {
+            sectionSeparator
         }
     }
 
