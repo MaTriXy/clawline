@@ -42,6 +42,7 @@ struct MessageInputBar: View {
     @Binding var selectionRange: NSRange
     @Binding var pendingInsertions: [PendingAttachment]
     var placeholderText: String = "Message"
+    let fontScaleChangeSequence: Int
     var resetToken: Int
     let canSend: Bool
     let isSending: Bool
@@ -188,6 +189,7 @@ struct MessageInputBar: View {
     }
 
     var body: some View {
+        let _ = fontScaleChangeSequence
         HStack(alignment: .bottom, spacing: MessageInputBarMetrics.elementSpacing) {
 #if os(visionOS)
             // Appearance toggle button
@@ -249,6 +251,7 @@ struct MessageInputBar: View {
                 selectionRange: $selectionRange,
                 pendingInsertions: $pendingInsertions,
                 editorHeight: $editorHeight,
+                fontScaleChangeSequence: fontScaleChangeSequence,
                 resetToken: resetToken,
                 focusTrigger: focusTrigger,
                 inputHeight: inputHeight,
@@ -302,6 +305,7 @@ private struct MessageEditorChrome: View {
     @Binding var selectionRange: NSRange
     @Binding var pendingInsertions: [PendingAttachment]
     @Binding var editorHeight: CGFloat
+    let fontScaleChangeSequence: Int
     let resetToken: Int
     let focusTrigger: Int
     let inputHeight: CGFloat
@@ -343,6 +347,7 @@ private struct MessageEditorChrome: View {
                 calculatedHeight: $editorHeight,
                 selectionRange: $selectionRange,
                 pendingInsertions: $pendingInsertions,
+                fontScaleChangeSequence: fontScaleChangeSequence,
                 resetToken: resetToken,
                 focusTrigger: focusTrigger,
                 isEditable: true,
@@ -360,6 +365,7 @@ private struct MessageEditorChrome: View {
 
             if content.length == 0 {
                 Text(placeholderText)
+                    .font(.clawline(.bodyText))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .minimumScaleFactor(0.7)
@@ -533,6 +539,7 @@ private struct MessageSendControl: View {
                 content: $content,
                 selectionRange: $selection,
                 pendingInsertions: .constant([]),
+                fontScaleChangeSequence: 0,
                 resetToken: 0,
                 canSend: true,
                 isSending: false,

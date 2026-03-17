@@ -113,6 +113,7 @@ struct ChatView: View {
     @State private var pendingInputInsertions: [PendingAttachment] = []
     @State private var activeSheet: ChatSheet?
     @State private var isStreamManagerPopoverPresented = false
+    @State private var isTrackPickerPresented = false
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
@@ -169,6 +170,10 @@ struct ChatView: View {
 
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0.5
+    }
+
+    private var fontScaleChangeSequence: Int {
+        settings.fontScaleChangeSequence
     }
 
     private enum ChatSheet: Identifiable {
@@ -476,6 +481,7 @@ struct ChatView: View {
     private var chatBody: some View {
         @Bindable var viewModel = viewModel
         @Bindable var toastManager = toastManager
+        let _ = fontScaleChangeSequence
 
         GeometryReader { geometry in
             chatContent(geometry: geometry, viewModel: viewModel, toastManager: toastManager)
@@ -542,6 +548,9 @@ struct ChatView: View {
             viewModel.handleSceneActiveStateChanged(isActive: phase == .active)
             guard phase == .active else { return }
             keyboardRefreshToken &+= 1
+        }
+        .onChange(of: settings.fontScaleToastSequence) { _, _ in
+            showPendingFontScaleToastIfNeeded(toastManager: toastManager)
         }
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
@@ -1099,7 +1108,13 @@ struct ChatView: View {
     private func toastBannerView(geometry: GeometryProxy,
                                  toastManager: ToastManager) -> some View {
         if let toast = toastManager.toast {
-            ToastBanner(message: toast.message) {
+            ToastBanner(
+                message: toast.message,
+                actionTitle: toast.actionTitle,
+                action: toast.actionTitle == nil ? nil : {
+                    toastManager.performAction()
+                }
+            ) {
                 toastManager.dismiss()
             }
             .padding(.top, geometry.safeAreaInsets.top + 12)
@@ -1176,6 +1191,7 @@ struct ChatView: View {
                 selectionRange: $selectionRange,
                 pendingInsertions: $pendingInputInsertions,
                 placeholderText: viewModel.activeSessionDisplayName,
+                fontScaleChangeSequence: fontScaleChangeSequence,
                 resetToken: viewModel.inputResetToken,
                 canSend: viewModel.canSend,
                 isSending: viewModel.isSending,
@@ -1277,6 +1293,7 @@ struct ChatView: View {
             layoutCoordinator: layoutCoordinator,
             sessionKey: sessionKey,
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
+            fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: handleMessageFlowScrollEvent
         )
         // We manage keyboard avoidance manually inside the collection view.
@@ -1308,7 +1325,11 @@ struct ChatView: View {
         case .expandedMessage(let message):
             let metrics = ChatFlowTheme.Metrics(isCompact: horizontalSizeClass == .compact)
             let presentation = viewModel.presentation(for: message, metrics: metrics)
-            ExpandedMessageSheet(message: message, presentation: presentation)
+            ExpandedMessageSheet(
+                message: message,
+                presentation: presentation,
+                fontScaleChangeSequence: fontScaleChangeSequence
+            )
         case .camera:
             #if os(visionOS)
             Color.clear
@@ -1422,6 +1443,7 @@ struct ChatView: View {
                 shouldRegisterWithLayoutCoordinator: false,
                 sessionKey: sessionKey,
                 forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
+                fontScaleChangeSequence: fontScaleChangeSequence,
                 onScrollEvent: nil
             )
             .hidden()
@@ -1503,10 +1525,26 @@ struct ChatView: View {
                 maxAvailableHeight: streamSelectorMaxHeight,
                 onSelectStream: { sessionKey in
                     selectStream(sessionKey, source: .programmatic)
+                },
+                onPresentTrackPicker: {
+                    prepareForAttachmentPicker()
+                    isStreamManagerPopoverPresented = false
+                    Task { @MainActor in
+                        await Task.yield()
+                        isTrackPickerPresented = true
+                    }
                 }
             )
             .presentationCompactAdaptation(.popover)
             .presentationBackground(.clear)
+        }
+        .sheet(
+            isPresented: $isTrackPickerPresented,
+            onDismiss: {
+                restoreFocusIfNeeded()
+            }
+        ) {
+            TrackPickerSheet(viewModel: viewModel)
         }
     }
 
@@ -1531,6 +1569,12 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    @MainActor
+    private func showPendingFontScaleToastIfNeeded(toastManager: ToastManager) {
+        guard let message = settings.consumePendingFontScaleToastMessage() else { return }
+        toastManager.show(message, duration: .milliseconds(1500))
     }
 
     private func recordTypingActivity() {
@@ -1809,39 +1853,51 @@ struct ChatView: View {
 
     private struct ToastBanner: View {
         let message: String
+        let actionTitle: String?
+        let action: (() -> Void)?
         let dismiss: () -> Void
 
         var body: some View {
-            Text(message)
-                .font(.clawline(.uiLabel).weight(.medium))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-#if os(visionOS)
-                .background(
-                    Capsule()
-                        .fill(Color.white.opacity(0.3))
-                )
-#else
-                .glassEffect(.regular, in: Capsule())
-#endif
-                .onTapGesture(perform: dismiss)
-                .gesture(
-                    DragGesture(minimumDistance: 8)
-                        .onEnded { value in
-                            if value.translation.height < -10 {
-                                dismiss()
-                            }
-                        }
-                )
-                .accessibilityLabel(message)
-                .accessibilityHint("Dismiss with tap or swipe up.")
-                .accessibilityAddTraits(.isStaticText)
-                .onAppear {
-                    UIAccessibility.post(notification: .announcement, argument: message)
+            HStack(spacing: 12) {
+                Text(message)
+                    .font(.clawline(.uiLabel).weight(.medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let actionTitle, let action {
+                    Button(actionTitle, action: action)
+                        .font(.clawline(.uiLabel).weight(.semibold))
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.primary)
                 }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+#if os(visionOS)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.3))
+            )
+#else
+            .glassEffect(.regular, in: Capsule())
+#endif
+            .onTapGesture(perform: dismiss)
+            .gesture(
+                DragGesture(minimumDistance: 8)
+                    .onEnded { value in
+                        if value.translation.height < -10 {
+                            dismiss()
+                        }
+                    }
+            )
+            .accessibilityLabel(message)
+            .accessibilityHint(actionTitle == nil ? "Dismiss with tap or swipe up." : "Tap Undo to restore or tap elsewhere to dismiss.")
+            .accessibilityAddTraits(.isStaticText)
+            .onAppear {
+                UIAccessibility.post(notification: .announcement, argument: message)
+            }
         }
     }
 
@@ -2078,6 +2134,7 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     func updateUIView(_ uiView: KeyboardPinnedContainerView<Content>, context: Context) {
         uiView.hostingController.rootView = content
         uiView.updateVersionText(versionText)
+        uiView.setDesiredBottomGap(desiredBottomGap, isKeyboardVisible: isKeyboardVisible)
         uiView.updateScrollButton(
             scrollButtonView,
             gap: scrollButtonGap,
@@ -2604,6 +2661,19 @@ private final class PreviewChatService: ChatServicing {
     func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String?) async throws {}
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {}
     func fetchStreams() async throws -> [StreamSession] { [] }
+    func fetchTrackableSessions() async throws -> [TrackableSession] { [] }
+    func adoptStream(sessionKey: String) async throws -> StreamSession {
+        StreamSession(
+            sessionKey: sessionKey,
+            displayName: "Preview Adopted",
+            kind: "custom",
+            orderIndex: 0,
+            isBuiltIn: false,
+            createdAt: Date(),
+            updatedAt: Date(),
+            trackingMode: .adopted
+        )
+    }
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
         StreamSession(
             sessionKey: "preview",

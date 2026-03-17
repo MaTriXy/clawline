@@ -93,6 +93,7 @@ final class ProviderChatService: ChatServicing {
         let token: String
         let deviceId: String
         let lastMessageId: String?
+        let adoptedSessionKeys: [String]?
         let replayCursorsBySessionKey: [String: String]?
         let clientFeatures: [String]?
         let client: ClientDescriptor
@@ -196,6 +197,7 @@ final class ProviderChatService: ChatServicing {
     private let baseURLProvider: () -> URL?
     private let userIdProvider: () -> String?
     private let authTokenProvider: @Sendable () async -> String?
+    private let adoptedSessionKeysProvider: @Sendable () -> [String]
     private let streamAPIClient: StreamAPIClient
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -236,6 +238,7 @@ final class ProviderChatService: ChatServicing {
          baseURLProvider: @escaping () -> URL? = { ProviderBaseURLStore.baseURL },
          userIdProvider: @escaping () -> String? = { nil },
          authTokenProvider: @escaping @Sendable () async -> String? = { nil },
+         adoptedSessionKeysProvider: @escaping @Sendable () -> [String] = { [] },
          streamAPIClient: StreamAPIClient? = nil,
          encoder: JSONEncoder = JSONEncoder(),
          decoder: JSONDecoder = JSONDecoder()) {
@@ -244,6 +247,7 @@ final class ProviderChatService: ChatServicing {
         self.baseURLProvider = baseURLProvider
         self.userIdProvider = userIdProvider
         self.authTokenProvider = authTokenProvider
+        self.adoptedSessionKeysProvider = adoptedSessionKeysProvider
         self.encoder = encoder
         self.decoder = decoder
         self.streamAPIClient = streamAPIClient ?? StreamAPIClient(baseURLProvider: baseURLProvider)
@@ -266,6 +270,17 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
+    func fetchTrackableSessions() async throws -> [TrackableSession] {
+        guard let token = await resolveControlPlaneToken() else {
+            throw Error.notConnected
+        }
+        do {
+            return try await streamAPIClient.fetchTrackableSessions(token: token)
+        } catch {
+            throw mapStreamAPIError(error)
+        }
+    }
+
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
         guard let token = await resolveControlPlaneToken() else {
             throw Error.notConnected
@@ -274,6 +289,20 @@ final class ProviderChatService: ChatServicing {
             return try await streamAPIClient.createStream(
                 displayName: displayName,
                 idempotencyKey: idempotencyKey,
+                token: token
+            )
+        } catch {
+            throw mapStreamAPIError(error)
+        }
+    }
+
+    func adoptStream(sessionKey: String) async throws -> StreamSession {
+        guard let token = await resolveControlPlaneToken() else {
+            throw Error.notConnected
+        }
+        do {
+            return try await streamAPIClient.adoptStream(
+                sessionKey: sessionKey,
                 token: token
             )
         } catch {
@@ -348,11 +377,11 @@ final class ProviderChatService: ChatServicing {
             logger.info("connect start attempt=\(index + 1, privacy: .public)/\(wsURLs.count, privacy: .public) ws=\(wsURL.absoluteString, privacy: .public)")
             updateState(.connecting)
             do {
+                authToken = token
                 let client = try await connector.connect(to: wsURL)
                 socket = client
                 startListening(on: client)
                 try await awaitAuthResult(client: client, token: token, lastMessageId: lastMessageId)
-                authToken = token
                 return
             } catch {
                 lastError = error
@@ -601,10 +630,12 @@ final class ProviderChatService: ChatServicing {
 
     private func sendAuth(client: any WebSocketClient, token: String, lastMessageId: String?) async throws {
         let sanitizedLastMessageId = normalizeServerEventID(lastMessageId)
+        let adoptedSessionKeys = normalizedAdoptedSessionKeys()
         let authPayload = AuthPayload(
             token: token,
             deviceId: deviceId,
             lastMessageId: sanitizedLastMessageId,
+            adoptedSessionKeys: adoptedSessionKeys.isEmpty ? nil : adoptedSessionKeys,
             replayCursorsBySessionKey: nil,
             clientFeatures: supportedClientFeatures,
             client: ClientDescriptor(
@@ -617,6 +648,19 @@ final class ProviderChatService: ChatServicing {
             throw Error.notConnected
         }
         try await client.send(text: text)
+    }
+
+    private func normalizedAdoptedSessionKeys() -> [String] {
+        var seen: Set<String> = []
+        var normalized: [String] = []
+        for sessionKey in adoptedSessionKeysProvider() {
+            let trimmed = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if seen.insert(trimmed).inserted {
+                normalized.append(trimmed)
+            }
+        }
+        return normalized
     }
 
     private func startListening(on client: any WebSocketClient) {

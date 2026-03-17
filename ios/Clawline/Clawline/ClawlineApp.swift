@@ -50,9 +50,8 @@ struct ClawlineApp: App {
             connector: connector,
             deviceId: device.deviceId,
             userIdProvider: { authManager.currentUserId },
-            authTokenProvider: {
-                await MainActor.run { authManager.token }
-            }
+            authTokenProvider: { @MainActor in authManager.token },
+            adoptedSessionKeysProvider: { SessionRegistry.shared.adoptedSessionKeys() }
         )
         self.chatService = chatService
         self.uploadService = UploadService(
@@ -103,12 +102,17 @@ struct ClawlineApp: App {
                 Button("Increase Font Size") {
                     settingsManager.increaseFontScale()
                 }
-                .keyboardShortcut("=", modifiers: [.command, .shift])
+                .keyboardShortcut("=", modifiers: .command)
 
                 Button("Decrease Font Size") {
                     settingsManager.decreaseFontScale()
                 }
                 .keyboardShortcut("-", modifiers: .command)
+
+                Button("Reset Font Size") {
+                    settingsManager.resetFontScale()
+                }
+                .keyboardShortcut("0", modifiers: .command)
 
                 Divider()
 
