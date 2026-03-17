@@ -27,7 +27,6 @@ struct StreamManagerSheet: View {
     @State private var removingSessionKeys: Set<String> = []
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
-    @State private var renderedContainerHeight: CGFloat = 0
     @FocusState private var focusedEditor: EditorMode?
 
     private enum EditorMode: Hashable {
@@ -45,13 +44,18 @@ struct StreamManagerSheet: View {
     private let functionBarHeight: CGFloat = 40
     private let actionBarTopPadding: CGFloat = 12
     private let actionBarBottomPadding: CGFloat = 20
+    private let actionBarSeparatorHeight: CGFloat = 0.5
     private let listOuterVerticalPadding: CGFloat = 20
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
     private let actionBarSeparatorOpacity: CGFloat = 0.12
     private let actionBarSeparatorInset: CGFloat = 12
-    private var actionBarHeight: CGFloat {
+    private var actionBarContentHeight: CGFloat {
         functionBarHeight + actionBarTopPadding + actionBarBottomPadding
+    }
+
+    private var actionBarReservedHeight: CGFloat {
+        actionBarContentHeight + actionBarSeparatorHeight
     }
 
     private var listItemCount: Int {
@@ -81,24 +85,13 @@ struct StreamManagerSheet: View {
         )
     }
 
-    private var effectiveContainerHeight: CGFloat {
-        if renderedContainerHeight > 0 {
-            return renderedContainerHeight
-        }
-        return cappedContainerHeight
-    }
-
-    private var listViewportHeight: CGFloat {
-        max(0, effectiveContainerHeight - actionBarHeight)
-    }
-
     private var cappedContainerHeight: CGFloat {
         StreamSelectorLayout.containerHeight(
             itemCount: listItemCount,
             showsCreateInlineRow: false,
             rowHeight: listRowHeight,
             rowSpacing: listRowSpacing,
-            functionBarHeight: actionBarHeight,
+            functionBarHeight: actionBarReservedHeight,
             outerVerticalPadding: listOuterVerticalPadding,
             maxAvailableHeight: maxAvailableHeight,
             minimumPopoverHeight: minimumPopoverHeight
@@ -107,59 +100,9 @@ struct StreamManagerSheet: View {
 
     var body: some View {
         let _ = settings.fontScaleChangeSequence
-        VStack(spacing: 0) {
-            List {
-                ForEach(filteredStreams) { stream in
-                    rowContent(for: stream)
-                        .frame(height: listRowHeight, alignment: .center)
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 0,
-                                leading: listRowHorizontalInset,
-                                bottom: 0,
-                                trailing: listRowHorizontalInset
-                            )
-                        )
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button {
-                                beginRenaming(stream)
-                            } label: {
-                                Image(systemName: "pencil")
-                                    .font(.title3.weight(.semibold))
-                            }
-                            .accessibilityLabel("Rename")
-                            .disabled(!canPerformRenameAction(for: stream))
-                            .tint(canPerformRenameAction(for: stream) ? .blue : Color.gray.opacity(0.35))
-
-                            Button {
-                                pendingRemovalStream = stream
-                            } label: {
-                                Image(systemName: removalActionImage(for: stream))
-                                    .font(.title3.weight(.semibold))
-                            }
-                            .accessibilityLabel(removalActionTitle(for: stream))
-                            .disabled(!canPerformRemovalAction(for: stream))
-                            .tint(canPerformRemovalAction(for: stream) ? .red : Color.gray.opacity(0.35))
-                        }
-                }
-
-                ForEach(filteredPendingCreateRows) { pendingRow in
-                    HStack(spacing: 10) {
-                        Circle()
-                            .fill(Color.primary.opacity(0.18))
-                            .frame(width: 8, height: 8)
-                        Text(pendingRow.displayName)
-                            .font(.clawline(.subsectionHeader).weight(.regular))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.secondary)
-                    }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+        List {
+            ForEach(filteredStreams) { stream in
+                rowContent(for: stream)
                     .frame(height: listRowHeight, alignment: .center)
                     .listRowInsets(
                         EdgeInsets(
@@ -169,40 +112,126 @@ struct StreamManagerSheet: View {
                             trailing: listRowHorizontalInset
                         )
                     )
-                    .contentShape(Rectangle())
-                }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
+                            beginRenaming(stream)
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.title3.weight(.semibold))
+                        }
+                        .accessibilityLabel("Rename")
+                        .disabled(!canPerformRenameAction(for: stream))
+                        .tint(canPerformRenameAction(for: stream) ? .blue : Color.gray.opacity(0.35))
 
-                if filteredStreams.isEmpty && filteredPendingCreateRows.isEmpty {
-                    Text("No streams found")
-                        .font(.clawline(.secondaryLabel))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .frame(height: listRowHeight, alignment: .center)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 0,
-                                leading: listRowHorizontalInset,
-                                bottom: 0,
-                                trailing: listRowHorizontalInset
-                            )
-                        )
-                }
+                        Button {
+                            pendingRemovalStream = stream
+                        } label: {
+                            Image(systemName: removalActionImage(for: stream))
+                                .font(.title3.weight(.semibold))
+                        }
+                        .accessibilityLabel(removalActionTitle(for: stream))
+                        .disabled(!canPerformRemovalAction(for: stream))
+                        .tint(canPerformRemovalAction(for: stream) ? .red : Color.gray.opacity(0.35))
+                    }
             }
-            .listStyle(.plain)
-            .environment(\.defaultMinListRowHeight, listRowHeight)
-            .listRowSpacing(listRowSpacing)
-            .scrollBounceBehavior(.always)
-            .contentMargins(.top, listOuterVerticalPadding, for: .scrollContent)
-            .contentMargins(.bottom, listOuterVerticalPadding + actionBarHeight, for: .scrollContent)
-            .contentMargins(.bottom, actionBarHeight, for: .scrollIndicators)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
-            .frame(height: listViewportHeight)
-            .clipShape(Rectangle())
-            .disabled(isWorking)
 
+            ForEach(filteredPendingCreateRows) { pendingRow in
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(Color.primary.opacity(0.18))
+                        .frame(width: 8, height: 8)
+                    Text(pendingRow.displayName)
+                        .font(.clawline(.subsectionHeader).weight(.regular))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.secondary)
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .frame(height: listRowHeight, alignment: .center)
+                .listRowInsets(
+                    EdgeInsets(
+                        top: 0,
+                        leading: listRowHorizontalInset,
+                        bottom: 0,
+                        trailing: listRowHorizontalInset
+                    )
+                )
+                .contentShape(Rectangle())
+            }
+
+            if filteredStreams.isEmpty && filteredPendingCreateRows.isEmpty {
+                Text("No streams found")
+                    .font(.clawline(.secondaryLabel))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(height: listRowHeight, alignment: .center)
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 0,
+                            leading: listRowHorizontalInset,
+                            bottom: 0,
+                            trailing: listRowHorizontalInset
+                        )
+                    )
+            }
+        }
+        .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, listRowHeight)
+        .listRowSpacing(listRowSpacing)
+        .scrollBounceBehavior(.always)
+        .contentMargins(.top, listOuterVerticalPadding, for: .scrollContent)
+        .contentMargins(.bottom, listOuterVerticalPadding, for: .scrollContent)
+        .contentMargins(.bottom, actionBarReservedHeight, for: .scrollIndicators)
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomActionBar
+        }
+        .frame(height: cappedContainerHeight)
+        .clipShape(Rectangle())
+        .disabled(isWorking)
+        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
+        .background(Color.clear)
+        .overlay(
+            RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                .allowsHitTesting(false)
+        )
+        .onChange(of: isPresented) { _, presented in
+            if !presented {
+                resetInlineEditing()
+                searchQuery = ""
+            }
+        }
+        .alert(
+            pendingRemovalTitle,
+            isPresented: Binding(
+                get: { pendingRemovalStream != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pendingRemovalStream = nil
+                    }
+                }
+            ),
+            presenting: pendingRemovalStream
+        ) { stream in
+            Button("Cancel", role: .cancel) {}
+            Button(removalActionTitle(for: stream), role: .destructive) {
+                pendingRemovalStream = nil
+                Task { await removeStream(stream) }
+            }
+        }
+    }
+
+    private var bottomActionBar: some View {
+        VStack(spacing: 0) {
             sectionSeparator
 
             HStack(spacing: 12) {
@@ -261,49 +290,6 @@ struct StreamManagerSheet: View {
             .padding(.horizontal, listRowHorizontalInset)
             .padding(.top, actionBarTopPadding)
             .padding(.bottom, actionBarBottomPadding)
-        }
-        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
-        .frame(height: cappedContainerHeight)
-        .background(Color.clear)
-        .overlay(
-            RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
-                .allowsHitTesting(false)
-        )
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear {
-                        renderedContainerHeight = proxy.size.height
-                    }
-                    .onChange(of: proxy.size.height) { _, newValue in
-                        renderedContainerHeight = newValue
-                    }
-            }
-        )
-        .onChange(of: isPresented) { _, presented in
-            if !presented {
-                resetInlineEditing()
-                searchQuery = ""
-            }
-        }
-        .alert(
-            pendingRemovalTitle,
-            isPresented: Binding(
-                get: { pendingRemovalStream != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        pendingRemovalStream = nil
-                    }
-                }
-            ),
-            presenting: pendingRemovalStream
-        ) { stream in
-            Button("Cancel", role: .cancel) {}
-            Button(removalActionTitle(for: stream), role: .destructive) {
-                pendingRemovalStream = nil
-                Task { await removeStream(stream) }
-            }
         }
     }
 
@@ -455,7 +441,7 @@ struct StreamManagerSheet: View {
     private var sectionSeparator: some View {
         Rectangle()
             .fill(Color.white.opacity(actionBarSeparatorOpacity))
-            .frame(height: 0.5)
+            .frame(height: actionBarSeparatorHeight)
             .padding(.horizontal, actionBarSeparatorInset)
             .allowsHitTesting(false)
     }
