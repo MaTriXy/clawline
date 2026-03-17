@@ -44,11 +44,9 @@ struct StreamManagerSheet: View {
     private let functionBarHeight: CGFloat = 40
     private let actionBarTopPadding: CGFloat = 12
     private let actionBarBottomPadding: CGFloat = 20
-    private let actionBarSeparatorHeight: CGFloat = 0.5
     private let listOuterVerticalPadding: CGFloat = 20
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
-    private let actionBarSeparatorOpacity: CGFloat = 0.12
     private let actionBarSeparatorInset: CGFloat = 12
     private var actionBarContentHeight: CGFloat {
         functionBarHeight + actionBarTopPadding + actionBarBottomPadding
@@ -56,6 +54,14 @@ struct StreamManagerSheet: View {
 
     private var actionBarReservedHeight: CGFloat {
         actionBarContentHeight
+    }
+
+    private var actionBarSeparatorHeight: CGFloat {
+        1 / max(UITraitCollection.current.displayScale, 1)
+    }
+
+    private var actionBarSeparatorColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.62) : Color.black.opacity(0.34)
     }
 
     private var listItemCount: Int {
@@ -444,7 +450,7 @@ struct StreamManagerSheet: View {
 
     private var sectionSeparator: some View {
         Rectangle()
-            .fill(Color.white.opacity(actionBarSeparatorOpacity))
+            .fill(actionBarSeparatorColor)
             .frame(height: actionBarSeparatorHeight)
             .padding(.horizontal, actionBarSeparatorInset)
             .allowsHitTesting(false)
