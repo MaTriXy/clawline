@@ -10,6 +10,7 @@ import UIKit
 
 struct StreamManagerSheet: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.settingsManager) private var settings
 
     @Bindable var viewModel: ChatViewModel
     let streams: [StreamSession]
@@ -105,6 +106,7 @@ struct StreamManagerSheet: View {
     }
 
     var body: some View {
+        let _ = settings.fontScaleChangeSequence
         VStack(spacing: 0) {
             List {
                 ForEach(filteredStreams) { stream in
@@ -463,6 +465,7 @@ struct StreamManagerSheet: View {
 struct TrackPickerSheet: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.settingsManager) private var settings
 
     @Bindable var viewModel: ChatViewModel
 
@@ -531,6 +534,7 @@ struct TrackPickerSheet: View {
     }
 
     var body: some View {
+        let _ = settings.fontScaleChangeSequence
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: trackPickerSectionSpacing) {

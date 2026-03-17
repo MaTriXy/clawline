@@ -34,6 +34,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     /// Optional session override - if provided, shows messages for this session instead of activeSessionKey
     var sessionKey: String?
     var forceReReadGeneration: Int = 0
+    var fontScaleChangeSequence: Int = 0
     var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.settingsManager) private var settings
@@ -59,6 +60,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             onExpand: onExpand,
             sessionKey: sessionKey,
             forceReReadGeneration: forceReReadGeneration,
+            fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             isDark: isDark
         )
@@ -87,6 +89,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             onExpand: onExpand,
             sessionKey: sessionKey,
             forceReReadGeneration: forceReReadGeneration,
+            fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             isDark: isDark
         )
@@ -110,6 +113,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let onExpand: ((Message) -> Void)?
         let sessionKey: String?
         let forceReReadGeneration: Int
+        let fontScaleChangeSequence: Int
         let onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
         let isDark: Bool?
     }
@@ -219,6 +223,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var truncationBottomInset: CGFloat = 0
     private var lastBoundsSize: CGSize = .zero
     private var forceReconfigureAll = false
+    private var currentFontScaleChangeSequence: Int = 0
     private var onExpand: ((Message) -> Void)?
     private var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     // Staged stream materialization (approved spec: tail window -> full history).
@@ -1705,6 +1710,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         onExpand: ((Message) -> Void)? = nil,
         sessionKey: String? = nil,
         forceReReadGeneration: Int = 0,
+        fontScaleChangeSequence: Int = 0,
         onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)? = nil,
         isDark: Bool? = nil
     ) {
@@ -1721,6 +1727,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             onExpand: onExpand,
             sessionKey: sessionKey,
             forceReReadGeneration: forceReReadGeneration,
+            fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             isDark: isDark
         )
@@ -1755,6 +1762,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             logger.info("update: appearance changed isDark=\(isDark, privacy: .public)")
             currentIsDark = isDark
             clearAllSizeState()
+            forceReconfigureAll = true
+        }
+        let didFontScaleChange = currentFontScaleChangeSequence != request.fontScaleChangeSequence
+        if didFontScaleChange {
+            currentFontScaleChangeSequence = request.fontScaleChangeSequence
+            executeInvalidationPlan(invalidateFor(reason: .envChanged))
             forceReconfigureAll = true
         }
 #if os(visionOS)
@@ -1792,6 +1805,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return
         }
         let needsFullLayout = forceReconfigureAll
+            || didFontScaleChange
             || self.isCompact != isCompact
             || self.topInset != topInset
             || previousSessionKey != sessionKey

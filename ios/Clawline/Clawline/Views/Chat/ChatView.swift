@@ -169,6 +169,10 @@ struct ChatView: View {
         keyboardHeight > 0.5
     }
 
+    private var fontScaleChangeSequence: Int {
+        settings.fontScaleChangeSequence
+    }
+
     private enum ChatSheet: Identifiable {
         case attachmentMenu
         case expandedMessage(Message)
@@ -474,6 +478,7 @@ struct ChatView: View {
     private var chatBody: some View {
         @Bindable var viewModel = viewModel
         @Bindable var toastManager = toastManager
+        let _ = fontScaleChangeSequence
 
         GeometryReader { geometry in
             chatContent(geometry: geometry, viewModel: viewModel, toastManager: toastManager)
@@ -1181,6 +1186,7 @@ struct ChatView: View {
                 selectionRange: $selectionRange,
                 pendingInsertions: $pendingInputInsertions,
                 placeholderText: viewModel.activeSessionDisplayName,
+                fontScaleChangeSequence: fontScaleChangeSequence,
                 resetToken: viewModel.inputResetToken,
                 canSend: viewModel.canSend,
                 isSending: viewModel.isSending,
@@ -1272,6 +1278,7 @@ struct ChatView: View {
             layoutCoordinator: layoutCoordinator,
             sessionKey: sessionKey,
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
+            fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: handleMessageFlowScrollEvent
         )
         // We manage keyboard avoidance manually inside the collection view.
@@ -1303,7 +1310,11 @@ struct ChatView: View {
         case .expandedMessage(let message):
             let metrics = ChatFlowTheme.Metrics(isCompact: horizontalSizeClass == .compact)
             let presentation = viewModel.presentation(for: message, metrics: metrics)
-            ExpandedMessageSheet(message: message, presentation: presentation)
+            ExpandedMessageSheet(
+                message: message,
+                presentation: presentation,
+                fontScaleChangeSequence: fontScaleChangeSequence
+            )
         case .camera:
             #if os(visionOS)
             Color.clear
@@ -1416,6 +1427,7 @@ struct ChatView: View {
                 shouldRegisterWithLayoutCoordinator: false,
                 sessionKey: sessionKey,
                 forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
+                fontScaleChangeSequence: fontScaleChangeSequence,
                 onScrollEvent: nil
             )
             .hidden()
