@@ -85,6 +85,10 @@ struct StreamManagerSheet: View {
         )
     }
 
+    private var listViewportHeight: CGFloat {
+        max(0, cappedContainerHeight - actionBarReservedHeight)
+    }
+
     private var cappedContainerHeight: CGFloat {
         StreamSelectorLayout.containerHeight(
             itemCount: listItemCount,
@@ -100,78 +104,60 @@ struct StreamManagerSheet: View {
 
     var body: some View {
         let _ = settings.fontScaleChangeSequence
-        List {
-            ForEach(filteredStreams) { stream in
-                rowContent(for: stream)
-                    .frame(height: listRowHeight, alignment: .center)
-                    .listRowInsets(
-                        EdgeInsets(
-                            top: 0,
-                            leading: listRowHorizontalInset,
-                            bottom: 0,
-                            trailing: listRowHorizontalInset
+        VStack(spacing: 0) {
+            List {
+                ForEach(filteredStreams) { stream in
+                    rowContent(for: stream)
+                        .frame(height: listRowHeight, alignment: .center)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: listRowHorizontalInset,
+                                bottom: 0,
+                                trailing: listRowHorizontalInset
+                            )
                         )
-                    )
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button {
-                            beginRenaming(stream)
-                        } label: {
-                            Image(systemName: "pencil")
-                                .font(.title3.weight(.semibold))
-                        }
-                        .accessibilityLabel("Rename")
-                        .disabled(!canPerformRenameAction(for: stream))
-                        .tint(canPerformRenameAction(for: stream) ? .blue : Color.gray.opacity(0.35))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button {
+                                beginRenaming(stream)
+                            } label: {
+                                Image(systemName: "pencil")
+                                    .font(.title3.weight(.semibold))
+                            }
+                            .accessibilityLabel("Rename")
+                            .disabled(!canPerformRenameAction(for: stream))
+                            .tint(canPerformRenameAction(for: stream) ? .blue : Color.gray.opacity(0.35))
 
-                        Button {
-                            pendingRemovalStream = stream
-                        } label: {
-                            Image(systemName: removalActionImage(for: stream))
-                                .font(.title3.weight(.semibold))
+                            Button {
+                                pendingRemovalStream = stream
+                            } label: {
+                                Image(systemName: removalActionImage(for: stream))
+                                    .font(.title3.weight(.semibold))
+                            }
+                            .accessibilityLabel(removalActionTitle(for: stream))
+                            .disabled(!canPerformRemovalAction(for: stream))
+                            .tint(canPerformRemovalAction(for: stream) ? .red : Color.gray.opacity(0.35))
                         }
-                        .accessibilityLabel(removalActionTitle(for: stream))
-                        .disabled(!canPerformRemovalAction(for: stream))
-                        .tint(canPerformRemovalAction(for: stream) ? .red : Color.gray.opacity(0.35))
-                    }
-            }
-
-            ForEach(filteredPendingCreateRows) { pendingRow in
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(Color.primary.opacity(0.18))
-                        .frame(width: 8, height: 8)
-                    Text(pendingRow.displayName)
-                        .font(.clawline(.subsectionHeader).weight(.regular))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.secondary)
                 }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .frame(height: listRowHeight, alignment: .center)
-                .listRowInsets(
-                    EdgeInsets(
-                        top: 0,
-                        leading: listRowHorizontalInset,
-                        bottom: 0,
-                        trailing: listRowHorizontalInset
-                    )
-                )
-                .contentShape(Rectangle())
-            }
 
-            if filteredStreams.isEmpty && filteredPendingCreateRows.isEmpty {
-                Text("No streams found")
-                    .font(.clawline(.secondaryLabel))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .frame(height: listRowHeight, alignment: .center)
+                ForEach(filteredPendingCreateRows) { pendingRow in
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(Color.primary.opacity(0.18))
+                            .frame(width: 8, height: 8)
+                        Text(pendingRow.displayName)
+                            .font(.clawline(.subsectionHeader).weight(.regular))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.secondary)
+                    }
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
+                    .frame(height: listRowHeight, alignment: .center)
                     .listRowInsets(
                         EdgeInsets(
                             top: 0,
@@ -180,23 +166,42 @@ struct StreamManagerSheet: View {
                             trailing: listRowHorizontalInset
                         )
                     )
+                    .contentShape(Rectangle())
+                }
+
+                if filteredStreams.isEmpty && filteredPendingCreateRows.isEmpty {
+                    Text("No streams found")
+                        .font(.clawline(.secondaryLabel))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .frame(height: listRowHeight, alignment: .center)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: listRowHorizontalInset,
+                                bottom: 0,
+                                trailing: listRowHorizontalInset
+                            )
+                        )
+                }
             }
-        }
-        .listStyle(.plain)
-        .environment(\.defaultMinListRowHeight, listRowHeight)
-        .listRowSpacing(listRowSpacing)
-        .scrollBounceBehavior(.always)
-        .contentMargins(.top, listOuterVerticalPadding, for: .scrollContent)
-        .contentMargins(.bottom, listOuterVerticalPadding, for: .scrollContent)
-        .contentMargins(.bottom, actionBarReservedHeight, for: .scrollIndicators)
-        .scrollContentBackground(.hidden)
-        .background(Color.clear)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+            .listStyle(.plain)
+            .environment(\.defaultMinListRowHeight, listRowHeight)
+            .listRowSpacing(listRowSpacing)
+            .scrollBounceBehavior(.always)
+            .contentMargins(.top, listOuterVerticalPadding, for: .scrollContent)
+            .contentMargins(.bottom, listOuterVerticalPadding, for: .scrollContent)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
+            .frame(height: listViewportHeight)
+            .clipShape(Rectangle())
+            .disabled(isWorking)
+
             bottomActionBar
         }
         .frame(height: cappedContainerHeight)
-        .clipShape(Rectangle())
-        .disabled(isWorking)
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
         .background(Color.clear)
         .overlay(
