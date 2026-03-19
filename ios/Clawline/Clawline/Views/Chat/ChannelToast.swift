@@ -79,7 +79,7 @@ struct StreamToast: View {
 }
 
 /// Manages the channel toast display with debounce behavior.
-/// Toast stays visible while switching and only dismisses after 1 second of no activity.
+/// Toast stays visible while switching and only dismisses after 5 seconds of no activity.
 @Observable
 @MainActor
 final class StreamToastManager {
@@ -93,7 +93,7 @@ final class StreamToastManager {
     private var shownAt: ContinuousClock.Instant?
     private var dismissTask: Task<Void, Never>?
 
-    init(dismissDelay: Duration = .seconds(2)) {
+    init(dismissDelay: Duration = .seconds(5)) {
         self.dismissDelay = dismissDelay
     }
 
