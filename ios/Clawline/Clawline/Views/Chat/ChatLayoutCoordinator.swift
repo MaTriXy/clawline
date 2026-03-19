@@ -142,14 +142,14 @@ final class ChatLayoutCoordinator {
         activeSessionKey = sessionKey
     }
 
-    func scrollToBottom(animated: Bool) {
+    func scrollToBottom(animated: Bool, attempts: Int = 2) {
         dispatchPrecondition(condition: .onQueue(.main))
-        scrollToBottom(sessionKey: activeSessionKey, animated: animated)
+        scrollToBottom(sessionKey: activeSessionKey, animated: animated, attempts: attempts)
     }
 
-    func scrollToBottom(sessionKey: String, animated: Bool) {
+    func scrollToBottom(sessionKey: String, animated: Bool, attempts: Int = 2) {
         dispatchPrecondition(condition: .onQueue(.main))
-        listViews[sessionKey]?.value?.scheduleScrollToBottom(animated: animated)
+        listViews[sessionKey]?.value?.scheduleScrollToBottom(animated: animated, attempts: attempts)
     }
 
     func scrollToTop(animated: Bool) {

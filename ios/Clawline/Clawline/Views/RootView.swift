@@ -85,6 +85,9 @@ struct RootView: View {
                 chatViewModel = nil
             }
         }
+        .onChange(of: settings.fontScaleToastSequence) { _, _ in
+            showPendingFontScaleToastIfNeeded()
+        }
         .environment(\.uploadService, uploadService)
         .background {
 #if os(visionOS)
@@ -137,6 +140,12 @@ struct RootView: View {
                 await created.activate(origin: "RootView.ensureChatViewModel[\(origin)]")
             }
         }
+    }
+
+    @MainActor
+    private func showPendingFontScaleToastIfNeeded() {
+        guard let message = settings.consumePendingFontScaleToastMessage() else { return }
+        toastManager.show(message, duration: .seconds(3))
     }
 }
 

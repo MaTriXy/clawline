@@ -366,6 +366,18 @@ final class ChatViewModel: ChatViewModelHosting {
     var activeSessionDisplayName: String {
         streamsBySessionKey[uiSelectedSessionKey]?.displayName ?? fallbackDisplayName(for: uiSelectedSessionKey)
     }
+
+    var activeSessionPlaceholderText: String {
+        Self.placeholderText(
+            displayName: activeSessionDisplayName,
+            sessionKey: uiSelectedSessionKey
+        )
+    }
+
+    nonisolated static func placeholderText(displayName: String, sessionKey: String) -> String {
+        guard !sessionKey.isEmpty else { return displayName }
+        return "\(displayName) — \(sessionKey)"
+    }
     var inputContent: NSAttributedString = NSAttributedString() {
         didSet {
             pruneAttachmentData()
