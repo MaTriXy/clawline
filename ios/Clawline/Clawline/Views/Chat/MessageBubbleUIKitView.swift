@@ -686,7 +686,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             baseFont: markdownStyle.baseFont,
             inkColor: palette.ink,
             lineSpacing: markdownStyle.lineSpacing,
-            stripDetectedURLs: true,
+            stripDetectedURLs: false,
             role: message.role,
             isDark: effectiveIsDark
         )
@@ -698,7 +698,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         bodyLabel.attributedText = nil
         salientBaseAttributedText = nil
 
-        if isChromelessEmoji, let value = markdownContent.firstInlineEmojiValue {
+        if isChromelessEmoji, let value = markdownContent.joinedInlineEmojiValues {
             let baseEmojiFont = UIFont.clawline(.shortMessage)
             let emojiFont = UIFont(descriptor: baseEmojiFont.fontDescriptor, size: baseEmojiFont.pointSize * 2)
             let paragraph = NSMutableParagraphStyle()
