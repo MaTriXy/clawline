@@ -1945,6 +1945,50 @@ struct ChatViewModelTests {
         #expect(viewModel.isAdoptedStream(sessionKey: agentSessionKey))
     }
 
+    @Test("Track candidates can be refreshed on demand")
+    @MainActor
+    func trackCandidatesRefreshOnDemand() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        auth.updateAdminStatus(true)
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        let agentSessionKey = "agent:main:openclaw:user:s_manualrefresh"
+        chatService.trackableSessions = [
+            TrackableSession(
+                sessionKey: agentSessionKey,
+                displayName: "Manual Refresh Session",
+                updatedAt: Date()
+            )
+        ]
+
+        viewModel.refreshTrackableSessionsOnDemand()
+
+        for _ in 0..<50 {
+            if viewModel.untrackedSessionCandidates.map(\.sessionKey).contains(agentSessionKey) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(chatService.fetchTrackableSessionsCallCount == 1)
+        #expect(viewModel.untrackedSessionCandidates.map(\.sessionKey).contains(agentSessionKey))
+    }
+
     @Test("Initial trackable sessions load failure is surfaced")
     @MainActor
     func initialTrackableSessionsLoadFailureIsSurfaced() async throws {

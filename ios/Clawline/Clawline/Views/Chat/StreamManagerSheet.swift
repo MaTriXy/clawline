@@ -561,6 +561,9 @@ struct TrackPickerSheet: View {
                 self.selectedTrackCandidateSessionKey = nil
             }
         }
+        .task {
+            viewModel.refreshTrackableSessionsOnDemand()
+        }
         .onDisappear {
             clearTrackPickerFirstResponder()
         }

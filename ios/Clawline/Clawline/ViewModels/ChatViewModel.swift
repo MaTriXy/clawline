@@ -1356,6 +1356,10 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    func refreshTrackableSessionsOnDemand() {
+        refreshTrackableSessions(reason: "manualRefresh")
+    }
+
     func createStream(displayName: String) async -> Bool {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }

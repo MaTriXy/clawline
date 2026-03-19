@@ -34,7 +34,9 @@ struct Clawline_SpatialApp: App {
         self.chatService = ProviderChatService(
             connector: connector,
             deviceId: device.deviceId,
-            userIdProvider: { authManager.currentUserId }
+            userIdProvider: { authManager.currentUserId },
+            authTokenProvider: { @MainActor in authManager.token },
+            adoptedSessionKeysProvider: { SessionRegistry.shared.adoptedSessionKeys() }
         )
         self.uploadService = UploadService(
             auth: authManager,
