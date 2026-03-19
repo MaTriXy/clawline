@@ -91,4 +91,15 @@ struct ClawlineTests {
         }
         #expect(settings.fontScale == AppFontScale.minimum)
     }
+
+    @Test("T180: placeholder text includes channel name and session key")
+    func placeholderTextIncludesSessionKey() {
+        #expect(
+            ChatViewModel.placeholderText(
+                displayName: "Main",
+                sessionKey: "agent:main:clawline:flynn:main"
+            ) == "Main — agent:main:clawline:flynn:main"
+        )
+        #expect(ChatViewModel.placeholderText(displayName: "Main", sessionKey: "") == "Main")
+    }
 }

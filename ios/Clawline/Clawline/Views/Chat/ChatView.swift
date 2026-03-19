@@ -427,7 +427,7 @@ struct ChatView: View {
             }
             return
         }
-        layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
+        layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: false, attempts: 1)
     }
 
     private func scrollButtonControl(
@@ -548,9 +548,6 @@ struct ChatView: View {
             viewModel.handleSceneActiveStateChanged(isActive: phase == .active)
             guard phase == .active else { return }
             keyboardRefreshToken &+= 1
-        }
-        .onChange(of: settings.fontScaleToastSequence) { _, _ in
-            showPendingFontScaleToastIfNeeded(toastManager: toastManager)
         }
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
@@ -1190,7 +1187,7 @@ struct ChatView: View {
                 content: $viewModel.inputContent,
                 selectionRange: $selectionRange,
                 pendingInsertions: $pendingInputInsertions,
-                placeholderText: viewModel.activeSessionDisplayName,
+                placeholderText: viewModel.activeSessionPlaceholderText,
                 fontScaleChangeSequence: fontScaleChangeSequence,
                 resetToken: viewModel.inputResetToken,
                 canSend: viewModel.canSend,
@@ -1569,12 +1566,6 @@ struct ChatView: View {
                 }
             }
         }
-    }
-
-    @MainActor
-    private func showPendingFontScaleToastIfNeeded(toastManager: ToastManager) {
-        guard let message = settings.consumePendingFontScaleToastMessage() else { return }
-        toastManager.show(message, duration: .milliseconds(1500))
     }
 
     private func recordTypingActivity() {
