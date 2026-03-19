@@ -2884,7 +2884,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 containerWidth: contentWidth
             )
-            let allowsOuterScroll = (sizeClass == .long)
+            let allowsOuterScroll = (sizeClass == .long) && !self.shouldDisableOuterScrollForMixedMediaBubble(presentation)
             let env = self.bubbleSizingV2Environment(metrics: metrics)
             let fallbackHeightPolicy = self.bubbleHeightPolicyForPresentation(
                 presentation: presentation,
@@ -3131,6 +3131,22 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         )
     }
 
+    private func shouldDisableOuterScrollForMixedMediaBubble(_ presentation: MessagePresentation) -> Bool {
+#if os(visionOS)
+        guard !presentation.hasMediaOnly else { return false }
+        return presentation.parts.contains { part in
+            switch part {
+            case .image, .gallery:
+                return true
+            default:
+                return false
+            }
+        }
+#else
+        return false
+#endif
+    }
+
     private func maxItemWidth(for sizeClass: MessageSizeClass,
                               message: Message,
                               presentation: MessagePresentation,
@@ -3361,11 +3377,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             containerWidth: availableWidth
         )
         let failureReason = viewModel.failureMessage(for: message.id)
+        let allowsOuterScroll = (sizeClass == .long) && !shouldDisableOuterScrollForMixedMediaBubble(presentation)
         let bubbleHeightPolicy = bubbleHeightPolicyForPresentation(
             presentation: presentation,
             metrics: metrics,
             env: env,
-            allowsOuterScroll: sizeClass == .long
+            allowsOuterScroll: allowsOuterScroll
         )
         let measuredSize = measureUIKitBubbleSize(
             message: message,
@@ -3528,7 +3545,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Design-system: only "large" (.long) bubbles get truncation/outer-scroll behavior.
         // Short/medium bubbles should grow to content (no truncation chrome), even with Dynamic Type.
-        let allowsOuterScroll = (sizeClass == .long)
+        let allowsOuterScroll = (sizeClass == .long) && !shouldDisableOuterScrollForMixedMediaBubble(presentation)
         let heightPolicy = bubbleHeightPolicyForPresentation(
             presentation: presentation,
             metrics: metrics,
