@@ -36,6 +36,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private let instanceId = UUID().uuidString
     @MainActor
     private static var currentConnectionOwnerId: String?
+    private static let providerMaxTextMessageBytes = 65_536
     private static let richDocumentMimeTypesNeedingPayload: Set<String> = [
         InteractiveHTMLDescriptor.mimeType,
         TerminalSessionDescriptor.mimeType
@@ -1034,6 +1035,21 @@ final class ChatViewModel: ChatViewModelHosting {
         return "connectionState=\(String(describing: connectionState)) providerReady=\(providerReady ? "1" : "0") transportReady=\(transportReady ? "1" : "0")"
     }
 
+    private func validateTextByteLimitForSend(_ text: String) -> Bool {
+        let textBytes = text.lengthOfBytes(using: .utf8)
+        guard textBytes <= Self.providerMaxTextMessageBytes else {
+#if DEBUG
+            recordImageSendDebugEvent(
+                .sendResult,
+                detail: "failure reason=text_too_large bytes=\(textBytes) limit=\(Self.providerMaxTextMessageBytes)"
+            )
+#endif
+            toastManager.show("That message is too large to send.")
+            return false
+        }
+        return true
+    }
+
     func send() {
         guard !isSending else { return }
         let referencedIds = Set(inputContent.pendingAttachmentIds())
@@ -1064,6 +1080,10 @@ final class ChatViewModel: ChatViewModelHosting {
 #if DEBUG
             recordImageSendDebugEvent(.sendResult, detail: "failure reason=empty_input")
 #endif
+            return
+        }
+
+        if !validateTextByteLimitForSend(text) {
             return
         }
 
@@ -1174,6 +1194,7 @@ final class ChatViewModel: ChatViewModelHosting {
     func resendFailedMessage(messageId: String) {
         guard !isSending else { return }
         guard let (message, sessionKey, index) = findMessage(id: messageId) else { return }
+        guard validateTextByteLimitForSend(message.content) else { return }
 
         let clientId = "c_\(UUID().uuidString)"
         let resentMessage = Message(

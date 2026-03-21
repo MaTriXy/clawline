@@ -315,6 +315,40 @@ struct ChatViewModelTests {
         #expect(messages.contains("That message is too large to send."))
     }
 
+    @Test("Oversized text is blocked before optimistic send and surfaces a clear toast")
+    @MainActor
+    func oversizedTextIsRejectedBeforeSend() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        let oversized = String(repeating: "a", count: 65_537)
+        viewModel.inputContent = NSAttributedString(string: oversized)
+
+        viewModel.send()
+
+        #expect(chatService.lastSentId == nil)
+        #expect(viewModel.messages.isEmpty)
+        #expect(viewModel.isSending == false)
+        #expect(viewModel.inputContent.string == oversized)
+        let messages = await MainActor.run { toastManager.debugMessages }
+        #expect(messages.contains("That message is too large to send."))
+    }
+
     @Test("Connection interruptions update send button state without passive toast")
     @MainActor
     func connectionInterruptionTriggersAlert() async throws {
