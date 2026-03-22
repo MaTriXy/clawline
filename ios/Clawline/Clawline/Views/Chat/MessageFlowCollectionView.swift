@@ -3302,7 +3302,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let env = bubbleSizingV2Environment(metrics: metrics)
 
         if DateSeparatorCell.isDateSeparatorItemID(id) {
-            let rowWidth = effectiveContentWidth(metrics: metrics)
+            let rowWidth = availableContentWidth()
             let lineHeight = UIFont.clawline(.uiLabel, weight: .semibold).lineHeight
             return CGSize(
                 width: rowWidth,
@@ -4559,6 +4559,11 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         let minimumLineSpacing: CGFloat
     }
 
+    private func isFullRowItem(_ width: CGFloat, contentWidth: CGFloat) -> Bool {
+        let availableRowWidth = max(0, contentWidth - sectionInset.left - sectionInset.right)
+        return width >= availableRowWidth - 0.5
+    }
+
     override func prepare() {
         super.prepare()
         guard let collectionView else { return }
@@ -4628,13 +4633,26 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         var x = sectionInset.left
         var y = sectionInset.top
         var rowHeight: CGFloat = 0
+        var pendingRowSpacing = false
 
         for item in 0..<itemCount {
             let indexPath = IndexPath(item: item, section: 0)
             let size = (collectionView.delegate as? UICollectionViewDelegateFlowLayout)?
                 .collectionView?(collectionView, layout: self, sizeForItemAt: indexPath) ?? itemSize
+            let fullRowItem = isFullRowItem(size.width, contentWidth: contentWidth)
 
-            if x + size.width > maxX, x > sectionInset.left {
+            if pendingRowSpacing {
+                y += minimumLineSpacing
+                pendingRowSpacing = false
+            }
+
+            if fullRowItem, x > sectionInset.left {
+                x = sectionInset.left
+                y += rowHeight + minimumLineSpacing
+                rowHeight = 0
+            }
+
+            if !fullRowItem, x + size.width > maxX, x > sectionInset.left {
                 x = sectionInset.left
                 y += rowHeight + minimumLineSpacing
                 rowHeight = 0
@@ -4645,8 +4663,15 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
             attributes.frame = frame
             cachedAttributes[indexPath] = attributes
 
-            x += size.width + minimumInteritemSpacing
-            rowHeight = max(rowHeight, size.height)
+            if fullRowItem {
+                x = sectionInset.left
+                y = frame.maxY
+                rowHeight = 0
+                pendingRowSpacing = true
+            } else {
+                x += size.width + minimumInteritemSpacing
+                rowHeight = max(rowHeight, size.height)
+            }
         }
 
         cachedContentSize = CGSize(width: contentWidth, height: y + rowHeight + sectionInset.bottom)
@@ -4675,6 +4700,10 @@ private final class MessageFlowLayout: UICollectionViewFlowLayout {
         let newIndexPath = IndexPath(item: newItemIndex, section: 0)
         let size = (collectionView.delegate as? UICollectionViewDelegateFlowLayout)?
             .collectionView?(collectionView, layout: self, sizeForItemAt: newIndexPath) ?? itemSize
+        if isFullRowItem(size.width, contentWidth: signature.contentWidth) ||
+            isFullRowItem(previousAttributes.frame.width, contentWidth: signature.contentWidth) {
+            return false
+        }
         let maxX = signature.contentWidth - sectionInset.right
         let rowMinY = previousAttributes.frame.minY
         let rowHeight = cachedAttributes.values
