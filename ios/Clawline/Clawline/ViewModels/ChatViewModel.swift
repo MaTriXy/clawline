@@ -2055,6 +2055,71 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    // MARK: - Image downscale for model limits
+
+    private static let modelAwareMaxImageDimension: CGFloat = 1568
+    private static let minImageDimension: CGFloat = 512
+    private static let initialJPEGQuality: CGFloat = 0.9
+    private static let minJPEGQuality: CGFloat = 0.58
+    private static let qualityStep: CGFloat = 0.08
+    private static let resizeStep: CGFloat = 0.85
+    private static let downscalePassLimit: Int = 12
+
+    private func prepareImageDataForModel(data: Data, mimeType: String) throws -> (Data, String) {
+        guard PendingAttachment.inlineMimeTypes.contains(mimeType.lowercased()) else {
+            return (data, mimeType)
+        }
+        guard data.count > PendingAttachment.modelAwareMaxImageRawByteLimit else {
+            return (data, mimeType)
+        }
+        guard let image = UIImage(data: data) else {
+            return (data, mimeType)
+        }
+
+        var maxDim = Self.modelAwareMaxImageDimension
+        var quality = Self.initialJPEGQuality
+        var pass = 0
+
+        while pass < Self.downscalePassLimit {
+            pass += 1
+            if let compressed = downscaleImage(image, maxDimension: maxDim, quality: quality) {
+                if compressed.count <= PendingAttachment.modelAwareMaxImageRawByteLimit {
+                    logger.info("image downscaled pass=\(pass, privacy: .public) from=\(data.count, privacy: .public) to=\(compressed.count, privacy: .public)")
+                    return (compressed, "image/jpeg")
+                }
+            }
+            if quality > Self.minJPEGQuality {
+                quality -= Self.qualityStep
+            } else {
+                maxDim *= Self.resizeStep
+                quality = Self.initialJPEGQuality
+            }
+            if maxDim < Self.minImageDimension {
+                break
+            }
+        }
+
+        throw AttachmentError.imageTooLargeForModel
+    }
+
+    private func downscaleImage(_ image: UIImage, maxDimension: CGFloat, quality: CGFloat) -> Data? {
+        let size = image.size
+        let scale: CGFloat
+        if size.width > size.height {
+            scale = size.width > maxDimension ? maxDimension / size.width : 1
+        } else {
+            scale = size.height > maxDimension ? maxDimension / size.height : 1
+        }
+        let newSize = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+        let resized = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+        return resized.jpegData(compressionQuality: quality)
+    }
+
     private func buildWireAttachments(from attachments: [PendingAttachment],
                                       content: String) async throws -> [WireAttachment] {
         var results: [WireAttachment] = []
@@ -2066,19 +2131,22 @@ final class ChatViewModel: ChatViewModelHosting {
         var inlineBytes = 0
         for attachment in attachments {
             try Task.checkCancellation()
-            let canInline = attachment.isInlineCapableImage
-                && attachment.size <= PendingAttachment.inlineByteLimit
-                && inlineBytes + attachment.size <= PendingAttachment.inlineTotalByteLimit
-                && contentBytes + inlineBytes + attachment.size <= PendingAttachment.totalPayloadByteLimit
+            let (preparedData, preparedMime) = try prepareImageDataForModel(
+                data: attachment.data, mimeType: attachment.mimeType
+            )
+            let canInline = PendingAttachment.inlineMimeTypes.contains(preparedMime.lowercased())
+                && preparedData.count <= PendingAttachment.inlineByteLimit
+                && inlineBytes + preparedData.count <= PendingAttachment.inlineTotalByteLimit
+                && contentBytes + inlineBytes + preparedData.count <= PendingAttachment.totalPayloadByteLimit
 
             if canInline {
-                logger.info("attachment inline id=\(attachment.id.uuidString, privacy: .public) bytes=\(attachment.size, privacy: .public)")
-                results.append(.image(mimeType: attachment.mimeType, data: attachment.data))
-                inlineBytes += attachment.size
+                logger.info("attachment inline id=\(attachment.id.uuidString, privacy: .public) bytes=\(preparedData.count, privacy: .public)")
+                results.append(.image(mimeType: preparedMime, data: preparedData))
+                inlineBytes += preparedData.count
                 continue
             }
 
-            if attachment.size > PendingAttachment.maxUploadByteLimit {
+            if preparedData.count > PendingAttachment.maxUploadByteLimit {
                 throw AttachmentError.uploadTooLarge
             }
 
@@ -2088,12 +2156,12 @@ final class ChatViewModel: ChatViewModelHosting {
             }
 
             let assetId = try await uploadService.upload(
-                data: attachment.data,
-                mimeType: attachment.mimeType,
+                data: preparedData,
+                mimeType: preparedMime,
                 filename: attachment.filename
             )
             uploadedAssetIds[attachment.id] = assetId
-            logger.info("attachment uploaded id=\(attachment.id.uuidString, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(attachment.size, privacy: .public)")
+            logger.info("attachment uploaded id=\(attachment.id.uuidString, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(preparedData.count, privacy: .public)")
             results.append(.asset(assetId: assetId))
         }
         return results
@@ -2116,10 +2184,11 @@ final class ChatViewModel: ChatViewModelHosting {
                 continue
             }
 
-            guard let data = attachment.data else {
+            guard let rawData = attachment.data else {
                 throw AttachmentError.invalidData
             }
-            let mimeType = attachment.mimeType ?? "application/octet-stream"
+            let rawMime = attachment.mimeType ?? "application/octet-stream"
+            let (data, mimeType) = try prepareImageDataForModel(data: rawData, mimeType: rawMime)
             let canInline = PendingAttachment.inlineMimeTypes.contains(mimeType.lowercased())
                 && data.count <= PendingAttachment.inlineByteLimit
                 && inlineBytes + data.count <= PendingAttachment.inlineTotalByteLimit
@@ -3066,8 +3135,17 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    private func isImageRelatedError(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let keywords = ["image", "size", "bytes", "mb", "payload_too_large"]
+        return keywords.contains(where: { lower.contains($0) })
+    }
+
     private func userFacingMessage(for code: String, fallback: String?) -> String {
         if let fallback, !fallback.isEmpty {
+            if isImageRelatedError(fallback) {
+                return "That image is too large for this model. Reduce image size and try again."
+            }
             return fallback
         }
         switch code {
