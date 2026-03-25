@@ -6,7 +6,6 @@
 //
 
 import OSLog
-import os.log
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -124,10 +123,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
-    private static let scrollRestoreLog = OSLog(
-        subsystem: "co.clicketyclacks.Clawline",
-        category: "scrollRestore"
-    )
     private var collectionView: UICollectionView!
     private var channelOverride: String?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
@@ -1143,12 +1138,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     var currentBottomInset: CGFloat = 0
 
     private func logScrollRestore(_ message: String) {
-        os_log(
-            "%{public}@",
-            log: Self.scrollRestoreLog,
-            type: .default,
-            "[ScrollRestore] \(message)"
-        )
+        print("[ScrollRestore] \(message)")
     }
 
     private func formatScrollRestore(_ value: CGFloat) -> String {
