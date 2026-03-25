@@ -77,4 +77,22 @@ struct ScrollToBottomUnreadTests {
         )
         #expect(shouldFallback == false)
     }
+
+    @Test("Automated scroll mutations are suppressed while restore is pending")
+    func suppressesAutomatedScrollMutationDuringPendingRestore() {
+        let shouldSuppress = MessageFlowCollectionViewController.shouldSuppressAutomatedScrollMutation(
+            hasPendingRestoreState: true,
+            restorePhaseIsPending: true
+        )
+        #expect(shouldSuppress == true)
+    }
+
+    @Test("Automated scroll mutations are allowed after restore settles")
+    func allowsAutomatedScrollMutationWhenRestoreIsNotPending() {
+        let shouldSuppress = MessageFlowCollectionViewController.shouldSuppressAutomatedScrollMutation(
+            hasPendingRestoreState: true,
+            restorePhaseIsPending: false
+        )
+        #expect(shouldSuppress == false)
+    }
 }
