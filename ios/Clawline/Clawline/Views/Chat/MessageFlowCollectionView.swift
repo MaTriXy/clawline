@@ -6,6 +6,7 @@
 //
 
 import OSLog
+import os.log
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -123,6 +124,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
+    private static let scrollRestoreLog = OSLog(
+        subsystem: "co.clicketyclacks.Clawline",
+        category: "scrollRestore"
+    )
     private var collectionView: UICollectionView!
     private var channelOverride: String?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
@@ -1137,11 +1142,28 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     var currentBottomInset: CGFloat = 0
 
+    private func logScrollRestore(_ message: String) {
+        os_log(
+            "%{public}@",
+            log: Self.scrollRestoreLog,
+            type: .default,
+            "[ScrollRestore] \(message)"
+        )
+    }
+
+    private func formatScrollRestore(_ value: CGFloat) -> String {
+        guard value.isFinite else { return "nonfinite" }
+        return String(format: "%.1f", value)
+    }
+
     /// Single source of truth for setting bottom content inset (driven by coordinator).
     func setBottomInset(_ totalBottomInset: CGFloat,
                         animatedDuration: TimeInterval? = nil,
                         animationOptions: UIView.AnimationOptions = []) {
         let previousBottomInset = collectionView.contentInset.bottom
+        logScrollRestore(
+            "setBottomInset old=\(formatScrollRestore(previousBottomInset)) new=\(formatScrollRestore(totalBottomInset))"
+        )
         let delta = totalBottomInset - previousBottomInset
         // Keep keyboard/inset anchoring tied to active finger interaction only.
         // Deceleration must not disable this pinning path.
@@ -1403,6 +1425,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func prepareIncomingStateOnSwitch(sessionKey: String, allowTailStage: Bool) {
         let persistedState = loadPersistedScrollState(for: sessionKey)
+        if let persistedState {
+            logScrollRestore(
+                "prepareIncomingStateOnSwitch sessionKey=\(sessionKey) persistedAtBottom=\(persistedState.atBottom) persistedDistanceFromBottom=\(formatScrollRestore(CGFloat(persistedState.distanceFromBottom)))"
+            )
+        } else {
+            logScrollRestore(
+                "prepareIncomingStateOnSwitch sessionKey=\(sessionKey) persistedAtBottom=nil persistedDistanceFromBottom=nil"
+            )
+        }
         mutateState(for: sessionKey) { state in
             state.pendingScrollRestoreState = persistedState
             state.restoreConfirmationRetries = 0
@@ -2443,6 +2474,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private func runStreamContextSwitchSeam(incomingSessionKey: String, forceReReadGeneration: Int) {
         guard !incomingSessionKey.isEmpty else { return }
 
+        let isMaterialized = materializationStateBySessionKey[incomingSessionKey] != nil
+        let currentOffsetY: String
+        if let collectionView {
+            currentOffsetY = formatScrollRestore(collectionView.contentOffset.y)
+        } else {
+            currentOffsetY = "unavailable"
+        }
+        logScrollRestore(
+            "runStreamContextSwitchSeam sessionKey=\(incomingSessionKey) materialized=\(isMaterialized) streamState=\(isMaterialized ? "revisit" : "fresh") currentOffsetY=\(currentOffsetY)"
+        )
+
         let outgoingSessionKey = lastAppliedEffectiveSessionKey
         let incomingState = readState(for: incomingSessionKey)
         let isSameKeyReRead = outgoingSessionKey == incomingSessionKey
@@ -2728,11 +2770,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let desiredDistance = persistedState.atBottom ? 0 : CGFloat(persistedState.distanceFromBottom)
         let targetY = maxY - desiredDistance
         let clampedTargetY = min(max(targetY, minY), maxY)
+        logScrollRestore(
+            "attemptRestoreScrollIfNeeded.before sessionKey=\(token.sessionKey) stage=\(token.stage.rawValue) targetOffsetY=\(formatScrollRestore(clampedTargetY)) currentOffsetY=\(formatScrollRestore(collectionView.contentOffset.y)) currentBottomInset=\(formatScrollRestore(currentBottomInset)) contentInsetBottom=\(formatScrollRestore(contentInset.bottom))"
+        )
         StreamSwitchTiming.log(
             "scroll_restore_attempt phase=\(String(describing: runtimeState.restorePhase)) stage=\(token.stage.rawValue) generation=\(token.generation) targetY=\(String(format: "%.1f", clampedTargetY)) desiredDistance=\(String(format: "%.1f", desiredDistance)) atBottomTarget=\(persistedState.atBottom)",
             sessionKey: token.sessionKey
         )
+        logScrollRestore(
+            "setContentOffset.restore sessionKey=\(token.sessionKey) offsetY=\(formatScrollRestore(clampedTargetY)) animated=false"
+        )
         collectionView.setContentOffset(CGPoint(x: 0, y: clampedTargetY), animated: false)
+        logScrollRestore(
+            "attemptRestoreScrollIfNeeded.after sessionKey=\(token.sessionKey) stage=\(token.stage.rawValue) targetOffsetY=\(formatScrollRestore(clampedTargetY)) currentOffsetY=\(formatScrollRestore(collectionView.contentOffset.y)) currentBottomInset=\(formatScrollRestore(currentBottomInset)) contentInsetBottom=\(formatScrollRestore(collectionView.contentInset.bottom))"
+        )
         refreshLastKnownScrollSnapshot(sessionKey: token.sessionKey)
 
         let actualDistance = distanceFromBottomClamped()
@@ -2793,7 +2844,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
 
         if shouldFallbackToBottom {
+            logScrollRestore(
+                "setContentOffset.restoreFallback sessionKey=\(token.sessionKey) offsetY=\(formatScrollRestore(maxY)) animated=false"
+            )
             collectionView.setContentOffset(CGPoint(x: 0, y: maxY), animated: false)
+            logScrollRestore(
+                "attemptRestoreScrollIfNeeded.afterFallback sessionKey=\(token.sessionKey) stage=\(token.stage.rawValue) targetOffsetY=\(formatScrollRestore(maxY)) currentOffsetY=\(formatScrollRestore(collectionView.contentOffset.y)) currentBottomInset=\(formatScrollRestore(currentBottomInset)) contentInsetBottom=\(formatScrollRestore(collectionView.contentInset.bottom))"
+            )
             refreshLastKnownScrollSnapshot(sessionKey: token.sessionKey)
             StreamSwitchTiming.log(
                 "scroll_restore_fallback_to_bottom stage=\(token.stage.rawValue) generation=\(token.generation) retries=\(Self.restoreMaxConfirmationRetries)",
