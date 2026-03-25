@@ -2314,7 +2314,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 // For actual stream swaps/resets without a persisted anchor, default to bottom.
                 if let pendingScrollRestoreState {
                     if pendingScrollRestoreState.atBottom {
-                        logScrollRestore("postApply.pendingAtBottomScroll.disqualified sessionKey=\(effectiveSessionKey) reason=savedRestoreTargetIsAuthoritative")
+                        logScrollRestore("postApply.pendingAtBottomState sessionKey=\(effectiveSessionKey) reason=restoreStateAlreadyAtBottom")
                     }
                 } else if previousLastMessageId != nil {
                     // Preserve prior behavior on resets/stream swaps: default to bottom when the last id changes
