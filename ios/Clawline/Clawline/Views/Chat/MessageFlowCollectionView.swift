@@ -150,6 +150,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let bubbleSizingV2RestSettleDelaySeconds: TimeInterval = 0.12
     private static let previewRemeasureRestPollSeconds: TimeInterval = 0.06
     private static let bottomInsetHeightCapInvalidationDebounceSeconds: TimeInterval = 0.20
+    private static let keyboardDismissInsetCollapseThreshold: CGFloat = 80
     private static let restoreMaxConfirmationRetries: Int = 3
 
     private var messagesById: [String: Message] = [:]
@@ -1176,7 +1177,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func handleBottomInsetHeightCapChange(previousBottomInset: CGFloat, newBottomInset: CGFloat) {
-        guard abs(newBottomInset - previousBottomInset) > 0.5 else { return }
+        guard Self.shouldScheduleBottomInsetHeightCapInvalidation(
+            previousBottomInset: previousBottomInset,
+            newBottomInset: newBottomInset,
+            isInputActive: isInputActive
+        ) else { return }
         scheduleBottomInsetHeightCapInvalidation(
             previousBottomInset: previousBottomInset,
             newBottomInset: newBottomInset
@@ -1226,7 +1231,21 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let collapsedBy = previousBottomInset - newBottomInset
         // Keyboard transitions are large inset drops (hundreds of points), unlike line-wrap
         // or small chrome adjustments. Keep this threshold conservative to avoid broadening scope.
-        return collapsedBy > 80
+        return collapsedBy > Self.keyboardDismissInsetCollapseThreshold
+    }
+
+    static func shouldScheduleBottomInsetHeightCapInvalidation(
+        previousBottomInset: CGFloat,
+        newBottomInset: CGFloat,
+        isInputActive: Bool
+    ) -> Bool {
+        guard abs(newBottomInset - previousBottomInset) > 0.5 else { return false }
+        // Typing-driven composer growth/shrink is high-frequency churn. Queueing the height-cap
+        // invalidation path here burns main-thread time scanning messages even though the flush is
+        // gated until input settles. Only keep the large keyboard-dismiss collapse path.
+        guard isInputActive else { return true }
+        let collapsedBy = previousBottomInset - newBottomInset
+        return collapsedBy > Self.keyboardDismissInsetCollapseThreshold
     }
 
     private func scheduleDeferredBottomInsetRemeasure() {
