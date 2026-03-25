@@ -41,7 +41,7 @@ struct ScrollToBottomUnreadTests {
     @Test("Bottom fallback: incremental append must not schedule autojump")
     func bottomFallbackSkipsIncrementalAppend() {
         let shouldSchedule = MessageFlowCollectionViewController.shouldScheduleBottomFallbackAfterApply(
-            hasPendingRestoreState: false,
+            hasSavedRestoreTarget: false,
             restorePhaseIsNone: true,
             isIncrementalAppend: true,
             previousLastMessageId: "m1"
@@ -52,7 +52,7 @@ struct ScrollToBottomUnreadTests {
     @Test("Bottom fallback: first population may schedule one-time placement")
     func bottomFallbackAllowsFirstPopulation() {
         let shouldSchedule = MessageFlowCollectionViewController.shouldScheduleBottomFallbackAfterApply(
-            hasPendingRestoreState: false,
+            hasSavedRestoreTarget: false,
             restorePhaseIsNone: true,
             isIncrementalAppend: false,
             previousLastMessageId: nil
@@ -78,21 +78,29 @@ struct ScrollToBottomUnreadTests {
         #expect(shouldFallback == false)
     }
 
-    @Test("Automated scroll mutations are suppressed while restore is pending")
-    func suppressesAutomatedScrollMutationDuringPendingRestore() {
-        let shouldSuppress = MessageFlowCollectionViewController.shouldSuppressAutomatedScrollMutation(
-            hasPendingRestoreState: true,
-            restorePhaseIsPending: true
+    @Test("Automated bottom scroll is disqualified when a saved restore target exists")
+    func automatedBottomScrollDisqualifiedForSavedRestoreTarget() {
+        let shouldSchedule = MessageFlowCollectionViewController.shouldScheduleAutomatedBottomScroll(
+            hasSavedRestoreTarget: true
         )
-        #expect(shouldSuppress == true)
+        #expect(shouldSchedule == false)
     }
 
-    @Test("Automated scroll mutations are allowed after restore settles")
-    func allowsAutomatedScrollMutationWhenRestoreIsNotPending() {
-        let shouldSuppress = MessageFlowCollectionViewController.shouldSuppressAutomatedScrollMutation(
-            hasPendingRestoreState: true,
-            restorePhaseIsPending: false
+    @Test("Pinned inset adjustment is disqualified when a saved restore target exists")
+    func pinnedInsetAdjustmentDisqualifiedForSavedRestoreTarget() {
+        let shouldAdjust = MessageFlowCollectionViewController.shouldAdjustForBottomInsetPinnedPosition(
+            hasSavedRestoreTarget: true,
+            isPinnedToBottomIntent: true,
+            isActivelyDraggingOrTracking: false
         )
-        #expect(shouldSuppress == false)
+        #expect(shouldAdjust == false)
+    }
+
+    @Test("Viewport compensation is disqualified when a saved restore target exists")
+    func viewportCompensationDisqualifiedForSavedRestoreTarget() {
+        let shouldCompensate = MessageFlowCollectionViewController.shouldApplyViewportAnchorCompensation(
+            hasSavedRestoreTarget: true
+        )
+        #expect(shouldCompensate == false)
     }
 }

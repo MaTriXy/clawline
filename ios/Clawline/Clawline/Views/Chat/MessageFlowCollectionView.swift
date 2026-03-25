@@ -1227,11 +1227,15 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let delta = totalBottomInset - previousBottomInset
         // Keep keyboard/inset anchoring tied to active finger interaction only.
         // Deceleration must not disable this pinning path.
-        let shouldSuppressPinnedInsetAdjustment = callbackSessionKey().map(hasPendingScrollRestoreInFlight(sessionKey:)) ?? false
-        let shouldPinToBottom = sbbState.isPinnedToBottomIntent && !isActivelyDraggingOrTracking && !shouldSuppressPinnedInsetAdjustment
-        if shouldSuppressPinnedInsetAdjustment {
+        let hasSavedRestoreTarget = callbackSessionKey().map(hasSavedScrollRestoreTarget(sessionKey:)) ?? false
+        let shouldPinToBottom = Self.shouldAdjustForBottomInsetPinnedPosition(
+            hasSavedRestoreTarget: hasSavedRestoreTarget,
+            isPinnedToBottomIntent: sbbState.isPinnedToBottomIntent,
+            isActivelyDraggingOrTracking: isActivelyDraggingOrTracking
+        )
+        if hasSavedRestoreTarget && sbbState.isPinnedToBottomIntent && !isActivelyDraggingOrTracking {
             logScrollRestore(
-                "setBottomInset.skipOffsetAdjustment sessionKey=\(callbackSessionKey() ?? "nil") reason=pendingRestoreInFlight"
+                "setBottomInset.skipOffsetAdjustment sessionKey=\(callbackSessionKey() ?? "nil") reason=savedRestoreTargetIsAuthoritative"
             )
         }
         currentBottomInset = totalBottomInset
@@ -1394,18 +1398,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func performPendingScrollToBottomIfNeeded(sessionKey: String) {
-        if hasPendingScrollRestoreInFlight(sessionKey: sessionKey) {
-            logScrollRestore(
-                "scheduleScrollToBottom.suppressed sessionKey=\(sessionKey) reason=pendingRestoreInFlight"
-            )
-            mutateState(for: sessionKey) { state in
-                state.pendingScrollToBottomAttempts = 0
-                state.pendingScrollToBottomAnimated = false
-                state.pendingScrollToBottomWorkItem?.cancel()
-                state.pendingScrollToBottomWorkItem = nil
-            }
-            return
-        }
         var remainingAttempts = 0
         var animated = false
         mutateState(for: sessionKey) { state in
@@ -1616,12 +1608,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    private func hasPendingScrollRestoreInFlight(sessionKey: String) -> Bool {
-        let state = readState(for: sessionKey)
-        return Self.shouldSuppressAutomatedScrollMutation(
-            hasPendingRestoreState: state.pendingScrollRestoreState != nil,
-            restorePhaseIsPending: state.restorePhase != .none && state.restorePhase != .confirmed
-        )
+    private func hasSavedScrollRestoreTarget(sessionKey: String) -> Bool {
+        readState(for: sessionKey).pendingScrollRestoreState != nil
     }
 
     private func advanceMaterialization(sessionKey: String,
@@ -2193,8 +2181,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             guard let self else { return }
             guard self.callbackSessionKey() == effectiveSessionKey else { return }
             let runtimeState = self.readState(for: effectiveSessionKey)
+            let hasSavedRestoreTarget = runtimeState.pendingScrollRestoreState != nil
             if Self.shouldScheduleBottomFallbackAfterApply(
-                hasPendingRestoreState: runtimeState.pendingScrollRestoreState != nil,
+                hasSavedRestoreTarget: hasSavedRestoreTarget,
                 restorePhaseIsNone: runtimeState.restorePhase == .none,
                 isIncrementalAppend: isIncrementalAppend,
                 previousLastMessageId: previousLastMessageId
@@ -2212,11 +2201,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 self.logScrollRestore("afterSnapshotApplied.tailToFullPromotion sessionKey=\(effectiveSessionKey)")
                 self.scheduleTailToFullPromotionIfNeeded(sessionKey: effectiveSessionKey)
             }
-            if shouldAutoScrollToBottomAfterApply {
+            if shouldAutoScrollToBottomAfterApply,
+               Self.shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: hasSavedRestoreTarget) {
                 // Race-sensitive: the contentSize can change again after diffable applies.
                 // A few post-apply attempts preserves the historical “always end up at the bottom” behavior.
                 self.logScrollRestore("afterSnapshotApplied.autoScrollToBottom sessionKey=\(effectiveSessionKey) stage=\(materializationPlan.stage.rawValue)")
                 self.scheduleScrollToBottom(sessionKey: effectiveSessionKey, animated: true, attempts: 3)
+            } else if shouldAutoScrollToBottomAfterApply {
+                self.logScrollRestore("afterSnapshotApplied.autoScrollToBottom.disqualified sessionKey=\(effectiveSessionKey) stage=\(materializationPlan.stage.rawValue) reason=savedRestoreTargetIsAuthoritative")
             }
             self.fireRegisteredMessageLoadCallbacksIfMaterialized(
                 for: effectiveSessionKey,
@@ -2290,15 +2282,28 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             lastMessageId = newestMessageId
             if shouldMorph {
                 // Only defer the post-morph scroll if we would have auto-scrolled (user was pinned to bottom).
-                deferScrollToBottomUntilMorphCompletes = isIncrementalAppend && wasPinnedToBottomIntent && !wasUserInteracting
+                let shouldDeferBottomScroll = isIncrementalAppend
+                    && wasPinnedToBottomIntent
+                    && !wasUserInteracting
+                    && Self.shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: pendingScrollRestoreState != nil)
+                if isIncrementalAppend && wasPinnedToBottomIntent && !wasUserInteracting && !shouldDeferBottomScroll {
+                    logScrollRestore("postMorph.scrollToBottom.disqualified sessionKey=\(effectiveSessionKey) reason=savedRestoreTargetIsAuthoritative")
+                }
+                deferScrollToBottomUntilMorphCompletes = shouldDeferBottomScroll
             } else if isIncrementalAppend {
                 if wasPinnedToBottomIntent {
                     // ContentAppended while pinned: never enter unread mode.
                     // Auto-scroll now, or defer until drag ends.
                     if wasUserInteracting {
-                        pendingScrollToBottomAfterInteractionEnd = true
-                    } else {
+                        if Self.shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: pendingScrollRestoreState != nil) {
+                            pendingScrollToBottomAfterInteractionEnd = true
+                        } else {
+                            logScrollRestore("incrementalAppend.deferScroll.disqualified sessionKey=\(effectiveSessionKey) reason=savedRestoreTargetIsAuthoritative")
+                        }
+                    } else if Self.shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: pendingScrollRestoreState != nil) {
                         scheduleScrollToBottom(sessionKey: effectiveSessionKey, animated: true, attempts: 3)
+                    } else {
+                        logScrollRestore("incrementalAppend.scrollToBottom.disqualified sessionKey=\(effectiveSessionKey) reason=savedRestoreTargetIsAuthoritative")
                     }
                 } else {
                     emit(.didReceiveNewMessagesWhileScrolledUp(sessionKey: effectiveSessionKey, newMessageIDs: appendedMessageIDs))
@@ -2308,8 +2313,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 // For actual stream swaps/resets without a persisted anchor, default to bottom.
                 if let pendingScrollRestoreState {
                     if pendingScrollRestoreState.atBottom {
-                        logScrollRestore("postApply.pendingAtBottomScroll sessionKey=\(effectiveSessionKey)")
-                        scheduleScrollToBottom(sessionKey: effectiveSessionKey, animated: true)
+                        logScrollRestore("postApply.pendingAtBottomScroll.disqualified sessionKey=\(effectiveSessionKey) reason=savedRestoreTargetIsAuthoritative")
                     }
                 } else if previousLastMessageId != nil {
                     // Preserve prior behavior on resets/stream swaps: default to bottom when the last id changes
@@ -2320,12 +2324,19 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             }
         } else if typingIndicatorJustAppeared {
             // Only keep the typing indicator visible if the user is already pinned near the bottom.
-            if wasPinnedToBottomIntent && !wasUserInteracting {
+            if wasPinnedToBottomIntent && !wasUserInteracting
+                && Self.shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: pendingScrollRestoreState != nil) {
                 logScrollRestore("typingIndicator.scrollToBottom sessionKey=\(effectiveSessionKey)")
                 scheduleScrollToBottom(sessionKey: effectiveSessionKey, animated: true)
+            } else if wasPinnedToBottomIntent && !wasUserInteracting {
+                logScrollRestore("typingIndicator.scrollToBottom.disqualified sessionKey=\(effectiveSessionKey) reason=savedRestoreTargetIsAuthoritative")
             } else if wasPinnedToBottomIntent && wasUserInteracting {
                 // Defer the scroll; never show the SBB while within the at-bottom threshold.
-                pendingScrollToBottomAfterInteractionEnd = true
+                if Self.shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: pendingScrollRestoreState != nil) {
+                    pendingScrollToBottomAfterInteractionEnd = true
+                } else {
+                    logScrollRestore("typingIndicator.deferScroll.disqualified sessionKey=\(effectiveSessionKey) reason=savedRestoreTargetIsAuthoritative")
+                }
             }
         }
         withBoundSessionKey(effectiveSessionKey) {
@@ -2343,12 +2354,12 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     static func shouldScheduleBottomFallbackAfterApply(
-        hasPendingRestoreState: Bool,
+        hasSavedRestoreTarget: Bool,
         restorePhaseIsNone: Bool,
         isIncrementalAppend: Bool,
         previousLastMessageId: String?
     ) -> Bool {
-        guard !hasPendingRestoreState, restorePhaseIsNone else { return false }
+        guard !hasSavedRestoreTarget, restorePhaseIsNone else { return false }
         // Guardrail: a plain append must not force-jump to bottom while reading history.
         guard !isIncrementalAppend else { return false }
         // Keep the one-time initial bottom placement behavior for first population only.
@@ -2360,11 +2371,20 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         return !hasMessageAnchor
     }
 
-    static func shouldSuppressAutomatedScrollMutation(
-        hasPendingRestoreState: Bool,
-        restorePhaseIsPending: Bool
+    static func shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: Bool) -> Bool {
+        !hasSavedRestoreTarget
+    }
+
+    static func shouldAdjustForBottomInsetPinnedPosition(
+        hasSavedRestoreTarget: Bool,
+        isPinnedToBottomIntent: Bool,
+        isActivelyDraggingOrTracking: Bool
     ) -> Bool {
-        hasPendingRestoreState && restorePhaseIsPending
+        isPinnedToBottomIntent && !isActivelyDraggingOrTracking && !hasSavedRestoreTarget
+    }
+
+    static func shouldApplyViewportAnchorCompensation(hasSavedRestoreTarget: Bool) -> Bool {
+        !hasSavedRestoreTarget
     }
 
     private func isNonMessageItemID(_ id: String) -> Bool {
@@ -2675,6 +2695,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard pendingScrollToBottomAfterInteractionEnd else { return }
         guard !isUserInteracting else { return }
         pendingScrollToBottomAfterInteractionEnd = false
+        if !Self.shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: hasSavedScrollRestoreTarget(sessionKey: sessionKey)) {
+            logScrollRestore("deferredInteractionEnd.scrollToBottom.disqualified sessionKey=\(sessionKey) reason=savedRestoreTargetIsAuthoritative")
+            return
+        }
         scheduleScrollToBottom(sessionKey: sessionKey, animated: true, attempts: 3)
     }
 
@@ -3419,7 +3443,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                         self.deferScrollToBottomUntilMorphCompletes = false
                         // Multiple attempts preserves the historical “always end up at the bottom” invariant.
                         if let sessionKey = self.callbackSessionKey() {
-                            self.scheduleScrollToBottom(sessionKey: sessionKey, animated: false, attempts: 3)
+                            if Self.shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: self.hasSavedScrollRestoreTarget(sessionKey: sessionKey)) {
+                                self.scheduleScrollToBottom(sessionKey: sessionKey, animated: false, attempts: 3)
+                            } else {
+                                self.logScrollRestore("morphCompletion.scrollToBottom.disqualified sessionKey=\(sessionKey) reason=savedRestoreTargetIsAuthoritative")
+                            }
                         }
                     }
                 }
@@ -4438,12 +4466,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     func adjustContentOffsetForBottomInsetChange(delta: CGFloat) {
         guard abs(delta) > 0.5 else { return }
-        if let sessionKey = callbackSessionKey(), hasPendingScrollRestoreInFlight(sessionKey: sessionKey) {
-            logScrollRestore(
-                "adjustContentOffsetForBottomInsetChange.suppressed sessionKey=\(sessionKey) reason=pendingRestoreInFlight delta=\(formatScrollRestore(delta))"
-            )
-            return
-        }
         let contentInset = collectionView.contentInset
         let minY = -contentInset.top
         let maxY = collectionView.contentSize.height - collectionView.bounds.height + contentInset.bottom
@@ -4803,9 +4825,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             guard let self else { return }
             guard self.callbackSessionKey() == token.sessionKey else { return }
             guard self.readState(for: token.sessionKey).restoreGeneration == token.generation else { return }
-            if self.hasPendingScrollRestoreInFlight(sessionKey: token.sessionKey) {
+            if !Self.shouldApplyViewportAnchorCompensation(
+                hasSavedRestoreTarget: self.hasSavedScrollRestoreTarget(sessionKey: token.sessionKey)
+            ) {
                 self.logScrollRestore(
-                    "tailToFullViewportCompensation.suppressed sessionKey=\(token.sessionKey) reason=pendingRestoreInFlight"
+                    "tailToFullViewportCompensation.disqualified sessionKey=\(token.sessionKey) reason=savedRestoreTargetIsAuthoritative"
                 )
                 return
             }
@@ -4911,7 +4935,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             scheduleBubbleSizingV2ViewportAnchorCompensation(viewportAnchor)
         }
         if messageId == lastMessageId, let sessionKey = callbackSessionKey() {
-            scheduleScrollToBottom(sessionKey: sessionKey, animated: false, attempts: 1)
+            if Self.shouldScheduleAutomatedBottomScroll(hasSavedRestoreTarget: hasSavedScrollRestoreTarget(sessionKey: sessionKey)) {
+                scheduleScrollToBottom(sessionKey: sessionKey, animated: false, attempts: 1)
+            } else {
+                logScrollRestore("bubbleSizing.lastMessageScrollToBottom.disqualified sessionKey=\(sessionKey) reason=savedRestoreTargetIsAuthoritative")
+            }
         }
     }
 
