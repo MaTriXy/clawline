@@ -3,8 +3,8 @@ import Testing
 @testable import Clawline
 
 struct BottomInsetHeightCapInvalidationTests {
-    @Test("Typing-driven inset churn does not queue height-cap invalidation")
-    func typingInsetChurnIsIgnored() {
+    @Test("Active input skips height-cap invalidation for input-bar growth")
+    func activeInputGrowthIsIgnored() {
         let shouldSchedule = MessageFlowCollectionViewController.shouldScheduleBottomInsetHeightCapInvalidation(
             previousBottomInset: 284,
             newBottomInset: 316,
@@ -14,18 +14,18 @@ struct BottomInsetHeightCapInvalidationTests {
         #expect(shouldSchedule == false)
     }
 
-    @Test("Large keyboard-dismiss inset collapse still queues height-cap invalidation")
-    func keyboardDismissInsetCollapseStillQueues() {
+    @Test("Active input skips height-cap invalidation even for large inset collapse")
+    func activeInputLargeCollapseIsIgnored() {
         let shouldSchedule = MessageFlowCollectionViewController.shouldScheduleBottomInsetHeightCapInvalidation(
             previousBottomInset: 420,
             newBottomInset: 280,
             isInputActive: true
         )
 
-        #expect(shouldSchedule == true)
+        #expect(shouldSchedule == false)
     }
 
-    @Test("Settled inset changes still queue invalidation once input is inactive")
+    @Test("Inactive inset changes still queue invalidation")
     func inactiveInsetChangeStillQueues() {
         let shouldSchedule = MessageFlowCollectionViewController.shouldScheduleBottomInsetHeightCapInvalidation(
             previousBottomInset: 180,

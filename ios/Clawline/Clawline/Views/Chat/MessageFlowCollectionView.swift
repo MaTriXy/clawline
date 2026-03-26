@@ -150,7 +150,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let bubbleSizingV2RestSettleDelaySeconds: TimeInterval = 0.12
     private static let previewRemeasureRestPollSeconds: TimeInterval = 0.06
     private static let bottomInsetHeightCapInvalidationDebounceSeconds: TimeInterval = 0.20
-    private static let keyboardDismissInsetCollapseThreshold: CGFloat = 80
     private static let restoreMaxConfirmationRetries: Int = 3
 
     private var messagesById: [String: Message] = [:]
@@ -209,7 +208,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         var deferredBottomInsetRemeasureIds: Set<String> = []
         var bottomInsetRemeasureTimer: Timer?
-        var bottomInsetRemeasureBypassInputGates = false
         var pendingBottomInsetHeightCapInvalidation: DispatchWorkItem?
     }
 
@@ -712,14 +710,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
     }
 
-    private var bottomInsetRemeasureBypassInputGates: Bool {
-        get { activeStateKey().map { readState(for: $0).bottomInsetRemeasureBypassInputGates } ?? false }
-        set {
-            guard let key = activeStateKey() else { return }
-            mutateState(for: key) { $0.bottomInsetRemeasureBypassInputGates = newValue }
-        }
-    }
-
     func scheduleScrollToBottom(animated: Bool, attempts: Int = 2) {
         guard let sessionKey = callbackSessionKey() else { return }
         scheduleScrollToBottom(sessionKey: sessionKey, animated: animated, attempts: attempts)
@@ -1182,13 +1172,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             newBottomInset: newBottomInset,
             isInputActive: isInputActive
         ) else { return }
-        scheduleBottomInsetHeightCapInvalidation(
-            previousBottomInset: previousBottomInset,
-            newBottomInset: newBottomInset
-        )
+        scheduleBottomInsetHeightCapInvalidation()
     }
 
-    private func scheduleBottomInsetHeightCapInvalidation(previousBottomInset: CGFloat, newBottomInset: CGFloat) {
+    private func scheduleBottomInsetHeightCapInvalidation() {
         guard let token = activeSessionGenerationToken() else { return }
         pendingBottomInsetHeightCapInvalidation?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
@@ -1196,10 +1183,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             guard self.readState(for: token.sessionKey).restoreGeneration == token.generation else { return }
             self.withBoundSessionKey(token.sessionKey) {
                 self.pendingBottomInsetHeightCapInvalidation = nil
-                self.applyBottomInsetHeightCapInvalidation(
-                    previousBottomInset: previousBottomInset,
-                    newBottomInset: newBottomInset
-                )
+                self.applyBottomInsetHeightCapInvalidation()
             }
         }
         pendingBottomInsetHeightCapInvalidation = workItem
@@ -1209,7 +1193,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         )
     }
 
-    private func applyBottomInsetHeightCapInvalidation(previousBottomInset: CGFloat, newBottomInset: CGFloat) {
+    private func applyBottomInsetHeightCapInvalidation() {
         guard let viewModel else { return }
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
         let affectedIds = messagesById.values.compactMap { message -> String? in
@@ -1218,20 +1202,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         }
         guard !affectedIds.isEmpty else { return }
         deferredBottomInsetRemeasureIds.formUnion(affectedIds)
-        // Keyboard dismiss is a discrete geometry transition, not active typing churn.
-        // When inset collapses significantly, visible capped bubbles must remeasure promptly
-        // even if focus/content gates still report "active input".
-        if isLikelyKeyboardDismissInsetChange(previousBottomInset: previousBottomInset, newBottomInset: newBottomInset) {
-            bottomInsetRemeasureBypassInputGates = true
-        }
         scheduleDeferredBottomInsetRemeasure()
-    }
-
-    private func isLikelyKeyboardDismissInsetChange(previousBottomInset: CGFloat, newBottomInset: CGFloat) -> Bool {
-        let collapsedBy = previousBottomInset - newBottomInset
-        // Keyboard transitions are large inset drops (hundreds of points), unlike line-wrap
-        // or small chrome adjustments. Keep this threshold conservative to avoid broadening scope.
-        return collapsedBy > Self.keyboardDismissInsetCollapseThreshold
     }
 
     static func shouldScheduleBottomInsetHeightCapInvalidation(
@@ -1240,12 +1211,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         isInputActive: Bool
     ) -> Bool {
         guard abs(newBottomInset - previousBottomInset) > 0.5 else { return false }
-        // Typing-driven composer growth/shrink is high-frequency churn. Queueing the height-cap
-        // invalidation path here burns main-thread time scanning messages even though the flush is
-        // gated until input settles. Only keep the large keyboard-dismiss collapse path.
-        guard isInputActive else { return true }
-        let collapsedBy = previousBottomInset - newBottomInset
-        return collapsedBy > Self.keyboardDismissInsetCollapseThreshold
+        return !isInputActive
     }
 
     private func scheduleDeferredBottomInsetRemeasure() {
@@ -1267,17 +1233,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func flushDeferredBottomInsetRemeasureIfNeeded() {
         guard !deferredBottomInsetRemeasureIds.isEmpty else { return }
-        guard isBubbleSizingV2ScrollAtRest() else {
-            // If we intentionally bypass input gates for keyboard-dismiss, keep trying until rest.
-            if bottomInsetRemeasureBypassInputGates {
-                scheduleDeferredBottomInsetRemeasure()
-            }
-            return
-        }
-        if !bottomInsetRemeasureBypassInputGates {
-            guard !isInputActive else { return }
-            guard viewModel?.inputContent.isEffectivelyEmpty != false else { return }
-        }
+        guard isBubbleSizingV2ScrollAtRest() else { return }
+        guard !isInputActive else { return }
+        guard viewModel?.inputContent.isEffectivelyEmpty != false else { return }
 
         let visibleIds: Set<String> = Set(collectionView.indexPathsForVisibleItems.compactMap { indexPath in
             guard let id = dataSource.itemIdentifier(for: indexPath), !isNonMessageItemID(id) else {
@@ -1286,12 +1244,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return id
         })
         let idsToRemeasure = Array(deferredBottomInsetRemeasureIds.intersection(visibleIds))
-        guard !idsToRemeasure.isEmpty else {
-            // Bypass applies to currently visible bubbles only.
-            // Keep non-visible ids queued for normal scroll-into-view handling.
-            bottomInsetRemeasureBypassInputGates = false
-            return
-        }
+        guard !idsToRemeasure.isEmpty else { return }
 
         if bubbleSizingV2Enabled {
             idsToRemeasure.forEach { invalidateBubbleSizingV2Cache(for: $0) }
@@ -1305,7 +1258,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             executeInvalidationPlan(plan)
         }
         deferredBottomInsetRemeasureIds.subtract(idsToRemeasure)
-        bottomInsetRemeasureBypassInputGates = false
     }
 
     func scheduleScrollToBottom(sessionKey: String, animated: Bool, attempts: Int = 2) {
