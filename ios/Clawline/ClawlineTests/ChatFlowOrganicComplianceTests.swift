@@ -459,8 +459,8 @@ struct ChatFlowOrganicComplianceTests {
         #expect(presentation.hasMediaOnly)
     }
 
-    @Test("Terminal bubbles: terminal-session document attachment maps to terminalSession part (not file)")
-    func messagePresentationTerminalSessionAttachmentParses() throws {
+    @Test("Terminal bubbles: terminal-session document attachment maps to terminalSession part on built-in personal streams")
+    func messagePresentationTerminalSessionAttachmentParsesOnBuiltInPersonalStream() throws {
         let descriptor = TerminalSessionDescriptor(
             version: 1,
             terminalSessionId: "ts_test",
@@ -478,7 +478,7 @@ struct ChatFlowOrganicComplianceTests {
             data: data,
             assetId: nil
         )
-        let message = sampleMessage(content: "Live logs:", attachments: [terminalAttachment], sessionKey: SessionKey.clawlineMain(userId: "mike"))
+        let message = sampleMessage(content: "Live logs:", attachments: [terminalAttachment], sessionKey: "agent:main:clawline:mike:dm")
         let presentation = buildPresentation(message)
 
         #expect(presentation.parts.contains(where: { part in
@@ -491,6 +491,46 @@ struct ChatFlowOrganicComplianceTests {
         #expect(!presentation.parts.contains(where: { part in
             if case .file(let attachment) = part {
                 return attachment.id == "term1"
+            }
+            return false
+        }))
+    }
+
+    @Test("Terminal bubbles: terminal-session document attachment maps to terminalSession part on custom personal streams")
+    func messagePresentationTerminalSessionAttachmentParsesOnCustomPersonalStream() throws {
+        let descriptor = TerminalSessionDescriptor(
+            version: 1,
+            terminalSessionId: "ts_custom",
+            title: "gateway logs",
+            provider: .init(baseUrl: "https://example.com", wsPath: "/ws/terminal"),
+            capabilities: .init(interactive: true, supportsBinaryFrames: true, supportsResize: true, supportsDetach: true),
+            auth: .init(mode: .chatToken, terminalAccessToken: nil),
+            expiresAtMs: 1_700_000_000_000
+        )
+        let data = try JSONEncoder().encode(descriptor)
+        let terminalAttachment = Clawline.Attachment(
+            id: "term-custom",
+            type: .document,
+            mimeType: TerminalSessionDescriptor.mimeType,
+            data: data,
+            assetId: nil
+        )
+        let message = sampleMessage(
+            content: "Live logs:",
+            attachments: [terminalAttachment],
+            sessionKey: "agent:main:clawline:mike:s_abcd1234"
+        )
+        let presentation = buildPresentation(message)
+
+        #expect(presentation.parts.contains(where: { part in
+            if case .terminalSession(let decoded) = part {
+                return decoded.terminalSessionId == "ts_custom"
+            }
+            return false
+        }))
+        #expect(!presentation.parts.contains(where: { part in
+            if case .file(let attachment) = part {
+                return attachment.id == "term-custom"
             }
             return false
         }))
