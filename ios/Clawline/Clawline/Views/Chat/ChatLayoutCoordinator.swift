@@ -323,7 +323,12 @@ final class ChatLayoutCoordinator {
             scrollAction = .scrollToBottom(animated: false)
         } else if !isInsetDecreasing {
             if wasNearBottom {
-                scrollAction = .scrollToBottom(animated: false)
+                // Pinned lists already self-correct inset growth inside `setBottomInset`.
+                // Scheduling an extra scroll-to-bottom here adds redundant layout/scroll work on
+                // multiline composer growth keystrokes.
+                scrollAction = (isPinnedToBottomIntent && barHeightChanged && !keyboardChanged)
+                    ? .none
+                    : .scrollToBottom(animated: false)
             } else if abs(insetDelta) > 0.5 {
                 scrollAction = .adjustOffset(delta: insetDelta)
             } else {
