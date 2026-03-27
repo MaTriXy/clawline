@@ -75,6 +75,12 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     private var requiresUserReconnect = false
     private var scrollCaptureWired = false
 
+    static func visibleRows(forReportedRows reportedRows: Int) -> Int {
+        // SwiftTerm reports one extra row for this pinned, full-bleed bubble surface,
+        // which leaves a small internal scroll range at the bottom.
+        max(reportedRows - 1, 1)
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         buildUI()
@@ -228,7 +234,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
         lastCols = max(newCols, 1)
-        lastRows = max(newRows, 1)
+        lastRows = Self.visibleRows(forReportedRows: newRows)
         service?.resize(cols: lastCols, rows: lastRows)
     }
 
