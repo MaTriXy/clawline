@@ -404,6 +404,153 @@ struct ChatFlowOrganicComplianceTests {
         }))
     }
 
+    @Test("Bug T190: URLs inside inline code are not detected or tappable")
+    func messagePresentationDoesNotDetectInlineCodeURLs() {
+        let presentation = buildPresentation(sampleMessage(content: "Visit `https://example.com/path` now"))
+
+        #expect(presentation.detectedURLs.isEmpty)
+        #expect(!presentation.parts.contains(where: { part in
+            if case .linkPreview = part { return true }
+            return false
+        }))
+        #expect(renderedMarkdownText(from: presentation, stripDetectedURLs: false) == "Visit https://example.com/path now")
+
+        let rendered = UnifiedMarkdownRenderer.render(
+            plan: presentation.markdownRenderPlan,
+            options: MarkdownRenderOptions(
+                baseFont: UIFont.systemFont(ofSize: ChatFlowTheme.Metrics(isCompact: true).bodyFontSize, weight: .regular),
+                inkColor: .black,
+                lineSpacing: 4,
+                stripDetectedURLs: false,
+                markHighlightColor: nil
+            )
+        )
+        guard case .attributedText(let attributed)? = rendered.first else {
+            Issue.record("Expected attributed text block")
+            return
+        }
+        let range = (attributed.string as NSString).range(of: "https://example.com/path")
+        #expect(range.location != NSNotFound)
+        #expect(attributed.attribute(.link, at: range.location, effectiveRange: nil) == nil)
+    }
+
+    @Test("Bug T190: URL detection respects markdown boundaries after links")
+    func messagePresentationStopsDetectedURLsAtMarkdownBoundaries() {
+        let presentation = buildPresentation(sampleMessage(content: "Visit https://example.com/html**URL** now"))
+
+        #expect(presentation.detectedURLs.map(\.absoluteString) == ["https://example.com/html"])
+        #expect(presentation.parts.contains(where: { part in
+            if case .linkPreview(let url) = part {
+                return url.absoluteString == "https://example.com/html"
+            }
+            return false
+        }))
+        #expect(renderedMarkdownText(from: presentation, stripDetectedURLs: false) == "Visit https://example.com/htmlURL now")
+    }
+
+    @Test("Bug T190: Markdown link runs strip trailing backticks before preview extraction")
+    func messagePresentationStripsTrailingBackticksFromMarkdownDetectedURLs() {
+        let presentation = buildPresentation(sampleMessage(content: "http://tars:18800/www/tracker-dashboard.html`"))
+
+        #expect(presentation.detectedURLs.map(\.absoluteString) == ["http://tars:18800/www/tracker-dashboard.html"])
+        #expect(presentation.parts.contains(where: { part in
+            if case .linkPreview(let url) = part {
+                return url.absoluteString == "http://tars:18800/www/tracker-dashboard.html"
+            }
+            return false
+        }))
+        #expect(renderedMarkdownText(from: presentation, stripDetectedURLs: false) == "http://tars:18800/www/tracker-dashboard.html`")
+
+        let rendered = UnifiedMarkdownRenderer.render(
+            plan: presentation.markdownRenderPlan,
+            options: MarkdownRenderOptions(
+                baseFont: UIFont.systemFont(ofSize: ChatFlowTheme.Metrics(isCompact: true).bodyFontSize, weight: .regular),
+                inkColor: .black,
+                lineSpacing: 4,
+                stripDetectedURLs: false,
+                markHighlightColor: nil
+            )
+        )
+        guard case .attributedText(let attributed)? = rendered.first else {
+            Issue.record("Expected attributed text block")
+            return
+        }
+        let text = attributed.string as NSString
+        let urlRange = text.range(of: "http://tars:18800/www/tracker-dashboard.html")
+        let backtickRange = text.range(of: "`")
+        #expect(urlRange.location != NSNotFound)
+        #expect(backtickRange.location != NSNotFound)
+        #expect(attributed.attribute(.link, at: urlRange.location, effectiveRange: nil) != nil)
+        #expect(attributed.attribute(.link, at: urlRange.location + urlRange.length - 1, effectiveRange: nil) != nil)
+        #expect(attributed.attribute(.link, at: backtickRange.location, effectiveRange: nil) == nil)
+    }
+
+    @Test("Bug T190: Markdown link runs stop at highlight delimiters")
+    func messagePresentationStripsHighlightDelimitersFromMarkdownDetectedURLs() {
+        let presentation = buildPresentation(sampleMessage(content: "http://example.com==nice=="))
+
+        #expect(presentation.detectedURLs.map(\.absoluteString) == ["http://example.com"])
+        #expect(presentation.parts.contains(where: { part in
+            if case .linkPreview(let url) = part {
+                return url.absoluteString == "http://example.com"
+            }
+            return false
+        }))
+        #expect(renderedMarkdownText(from: presentation, stripDetectedURLs: false) == "http://example.com==nice==")
+
+        let rendered = UnifiedMarkdownRenderer.render(
+            plan: presentation.markdownRenderPlan,
+            options: MarkdownRenderOptions(
+                baseFont: UIFont.systemFont(ofSize: ChatFlowTheme.Metrics(isCompact: true).bodyFontSize, weight: .regular),
+                inkColor: .black,
+                lineSpacing: 4,
+                stripDetectedURLs: false,
+                markHighlightColor: nil
+            )
+        )
+        guard case .attributedText(let attributed)? = rendered.first else {
+            Issue.record("Expected attributed text block")
+            return
+        }
+        let text = attributed.string as NSString
+        let urlRange = text.range(of: "http://example.com")
+        let delimiterRange = text.range(of: "==")
+        #expect(urlRange.location != NSNotFound)
+        #expect(delimiterRange.location != NSNotFound)
+        #expect(attributed.attribute(.link, at: urlRange.location, effectiveRange: nil) != nil)
+        #expect(attributed.attribute(.link, at: urlRange.location + urlRange.length - 1, effectiveRange: nil) != nil)
+        #expect(attributed.attribute(.link, at: delimiterRange.location, effectiveRange: nil) == nil)
+    }
+
+    @Test("Bug T190: Markdown link runs stop at adjacent highlight delimiters without whitespace")
+    func messagePresentationStripsAdjacentHighlightDelimitersFromMarkdownDetectedURLs() {
+        let presentation = buildPresentation(sampleMessage(content: "http://example.com==text=="))
+
+        #expect(presentation.detectedURLs.map(\.absoluteString) == ["http://example.com"])
+        #expect(presentation.parts.contains(where: { part in
+            if case .linkPreview(let url) = part {
+                return url.absoluteString == "http://example.com"
+            }
+            return false
+        }))
+        #expect(renderedMarkdownText(from: presentation, stripDetectedURLs: false) == "http://example.com==text==")
+    }
+
+    @Test("Bug T190: Legitimate query values containing double equals are preserved")
+    func messagePresentationPreservesURLsContainingDoubleEquals() {
+        let url = "https://example.com/path?token=YWJjZA=="
+        let presentation = buildPresentation(sampleMessage(content: url))
+
+        #expect(presentation.detectedURLs.map(\.absoluteString) == [url])
+        #expect(presentation.parts.contains(where: { part in
+            if case .linkPreview(let detected) = part {
+                return detected.absoluteString == url
+            }
+            return false
+        }))
+        #expect(renderedMarkdownText(from: presentation, stripDetectedURLs: false) == url)
+    }
+
     @Test("Doc §5: Link previews disabled by setting")
     func linkPreviewsRespectDisabledSetting() {
         let presentation = buildPresentation(

@@ -249,7 +249,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     }
 
     override init(frame: CGRect) {
-        self.enableDataDetectors = true
+        self.enableDataDetectors = false
         super.init(frame: frame)
         configureViewHierarchy()
     }
@@ -1634,7 +1634,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         UnifiedMarkdownRenderer.configureTextView(
             textView,
             delegate: self,
-            linkTextAttributes: bodyLabel.linkTextAttributes ?? [:]
+            linkTextAttributes: bodyLabel.linkTextAttributes ?? [:],
+            enableDataDetectors: false
         )
         textView.attributedText = attributed
 

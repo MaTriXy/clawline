@@ -7,6 +7,7 @@
 
 import Foundation
 import CryptoKit
+import Markdown
 import OSLog
 import UIKit
 
@@ -309,7 +310,7 @@ enum MessagePresentationBuilder {
             for block in markdownPlan.blocks {
                 switch block {
                 case .richText(let source):
-                    detectedURLOccurrences.append(contentsOf: extractURLs(from: source))
+                    detectedURLOccurrences.append(contentsOf: extractMarkdownURLs(from: source))
                     let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { continue }
                     if hasAttachments, isAttachmentSummaryLine(trimmed) {
@@ -545,15 +546,52 @@ enum MessagePresentationBuilder {
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         var urls: [URL] = []
         detector.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
-            guard let match, let url = match.url else { return }
-            guard let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else { return }
-            guard url.host != nil else { return }
-            guard url.user == nil, url.password == nil else { return }
-            if url.absoluteString.count > 2048 { return }
+            guard let match,
+                  let matchRange = Range(match.range, in: text),
+                  let url = sanitizedDetectedURL(from: String(text[matchRange])) else { return }
             urls.append(url)
         }
         return urls
+    }
+
+    private static func extractMarkdownURLs(from source: String) -> [URL] {
+        guard let attributed = try? AttributedString(
+            markdown: source,
+            options: .init(interpretedSyntax: .full)
+        ) else {
+            return extractURLs(from: markdownPlainText(from: source))
+        }
+
+        var urls: [URL] = []
+        for run in attributed.runs {
+            guard let url = run.link else { continue }
+            let displayedText = String(attributed[run.range].characters)
+            let validatedURL = sanitizedDetectedURL(from: displayedText)
+                ?? validatedDetectedURL(from: url.absoluteString)
+            guard let validatedURL else { continue }
+            urls.append(validatedURL)
+        }
+        return urls
+    }
+
+    private static func sanitizedDetectedURL(from rawMatch: String) -> URL? {
+        MarkdownURLBoundarySanitizer.sanitizedURL(from: rawMatch)
+    }
+
+    private static func validatedDetectedURL(from candidate: String) -> URL? {
+        guard let url = MarkdownURLBoundarySanitizer.validatedHTTPURL(from: candidate) else { return nil }
+        if url.absoluteString.count > 2048 { return nil }
+        return url
+    }
+
+    private static func markdownPlainText(from source: String) -> String {
+        if let attributed = try? AttributedString(
+            markdown: source,
+            options: .init(interpretedSyntax: .full)
+        ) {
+            return NSAttributedString(attributed).string.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return source.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func stripMarkdownMarkers(from text: String) -> String {

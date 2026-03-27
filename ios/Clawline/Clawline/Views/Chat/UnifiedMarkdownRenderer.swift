@@ -37,6 +37,7 @@ struct UnifiedMarkdownContent {
 enum UnifiedMarkdownRenderer {
     private static let markOpenSentinel = "\u{F0000}"
     private static let markCloseSentinel = "\u{F0001}"
+    private static let markdownLinkBoundaryTokens = [markOpenSentinel, markCloseSentinel]
 
     static func makeOptions(
         baseFont: UIFont,
@@ -109,7 +110,7 @@ enum UnifiedMarkdownRenderer {
         _ textView: UITextView,
         delegate: UITextViewDelegate?,
         linkTextAttributes: [NSAttributedString.Key: Any] = [:],
-        enableDataDetectors: Bool = true
+        enableDataDetectors: Bool = false
     ) {
         textView.backgroundColor = .clear
         textView.isUserInteractionEnabled = true
@@ -232,11 +233,13 @@ enum UnifiedMarkdownRenderer {
             } else if traits.contains(.traitMonoSpace) {
                 newFont = UIFont.clawlineMonospaced(.secondaryLabel, weight: .regular)
                 nsAttributed.addAttribute(.backgroundColor, value: UIColor.tertiarySystemFill, range: range)
+                nsAttributed.removeAttribute(.link, range: range)
             }
 
             nsAttributed.addAttribute(.font, value: newFont, range: range)
         }
 
+        sanitizeLinkAttributes(nsAttributed)
         applyHeadingStyles(markdown: markdownForRender, nsAttributed: nsAttributed, baseFont: baseFont)
         if let markHighlightColor {
             applyMarkHighlights(nsAttributed: nsAttributed, color: markHighlightColor)
@@ -259,6 +262,59 @@ enum UnifiedMarkdownRenderer {
     private static let detectedLinkStripper: NSDataDetector? = {
         try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     }()
+
+    private static func sanitizeLinkAttributes(_ attributed: NSMutableAttributedString) {
+        let text = attributed.string as NSString
+        let fullRange = NSRange(location: 0, length: text.length)
+        var updates: [(range: NSRange, trimmedLength: Int, url: URL)] = []
+
+        attributed.enumerateAttribute(.link, in: fullRange, options: []) { value, range, _ in
+            guard let rawValue = value else { return }
+            let displayedText = text.substring(with: range)
+            let currentURL: URL? = {
+                if let url = rawValue as? URL { return url }
+                if let string = rawValue as? String { return URL(string: string) }
+                return nil
+            }()
+
+            let desiredURL =
+                MarkdownURLBoundarySanitizer.sanitizedURL(
+                    from: displayedText,
+                    additionalBoundaryTokens: markdownLinkBoundaryTokens
+                )
+                ?? currentURL.flatMap {
+                    MarkdownURLBoundarySanitizer.sanitizedURL(
+                        from: $0.absoluteString,
+                        additionalBoundaryTokens: markdownLinkBoundaryTokens
+                    )
+                }
+
+            guard let desiredURL else { return }
+            let desiredString = desiredURL.absoluteString
+            guard displayedText.hasPrefix(desiredString) else { return }
+
+            let trimmedLength = (desiredString as NSString).length
+            let currentString = currentURL?.absoluteString
+            let needsUpdate = trimmedLength != range.length || currentString != desiredString
+            guard needsUpdate else { return }
+
+            updates.append((range: range, trimmedLength: trimmedLength, url: desiredURL))
+        }
+
+        for update in updates.reversed() {
+            attributed.removeAttribute(.link, range: update.range)
+            guard update.trimmedLength > 0 else { continue }
+            let trimmedRange = NSRange(location: update.range.location, length: update.trimmedLength)
+            attributed.addAttribute(.link, value: update.url, range: trimmedRange)
+            let trailingLength = update.range.length - update.trimmedLength
+            if trailingLength > 0 {
+                let trailingRange = NSRange(location: update.range.location + update.trimmedLength, length: trailingLength)
+                // Explicitly clear underline styling on the trailing punctuation run so UITextView
+                // does not visually carry link styling one character too far.
+                attributed.addAttribute(.underlineStyle, value: 0, range: trailingRange)
+            }
+        }
+    }
 
     private static func stripDetectedLinks(from attributed: NSAttributedString) -> NSAttributedString {
         guard let detector = detectedLinkStripper else { return attributed }

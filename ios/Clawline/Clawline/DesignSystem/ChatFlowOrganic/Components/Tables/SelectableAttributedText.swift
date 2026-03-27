@@ -14,7 +14,11 @@ struct SelectableAttributedText: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UITextView {
         let textView = TraitResponsiveTextView()
-        UnifiedMarkdownRenderer.configureTextView(textView, delegate: context.coordinator)
+        UnifiedMarkdownRenderer.configureTextView(
+            textView,
+            delegate: context.coordinator,
+            enableDataDetectors: false
+        )
         textView.textContainer.widthTracksTextView = true
         textView.adjustsFontForContentSizeCategory = true
         textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
