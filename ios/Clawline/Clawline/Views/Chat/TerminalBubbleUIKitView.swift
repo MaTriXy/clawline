@@ -38,11 +38,14 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "TerminalBubble")
     // Match Floatty's current terminal wrapper:
     // - theme base colors come from Floatty's Catppuccin Mocha terminal theme
-    // - font comes from Floatty's bundled BlexMono Nerd Font Mono face
+    // - font comes from Floatty's bundled BlexMono Nerd Font Mono faces
     private let terminalSurfaceBackgroundColor = UIColor(red: 30 / 255, green: 30 / 255, blue: 46 / 255, alpha: 1)
     private let terminalSurfaceForegroundColor = UIColor(red: 205 / 255, green: 214 / 255, blue: 244 / 255, alpha: 1)
     private let terminalSelectionColor = UIColor(red: 69 / 255, green: 71 / 255, blue: 90 / 255, alpha: 1)
-    private let terminalFontName = "BlexMono Nerd Font Mono"
+    private let terminalRegularFontName = "BlexMonoNFM"
+    private let terminalBoldFontName = "BlexMonoNFM-Bold"
+    private let terminalItalicFontName = "BlexMonoNFM-Italic"
+    private let terminalBoldItalicFontName = "BlexMonoNFM-BoldItalic"
 
     var onRequestExpand: (() -> Void)?
 
@@ -149,7 +152,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         // Terminal surface.
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminalView.terminalDelegate = self
-        terminalView.font = makeTerminalFont()
+        installTerminalFonts()
         terminalView.nativeForegroundColor = terminalSurfaceForegroundColor
         terminalView.nativeBackgroundColor = terminalSurfaceBackgroundColor
         terminalView.backgroundColor = terminalSurfaceBackgroundColor
@@ -373,12 +376,26 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         scrollCaptureWired = true
     }
 
-    private func makeTerminalFont() -> UIFont {
-        let fontSize = UIFont.clawlineMonospaced(.secondaryLabel).pointSize
-        if let font = UIFont(name: terminalFontName, size: fontSize) {
-            return font
+    private func installTerminalFonts() {
+        let normal = loadTerminalFont(named: terminalRegularFontName)
+        let bold = loadTerminalFont(named: terminalBoldFontName)
+        let italic = loadTerminalFont(named: terminalItalicFontName)
+        let boldItalic = loadTerminalFont(named: terminalBoldItalicFontName)
+
+        if let normal, let bold, let italic, let boldItalic {
+            terminalView.setFonts(normal: normal, bold: bold, italic: italic, boldItalic: boldItalic)
+            return
         }
-        return UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+
+        terminalView.font = normal ?? UIFont.monospacedSystemFont(
+            ofSize: UIFont.clawlineMonospaced(.secondaryLabel).pointSize,
+            weight: .regular
+        )
+    }
+
+    private func loadTerminalFont(named name: String) -> UIFont? {
+        let fontSize = UIFont.clawlineMonospaced(.secondaryLabel).pointSize
+        return UIFont(name: name, size: fontSize)
     }
 }
 

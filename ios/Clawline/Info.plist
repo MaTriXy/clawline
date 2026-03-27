@@ -45,6 +45,9 @@
 	<string>Clawline needs access to your photos to send images in chat.</string>
 	<key>UIAppFonts</key>
 	<array>
+		<string>Fonts/BlexMonoNerdFontMono-Bold.ttf</string>
+		<string>Fonts/BlexMonoNerdFontMono-BoldItalic.ttf</string>
+		<string>Fonts/BlexMonoNerdFontMono-Italic.ttf</string>
 		<string>Fonts/BlexMonoNerdFontMono-Regular.ttf</string>
 	</array>
 	<key>UILaunchStoryboardName</key>

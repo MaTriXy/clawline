@@ -25,10 +25,16 @@ struct TerminalBubbleUIKitViewTests {
             let foreground = terminalView.nativeForegroundColor
             let background = terminalView.nativeBackgroundColor
             #expect(relativeLuminance(foreground) > relativeLuminance(background))
-            #expect(terminalView.font.fontName.contains("BlexMono") || terminalView.font.familyName.contains("BlexMono"))
+            #expect(terminalView.font.fontName == "BlexMonoNFM")
         }
         #expect(view.backgroundColor?.cgColor.alpha == 1)
         #expect(view.backgroundColor != .clear)
+
+        let fontSize = UIFont.clawlineMonospaced(.secondaryLabel).pointSize
+        #expect(UIFont(name: "BlexMonoNFM", size: fontSize)?.fontName == "BlexMonoNFM")
+        #expect(UIFont(name: "BlexMonoNFM-Bold", size: fontSize)?.fontName == "BlexMonoNFM-Bold")
+        #expect(UIFont(name: "BlexMonoNFM-Italic", size: fontSize)?.fontName == "BlexMonoNFM-Italic")
+        #expect(UIFont(name: "BlexMonoNFM-BoldItalic", size: fontSize)?.fontName == "BlexMonoNFM-BoldItalic")
     }
 
     private func sampleDescriptor() -> TerminalSessionDescriptor {
