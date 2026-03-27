@@ -20,7 +20,11 @@ struct TerminalBubbleUIKitViewTests {
         #expect(terminalView != nil)
         if let terminalView {
             #expect(terminalView.frame.integral == view.bounds.integral)
+            #expect(terminalView.backgroundColor?.cgColor.alpha == 1)
+            #expect(terminalView.backgroundColor != .clear)
         }
+        #expect(view.backgroundColor?.cgColor.alpha == 1)
+        #expect(view.backgroundColor != .clear)
     }
 
     private func sampleDescriptor() -> TerminalSessionDescriptor {

@@ -36,6 +36,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     }
 
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "TerminalBubble")
+    private let terminalSurfaceBackgroundColor = UIColor(red: 0.07, green: 0.08, blue: 0.10, alpha: 1)
 
     var onRequestExpand: (() -> Void)?
 
@@ -137,14 +138,15 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     private func buildUI() {
         translatesAutoresizingMaskIntoConstraints = false
+        backgroundColor = terminalSurfaceBackgroundColor
 
         // Terminal surface.
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminalView.terminalDelegate = self
         terminalView.font = UIFont.clawlineMonospaced(.secondaryLabel)
         terminalView.nativeForegroundColor = .label
-        terminalView.nativeBackgroundColor = UIColor.clear
-        terminalView.backgroundColor = .clear
+        terminalView.nativeBackgroundColor = terminalSurfaceBackgroundColor
+        terminalView.backgroundColor = terminalSurfaceBackgroundColor
         terminalView.selectedTextBackgroundColor = UIColor.systemGray.withAlphaComponent(0.35)
         terminalView.isAccessibilityElement = true
         terminalView.accessibilityLabel = "Terminal session"
@@ -158,18 +160,20 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
         // Dead overlay (reconnect UX).
         deadOverlay.translatesAutoresizingMaskIntoConstraints = false
+        deadOverlay.backgroundColor = terminalSurfaceBackgroundColor
         deadOverlay.isHidden = true
 
         deadLabel.translatesAutoresizingMaskIntoConstraints = false
         deadLabel.font = UIFont.clawline(.secondaryLabel, weight: .semibold)
         deadLabel.adjustsFontForContentSizeCategory = true
-        deadLabel.textColor = .secondaryLabel
+        deadLabel.textColor = UIColor(white: 0.88, alpha: 1)
         deadLabel.numberOfLines = 2
         deadLabel.textAlignment = .center
 
         reconnectButton.setTitle("Reconnect", for: .normal)
         reconnectButton.titleLabel?.font = UIFont.clawline(.secondaryLabel, weight: .semibold)
         reconnectButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        reconnectButton.setTitleColor(.white, for: .normal)
         reconnectButton.addTarget(self, action: #selector(handleReconnectTap), for: .touchUpInside)
 
         let deadStack = UIStackView(arrangedSubviews: [deadLabel, reconnectButton])
