@@ -36,7 +36,13 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     }
 
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "TerminalBubble")
-    private let terminalSurfaceBackgroundColor = UIColor(red: 0.07, green: 0.08, blue: 0.10, alpha: 1)
+    // Match Floatty's current terminal wrapper:
+    // - theme base colors come from Floatty's Catppuccin Mocha terminal theme
+    // - font comes from Floatty's bundled BlexMono Nerd Font Mono face
+    private let terminalSurfaceBackgroundColor = UIColor(red: 30 / 255, green: 30 / 255, blue: 46 / 255, alpha: 1)
+    private let terminalSurfaceForegroundColor = UIColor(red: 205 / 255, green: 214 / 255, blue: 244 / 255, alpha: 1)
+    private let terminalSelectionColor = UIColor(red: 69 / 255, green: 71 / 255, blue: 90 / 255, alpha: 1)
+    private let terminalFontName = "BlexMono Nerd Font Mono"
 
     var onRequestExpand: (() -> Void)?
 
@@ -143,11 +149,11 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         // Terminal surface.
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         terminalView.terminalDelegate = self
-        terminalView.font = UIFont.clawlineMonospaced(.secondaryLabel)
-        terminalView.nativeForegroundColor = .label
+        terminalView.font = makeTerminalFont()
+        terminalView.nativeForegroundColor = terminalSurfaceForegroundColor
         terminalView.nativeBackgroundColor = terminalSurfaceBackgroundColor
         terminalView.backgroundColor = terminalSurfaceBackgroundColor
-        terminalView.selectedTextBackgroundColor = UIColor.systemGray.withAlphaComponent(0.35)
+        terminalView.selectedTextBackgroundColor = terminalSelectionColor
         terminalView.isAccessibilityElement = true
         terminalView.accessibilityLabel = "Terminal session"
         terminalView.accessibilityHint = "Terminal output; double tap to focus; swipe to scroll."
@@ -166,14 +172,14 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         deadLabel.translatesAutoresizingMaskIntoConstraints = false
         deadLabel.font = UIFont.clawline(.secondaryLabel, weight: .semibold)
         deadLabel.adjustsFontForContentSizeCategory = true
-        deadLabel.textColor = UIColor(white: 0.88, alpha: 1)
+        deadLabel.textColor = terminalSurfaceForegroundColor
         deadLabel.numberOfLines = 2
         deadLabel.textAlignment = .center
 
         reconnectButton.setTitle("Reconnect", for: .normal)
         reconnectButton.titleLabel?.font = UIFont.clawline(.secondaryLabel, weight: .semibold)
         reconnectButton.titleLabel?.adjustsFontForContentSizeCategory = true
-        reconnectButton.setTitleColor(.white, for: .normal)
+        reconnectButton.setTitleColor(terminalSurfaceForegroundColor, for: .normal)
         reconnectButton.addTarget(self, action: #selector(handleReconnectTap), for: .touchUpInside)
 
         let deadStack = UIStackView(arrangedSubviews: [deadLabel, reconnectButton])
@@ -365,6 +371,14 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         }
 
         scrollCaptureWired = true
+    }
+
+    private func makeTerminalFont() -> UIFont {
+        let fontSize = UIFont.clawlineMonospaced(.secondaryLabel).pointSize
+        if let font = UIFont(name: terminalFontName, size: fontSize) {
+            return font
+        }
+        return UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
     }
 }
 

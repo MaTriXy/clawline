@@ -22,6 +22,10 @@ struct TerminalBubbleUIKitViewTests {
             #expect(terminalView.frame.integral == view.bounds.integral)
             #expect(terminalView.backgroundColor?.cgColor.alpha == 1)
             #expect(terminalView.backgroundColor != .clear)
+            let foreground = terminalView.nativeForegroundColor
+            let background = terminalView.nativeBackgroundColor
+            #expect(relativeLuminance(foreground) > relativeLuminance(background))
+            #expect(terminalView.font.fontName.contains("BlexMono") || terminalView.font.familyName.contains("BlexMono"))
         }
         #expect(view.backgroundColor?.cgColor.alpha == 1)
         #expect(view.backgroundColor != .clear)
@@ -46,5 +50,14 @@ struct TerminalBubbleUIKitViewTests {
 
     private func allSubviews(in view: UIView) -> [UIView] {
         view.subviews + view.subviews.flatMap { self.allSubviews(in: $0) }
+    }
+
+    private func relativeLuminance(_ color: UIColor) -> CGFloat {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
     }
 }
