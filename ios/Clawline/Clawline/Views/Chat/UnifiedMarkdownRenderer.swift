@@ -233,12 +233,12 @@ enum UnifiedMarkdownRenderer {
             } else if traits.contains(.traitMonoSpace) {
                 newFont = UIFont.clawlineMonospaced(.secondaryLabel, weight: .regular)
                 nsAttributed.addAttribute(.backgroundColor, value: UIColor.tertiarySystemFill, range: range)
-                nsAttributed.removeAttribute(.link, range: range)
             }
 
             nsAttributed.addAttribute(.font, value: newFont, range: range)
         }
 
+        annotateDetectedLinks(nsAttributed)
         sanitizeLinkAttributes(nsAttributed)
         applyHeadingStyles(markdown: markdownForRender, nsAttributed: nsAttributed, baseFont: baseFont)
         if let markHighlightColor {
@@ -262,6 +262,25 @@ enum UnifiedMarkdownRenderer {
     private static let detectedLinkStripper: NSDataDetector? = {
         try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     }()
+
+    private static func annotateDetectedLinks(_ attributed: NSMutableAttributedString) {
+        guard let detector = detectedLinkStripper else { return }
+        let text = attributed.string as NSString
+        let fullRange = NSRange(location: 0, length: text.length)
+        let matches = detector.matches(in: attributed.string, options: [], range: fullRange)
+
+        for match in matches {
+            guard match.resultType == .link else { continue }
+            guard attributed.attribute(.link, at: match.range.location, effectiveRange: nil) == nil else { continue }
+            let rawMatch = text.substring(with: match.range)
+            let url = MarkdownURLBoundarySanitizer.sanitizedURL(
+                from: rawMatch,
+                additionalBoundaryTokens: markdownLinkBoundaryTokens
+            ) ?? match.url
+            guard let url else { continue }
+            attributed.addAttribute(.link, value: url, range: match.range)
+        }
+    }
 
     private static func sanitizeLinkAttributes(_ attributed: NSMutableAttributedString) {
         let text = attributed.string as NSString

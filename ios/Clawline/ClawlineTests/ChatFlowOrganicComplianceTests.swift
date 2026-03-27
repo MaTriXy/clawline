@@ -404,8 +404,8 @@ struct ChatFlowOrganicComplianceTests {
         }))
     }
 
-    @Test("Bug T190: URLs inside inline code are not detected or tappable")
-    func messagePresentationDoesNotDetectInlineCodeURLs() {
+    @Test("Bug T190: URLs inside inline code stay tappable without preview extraction")
+    func messagePresentationKeepsInlineCodeURLsTappable() {
         let presentation = buildPresentation(sampleMessage(content: "Visit `https://example.com/path` now"))
 
         #expect(presentation.detectedURLs.isEmpty)
@@ -431,7 +431,8 @@ struct ChatFlowOrganicComplianceTests {
         }
         let range = (attributed.string as NSString).range(of: "https://example.com/path")
         #expect(range.location != NSNotFound)
-        #expect(attributed.attribute(.link, at: range.location, effectiveRange: nil) == nil)
+        #expect(attributed.attribute(.link, at: range.location, effectiveRange: nil) != nil)
+        #expect(attributed.attribute(.link, at: range.location + range.length - 1, effectiveRange: nil) != nil)
     }
 
     @Test("Bug T190: URL detection respects markdown boundaries after links")

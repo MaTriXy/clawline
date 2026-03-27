@@ -188,6 +188,31 @@ struct UnifiedMarkdownRendererMarkTests {
         #expect(rendered.attribute(.link, at: backtickRange.location, effectiveRange: nil) == nil)
     }
 
+    @Test("Inline-code URLs remain tappable in assistant markdown rendering")
+    func assistantMarkdownRenderingKeepsInlineCodeURLsTappable() {
+        let rust = SalientHighlightApplier.highlightColor(isDark: false)
+        let rendered = UnifiedMarkdownRenderer.renderNSAttributedString(
+            markdown: "Visit `https://example.com/path` now",
+            baseFont: UIFont.systemFont(ofSize: 15, weight: .regular),
+            inkColor: .black,
+            lineSpacing: 4,
+            markHighlightColor: rust
+        )
+
+        guard let rendered else {
+            Issue.record("Expected markdown render result")
+            return
+        }
+
+        let text = rendered.string as NSString
+        let urlRange = text.range(of: "https://example.com/path")
+        #expect(urlRange.location != NSNotFound)
+        var effectiveRange = NSRange(location: NSNotFound, length: 0)
+        #expect(rendered.attribute(.link, at: urlRange.location, effectiveRange: &effectiveRange) != nil)
+        #expect(effectiveRange == urlRange)
+        #expect(rendered.attribute(.link, at: urlRange.location + urlRange.length - 1, effectiveRange: nil) != nil)
+    }
+
     @Test("Link spans stop before assistant mark delimiters")
     func assistantMarkdownRenderingStopsLinkSpanAtMarkDelimiter() {
         let rust = SalientHighlightApplier.highlightColor(isDark: false)
