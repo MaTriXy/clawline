@@ -20,7 +20,7 @@ final class FocusableTerminalView: TerminalView {
 /// Embedded terminal session view intended for use inside chat bubbles and expanded message sheets.
 /// Policy decisions (Flynn / #46):
 /// - Auto-connect on render (no tap-to-connect).
-/// - No standard bubble chrome: this view is responsible for minimal title/status affordances.
+/// - No standard bubble chrome: this view renders the terminal surface directly.
 /// - When offscreen for a while, tear down the WS and show a reconnect affordance.
 final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     enum Style {
@@ -39,14 +39,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     var onRequestExpand: (() -> Void)?
 
-    private let topBar = UIStackView()
-    private let titleLabel = UILabel()
-    private let statusLabel = UILabel()
-    private let expandButton = UIButton(type: .system)
-    private let closeButton = UIButton(type: .system)
-
     private let terminalView = FocusableTerminalView(frame: .zero)
-    private var terminalHeightConstraint: NSLayoutConstraint?
+    private var bubbleHeightConstraint: NSLayoutConstraint?
 
     private let deadOverlay = UIView()
     private let deadLabel = UILabel()
@@ -56,6 +50,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     private var descriptor: TerminalSessionDescriptor?
     private var style: Style = .bubble(height: 360)
+    private var displayTitle: String = "Terminal"
 
     private var service: TerminalSessionService?
     private var outputTask: Task<Void, Never>?
@@ -90,10 +85,14 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         self.hasAttemptedConnection = false
         self.hasEverBeenLive = false
 
-        titleLabel.text = descriptor.title?.isEmpty == false ? descriptor.title : "Terminal"
-        statusLabel.text = "Connecting"
+        if let title = descriptor.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !title.isEmpty {
+            displayTitle = title
+        } else {
+            displayTitle = "Terminal"
+        }
 
-        terminalHeightConstraint?.constant = style.height
+        bubbleHeightConstraint?.constant = style.height
 
         // Auto-connect when we hit the window (didMoveToWindow), so cols/rows are not zero.
         showTerminal()
@@ -126,7 +125,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         cancelScheduledDisconnect()
         wireScrollCaptureIfNeeded()
         if requiresUserReconnect {
-            showDeadState(reason: titleLabel.text ?? "Terminal")
+            showDeadState(reason: displayTitle)
             return
         }
         connectIfNeeded()
@@ -138,42 +137,6 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     private func buildUI() {
         translatesAutoresizingMaskIntoConstraints = false
-
-        // Top bar (minimal; not message bubble chrome).
-        topBar.axis = .horizontal
-        topBar.alignment = .center
-        topBar.spacing = 10
-        topBar.translatesAutoresizingMaskIntoConstraints = false
-
-        titleLabel.font = UIFont.clawline(.senderName)
-        titleLabel.adjustsFontForContentSizeCategory = true
-        titleLabel.textColor = .secondaryLabel
-        titleLabel.numberOfLines = 1
-        titleLabel.lineBreakMode = .byTruncatingTail
-
-        statusLabel.font = UIFont.clawlineMonospaced(.timestamp, weight: .semibold)
-        statusLabel.adjustsFontForContentSizeCategory = true
-        statusLabel.textColor = .tertiaryLabel
-        statusLabel.setContentHuggingPriority(.required, for: .horizontal)
-
-        expandButton.setTitle("Expand", for: .normal)
-        expandButton.titleLabel?.font = UIFont.clawline(.senderName)
-        expandButton.titleLabel?.adjustsFontForContentSizeCategory = true
-        expandButton.addTarget(self, action: #selector(handleExpandTap), for: .touchUpInside)
-
-        closeButton.setTitle("Close", for: .normal)
-        closeButton.titleLabel?.font = UIFont.clawline(.senderName)
-        closeButton.titleLabel?.adjustsFontForContentSizeCategory = true
-        closeButton.addTarget(self, action: #selector(handleCloseTap), for: .touchUpInside)
-
-        let left = UIStackView(arrangedSubviews: [titleLabel, UIView()])
-        left.axis = .horizontal
-        left.alignment = .center
-
-        topBar.addArrangedSubview(left)
-        topBar.addArrangedSubview(statusLabel)
-        topBar.addArrangedSubview(expandButton)
-        topBar.addArrangedSubview(closeButton)
 
         // Terminal surface.
         terminalView.translatesAutoresizingMaskIntoConstraints = false
@@ -222,39 +185,23 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
             deadStack.trailingAnchor.constraint(lessThanOrEqualTo: deadOverlay.trailingAnchor, constant: -12)
         ])
 
-        addSubview(topBar)
         addSubview(terminalView)
         addSubview(deadOverlay)
 
         NSLayoutConstraint.activate([
-            topBar.topAnchor.constraint(equalTo: topAnchor),
-            topBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-
-            terminalView.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 6),
+            terminalView.topAnchor.constraint(equalTo: topAnchor),
             terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            deadOverlay.topAnchor.constraint(equalTo: topBar.bottomAnchor, constant: 6),
+            deadOverlay.topAnchor.constraint(equalTo: topAnchor),
             deadOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
             deadOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
             deadOverlay.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        terminalHeightConstraint = terminalView.heightAnchor.constraint(equalToConstant: style.height)
-        terminalHeightConstraint?.isActive = true
-    }
-
-    @objc private func handleExpandTap() {
-        onRequestExpand?()
-    }
-
-    @objc private func handleCloseTap() {
-        service?.close()
-        teardownConnectionOnly()
-        requiresUserReconnect = true
-        showDeadState(reason: "Closed: \(titleLabel.text ?? "Terminal")")
+        bubbleHeightConstraint = heightAnchor.constraint(equalToConstant: style.height)
+        bubbleHeightConstraint?.isActive = true
     }
 
     @objc private func handleReconnectTap() {
@@ -305,7 +252,6 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         guard let descriptor else { return }
 
         hasAttemptedConnection = true
-        statusLabel.text = "Connecting"
 
         let service = TerminalSessionService(descriptor: descriptor)
         self.service = service
@@ -333,28 +279,23 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
                 await MainActor.run {
                     switch state {
                     case .disconnected:
-                        self.statusLabel.text = self.hasAttemptedConnection ? "Disconnected" : "Connecting"
                         if self.hasAttemptedConnection {
                             self.requiresUserReconnect = true
-                            self.showDeadState(reason: self.titleLabel.text ?? "Terminal")
+                            self.showDeadState(reason: self.displayTitle)
                         }
                     case .connecting:
-                        self.statusLabel.text = "Connecting"
                         self.showTerminal()
                     case .ready:
                         self.hasEverBeenLive = true
-                        self.statusLabel.text = "Live"
                         self.showTerminal()
                     case .exited(let code):
-                        if let code {
-                            self.statusLabel.text = "Exit \(code)"
-                        } else {
-                            self.statusLabel.text = "Exit"
-                        }
                         self.requiresUserReconnect = true
-                        self.showDeadState(reason: self.titleLabel.text ?? "Terminal")
+                        if let code {
+                            self.showDeadState(reason: "Exited (\(code))")
+                        } else {
+                            self.showDeadState(reason: self.displayTitle)
+                        }
                     case .failed(let message):
-                        self.statusLabel.text = "Error"
                         self.requiresUserReconnect = true
                         self.showDeadState(reason: message)
                     }
@@ -369,7 +310,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     }
 
     private func showDeadState(reason: String) {
-        deadLabel.text = reason
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        deadLabel.text = trimmed.isEmpty ? displayTitle : trimmed
         deadOverlay.isHidden = false
         terminalView.isHidden = true
     }
@@ -380,9 +322,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
             guard let self else { return }
             self.teardownConnectionOnly()
             self.requiresUserReconnect = true
-            if let title = self.titleLabel.text {
-                self.showDeadState(reason: title)
-            }
+            self.showDeadState(reason: self.displayTitle)
         }
     }
 
