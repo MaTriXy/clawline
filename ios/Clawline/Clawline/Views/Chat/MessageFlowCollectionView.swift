@@ -4037,7 +4037,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let contentWidth = max(1, measurement.measuredBubbleWidth - (paddingHorizontal * 2))
         let cacheKey = "\(url.absoluteString)|w=\(Int(contentWidth.rounded()))|m=\(env.metricsFingerprint)"
         let previewMaxHeight = linkPreviewViewportMaxHeight(plan: plan)
-        let fixedPreviewHeight: CGFloat? = plan.isSingleLinkPreview ? previewMaxHeight : nil
+        let fixedPreviewHeight: CGFloat? = {
+            guard plan.isSingleLinkPreview else { return nil }
+            if LinkPreviewView.isDirectMediaPreviewURL(url) {
+                return LinkPreviewView.preferredDirectMediaHeight(for: contentWidth, maxHeight: previewMaxHeight)
+            }
+            return previewMaxHeight
+        }()
         let estimated = fixedPreviewHeight
             ?? cachedPreviewHeight(cacheKey: cacheKey)
             ?? 120
@@ -4090,7 +4096,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             "\(url.absoluteString)|w=\(Int(contentWidth.rounded()))|m=\(env.metricsFingerprint)"
         }
         let linkPreviewMaxHeight = linkPreviewViewportMaxHeight(plan: plan)
-        let fixedPreviewHeight: CGFloat? = plan.isSingleLinkPreview ? linkPreviewMaxHeight : nil
+        let fixedPreviewHeight: CGFloat? = {
+            guard plan.isSingleLinkPreview, let url = plan.linkPreviewURL else { return nil }
+            if LinkPreviewView.isDirectMediaPreviewURL(url) {
+                return LinkPreviewView.preferredDirectMediaHeight(for: contentWidth, maxHeight: linkPreviewMaxHeight)
+            }
+            return linkPreviewMaxHeight
+        }()
         let linkPreviewEstimatedHeight: CGFloat? = fixedPreviewHeight
             ?? linkPreviewCacheKey.flatMap { cachedPreviewHeight(cacheKey: $0) }
         let previewInitialHeight = linkPreviewEstimatedHeight ?? 120

@@ -823,6 +823,12 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     let previewMaxHeight = isSingleLinkPreview
                         ? rawPreviewMaxHeight
                         : min(rawPreviewMaxHeight, metrics.truncationHeight)
+                    let directMediaInitialHeight: CGFloat? = {
+                        guard isSingleLinkPreview, LinkPreviewView.isDirectMediaPreviewURL(linkPreviewURL) else { return nil }
+                        let paddingHorizontal = round((presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal) * paddingScale)
+                        let contentWidth = max(1, maxWidth - (paddingHorizontal * 2))
+                        return LinkPreviewView.preferredDirectMediaHeight(for: contentWidth, maxHeight: previewMaxHeight)
+                    }()
                     if let bubbleSizingV2, let cacheKey = bubbleSizingV2.linkPreviewCacheKey {
                         previewView.configure(
                             url: linkPreviewURL,
@@ -830,6 +836,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                             minHeight: bubbleSizingV2.linkPreviewMinHeight,
                             cacheKey: cacheKey,
                             initialHeight: bubbleSizingV2.linkPreviewEstimatedHeight
+                        )
+                    } else if let directMediaInitialHeight {
+                        previewView.configure(
+                            url: linkPreviewURL,
+                            maxHeight: previewMaxHeight,
+                            minHeight: directMediaInitialHeight,
+                            initialHeight: directMediaInitialHeight
                         )
                     } else if isSingleLinkPreview {
                         previewView.configure(
@@ -873,6 +886,12 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             let previewMaxHeight = isSingleLinkPreview
                 ? rawPreviewMaxHeight
                 : min(rawPreviewMaxHeight, metrics.truncationHeight)
+            let directMediaInitialHeight: CGFloat? = {
+                guard isSingleLinkPreview, LinkPreviewView.isDirectMediaPreviewURL(linkPreviewURL) else { return nil }
+                let paddingHorizontal = round((presentation.hasMediaOnly ? 8 : metrics.bubblePaddingHorizontal) * paddingScale)
+                let contentWidth = max(1, maxWidth - (paddingHorizontal * 2))
+                return LinkPreviewView.preferredDirectMediaHeight(for: contentWidth, maxHeight: previewMaxHeight)
+            }()
             if let bubbleSizingV2, let cacheKey = bubbleSizingV2.linkPreviewCacheKey {
                 previewView.configure(
                     url: linkPreviewURL,
@@ -880,6 +899,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                     minHeight: bubbleSizingV2.linkPreviewMinHeight,
                     cacheKey: cacheKey,
                     initialHeight: bubbleSizingV2.linkPreviewEstimatedHeight
+                )
+            } else if let directMediaInitialHeight {
+                previewView.configure(
+                    url: linkPreviewURL,
+                    maxHeight: previewMaxHeight,
+                    minHeight: directMediaInitialHeight,
+                    initialHeight: directMediaInitialHeight
                 )
             } else if isSingleLinkPreview {
                 previewView.configure(
