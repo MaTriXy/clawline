@@ -60,23 +60,6 @@ struct StreamSelectorLayoutTests {
         #expect(height == CGFloat(164))
     }
 
-    @Test("Stream manager action bar bottom padding switches for keyboard-up layout")
-    func streamManagerActionBarBottomPaddingTracksKeyboardVisibility() {
-        let restingPadding = StreamSelectorLayout.actionBarBottomPadding(
-            restingPadding: CGFloat(20),
-            keyboardVisiblePadding: CGFloat(12),
-            keyboardBottomInset: CGFloat(0)
-        )
-        let keyboardVisiblePadding = StreamSelectorLayout.actionBarBottomPadding(
-            restingPadding: CGFloat(20),
-            keyboardVisiblePadding: CGFloat(12),
-            keyboardBottomInset: CGFloat(18)
-        )
-
-        #expect(restingPadding == CGFloat(20))
-        #expect(keyboardVisiblePadding == CGFloat(12))
-    }
-
     @Test("Overflow detection stays false when content fits")
     func overflowDetectionRespectsFitContent() {
         let isOverflowing = StreamSelectorLayout.isOverflowing(

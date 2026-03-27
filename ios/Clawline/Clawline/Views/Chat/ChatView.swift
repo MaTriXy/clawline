@@ -457,8 +457,7 @@ struct ChatView: View {
     private func floatingPageDotsView(
         viewModel: ChatViewModel,
         inputBarTopFromScreenBottom: CGFloat,
-        streamSelectorMaxHeight: CGFloat,
-        streamSelectorKeyboardBottomInset: CGFloat
+        streamSelectorMaxHeight: CGFloat
     ) -> some View {
         let effectiveStreams = viewModel.orderedStreams
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
@@ -466,8 +465,7 @@ struct ChatView: View {
             streamPageDotsControl(
                 viewModel: viewModel,
                 effectiveStreams: effectiveStreams,
-                streamSelectorMaxHeight: streamSelectorMaxHeight,
-                streamSelectorKeyboardBottomInset: streamSelectorKeyboardBottomInset
+                streamSelectorMaxHeight: streamSelectorMaxHeight
             )
             .padding(.bottom, inputBarTopFromScreenBottom + floatingPageDotsBottomGap)
             .ignoresSafeArea(.container, edges: .bottom)
@@ -805,8 +803,7 @@ struct ChatView: View {
             floatingPageDotsView(
                 viewModel: viewModel,
                 inputBarTopFromScreenBottom: inputBarTopFromScreenBottom,
-                streamSelectorMaxHeight: streamSelectorMaxHeight,
-                streamSelectorKeyboardBottomInset: keyboardVisibleHeight
+                streamSelectorMaxHeight: streamSelectorMaxHeight
             )
 #else
             EmptyView()
@@ -820,8 +817,7 @@ struct ChatView: View {
                 belowBarGap: belowBarGap,
                 isKeyboardVisible: isKeyboardVisible,
                 layoutKey: layoutKey,
-                streamSelectorMaxHeight: streamSelectorMaxHeight,
-                streamSelectorKeyboardBottomInset: keyboardVisibleHeight
+                streamSelectorMaxHeight: streamSelectorMaxHeight
             )
         }
         .overlay(alignment: .bottom) {
@@ -1130,8 +1126,7 @@ struct ChatView: View {
                                  belowBarGap: CGFloat,
                                  isKeyboardVisible: Bool,
                                  layoutKey: ChatLayoutKey,
-                                 streamSelectorMaxHeight: CGFloat,
-                                 streamSelectorKeyboardBottomInset: CGFloat) -> some View {
+                                 streamSelectorMaxHeight: CGFloat) -> some View {
         let sessionKey = viewModel.uiSelectedSessionKey
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
         let state = scrollButtonState(for: sessionKey)
@@ -1150,8 +1145,7 @@ struct ChatView: View {
                 streamPageDotsControl(
                     viewModel: viewModel,
                     effectiveStreams: effectiveStreams,
-                    streamSelectorMaxHeight: streamSelectorMaxHeight,
-                    streamSelectorKeyboardBottomInset: streamSelectorKeyboardBottomInset
+                    streamSelectorMaxHeight: streamSelectorMaxHeight
                 )
             )
 
@@ -1501,8 +1495,7 @@ struct ChatView: View {
     private func streamPageDotsControl(
         viewModel: ChatViewModel,
         effectiveStreams: [StreamSession],
-        streamSelectorMaxHeight: CGFloat,
-        streamSelectorKeyboardBottomInset: CGFloat
+        streamSelectorMaxHeight: CGFloat
     ) -> some View {
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
         let unreadSessionKeys = Set(
@@ -1527,7 +1520,6 @@ struct ChatView: View {
                 unreadSessionKeys: unreadSessionKeys,
                 isPresented: $isStreamManagerPopoverPresented,
                 maxAvailableHeight: streamSelectorMaxHeight,
-                keyboardBottomInset: streamSelectorKeyboardBottomInset,
                 onSelectStream: { sessionKey in
                     selectStream(sessionKey, source: .programmatic)
                 },

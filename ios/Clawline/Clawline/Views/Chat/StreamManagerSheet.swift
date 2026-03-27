@@ -17,7 +17,6 @@ struct StreamManagerSheet: View {
     let unreadSessionKeys: Set<String>
     @Binding var isPresented: Bool
     let maxAvailableHeight: CGFloat
-    let keyboardBottomInset: CGFloat
     let onSelectStream: (String) -> Void
     let onPresentTrackPicker: () -> Void
 
@@ -44,19 +43,11 @@ struct StreamManagerSheet: View {
     private let listRowHorizontalInset: CGFloat = 12
     private let functionBarHeight: CGFloat = 40
     private let actionBarTopPadding: CGFloat = 12
-    private let actionBarBottomPaddingWhenKeyboardHidden: CGFloat = 20
-    private let actionBarBottomPaddingWhenKeyboardVisible: CGFloat = 12
+    private let actionBarBottomPadding: CGFloat = 20
     private let listOuterVerticalPadding: CGFloat = 20
     private let minimumPopoverHeight: CGFloat = 140
     private let popupCornerRadius: CGFloat = 20
     private let actionBarSeparatorInset: CGFloat = 12
-    private var actionBarBottomPadding: CGFloat {
-        StreamSelectorLayout.actionBarBottomPadding(
-            restingPadding: actionBarBottomPaddingWhenKeyboardHidden,
-            keyboardVisiblePadding: actionBarBottomPaddingWhenKeyboardVisible,
-            keyboardBottomInset: keyboardBottomInset
-        )
-    }
 
     private var actionBarContentHeight: CGFloat {
         functionBarHeight + actionBarTopPadding + actionBarBottomPadding
@@ -914,14 +905,6 @@ struct TrackPickerSheet: View {
 }
 
 enum StreamSelectorLayout {
-    static func actionBarBottomPadding(
-        restingPadding: CGFloat,
-        keyboardVisiblePadding: CGFloat,
-        keyboardBottomInset: CGFloat
-    ) -> CGFloat {
-        keyboardBottomInset > 0.5 ? keyboardVisiblePadding : restingPadding
-    }
-
     static func filter(streams: [StreamSession], query: String) -> [StreamSession] {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return streams }
