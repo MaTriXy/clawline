@@ -571,6 +571,18 @@ enum MessagePresentationBuilder {
             guard let validatedURL else { continue }
             urls.append(validatedURL)
         }
+
+        // Bare URLs (e.g. `http://host:port`) are not recognized as links by the
+        // CommonMark parser, but NSDataDetector *does* detect them—matching
+        // UITextView's `.link` data-detector behavior.  Supplement the markdown-
+        // extracted set so these URLs also produce link cards.
+        let plainText = NSAttributedString(attributed).string
+        let detectedBareURLs = extractURLs(from: plainText)
+        let seen = Set(urls.map(\.absoluteString))
+        for url in detectedBareURLs where !seen.contains(url.absoluteString) {
+            urls.append(url)
+        }
+
         return urls
     }
 
