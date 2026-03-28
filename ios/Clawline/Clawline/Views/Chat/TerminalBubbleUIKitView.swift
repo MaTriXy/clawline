@@ -9,6 +9,14 @@ import UIKit
 import OSLog
 import SwiftTerm
 
+#if DEBUG
+private let terminalGlyphDiagnosticScalars: [UnicodeScalar] = [
+    "\u{E0B0}", // powerline separator
+    "\u{E0B6}", // rounded powerline cap
+    "\u{F0E7}"  // common Nerd Font icon
+]
+#endif
+
 /// A TerminalView that reliably focuses itself when touched so keyboard input routes correctly.
 final class FocusableTerminalView: TerminalView {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -388,6 +396,13 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         let italic = loadTerminalFont(named: terminalItalicFontName)
         let boldItalic = loadTerminalFont(named: terminalBoldItalicFontName)
 
+        #if DEBUG
+        print(terminalGlyphDiagnosticLine(label: "normal", font: normal))
+        print(terminalGlyphDiagnosticLine(label: "bold", font: bold))
+        print(terminalGlyphDiagnosticLine(label: "italic", font: italic))
+        print(terminalGlyphDiagnosticLine(label: "boldItalic", font: boldItalic))
+        #endif
+
         if let normal, let bold, let italic, let boldItalic {
             terminalView.setFonts(normal: normal, bold: bold, italic: italic, boldItalic: boldItalic)
             return
@@ -403,6 +418,26 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         let fontSize = UIFont.clawlineMonospaced(.secondaryLabel).pointSize
         return UIFont(name: name, size: fontSize)
     }
+
+    #if DEBUG
+    private func terminalGlyphDiagnosticLine(label: String, font: UIFont?) -> String {
+        let ts = ISO8601DateFormatter().string(from: Date())
+        guard let font else {
+            return "[TERM_GLYPH_DIAG] \(ts) install label=\(label) status=missing"
+        }
+
+        let ctFont = font as CTFont
+        let scalarStatus = terminalGlyphDiagnosticScalars.map { scalar -> String in
+            let value = scalar.value
+            var utf16 = [UniChar(scalar.utf16.first ?? 0)]
+            var glyph = CGGlyph()
+            let hasGlyph = CTFontGetGlyphsForCharacters(ctFont, &utf16, &glyph, 1)
+            return String(format: "U+%04X:%@:%d", value, hasGlyph ? "glyph" : "missing", glyph)
+        }.joined(separator: ",")
+
+        return "[TERM_GLYPH_DIAG] \(ts) install label=\(label) postscript=\(font.fontName) family=\(font.familyName) pointSize=\(font.pointSize) scalars=\(scalarStatus)"
+    }
+    #endif
 }
 
 /// Filters potentially dangerous control bytes during paste/keyboard input so tmux sessions don't pause.
