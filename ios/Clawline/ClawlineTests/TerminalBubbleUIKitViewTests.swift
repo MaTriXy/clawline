@@ -5,6 +5,16 @@ import Testing
 
 @MainActor
 struct TerminalBubbleUIKitViewTests {
+    @Test("T001: terminal bubble registers bundled Nerd Font faces")
+    func terminalBubbleRegistersBundledNerdFontFaces() {
+        TerminalBubbleUIKitView.registerBundledFonts()
+
+        #expect(UIFont(name: "BlexMonoNFM", size: 14) != nil)
+        #expect(UIFont(name: "BlexMonoNFM-Bold", size: 14) != nil)
+        #expect(UIFont(name: "BlexMonoNFM-Italic", size: 14) != nil)
+        #expect(UIFont(name: "BlexMonoNFM-BoldItalic", size: 14) != nil)
+    }
+
     @Test("T001: terminal bubble reserves one row less than SwiftTerm reports")
     func terminalBubbleVisibleRowsClampReportedRowsByOne() {
         #expect(TerminalBubbleUIKitView.visibleRows(forReportedRows: 24) == 23)
@@ -32,10 +42,7 @@ struct TerminalBubbleUIKitViewTests {
             let foreground = terminalView.nativeForegroundColor
             let background = terminalView.nativeBackgroundColor
             #expect(relativeLuminance(foreground) > relativeLuminance(background))
-            #expect(
-                terminalView.font.fontName == "BlexMonoNFM"
-                    || terminalView.font.fontName == ".AppleSystemUIFontMonospaced-Regular"
-            )
+            #expect(terminalView.font.fontName == "BlexMonoNFM")
         }
         #expect(view.backgroundColor?.cgColor.alpha == 1)
         #expect(view.backgroundColor != .clear)

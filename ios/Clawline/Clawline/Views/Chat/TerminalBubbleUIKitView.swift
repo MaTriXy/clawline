@@ -8,6 +8,7 @@
 import UIKit
 import OSLog
 import SwiftTerm
+import CoreText
 
 #if DEBUG
 private let terminalGlyphDiagnosticScalars: [UnicodeScalar] = [
@@ -391,6 +392,7 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     }
 
     private func installTerminalFonts() {
+        Self.registerBundledFonts()
         let normal = loadTerminalFont(named: terminalRegularFontName)
         let bold = loadTerminalFont(named: terminalBoldFontName)
         let italic = loadTerminalFont(named: terminalItalicFontName)
@@ -418,6 +420,41 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         let fontSize = UIFont.clawlineMonospaced(.secondaryLabel).pointSize
         return UIFont(name: name, size: fontSize)
     }
+
+    static func registerBundledFonts(in bundle: Bundle = Bundle(for: TerminalBubbleUIKitView.self)) {
+        if didRegisterBundledFonts { return }
+
+        for fontFile in bundledFontFiles {
+            guard let url = bundle.url(forResource: fontFile, withExtension: "ttf", subdirectory: "Fonts")
+                ?? bundle.url(forResource: fontFile, withExtension: "ttf") else {
+                continue
+            }
+            registerFont(at: url)
+        }
+
+        didRegisterBundledFonts = true
+    }
+
+    private static func registerFont(at url: URL) {
+        var error: Unmanaged<CFError>?
+        let didRegister = CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
+        guard !didRegister else { return }
+        guard let registrationCFError = error?.takeRetainedValue() else { return }
+        let registrationError = (registrationCFError as Error) as NSError
+        let isAlreadyRegistered = registrationError.domain == kCTFontManagerErrorDomain as String
+            && registrationError.code == CTFontManagerError.alreadyRegistered.rawValue
+        if !isAlreadyRegistered {
+            assertionFailure("Failed to register bundled terminal font at \(url.lastPathComponent): \(registrationError)")
+        }
+    }
+
+    private static let bundledFontFiles = [
+        "BlexMonoNerdFontMono-Regular",
+        "BlexMonoNerdFontMono-Bold",
+        "BlexMonoNerdFontMono-Italic",
+        "BlexMonoNerdFontMono-BoldItalic"
+    ]
+    private static var didRegisterBundledFonts = false
 
     #if DEBUG
     private func terminalGlyphDiagnosticLine(label: String, font: UIFont?) -> String {
