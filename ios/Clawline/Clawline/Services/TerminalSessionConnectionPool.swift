@@ -49,6 +49,7 @@ final class TerminalSessionConnectionPool {
     private final class Entry {
         let descriptor: TerminalSessionDescriptor
         var service: (any TerminalSessionControlling)?
+        var serviceGeneration: UInt64 = 0
         var outputTask: Task<Void, Never>?
         var stateTask: Task<Void, Never>?
         var idleDisconnectTask: Task<Void, Never>?
@@ -59,6 +60,7 @@ final class TerminalSessionConnectionPool {
         var currentSize: (cols: Int, rows: Int)?
         var requiresUserReconnect = false
         var outputBacklog: [Data] = []
+        var outputBacklogByteCount = 0
 
         init(descriptor: TerminalSessionDescriptor) {
             self.descriptor = descriptor
@@ -67,12 +69,15 @@ final class TerminalSessionConnectionPool {
 
     private let serviceFactory: (TerminalSessionDescriptor) -> any TerminalSessionControlling
     private let idleDisconnectDelay: Duration
+    private let maxBufferedOutputBytes: Int
     private var entries: [ConnectionKey: Entry] = [:]
 
     init(serviceFactory: @escaping (TerminalSessionDescriptor) -> any TerminalSessionControlling,
-         idleDisconnectDelay: Duration = .seconds(30)) {
+         idleDisconnectDelay: Duration = .seconds(30),
+         maxBufferedOutputBytes: Int = 256 * 1024) {
         self.serviceFactory = serviceFactory
         self.idleDisconnectDelay = idleDisconnectDelay
+        self.maxBufferedOutputBytes = maxBufferedOutputBytes
     }
 
     func attach(owner: AnyObject,
@@ -81,7 +86,8 @@ final class TerminalSessionConnectionPool {
                 initialRows: Int,
                 onStateChange: @escaping (TerminalSessionService.State) -> Void,
                 onOutput: @escaping (Data) -> Void) -> AttachmentID {
-        let entry = entry(for: descriptor)
+        let key = ConnectionKey(descriptor: descriptor)
+        let entry = entry(forKey: key, descriptor: descriptor)
         cancelIdleDisconnect(for: entry)
         pruneConsumers(in: entry)
 
@@ -106,7 +112,7 @@ final class TerminalSessionConnectionPool {
         }
 
         if entry.service == nil, !entry.requiresUserReconnect {
-            startServiceIfNeeded(for: entry, initialCols: initialCols, initialRows: initialRows)
+            startServiceIfNeeded(forKey: key, entry: entry, initialCols: initialCols, initialRows: initialRows)
         }
 
         return attachmentID
@@ -118,10 +124,6 @@ final class TerminalSessionConnectionPool {
 
         entry.consumers.removeValue(forKey: attachmentID)
         pruneConsumers(in: entry)
-
-        if entry.activeConsumerID == attachmentID {
-            entry.activeConsumerID = entry.consumers.max(by: { $0.value.sequence < $1.value.sequence })?.key
-        }
 
         if entry.consumers.isEmpty {
             scheduleIdleDisconnect(forKey: key, entry: entry)
@@ -149,16 +151,20 @@ final class TerminalSessionConnectionPool {
     func requestReconnect(descriptor: TerminalSessionDescriptor,
                           initialCols: Int,
                           initialRows: Int) {
-        let entry = entry(for: descriptor)
+        let key = ConnectionKey(descriptor: descriptor)
+        let entry = entry(forKey: key, descriptor: descriptor)
         entry.currentSize = (cols: initialCols, rows: initialRows)
         entry.requiresUserReconnect = false
         cancelIdleDisconnect(for: entry)
         disposeService(for: entry, clearBacklog: true)
-        startServiceIfNeeded(for: entry, initialCols: initialCols, initialRows: initialRows)
+        startServiceIfNeeded(forKey: key, entry: entry, initialCols: initialCols, initialRows: initialRows)
     }
 
     private func entry(for descriptor: TerminalSessionDescriptor) -> Entry {
-        let key = ConnectionKey(descriptor: descriptor)
+        entry(forKey: ConnectionKey(descriptor: descriptor), descriptor: descriptor)
+    }
+
+    private func entry(forKey key: ConnectionKey, descriptor: TerminalSessionDescriptor) -> Entry {
         if let existing = entries[key] {
             return existing
         }
@@ -167,11 +173,16 @@ final class TerminalSessionConnectionPool {
         return entry
     }
 
-    private func startServiceIfNeeded(for entry: Entry, initialCols: Int, initialRows: Int) {
+    private func startServiceIfNeeded(forKey key: ConnectionKey,
+                                      entry: Entry,
+                                      initialCols: Int,
+                                      initialRows: Int) {
         guard entry.service == nil else { return }
         let size = entry.currentSize ?? (cols: initialCols, rows: initialRows)
         entry.currentSize = size
 
+        entry.serviceGeneration &+= 1
+        let generation = entry.serviceGeneration
         let service = serviceFactory(entry.descriptor)
         entry.service = service
 
@@ -179,9 +190,9 @@ final class TerminalSessionConnectionPool {
             guard let self, let entry else { return }
             for await data in service.output {
                 await MainActor.run {
-                    guard entry.service != nil else { return }
-                    entry.outputBacklog.append(data)
-                    self.broadcastOutput(data, in: entry)
+                    guard self.isCurrentService(generation: generation, forKey: key, entry: entry) else { return }
+                    self.appendBufferedOutput(data, to: entry)
+                    self.broadcastOutput(data, forKey: key, in: entry)
                 }
             }
         }
@@ -190,7 +201,7 @@ final class TerminalSessionConnectionPool {
             guard let self, let entry else { return }
             for await state in service.state {
                 await MainActor.run {
-                    guard entry.service != nil else { return }
+                    guard self.isCurrentService(generation: generation, forKey: key, entry: entry) else { return }
                     entry.currentState = state
                     switch state {
                     case .connecting, .ready:
@@ -198,7 +209,7 @@ final class TerminalSessionConnectionPool {
                     case .disconnected, .exited, .failed:
                         entry.requiresUserReconnect = true
                     }
-                    self.broadcastState(state, in: entry)
+                    self.broadcastState(state, forKey: key, in: entry)
                 }
             }
         }
@@ -220,10 +231,12 @@ final class TerminalSessionConnectionPool {
 
             await MainActor.run {
                 guard let entry else { return }
+                guard let currentEntry = self.entries[key], currentEntry === entry else { return }
+                self.pruneConsumers(in: entry)
                 guard entry.consumers.isEmpty else { return }
-                entry.requiresUserReconnect = true
-                entry.currentState = .disconnected
+                entry.idleDisconnectTask = nil
                 self.disposeService(for: entry, clearBacklog: true)
+                self.entries.removeValue(forKey: key)
             }
         }
     }
@@ -238,10 +251,11 @@ final class TerminalSessionConnectionPool {
         entry.outputTask = nil
         entry.stateTask?.cancel()
         entry.stateTask = nil
+        entry.serviceGeneration &+= 1
         let service = entry.service
         entry.service = nil
         if clearBacklog {
-            entry.outputBacklog.removeAll(keepingCapacity: false)
+            clearBufferedOutput(in: entry)
         }
         service?.disconnect()
     }
@@ -256,6 +270,12 @@ final class TerminalSessionConnectionPool {
                 entry.activeConsumerID = nil
             }
         }
+        if let activeConsumerID = entry.activeConsumerID,
+           entry.consumers[activeConsumerID] != nil {
+            return
+        } else {
+            entry.activeConsumerID = entry.consumers.max(by: { $0.value.sequence < $1.value.sequence })?.key
+        }
     }
 
     private func replayBufferedOutput(from entry: Entry, to consumer: Consumer) {
@@ -264,17 +284,59 @@ final class TerminalSessionConnectionPool {
         }
     }
 
-    private func broadcastOutput(_ data: Data, in entry: Entry) {
+    private func broadcastOutput(_ data: Data, forKey key: ConnectionKey, in entry: Entry) {
         pruneConsumers(in: entry)
+        guard !entry.consumers.isEmpty else {
+            scheduleIdleDisconnect(forKey: key, entry: entry)
+            return
+        }
         for consumer in entry.consumers.values {
             consumer.onOutput(data)
         }
     }
 
-    private func broadcastState(_ state: TerminalSessionService.State, in entry: Entry) {
+    private func broadcastState(_ state: TerminalSessionService.State, forKey key: ConnectionKey, in entry: Entry) {
         pruneConsumers(in: entry)
+        guard !entry.consumers.isEmpty else {
+            scheduleIdleDisconnect(forKey: key, entry: entry)
+            return
+        }
         for consumer in entry.consumers.values {
             consumer.onStateChange(state)
         }
+    }
+
+    private func isCurrentService(generation: UInt64,
+                                  forKey key: ConnectionKey,
+                                  entry: Entry) -> Bool {
+        guard let currentEntry = entries[key], currentEntry === entry else { return false }
+        return currentEntry.serviceGeneration == generation && currentEntry.service != nil
+    }
+
+    private func appendBufferedOutput(_ data: Data, to entry: Entry) {
+        guard maxBufferedOutputBytes > 0 else {
+            clearBufferedOutput(in: entry)
+            return
+        }
+
+        if data.count >= maxBufferedOutputBytes {
+            let trimmed = Data(data.suffix(maxBufferedOutputBytes))
+            entry.outputBacklog = [trimmed]
+            entry.outputBacklogByteCount = trimmed.count
+            return
+        }
+
+        entry.outputBacklog.append(data)
+        entry.outputBacklogByteCount += data.count
+
+        while entry.outputBacklogByteCount > maxBufferedOutputBytes, !entry.outputBacklog.isEmpty {
+            let removed = entry.outputBacklog.removeFirst()
+            entry.outputBacklogByteCount -= removed.count
+        }
+    }
+
+    private func clearBufferedOutput(in entry: Entry) {
+        entry.outputBacklog.removeAll(keepingCapacity: false)
+        entry.outputBacklogByteCount = 0
     }
 }
