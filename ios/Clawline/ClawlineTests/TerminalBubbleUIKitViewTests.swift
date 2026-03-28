@@ -16,7 +16,11 @@ struct TerminalBubbleUIKitViewTests {
     func terminalBubbleHasNoChromeButtonsAndTerminalMatchesBounds() {
         let view = TerminalBubbleUIKitView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
         view.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
-        view.configure(descriptor: sampleDescriptor(), style: .bubble(height: 240))
+        view.configure(
+            descriptor: sampleDescriptor(),
+            style: .bubble(height: 240),
+            context: .init(messageId: "message-test", slotIndex: 0, source: .bubble)
+        )
         view.layoutIfNeeded()
 
         let buttonTitles = allSubviews(in: view).compactMap { ($0 as? UIButton)?.currentTitle }

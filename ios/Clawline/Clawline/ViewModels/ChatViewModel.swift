@@ -429,6 +429,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private let uploadService: any UploadServicing
     private let settings: SettingsManager
     private let deviceId: String
+    let terminalConnectionPool: TerminalSessionConnectionPool
     let salientHighlightService: any SalientHighlightServicing
     private var observationTask: Task<Void, Never>?
     private var observationStartupTask: Task<Void, Never>?
@@ -653,6 +654,9 @@ final class ChatViewModel: ChatViewModelHosting {
         self.settings = settings
         self.deviceId = device.deviceId
         self.uploadService = uploadService
+        self.terminalConnectionPool = TerminalSessionConnectionPool { descriptor in
+            TerminalSessionService(descriptor: descriptor, auth: auth, deviceId: device)
+        }
         self.toastManager = toastManager
         self.salientHighlightService = salientHighlightService
         self.lifecycleCoordinator = ConnectionLifecycleCoordinator(

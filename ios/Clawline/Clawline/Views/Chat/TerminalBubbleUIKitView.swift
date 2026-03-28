@@ -25,6 +25,17 @@ final class FocusableTerminalView: TerminalView {
     }
 }
 
+struct TerminalBubbleLifecycleContext: Equatable {
+    enum Source: String, Equatable {
+        case bubble
+        case expanded
+    }
+
+    let messageId: String
+    let slotIndex: Int
+    let source: Source
+}
+
 /// Embedded terminal session view intended for use inside chat bubbles and expanded message sheets.
 /// Policy decisions (Flynn / #46):
 /// - Auto-connect on render (no tap-to-connect).
@@ -54,6 +65,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     private let terminalBoldFontName = "BlexMonoNFM-Bold"
     private let terminalItalicFontName = "BlexMonoNFM-Italic"
     private let terminalBoldItalicFontName = "BlexMonoNFM-BoldItalic"
+    private let connectionPool: TerminalSessionConnectionPool?
+    private let lifecycleTraceId = UUID().uuidString
 
     var onRequestExpand: (() -> Void)?
 
@@ -67,19 +80,14 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     private var sanitizer = TerminalInputSanitizer()
 
     private var descriptor: TerminalSessionDescriptor?
+    private var lifecycleContext: TerminalBubbleLifecycleContext?
     private var style: Style = .bubble(height: 360)
     private var displayTitle: String = "Terminal"
-
-    private var service: TerminalSessionService?
-    private var outputTask: Task<Void, Never>?
-    private var stateTask: Task<Void, Never>?
+    private var attachmentID: TerminalSessionConnectionPool.AttachmentID?
 
     private var lastCols: Int = 80
     private var lastRows: Int = 24
 
-    private var disconnectTimer: Timer?
-    private var hasAttemptedConnection = false
-    private var hasEverBeenLive = false
     private var requiresUserReconnect = false
     private var scrollCaptureWired = false
 
@@ -89,7 +97,14 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         max(reportedRows - 1, 1)
     }
 
-    override init(frame: CGRect) {
+    override init(frame: CGRect = .zero) {
+        self.connectionPool = nil
+        super.init(frame: frame)
+        buildUI()
+    }
+
+    init(connectionPool: TerminalSessionConnectionPool?, frame: CGRect = .zero) {
+        self.connectionPool = connectionPool
         super.init(frame: frame)
         buildUI()
     }
@@ -102,12 +117,19 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         teardown()
     }
 
-    func configure(descriptor: TerminalSessionDescriptor, style: Style) {
+    func configure(descriptor: TerminalSessionDescriptor,
+                   style: Style,
+                   context: TerminalBubbleLifecycleContext) {
+        let descriptorChanged = self.descriptor != descriptor
+        if descriptorChanged {
+            detachFromConnection(reason: "configure_descriptor_change")
+            resetTerminalSurface()
+        }
+
         self.descriptor = descriptor
+        self.lifecycleContext = context
         self.style = style
         self.requiresUserReconnect = false
-        self.hasAttemptedConnection = false
-        self.hasEverBeenLive = false
 
         if let title = descriptor.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty {
@@ -120,39 +142,39 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
         // Auto-connect when we hit the window (didMoveToWindow), so cols/rows are not zero.
         showTerminal()
+        logLifecycle("configure")
 
         // Cells are often configured after they're already on-screen; don't rely solely on didMoveToWindow.
         if window != nil {
             wireScrollCaptureIfNeeded()
-            connectIfNeeded()
+            attachToConnectionIfNeeded(reason: "configure")
         }
     }
 
     func prepareForReuse() {
+        logLifecycle("prepareForReuse")
         teardown()
         descriptor = nil
+        lifecycleContext = nil
         requiresUserReconnect = false
-        hasAttemptedConnection = false
-        hasEverBeenLive = false
         scrollCaptureWired = false
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        logLifecycle("didMoveToWindow")
 
-        // Offscreen: defer disconnect to avoid thrash during fast scroll.
         if window == nil {
-            scheduleDisconnect()
+            detachFromConnection(reason: "didMoveToWindow_nil")
             return
         }
 
-        cancelScheduledDisconnect()
         wireScrollCaptureIfNeeded()
         if requiresUserReconnect {
             showDeadState(reason: displayTitle)
             return
         }
-        connectIfNeeded()
+        attachToConnectionIfNeeded(reason: "didMoveToWindow_attached")
     }
 
     // Terminal focus is handled by FocusableTerminalView.touchesBegan.
@@ -233,7 +255,9 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     @objc private func handleReconnectTap() {
         requiresUserReconnect = false
-        connectOrReconnect()
+        showTerminal()
+        guard let descriptor else { return }
+        connectionPool?.requestReconnect(descriptor: descriptor, initialCols: lastCols, initialRows: lastRows)
     }
 
     // Focus is handled by FocusableTerminalView.touchesBegan.
@@ -243,7 +267,13 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
         lastCols = max(newCols, 1)
         lastRows = Self.visibleRows(forReportedRows: newRows)
-        service?.resize(cols: lastCols, rows: lastRows)
+        guard let descriptor, let attachmentID else { return }
+        connectionPool?.resize(
+            descriptor: descriptor,
+            attachmentID: attachmentID,
+            cols: lastCols,
+            rows: lastRows
+        )
     }
 
     func setTerminalTitle(source: TerminalView, title: String) {}
@@ -252,7 +282,12 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
         guard let sanitized = sanitizer.sanitize(data) else { return }
         logger.debug("terminal_input bytes=\(sanitized.count, privacy: .public)")
-        service?.sendInput(Data(sanitized))
+        guard let descriptor, let attachmentID else { return }
+        connectionPool?.sendInput(
+            descriptor: descriptor,
+            attachmentID: attachmentID,
+            data: Data(sanitized)
+        )
     }
 
     func scrolled(source: TerminalView, position: Double) {}
@@ -268,66 +303,60 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
 
     // MARK: - Connection
 
-    private func connectIfNeeded() {
-        guard descriptor != nil else { return }
-        guard service == nil else { return }
-        if requiresUserReconnect { return }
-        connectOrReconnect()
-    }
-
-    private func connectOrReconnect() {
+    private func attachToConnectionIfNeeded(reason: String) {
         guard let descriptor else { return }
+        guard attachmentID == nil else { return }
+        if requiresUserReconnect { return }
 
-        hasAttemptedConnection = true
-
-        let service = TerminalSessionService(descriptor: descriptor)
-        self.service = service
-        bind(service)
-        service.connect(initialCols: lastCols, initialRows: lastRows)
+        resetTerminalSurface()
+        attachmentID = connectionPool?.attach(
+            owner: self,
+            descriptor: descriptor,
+            initialCols: lastCols,
+            initialRows: lastRows,
+            onStateChange: { [weak self] state in
+                self?.handleConnectionState(state)
+            },
+            onOutput: { [weak self] data in
+                self?.appendOutput(data)
+            }
+        )
+        logLifecycle("attach", reason: reason)
     }
 
-    private func bind(_ service: TerminalSessionService) {
-        outputTask?.cancel()
-        stateTask?.cancel()
+    private func detachFromConnection(reason: String) {
+        guard let descriptor, let attachmentID else { return }
+        connectionPool?.detach(descriptor: descriptor, attachmentID: attachmentID)
+        self.attachmentID = nil
+        logLifecycle("teardown", reason: reason)
+    }
 
-        outputTask = Task { [weak self] in
-            guard let self else { return }
-            for await data in service.output {
-                let bytes = [UInt8](data)
-                await MainActor.run {
-                    self.terminalView.feed(byteArray: bytes[...])
-                }
-            }
-        }
+    private func appendOutput(_ data: Data) {
+        let bytes = [UInt8](data)
+        terminalView.feed(byteArray: bytes[...])
+    }
 
-        stateTask = Task { [weak self] in
-            guard let self else { return }
-            for await state in service.state {
-                await MainActor.run {
-                    switch state {
-                    case .disconnected:
-                        if self.hasAttemptedConnection {
-                            self.requiresUserReconnect = true
-                            self.showDeadState(reason: self.displayTitle)
-                        }
-                    case .connecting:
-                        self.showTerminal()
-                    case .ready:
-                        self.hasEverBeenLive = true
-                        self.showTerminal()
-                    case .exited(let code):
-                        self.requiresUserReconnect = true
-                        if let code {
-                            self.showDeadState(reason: "Exited (\(code))")
-                        } else {
-                            self.showDeadState(reason: self.displayTitle)
-                        }
-                    case .failed(let message):
-                        self.requiresUserReconnect = true
-                        self.showDeadState(reason: message)
-                    }
-                }
+    private func handleConnectionState(_ state: TerminalSessionService.State) {
+        switch state {
+        case .disconnected:
+            requiresUserReconnect = true
+            showDeadState(reason: displayTitle)
+        case .connecting:
+            requiresUserReconnect = false
+            showTerminal()
+        case .ready:
+            requiresUserReconnect = false
+            showTerminal()
+        case .exited(let code):
+            requiresUserReconnect = true
+            if let code {
+                showDeadState(reason: "Exited (\(code))")
+            } else {
+                showDeadState(reason: displayTitle)
             }
+        case .failed(let message):
+            requiresUserReconnect = true
+            showDeadState(reason: message)
         }
     }
 
@@ -343,33 +372,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
         terminalView.isHidden = true
     }
 
-    private func scheduleDisconnect() {
-        cancelScheduledDisconnect()
-        disconnectTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            self.teardownConnectionOnly()
-            self.requiresUserReconnect = true
-            self.showDeadState(reason: self.displayTitle)
-        }
-    }
-
-    private func cancelScheduledDisconnect() {
-        disconnectTimer?.invalidate()
-        disconnectTimer = nil
-    }
-
-    private func teardownConnectionOnly() {
-        cancelScheduledDisconnect()
-        outputTask?.cancel()
-        outputTask = nil
-        stateTask?.cancel()
-        stateTask = nil
-        service?.disconnect()
-        service = nil
-    }
-
     private func teardown() {
-        teardownConnectionOnly()
+        detachFromConnection(reason: "teardown")
     }
 
     private func wireScrollCaptureIfNeeded() {
@@ -417,6 +421,32 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     private func loadTerminalFont(named name: String) -> UIFont? {
         let fontSize = UIFont.clawlineMonospaced(.secondaryLabel).pointSize
         return UIFont(name: name, size: fontSize)
+    }
+
+    private func resetTerminalSurface() {
+        terminalView.contentOffset = .zero
+        terminalView.feed(text: "\u{001B}c")
+    }
+
+    private func logLifecycle(_ event: String, reason: String? = nil) {
+        let context = lifecycleContext
+        let cellIdentity = ancestorCellIdentity() ?? "none"
+        let terminalSessionId = descriptor?.terminalSessionId ?? "-"
+        let detail = reason ?? "-"
+        logger.info(
+            "terminal_bubble_lifecycle event=\(event, privacy: .public) reason=\(detail, privacy: .public) viewId=\(self.lifecycleTraceId, privacy: .public) terminalSessionId=\(terminalSessionId, privacy: .public) messageId=\(context?.messageId ?? "-", privacy: .public) slotIndex=\(String(context?.slotIndex ?? -1), privacy: .public) source=\(context?.source.rawValue ?? "-", privacy: .public) cellId=\(cellIdentity, privacy: .public) windowAttached=\(self.window != nil, privacy: .public) attached=\(self.attachmentID != nil, privacy: .public)"
+        )
+    }
+
+    private func ancestorCellIdentity() -> String? {
+        var ancestor: UIView? = self
+        while let view = ancestor {
+            if let cell = view as? MessageBubbleUIKitCell {
+                return String(describing: ObjectIdentifier(cell))
+            }
+            ancestor = view.superview
+        }
+        return nil
     }
 
     #if DEBUG
