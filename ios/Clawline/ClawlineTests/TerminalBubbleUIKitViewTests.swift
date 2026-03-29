@@ -5,6 +5,28 @@ import Testing
 
 @MainActor
 struct TerminalBubbleUIKitViewTests {
+    @Test("T001: terminal sanitizer preserves control chords outside bracketed paste")
+    func terminalInputSanitizerPreservesControlBytesOutsideBracketedPaste() {
+        var sanitizer = TerminalInputSanitizer()
+        let input: [UInt8] = [0x03, 0x13, 0x1A]
+
+        let sanitized = sanitizer.sanitize(input[...])
+
+        #expect(sanitized?.elementsEqual(input) == true)
+    }
+
+    @Test("T001: terminal sanitizer strips disallowed control bytes only inside bracketed paste")
+    func terminalInputSanitizerStripsDisallowedPasteBytesInsideBracketedPaste() {
+        var sanitizer = TerminalInputSanitizer()
+        let pasteStart: [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E]
+        let pasteEnd: [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]
+        let pastePayload: [UInt8] = [0x61, 0x13, 0x62, 0x03, 0x63]
+
+        #expect(sanitizer.sanitize(pasteStart[...])?.elementsEqual(pasteStart) == true)
+        #expect(sanitizer.sanitize(pastePayload[...])?.elementsEqual([0x61, 0x62, 0x63]) == true)
+        #expect(sanitizer.sanitize(pasteEnd[...])?.elementsEqual(pasteEnd) == true)
+    }
+
     @Test("T001: terminal bubble registers bundled Nerd Font faces")
     func terminalBubbleRegistersBundledNerdFontFaces() {
         TerminalBubbleUIKitView.registerBundledFonts()

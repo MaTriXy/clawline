@@ -477,8 +477,8 @@ final class TerminalBubbleUIKitView: UIView, TerminalViewDelegate {
     #endif
 }
 
-/// Filters potentially dangerous control bytes during paste/keyboard input so tmux sessions don't pause.
-private struct TerminalInputSanitizer {
+/// Filters potentially dangerous control bytes during bracketed paste so tmux sessions don't pause.
+struct TerminalInputSanitizer {
     private var bracketedPasteDepth = 0
     private var scratch: [UInt8] = []
 
@@ -506,7 +506,7 @@ private struct TerminalInputSanitizer {
     }
 
     private func shouldFilter(_ data: ArraySlice<UInt8>) -> Bool {
-        guard bracketedPasteDepth > 0 || data.count > 1 else { return false }
+        guard bracketedPasteDepth > 0 else { return false }
         return data.contains(where: isDisallowedPasteByte)
     }
 
