@@ -1981,7 +1981,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if let isDark = isDark, currentIsDark != isDark {
             logger.info("update: appearance changed isDark=\(isDark, privacy: .public)")
             currentIsDark = isDark
-            clearAllSizeState()
             forceReconfigureAll = true
         }
         let didFontScaleChange = currentFontScaleChangeSequence != request.fontScaleChangeSequence
