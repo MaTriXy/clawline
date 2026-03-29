@@ -1,6 +1,7 @@
 import UIKit
 import SwiftTerm
 import Testing
+import CoreText
 @testable import Clawline
 
 @MainActor
@@ -35,6 +36,61 @@ struct TerminalBubbleUIKitViewTests {
         #expect(UIFont(name: "BlexMonoNFM-Bold", size: 14) != nil)
         #expect(UIFont(name: "BlexMonoNFM-Italic", size: 14) != nil)
         #expect(UIFont(name: "BlexMonoNFM-BoldItalic", size: 14) != nil)
+    }
+
+    @Test("T001: bundled terminal faces expose Nerd Font glyphs through CoreText")
+    func terminalBubbleBundledFontsExposeNerdGlyphs() {
+        TerminalBubbleUIKitView.registerBundledFonts()
+
+        let fontNames = [
+            "BlexMonoNFM",
+            "BlexMonoNFM-Bold",
+            "BlexMonoNFM-Italic",
+            "BlexMonoNFM-BoldItalic"
+        ]
+        let sampleScalars: [UnicodeScalar] = [
+            "\u{E0B0}",
+            "\u{E0B6}",
+            "\u{F0E7}"
+        ]
+
+        for fontName in fontNames {
+            guard let font = UIFont(name: fontName, size: 14) else {
+                Issue.record("Missing expected font \(fontName)")
+                continue
+            }
+
+            let ctFont = font as CTFont
+            for scalar in sampleScalars {
+                var utf16 = [UniChar(scalar.utf16.first ?? 0)]
+                var glyph = CGGlyph()
+                let hasGlyph = CTFontGetGlyphsForCharacters(ctFont, &utf16, &glyph, 1)
+                #expect(hasGlyph)
+                #expect(glyph != 0)
+            }
+
+            let attributed = NSAttributedString(
+                string: String(sampleScalars.map(Character.init)),
+                attributes: [.font: font]
+            )
+            let line = CTLineCreateWithAttributedString(attributed)
+            let runs = CTLineGetGlyphRuns(line) as? [CTRun] ?? []
+            #expect(!runs.isEmpty)
+
+            for run in runs {
+                let runAttributes = CTRunGetAttributes(run) as? [NSAttributedString.Key: Any] ?? [:]
+                let runFont = runAttributes[.font] as? UIFont
+                #expect(runFont?.fontName == font.fontName)
+
+                let glyphCount = CTRunGetGlyphCount(run)
+                let runGlyphs = [CGGlyph](unsafeUninitializedCapacity: glyphCount) { bufferPointer, count in
+                    CTRunGetGlyphs(run, CFRange(), bufferPointer.baseAddress!)
+                    count = glyphCount
+                }
+                #expect(!runGlyphs.isEmpty)
+                #expect(runGlyphs.allSatisfy { $0 != 0 })
+            }
+        }
     }
 
     @Test("T001: terminal bubble reserves one row less than SwiftTerm reports")
