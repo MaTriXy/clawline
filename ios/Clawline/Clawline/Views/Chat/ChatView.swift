@@ -113,6 +113,8 @@ struct ChatView: View {
     @State private var pendingInputInsertions: [PendingAttachment] = []
     @State private var activeSheet: ChatSheet?
     @State private var isStreamManagerPopoverPresented = false
+    @State private var streamPopupShouldAutoFocusSearch = false
+    @State private var streamPopupSearchFocusRequestID = 0
     @State private var isTrackPickerPresented = false
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
@@ -549,6 +551,21 @@ struct ChatView: View {
             guard phase == .active else { return }
             keyboardRefreshToken &+= 1
         }
+        .onChange(of: isStreamManagerPopoverPresented) { _, isPresented in
+            if !isPresented {
+                streamPopupShouldAutoFocusSearch = false
+            }
+        }
+        .handleStreamPopupCommand(
+            isPresented: $isStreamManagerPopoverPresented,
+            hasStreams: !viewModel.orderedStreams.isEmpty,
+            onOpen: requestStreamPopupSearchFocus
+        )
+        .handleKeyboardScrollCommands(
+            isEnabled: supportsKeyboardNavigationShortcuts,
+            onScrollToBottom: { scrollActiveSessionToBottom() },
+            onScrollToTop: { scrollActiveSessionToTop() }
+        )
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
             showLifecycleDebugOverlay()
@@ -1519,6 +1536,8 @@ struct ChatView: View {
                 streams: effectiveStreams,
                 unreadSessionKeys: unreadSessionKeys,
                 isPresented: $isStreamManagerPopoverPresented,
+                shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
+                searchFocusRequestID: streamPopupSearchFocusRequestID,
                 maxAvailableHeight: streamSelectorMaxHeight,
                 onSelectStream: { sessionKey in
                     selectStream(sessionKey, source: .programmatic)
@@ -1548,6 +1567,41 @@ struct ChatView: View {
     private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {
         StreamSwitchTiming.log("selectStream_called", sessionKey: sessionKey)
         viewModel.requestStreamSwitch(to: sessionKey, source: source)
+    }
+
+    private var supportsKeyboardNavigationShortcuts: Bool {
+#if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .pad
+#else
+        false
+#endif
+    }
+
+    private var keyboardNavigationSessionKey: String? {
+        let sessionKeys = viewModel.orderedStreams.map(\.sessionKey)
+        guard !sessionKeys.isEmpty else { return nil }
+        if sessionKeys.contains(viewModel.uiSelectedSessionKey), !viewModel.uiSelectedSessionKey.isEmpty {
+            return viewModel.uiSelectedSessionKey
+        }
+        if sessionKeys.contains(viewModel.engineActiveSessionKey), !viewModel.engineActiveSessionKey.isEmpty {
+            return viewModel.engineActiveSessionKey
+        }
+        return sessionKeys.first
+    }
+
+    private func scrollActiveSessionToBottom() {
+        guard let sessionKey = keyboardNavigationSessionKey else { return }
+        layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
+    }
+
+    private func scrollActiveSessionToTop() {
+        guard let sessionKey = keyboardNavigationSessionKey else { return }
+        layoutCoordinator.scrollToTop(sessionKey: sessionKey, animated: true)
+    }
+
+    private func requestStreamPopupSearchFocus() {
+        streamPopupShouldAutoFocusSearch = true
+        streamPopupSearchFocusRequestID &+= 1
     }
 
     private func scheduleStreamToastBusyClear() {
@@ -1908,6 +1962,66 @@ private struct VisionOSInputBarDepthOffset: ViewModifier {
 private extension View {
     func visionOSInputBarDepthOffset() -> some View {
         modifier(VisionOSInputBarDepthOffset())
+    }
+
+    func handleStreamPopupCommand(
+        isPresented: Binding<Bool>,
+        hasStreams: Bool,
+        onOpen: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            StreamPopupCommandModifier(
+                isPresented: isPresented,
+                hasStreams: hasStreams,
+                onOpen: onOpen
+            )
+        )
+    }
+
+    func handleKeyboardScrollCommands(
+        isEnabled: Bool,
+        onScrollToBottom: @escaping () -> Void,
+        onScrollToTop: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            KeyboardScrollCommandModifier(
+                isEnabled: isEnabled,
+                onScrollToBottom: onScrollToBottom,
+                onScrollToTop: onScrollToTop
+            )
+        )
+    }
+}
+
+private struct StreamPopupCommandModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    let hasStreams: Bool
+    let onOpen: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onReceive(NotificationCenter.default.publisher(for: .clawlineOpenStreamPopupCommand)) { _ in
+            guard hasStreams else { return }
+            isPresented = true
+            onOpen()
+        }
+    }
+}
+
+private struct KeyboardScrollCommandModifier: ViewModifier {
+    let isEnabled: Bool
+    let onScrollToBottom: () -> Void
+    let onScrollToTop: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToBottomCommand)) { _ in
+                guard isEnabled else { return }
+                onScrollToBottom()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToTopCommand)) { _ in
+                guard isEnabled else { return }
+                onScrollToTop()
+            }
     }
 }
 

@@ -16,6 +16,8 @@ struct StreamManagerSheet: View {
     let streams: [StreamSession]
     let unreadSessionKeys: Set<String>
     @Binding var isPresented: Bool
+    let shouldAutoFocusSearchOnAppear: Bool
+    let searchFocusRequestID: Int
     let maxAvailableHeight: CGFloat
     let onSelectStream: (String) -> Void
     let onPresentTrackPicker: () -> Void
@@ -28,6 +30,7 @@ struct StreamManagerSheet: View {
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
     @FocusState private var focusedEditor: EditorMode?
+    @FocusState private var isSearchFieldFocused: Bool
 
     private enum EditorMode: Hashable {
         case renaming(String)
@@ -220,7 +223,17 @@ struct StreamManagerSheet: View {
             if !presented {
                 resetInlineEditing()
                 searchQuery = ""
+                isSearchFieldFocused = false
             }
+        }
+        .onAppear {
+            if shouldAutoFocusSearchOnAppear {
+                focusSearchField()
+            }
+        }
+        .onChange(of: searchFocusRequestID) { _, _ in
+            guard isPresented else { return }
+            focusSearchField()
         }
         .alert(
             pendingRemovalTitle,
@@ -251,6 +264,7 @@ struct StreamManagerSheet: View {
                     .font(.clawline(.uiLabel))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($isSearchFieldFocused)
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
@@ -412,6 +426,13 @@ struct StreamManagerSheet: View {
             await MainActor.run {
                 pendingCreateRows.removeAll { $0.id == pendingID }
             }
+        }
+    }
+
+    private func focusSearchField() {
+        Task { @MainActor in
+            await Task.yield()
+            isSearchFieldFocused = true
         }
     }
 
