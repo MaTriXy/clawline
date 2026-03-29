@@ -41,7 +41,7 @@ private final class BubbleSafeAreaNeutralScrollView: UIScrollView {
 }
 
 final class MessageBubbleUIKitContainerView: UIView {
-    private let bubbleView = MessageBubbleUIKitView()
+    private let bubbleView: MessageBubbleUIKitView
     private let badgeView = MessageFailureBadgeView()
     private var bubbleBottomConstraint: NSLayoutConstraint!
     private var badgeBottomConstraint: NSLayoutConstraint!
@@ -50,6 +50,7 @@ final class MessageBubbleUIKitContainerView: UIView {
     private var onRequestLayout: ((String) -> Void)?
 
     override init(frame: CGRect) {
+        self.bubbleView = MessageBubbleUIKitView()
         super.init(frame: frame)
         backgroundColor = .clear
 
@@ -93,6 +94,7 @@ final class MessageBubbleUIKitContainerView: UIView {
                    maxWidthOverride: CGFloat? = nil,
                    useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
+                   terminalConnectionPool: TerminalSessionConnectionPool? = nil,
                    salientHighlightService: (any SalientHighlightServicing)? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRequestLayout: ((String) -> Void)?,
@@ -115,6 +117,7 @@ final class MessageBubbleUIKitContainerView: UIView {
             maxWidthOverride: maxWidthOverride,
             useContinuousCorners: useContinuousCorners,
             isDark: isDark,
+            terminalConnectionPool: terminalConnectionPool,
             onRequestExpand: onRequestExpand,
             onRequestLayout: onRequestLayout,
             onInteractiveCallback: onInteractiveCallback,
@@ -169,6 +172,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "BubbleTheme")
     override var safeAreaInsets: UIEdgeInsets { .zero }
     private let enableDataDetectors: Bool
+    private var terminalConnectionPool: TerminalSessionConnectionPool?
     private let shadowContainerView = UIView()  // Separate view for shadow (masks clip shadows)
     private let bubbleBackgroundView = UIView()
     private let contentStack = UIStackView()
@@ -254,8 +258,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         configureViewHierarchy()
     }
 
-    init(frame: CGRect = .zero, enableDataDetectors: Bool) {
+    init(frame: CGRect = .zero,
+         enableDataDetectors: Bool,
+         terminalConnectionPool: TerminalSessionConnectionPool? = nil) {
         self.enableDataDetectors = enableDataDetectors
+        self.terminalConnectionPool = terminalConnectionPool
         super.init(frame: frame)
         configureViewHierarchy()
     }
@@ -595,11 +602,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                    maxWidthOverride: CGFloat? = nil,
                    useContinuousCorners: Bool = true,
                    isDark: Bool? = nil,
+                   terminalConnectionPool: TerminalSessionConnectionPool? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRequestLayout: ((String) -> Void)?,
                    onInteractiveCallback: ((String, String, JSONValue?) -> Void)?,
                    salientHighlightService: (any SalientHighlightServicing)? = nil) {
         assert(Thread.isMainThread)
+        self.terminalConnectionPool = terminalConnectionPool
         let isMessageReuse = (currentMessageId != nil && currentMessageId != message.id)
         currentMessageId = message.id
         // Store for trait collection updates
@@ -934,12 +943,16 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             if case .terminalSession(let descriptor) = part { return descriptor }
             return nil
         }
-        for descriptor in terminalSessions {
-            let terminalBubble = TerminalBubbleUIKitView()
+        for (index, descriptor) in terminalSessions.enumerated() {
+            let terminalBubble = TerminalBubbleUIKitView(connectionPool: terminalConnectionPool)
             terminalBubble.onRequestExpand = { [weak self] in self?.onRequestExpand?() }
             // Flynn: sizing matches HTML previews (wide content uses truncation cap, internal scroll).
             let heightCap = effectiveTruncationHeight
-            terminalBubble.configure(descriptor: descriptor, style: .bubble(height: heightCap))
+            terminalBubble.configure(
+                descriptor: descriptor,
+                style: .bubble(height: heightCap),
+                context: .init(messageId: message.id, slotIndex: index, source: .bubble)
+            )
             dynamicContentStack.addArrangedSubview(terminalBubble)
             dynamicContentViews.append(terminalBubble)
         }
@@ -2343,6 +2356,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
                    bubbleSizingV2: BubbleSizingV2.LayoutState? = nil,
                    showsHeader: Bool = true,
                    isDark: Bool? = nil,
+                   terminalConnectionPool: TerminalSessionConnectionPool? = nil,
                    salientHighlightService: (any SalientHighlightServicing)? = nil,
                    onRequestExpand: (() -> Void)?,
                    onRequestLayout: ((String) -> Void)?,
@@ -2365,6 +2379,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             bubbleSizingV2: bubbleSizingV2,
             showsHeader: showsHeader,
             isDark: isDark,
+            terminalConnectionPool: terminalConnectionPool,
             salientHighlightService: salientHighlightService,
             onRequestExpand: onRequestExpand,
             onRequestLayout: guardedRequestLayout,

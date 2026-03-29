@@ -1354,7 +1354,8 @@ struct ChatView: View {
             ExpandedMessageSheet(
                 message: message,
                 presentation: presentation,
-                fontScaleChangeSequence: fontScaleChangeSequence
+                fontScaleChangeSequence: fontScaleChangeSequence,
+                terminalConnectionPool: viewModel.terminalConnectionPool
             )
         case .camera:
             #if os(visionOS)
