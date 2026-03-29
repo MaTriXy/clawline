@@ -249,12 +249,18 @@ struct ChatView: View {
     }
 
     private func mutateScrollButtonState(for sessionKey: String, _ mutate: (inout ScrollButtonState) -> Void) {
-        var state = scrollButtonState(for: sessionKey)
+        let currentState = scrollButtonStateBySessionKey[sessionKey] ?? ScrollButtonState()
+        var state = currentState
+        if isDebugForcingScrollButtonVisible {
+            state.isVisible = true
+        }
         mutate(&state)
+        guard state != currentState else { return }
         scrollButtonStateBySessionKey[sessionKey] = state
     }
 
     private func handleMessageFlowScrollEvent(_ event: MessageFlowScrollEvent) {
+        guard !isStreamManagerPopoverPresented else { return }
         switch event {
         case .isAtBottomChanged(let sessionKey, let isAtBottom):
             mutateScrollButtonState(for: sessionKey) { state in
@@ -284,6 +290,12 @@ struct ChatView: View {
                 state.unreadCount = 0
                 state.firstUnreadMessageId = nil
             }
+        }
+    }
+
+    private func handleDeferredMessageFlowScrollEvent(_ event: MessageFlowScrollEvent) {
+        DispatchQueue.main.async {
+            handleMessageFlowScrollEvent(event)
         }
     }
 
@@ -1308,7 +1320,7 @@ struct ChatView: View {
             sessionKey: sessionKey,
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
             fontScaleChangeSequence: fontScaleChangeSequence,
-            onScrollEvent: handleMessageFlowScrollEvent
+            onScrollEvent: handleDeferredMessageFlowScrollEvent
         )
         // We manage keyboard avoidance manually inside the collection view.
         // Prevent SwiftUI from shrinking the view and double-applying the keyboard height.
