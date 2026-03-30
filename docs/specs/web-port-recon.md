@@ -1127,3 +1127,395 @@ The cleanest plan is:
 - require deliberate answers on web auth and TLS before implementation begins
 
 If those decisions are made up front, a React web client is a credible and maintainable next platform for Clawline.
+
+## Implementation Appendix
+
+### Appendix Scope and Source Hierarchy
+
+This appendix is the implementer handoff layer for the web client. It is intentionally narrower than the recon sections above: it captures the behavior that an engineer must preserve, the contracts the engineer can code against, and the places where the current docs and the iOS implementation are not perfectly aligned.
+
+Source order for implementation decisions:
+
+1. `docs/architecture.md`, `docs/provider-architecture.md`, and `docs/implementation_details/*.md` are the product and architecture source of truth.
+2. The iOS app is the example implementation and behavioral evidence.
+3. If iOS differs from the docs, treat that as a mismatch to resolve explicitly. Do not silently port the iOS behavior.
+
+Mismatch handling rule:
+
+- If the mismatch is between a high-level guide and a newer implementation-details doc, prefer the implementation-details doc.
+- If the mismatch is between older docs and both current iOS/provider behavior, treat the older doc as stale and call it out in implementation notes.
+- If the mismatch changes user-visible product behavior and no newer doc resolves it, stop and get a product decision.
+
+Current known mismatches:
+
+| Topic | Docs truth to implement | iOS / current behavior evidence | Implementer action |
+| --- | --- | --- | --- |
+| `stream_snapshot` ordering on auth | `docs/implementation_details/multi-stream.md` requires `stream_snapshot` before replayed messages | `docs/ios-provider-connection.md` is looser and does not make the ordering requirement explicit; iOS client is tolerant of independent stream events | Implement the web client assuming `stream_snapshot` arrives before replay on a healthy provider. Keep the client tolerant of out-of-order stream events for robustness, but do not define that tolerance as the intended contract. |
+| Attachment/download contract | Current implementer contract is asset references plus authenticated `GET /download/:assetId` | `UploadService.swift`, `Attachment.swift`, `WireAttachment.swift`, and provider architecture use `assetId`; older `docs/ios-provider-connection.md` still documents `type:"url"` under `/www/media/...` | Build the web client around `asset` attachments and authenticated downloads. Treat `url`-style attachment docs as stale until refreshed. |
+| Browser connection topology | Web architecture may require a gateway/BFF because browser auth and TLS differ from native iOS | `docs/ios-provider-connection.md` assumes direct provider connections | Treat this as a platform delta, not a product contradiction. The browser client contract is gated on the deployment/auth/TLS decision already called out in the main spec. |
+
+### Product Invariants and Decision Tables
+
+#### Session, stream, and provisioning invariants
+
+| Decision point | Rule | Why it exists |
+| --- | --- | --- |
+| Stream identity | `sessionKey` is the canonical stream identifier. There is no parallel `streamId` concept in the client. | The provider routes by session key. A second identifier would create drift between UI state and transport state. |
+| Stream naming | Built-in streams keep provider-defined suffixes. Custom streams use `s_<8 lowercase hex>`. | This is the existing routing format and collision model. |
+| Stream ordering | `orderIndex` gaps after deletes are preserved. The client must not renumber streams locally. | Delete stability matters more than visual contiguity. Renumbering would create write conflicts and false diffs. |
+| Provisioning | The client may render unprovisioned stream shells from persisted state, but send is allowed only when the active session exists in `provisionedSessionKeys`. | Rendering history and mutating server state are different rights. |
+| Stream deletion | Deletion is explicit client/server mutation, not TTL or archival. | The product does not currently define passive stream expiry. |
+
+#### Connection, replay, and recovery invariants
+
+| Situation | Required behavior | Why it exists |
+| --- | --- | --- |
+| Any connection phase transition | One transport state machine is the only writer. | Prevents reconnect loops and stale callback acceptance. |
+| Reconnect intent while already connecting/authenticating/replaying/live | Ignore it. Do not queue a second reconnect. | Late duplicate intents caused historical reconnect churn. |
+| Manual retry during recovery | Cancel backoff, reconnect immediately, reset delay to 1s, do not increment automatic retry count. | Manual retry is a user override, not another automatic failure. |
+| Auth resume | Send the most recent processed server event cursor, not only the active stream cursor. | Replay is account-wide and per-stream; a single active cursor is insufficient. |
+| Cache restore racing with live replay | Cache is gap-fill only. It must never overwrite or reorder live server state. | Late restores previously clobbered fresh replayed data. |
+| History reset from server | Drop any local state beyond what the fresh replay delivered. | Server is authoritative after reset/truncation. |
+
+#### Send, ack, and message reconciliation invariants
+
+| Situation | Required behavior | Why it exists |
+| --- | --- | --- |
+| Outgoing user send | Create optimistic local message keyed by `c_*` client ID. | Preserves immediate feedback while waiting for provider echo. |
+| `ack` received | Keep optimistic item as sending-resolved but do not replace it yet. Final replacement happens on echoed user message. | `ack` means accepted, not yet normalized into canonical timeline form. |
+| Echoed user message from same device | Replace the optimistic local message with the echoed `s_*` message in place. | Every device should converge on the same canonical timeline entry. |
+| Echoed user message from another device | Append normally. Do not try to reconcile it to a local optimistic item. | Client IDs are only device-local. |
+| Retry before `ack` | Resend the same payload with the same client ID. | Provider treats duplicate client IDs as idempotent retries. |
+| Retry after failed/missing final assistant output | Append a new outgoing message at the tail with a new client ID. Do not mutate the old failed message in place. | Retry is a new user action in the transcript, not a timeline rewrite. |
+| Streaming assistant update | Merge by stable server `id` and update content in place until final `streaming:false` arrives. | Streaming is one message evolving, not repeated appends. |
+
+#### Unread, read, and scroll invariants
+
+| Situation | Required behavior | Why it exists |
+| --- | --- | --- |
+| Incoming assistant message in non-active stream | Mark stream unread. | Only assistant output in another stream should produce unread. |
+| Initial hydrate, replay, or backfill | Must not create unread. | Reload and recovery are not new activity. |
+| Selecting a stream | Clear unread and set read cursor to that stream's current tail. | The product is "mark all as read on visit," not per-scroll read tracking. |
+| Typing indicator insertion | Does not count as unread. | Typing is transient affordance, not durable content. |
+| `firstUnreadMessageId` | Set once when unread begins; keep stable until unread clears. | Prevents bouncing markers during list updates. |
+| Viewport crossing of first unread | Crossing the viewport center on the first unread message both flashes and clears unread. | This is the existing read affordance behavior. |
+| Scroll-to-bottom, auto-scroll, restore fallback | Use one shared "at bottom" threshold for all three decisions. | Multiple thresholds create contradictory scroll behavior. |
+
+#### Connection state presentation invariants
+
+| Transport phase | UI presentation | Notes |
+| --- | --- | --- |
+| live | connected | Composer active subject to provisioning rules |
+| recovering / reconnecting | reconnecting | No separate heartbeat or "unresponsive" state |
+| failed / disconnected | disconnected | Error banner stays removed; state is expressed in send affordance |
+
+### Protocol and Event Contracts in Implementer Form
+
+#### Main chat WebSocket: `/ws`
+
+Outbound events the browser client must emit:
+
+| Event | Required fields | Notes |
+| --- | --- | --- |
+| `pair_request` | `type`, `protocolVersion:1`, `deviceId`, `claimedName`, `deviceInfo` | First-launch bootstrap only. `claimedName` editable, clamped to current byte limit described in docs. |
+| `pair_decision` | `type`, `deviceId`, `approve`, `userId` when approving | Admin-only flow. No `ack`. Retry is whole-payload resend. |
+| `auth` | `type`, `protocolVersion:1`, auth credential, `deviceId`, most recent processed server cursor | Auth credential shape depends on topology decision: direct token vs gateway-backed session. |
+| `message` | `type`, `id:c_*`, `content`, `attachments`, `sessionKey` | Content and attachment limits must be preflighted client-side before send. |
+| `typing` | `type`, `active`, `sessionKey` when the provider contract requires stream scoping | Client should rate limit locally to the documented ceiling. |
+
+Inbound events the browser client must consume:
+
+| Event | Required fields / semantics | Client obligation |
+| --- | --- | --- |
+| `pair_result` | `success`, plus token/session bootstrap data on success or `reason` on failure | Persist auth material, transition to auth, or remain in pairing/approval UI. |
+| `pair_approval_request` | pending `deviceId`, `claimedName`, `deviceInfo` | Admin UI only. Surface pending approvals from the main socket event stream. |
+| `auth_result` | `success`, `userId`, diagnostic `sessionId`, `isAdmin`, replay metadata | On failure, clear invalid auth and return to pairing. On success, seed admin capability and replay notices. |
+| `message` | canonical `s_*` message with `role`, `content`, `timestamp`, `streaming`, `deviceId`, `sessionKey`, optional attachments | Route by `sessionKey`; replace optimistic same-device user messages; merge streaming assistant updates by `id`. |
+| `ack` | accepted client message `id` | Clear pending resend timer and keep waiting for echoed canonical message. |
+| `typing` | assistant-only in current product behavior | Drive transient UI only; do not persist or count as unread. |
+| `stream_snapshot` | full ordered stream metadata snapshot and per-stream provisioning surface | Treat as the authoritative stream inventory on auth/reconciliation. |
+| `stream_created` / `stream_updated` / `stream_deleted` | stream metadata mutation events | Update ordered stream metadata without renumbering surviving streams. |
+| `session_info` | provisioning/session-info updates | Update known/provisioned sessions without treating it as message content. |
+| `error` | provider error code | Map to UI and recovery policy without inventing silent fallbacks. |
+| `user_info` | currently consumed by iOS | Keep a typed placeholder in the web protocol layer even if no v1 UI uses it yet. |
+| `event` | currently includes at least `activity` in iOS service | Treat as a typed extension event. Do not hard-wire it into unrelated modules. |
+
+Contract notes:
+
+- `stream_snapshot` should arrive before replayed messages on auth. That is the intended server contract even though one older guide is loose about the ordering.
+- Replay deduplication is by server event ID, not client message ID.
+- The browser client should record fixtures for every inbound event above before implementation starts. The appendix does not replace fixture capture.
+
+#### Upload and download HTTP surfaces
+
+Current contract to implement:
+
+| Surface | Contract |
+| --- | --- |
+| `POST /upload` | Authenticated file upload for non-inline attachments. Returns asset metadata including `assetId`. |
+| `GET /download/:assetId` | Authenticated asset fetch. |
+| Inline message attachments | Small inline images only, bounded by the documented decoded-byte and total-payload limits. |
+| Non-inline attachments | Sent as asset references, not raw file bytes in the chat WebSocket payload. |
+
+Rules:
+
+- Preflight size locally using the documented inline and payload ceilings before attempting send.
+- Treat upload auth failures the same way as socket auth failures: clear invalid auth state if the provider indicates token failure.
+- Do not depend on older `/www/media/...` URL attachment docs unless the provider contract is explicitly reverted to that shape.
+
+#### Terminal WebSocket: `/ws/terminal`
+
+Current behavioral contract inferred from docs and iOS:
+
+| Area | Contract |
+| --- | --- |
+| Transport | Separate socket from chat transport |
+| Auth | Same auth context as chat, different handshake/event shape |
+| Identification | Attachment MIME `application/vnd.clawline.terminal-session+json` determines terminal rendering |
+| Resize | Client must send PTY size derived from rendered terminal bounds |
+| Lifecycle | Terminal bubble create/bind and teardown follow normal view reuse; no preserved offscreen terminal runtime |
+| Responsibility boundary | Provider owns SSH/tmux integration; browser never opens SSH directly |
+
+Implementation note:
+
+- Keep the terminal protocol layer separate from the main chat transport machine even if both eventually share low-level reconnect helpers.
+
+### UX and State Transition Specs
+
+#### Pairing and auth bootstrap
+
+1. If no valid auth material exists, show pairing UI.
+2. Submit `pair_request`.
+3. On `pair_result.success`, persist auth material, close pairing flow, and begin authenticated bootstrap.
+4. If approval is pending, remain in approval-waiting UI and keep the retry/polling behavior defined by the product docs.
+5. On authenticated bootstrap, send `auth` with the latest processed server cursor.
+6. On `auth_result.success`, seed admin capability, replay metadata, and initial stream inventory state.
+7. Do not render the chat shell as fully interactive until both auth success and initial stream provisioning state are available.
+
+Done-state rule:
+
+- A user can pair, authenticate, refresh the page, and land back in an authenticated shell without losing the account identity unless the server explicitly invalidates auth.
+
+#### Send, echo, and retry flow
+
+1. User sends from a provisioned active stream while transport is connected.
+2. Client appends optimistic user bubble keyed by `c_*`.
+3. Client persists pending-ack journal before network send.
+4. On `ack`, client clears resend timer but keeps waiting for canonical echoed user message.
+5. On echoed same-device user `message`, client replaces the optimistic item with canonical `s_*` item.
+6. Assistant streaming updates mutate one canonical assistant message in place until final.
+7. If reconnect completes and the user echo has no final assistant response and no active stream in flight, surface retry.
+8. Retry appends a new user bubble at the tail with a new `c_*` ID.
+
+Done-state rule:
+
+- At no point should one user action produce duplicate canonical user messages or duplicated assistant transcripts after reconnect.
+
+#### Reconnect and recovery flow
+
+1. Transport interruption moves the transport machine into recovery.
+2. Recovery backoff becomes the sole reconnect driver unless the user explicitly requests retry.
+3. Manual retry while recovering cancels the timer and reconnects immediately with reset delay.
+4. Successful auth resumes with all known per-stream cursors.
+5. Replay applies before the app is marked live.
+6. Cache hydrate may fill missing local gaps before replay completes, but it may not overwrite replayed/live data.
+7. Once replay settles, any stale recovery work from older attempts is ignored by epoch/token validation.
+
+Done-state rule:
+
+- A disconnect/reconnect cycle must not blank unrelated streams, duplicate messages, or regress cursors for inactive streams.
+
+#### Stream switching flow
+
+1. UI selection changes immediately on user intent.
+2. Expensive engine activation is scheduled separately behind epoch validation.
+3. Pager-swipe path waits for settle plus debounce before engine activation; programmatic path uses the same commit seam without debounce.
+4. If the target stream disappears before commit, drop activation and reconcile UI selection to a valid stream.
+5. For unvisited large streams, loading affordance remains visible until activation/materialization completes.
+6. Read/unread clearing happens on the product-defined selection path, not from ad hoc scroll events.
+
+Done-state rule:
+
+- Rapid stream flipping leaves only the final selected stream active for expensive work, with no stale activation side effects in previously viewed streams.
+
+#### Scroll, unread, and restore flow
+
+1. Initial hydrate or replay paints the list without generating unread.
+2. If the user is at bottom and a new message arrives in the active stream, auto-scroll remains eligible.
+3. If the user is interacting away from bottom, auto-scroll is deferred until interaction ends.
+4. The scroll-to-bottom affordance, restore fallback, and auto-scroll eligibility all read the same bottom-threshold calculation.
+5. `firstUnreadMessageId` remains stable until unread clears.
+6. Crossing the first unread marker at the defined viewport threshold flashes and clears unread.
+
+Done-state rule:
+
+- Reloading, switching streams, or replaying history must not cause unread oscillation or jumpy bottom-affordance behavior.
+
+### Per-Phase Acceptance Criteria Refinements
+
+These checklists refine the high-level migration phases above. Each phase still ends with a runnable browser app.
+
+#### Phase 1: Runnable pairing and text chat
+
+Manual acceptance:
+
+- A first-time user can pair from the browser and reach a usable chat shell.
+- A returning user refreshes and re-enters authenticated chat without re-pairing when auth remains valid.
+- The user can send text into the active provisioned stream and see optimistic, acked, and canonical echoed states.
+- Incoming assistant replies stream in place instead of appending duplicate partial bubbles.
+- Connection state is visible through the composer/send affordance using only connected/reconnecting/disconnected semantics.
+- Settings open as an in-chat overlay, not a full-route context break.
+
+Automated acceptance:
+
+- Fixture tests cover `pair_request`, `pair_result`, `auth`, `auth_result`, `message`, and `ack`.
+- End-to-end test covers pair -> auth -> send -> echoed user message -> assistant reply.
+- State-machine test proves duplicate reconnect intents are ignored while already connecting/live.
+
+Phase done when:
+
+- Someone unfamiliar with the code can open the app in a browser, pair, exchange text messages, reload, and repeat the flow without manual state repair.
+
+#### Phase 2: Session fidelity and durable reload
+
+Manual acceptance:
+
+- Refreshing or transient network loss restores the chat shell and recovers the same visible transcript set.
+- Inactive streams preserve message history and cursors across reload.
+- Non-active assistant replies mark streams unread; visiting the stream clears unread at tail.
+- No unread is generated by hydrate, replay, or backfill.
+
+Automated acceptance:
+
+- Projection tests cover unread mutation call sites and read-cursor-to-tail behavior.
+- Multi-tab or simulated second-runtime tests prove only one leader owns live transport at a time.
+- Replay tests prove all per-stream cursors resume, not only the currently visible stream.
+
+Phase done when:
+
+- Reload and reconnect preserve transcript continuity across more than one stream with no duplicate sends or stale empty streams.
+
+#### Phase 3: Rich rendering and common attachments
+
+Manual acceptance:
+
+- Markdown preserves strict source order for mixed prose/code/table content.
+- `==highlight==` styling renders in both compact and expanded message surfaces.
+- Inline images, uploaded assets, and file chips render correctly and download through the authenticated path.
+- Composer supports paste/drop/file-input flows for the supported attachment types.
+
+Automated acceptance:
+
+- Static render fixtures cover mixed markdown ordering, highlight syntax, inline images, uploaded assets, and streaming message updates.
+- Upload integration tests cover oversize rejection, auth failure handling, and successful asset reference send.
+- Screenshot or visual regression coverage exists for the main bubble variants.
+
+Phase done when:
+
+- Rich-text and common attachment transcripts can be rendered from static fixtures with no server, and real uploaded assets round-trip against the provider contract.
+
+#### Phase 4: Stream management and chat-surface maturity
+
+Manual acceptance:
+
+- Users can create, rename, delete, adopt, and untrack streams using the current stream API contract.
+- Rapid stream switching does not jank the UI or apply stale data to the wrong stream.
+- Scroll restoration, unread anchors, and bottom affordance remain coherent in long transcripts.
+- Keyboard and screen-reader flows remain intact after virtualization and stream-management UI are added.
+
+Automated acceptance:
+
+- Stream CRUD tests verify ordering stability and no client-side renumbering after deletes.
+- Engine/UI stream split tests verify delayed activation is cancelled by newer selection epochs.
+- End-to-end tests cover unread clearing on selection, long-list restore, and scroll-to-bottom affordance behavior.
+
+Phase done when:
+
+- The browser app can replace the core multi-stream experience of the current iOS app for text, rendering, and stream organization flows.
+
+#### Phase 5: Advanced rich surfaces
+
+Manual acceptance:
+
+- Terminal attachments render only when the terminal MIME type is present and connect through the terminal-specific runtime.
+- Terminal resize affects remote wrapping correctly.
+- Interactive HTML content renders inside a sandboxed surface, locks its height after initial measurement, and never escapes its bridge contract.
+- Crashed rich surfaces degrade to stable error states instead of taking down the chat shell.
+
+Automated acceptance:
+
+- Security tests verify interactive HTML sandbox flags, blocked network access, message-bridge allowlist, and one-time `_resize` handling.
+- Terminal tests verify separate transport ownership and disconnect behavior independent from the main chat socket.
+- Regression tests prove rich-surface failures do not mutate chat-runtime state ownership.
+
+Phase done when:
+
+- Advanced surfaces operate as isolated runtimes inside the chat product without weakening chat transport, transcript correctness, or browser trust boundaries.
+
+### Rendering and Edge-Case Fixtures
+
+These fixtures should exist as static JSON or TS objects plus screenshot fixtures where rendering matters.
+
+| Fixture | Input shape | Expected behavior |
+| --- | --- | --- |
+| Mixed markdown order | Paragraph -> code block -> paragraph -> table | Render in source order in both bubble and expanded surfaces. |
+| Highlight syntax | Markdown containing `==important==` | Preserve highlight styling instead of dropping or escaping it. |
+| Streaming assistant update | Three `message` events with same assistant `id`, first two `streaming:true`, final `streaming:false` | One bubble updates in place and ends non-streaming. |
+| Same-device optimistic echo replacement | Local `c_*` optimistic send followed by `ack` and echoed user `s_*` with matching `deviceId` | Optimistic bubble is replaced, not duplicated. |
+| Retry-after-failure | Failed user bubble retried after missing final assistant output | New user bubble appears at tail with new `c_*`; failed bubble remains historical until product chooses otherwise. |
+| Non-active stream unread | Assistant message delivered to non-active stream | Stream gains unread marker; selecting stream clears unread at tail. |
+| Hydrate/replay no-unread | Cached transcript + replayed messages on load | No unread badge appears solely because of restore. |
+| First unread stability | Multiple incoming assistant messages after unread begins | `firstUnreadMessageId` stays anchored to the first unseen message until clear. |
+| Interactive HTML size lock | HTML payload with post-load animation growth | Bubble height locks after initial measure; content scrolls internally. |
+| Interactive HTML `_resize` | Two `_resize` bridge requests | First may be honored; second is ignored. |
+| Terminal MIME detection | Document attachment with `application/vnd.clawline.terminal-session+json` | Render terminal surface instead of generic file chip. |
+
+### Security Rules for Rich Surfaces and Uploads/Previews
+
+#### Interactive HTML
+
+- Treat interactive HTML as a separate untrusted runtime even if the content author is a trusted agent in product terms.
+- Use a sandboxed iframe/runtime with no ambient app credentials, no shared browsing context, and a narrow explicit bridge.
+- Mirror the native isolation intent: no shared preview runtime, no casual consolidation with link-preview infrastructure.
+- Enforce the 256KB content cap client-side even if the provider already enforces it.
+- Size once, lock height, allow at most one explicit `_resize` escape hatch.
+- Callback delivery is best-effort and unordered under rate limits; product logic must not assume exactly-once or ordered callbacks.
+
+#### Terminal surfaces
+
+- Terminal runtime is separate from chat runtime.
+- Terminal auth may share the user session but not the chat socket or chat state machine.
+- The browser must never open SSH directly; remote shell trust and host access remain provider responsibilities.
+- Terminal clipboard, focus, and resize behavior must stay inside the terminal module boundary and not mutate unrelated chat state.
+
+#### Uploads, downloads, and previews
+
+- Inline attachments are image-only and must obey the documented decoded-byte and payload caps.
+- Uploaded assets must go through authenticated provider surfaces, not ad hoc unsigned URLs, unless the contract is explicitly changed.
+- Download URLs should be treated as authenticated resources; previews must not leak bearer credentials into arbitrary third-party origins.
+- Link preview fetching remains an open topology decision. If preview fetch happens server-side, the browser renders sanitized metadata only. If preview fetch happens client-side, preview rendering must not become a covert credential bridge.
+- Any preview or embed rule not grounded in the current docs remains unresolved and must be documented as such before implementation.
+
+### Engineering Conventions Grounded in Current System
+
+These are not stylistic preferences. They are direct translations of invariants already established in the docs and iOS implementation.
+
+| Convention | Implementer rule | Grounding |
+| --- | --- | --- |
+| Single transport writer | Only the transport state machine writes connection phase. Other code emits intents/events only. | `connection-lifecycle.md` |
+| Single transcript writer | Only one conversation projection seam mutates messages, cursors, unread markers, and pending send reconciliation. | `connection-lifecycle.md`, `message-stream-seam.md`, unread docs |
+| Gap-fill persistence | Hydrate from persisted state only to fill missing local gaps. Never overwrite or reorder live data. | connection lifecycle and message-stream seam docs |
+| Yield-boundary guards | After any async/yield boundary, capture and revalidate the relevant `sessionKey` and generation/epoch before applying per-stream side effects. | per-stream transition and encapsulation docs |
+| Shared bottom-threshold calculation | Compute one bottom-threshold decision and use it for auto-scroll, restore fallback, and scroll-to-bottom visibility. | scroll invariants docs |
+| UI vs engine stream split | Immediate UI selection and expensive stream activation are separate concerns with one commit seam. | stream-switch coordinator doc |
+| Render-plan reuse | Parse markdown once per message and reuse the plan across compact and expanded surfaces. | unified-markdown doc |
+| Rich-surface isolation | Interactive HTML and terminal runtimes do not share incidental transport, process, or preview infrastructure. | interactive HTML and terminal docs |
+| Visibility is not lifecycle | React mount/unmount or tab visibility changes must not by themselves own socket teardown semantics. | chat VM lifecycle ownership doc |
+| Staged first-open materialization | Only large unvisited streams should use staged materialization, and only on first activation. | staged-stream-materialization doc |
+
+Unresolved product decisions that should stay unresolved here:
+
+- Whether the web launch requires terminal bubbles
+- Whether the web launch requires interactive HTML bubbles
+- Whether preview fetching is browser-side or server-side
+- Whether direct browser-to-provider auth is allowed or a gateway/BFF is mandatory
