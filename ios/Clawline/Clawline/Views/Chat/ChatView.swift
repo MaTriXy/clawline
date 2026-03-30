@@ -2828,16 +2828,11 @@ private struct AttachmentSourceSheet: View {
 
     @Environment(\.colorScheme) private var colorScheme
 #if os(visionOS)
-    @Environment(\.settingsManager) private var settings
     @Environment(\.dismiss) private var dismiss
 #endif
 
     private var effectiveColorScheme: ColorScheme {
-#if os(visionOS)
-        return settings.appearanceMode == .dark ? .dark : .light
-#else
         return colorScheme
-#endif
     }
     var body: some View {
         VStack(spacing: 24) {
@@ -2901,15 +2896,10 @@ private struct AttachmentActionButton: View {
     let action: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.settingsManager) private var settings
     @State private var isPressed = false
 
     private var effectiveColorScheme: ColorScheme {
-#if os(visionOS)
-        return settings.appearanceMode == .dark ? .dark : .light
-#else
         return colorScheme
-#endif
     }
 
     var body: some View {

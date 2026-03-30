@@ -38,16 +38,11 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var fontScaleChangeSequence: Int = 0
     var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.settingsManager) private var settings
 
     func makeUIViewController(context: Context) -> MessageFlowCollectionViewController {
         let controller = MessageFlowCollectionViewController()
         controller.loadViewIfNeeded()
-#if os(visionOS)
-        let isDark = settings.appearanceMode == .dark
-#else
         let isDark = colorScheme == .dark
-#endif
         controller.update(
             viewModel: viewModel,
             isCompact: isCompact,
@@ -73,11 +68,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: MessageFlowCollectionViewController, context: Context) {
-#if os(visionOS)
-        let isDark = settings.appearanceMode == .dark
-#else
         let isDark = colorScheme == .dark
-#endif
         uiViewController.update(
             viewModel: viewModel,
             isCompact: isCompact,

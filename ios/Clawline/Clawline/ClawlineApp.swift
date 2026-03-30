@@ -68,6 +68,7 @@ struct ClawlineApp: App {
         WindowGroup {
             @Bindable var settingsManager = settingsManager
             RootView(uploadService: uploadService)
+                .preferredColorScheme(settingsManager.preferredColorScheme)
                 .environment(authManager)
                 .environment(\.connectionService, connectionService)
                 .environment(\.deviceIdentifier, deviceIdentifier)
@@ -82,47 +83,7 @@ struct ClawlineApp: App {
 
         }
         .commands {
-            CommandGroup(replacing: .appSettings) {
-                Button("Settings...") {
-                    settingsManager.toggleSettings()
-                }
-                .keyboardShortcut(",", modifiers: .command)
-            }
-            CommandMenu("View") {
-                Button("Increase Font Size") {
-                    settingsManager.increaseFontScale()
-                }
-                .keyboardShortcut("=", modifiers: .command)
-
-                Button("Decrease Font Size") {
-                    settingsManager.decreaseFontScale()
-                }
-                .keyboardShortcut("-", modifiers: .command)
-
-                Button("Reset Font Size") {
-                    settingsManager.resetFontScale()
-                }
-                .keyboardShortcut("0", modifiers: .command)
-
-                Divider()
-
-                Button("Open Streams") {
-                    NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
-                }
-                .keyboardShortcut("/", modifiers: .command)
-
-                Divider()
-
-                Button("Scroll to Bottom") {
-                    NotificationCenter.default.post(name: .clawlineScrollToBottomCommand, object: nil)
-                }
-                .keyboardShortcut("j", modifiers: .command)
-
-                Button("Scroll to Top") {
-                    NotificationCenter.default.post(name: .clawlineScrollToTopCommand, object: nil)
-                }
-                .keyboardShortcut("k", modifiers: .command)
-            }
+            ClawlineAppCommands(settingsManager: settingsManager)
         }
     }
 }

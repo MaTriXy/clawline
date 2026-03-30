@@ -15,14 +15,9 @@ struct StreamToast: View {
     let isBusy: Bool
 
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.settingsManager) private var settings
 
     private var isDarkMode: Bool {
-#if os(visionOS)
-        return settings.appearanceMode == .dark
-#else
         return colorScheme == .dark
-#endif
     }
 
     private var toastTextColor: Color {
