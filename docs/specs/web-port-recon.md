@@ -479,394 +479,384 @@ Implication for web:
 
 - Replace them with typed domain stores and explicit actions
 
-## Deployment Preconditions
+## Architecture
 
-Before implementation starts, the following must be fixed or explicitly gated. These are not late-stage polish decisions; they shape the web app architecture.
+This section defines the real seams of the web client. The point is not to name containers. The point is to make clear why the boundaries exist, how they interact, and where future code belongs.
 
-### Auth and Deployment Topology
+### Seam 1: Browser Deployment Boundary
 
-The web client needs an approved answer for all of the following:
+Why this boundary exists:
 
-- Is the app same-origin with a web gateway/BFF, or a pure client app talking directly to the provider?
-- Is auth cookie-backed, token-backed, or proxied through a gateway?
-- Does the gateway terminate WebSocket auth on behalf of the browser, or does the browser talk directly to the provider?
+- The browser cannot reproduce the iOS trust model. `ProviderBaseURLStore` and `URLSessionWebSocketConnector` can tolerate self-signed certificates and fingerprint pinning; the browser cannot.
+- The browser auth surface is also different. A cookie-backed same-origin app, a token-backed direct client, and a gateway-brokered session each imply a different runtime shape.
+- Because of that, deployment topology is not infrastructure trivia. It is the outermost architectural seam. Everything inside the app depends on it.
 
-Until those are decided, the framework recommendation is conditional rather than final.
+How it relates to the rest of the system:
 
-### TLS
+- `auth-pairing` needs to know how auth is established.
+- `transportMachine` needs to know where the main WebSocket actually terminates.
+- `attachments`, `stream-management`, and `rich-surfaces` need to know whether they call provider endpoints directly or go through a gateway.
+- The UI layer should not encode assumptions about direct-provider access if the deployment model has not been fixed.
 
-The native app supports self-signed trust and optional leaf fingerprint pinning through `ProviderBaseURLStore` and `URLSessionWebSocketConnector`. Browsers cannot reproduce this trust model.
+Placement rule for future work:
 
-The web port therefore requires one of two approved paths:
+- If a change affects TLS trust, auth cookies/tokens, same-origin assumptions, or WebSocket termination, it belongs at this boundary first.
+- No feature module should silently work around unresolved deployment questions.
 
-- Browser-trusted TLS on the provider endpoint
-- A browser-safe gateway/proxy that terminates trusted TLS and forwards to the provider
+Deployment decisions that must be fixed or explicitly gated:
 
-If neither path is available, the web app should not proceed beyond prototype stage.
+- direct browser-to-provider vs same-origin gateway/BFF
+- cookie-backed vs token-backed vs gateway-brokered auth
+- browser-trusted provider TLS vs trusted gateway termination
 
-## Browser Runtime Invariants
+Framework implication:
 
-The web client must define browser-specific behavior explicitly rather than inheriting iOS scene assumptions.
+- If the app is a pure browser client, a Vite-based SPA is a good fit.
+- If auth, TLS termination, or socket brokering require a server boundary, use a server-capable React framework instead of forcing a pure SPA.
 
-### Chosen Runtime Model
+### Seam 2: Browser Runtime Boundary
 
-The recommended model is single-leader transport per authenticated browser profile:
+Why this boundary exists:
 
-- One tab is the transport leader.
-- The leader owns the main chat WebSocket, replay cursor advancement, incoming event ordering, and durable unread/read projection updates.
-- Follower tabs use `BroadcastChannel` to mirror live state and issue user intents such as send, mark-read, or stream mutations through the leader.
-- If the leader closes or becomes unavailable, a follower may acquire leadership and reconnect using the persisted cursor state.
+- iOS scene lifecycle is not the browser runtime. On web, multiple tabs, visibility state, reload, focus, offline/online, and shared browser storage are architectural facts.
+- If this seam is not explicit, replay ownership, unread state, and socket leadership will fragment across tabs.
 
-Rationale:
+Chosen runtime model:
 
-- It avoids duplicate sockets and duplicate replay advancement across tabs.
-- It reduces unread divergence between tabs.
-- It preserves a single authoritative connection lifecycle owner.
+- one transport leader per authenticated browser profile
+- follower tabs mirror state and send user intents through the leader
+- leader owns the main chat WebSocket, replay cursor advancement, and durable unread/read projection updates
 
-### Per-Tab Versus Shared State
+How it relates to the rest of the system:
 
-- URL state is per-tab.
-- Selected session is per-tab because each tab may be focused on a different conversation.
-- Live transport, replay progress, unread/read projection updates, and message ordering are shared at the browser-profile level through the leader.
-- Settings and identity are shared persisted preferences.
+- `transportMachine` is browser-profile scoped, not per-tab.
+- URL-selected session is per-tab and may differ between tabs.
+- `chatDomainStore` receives authoritative live events from the leader and mirrored state in follower tabs.
+- `settingsStore` and auth identity are shared persisted preferences.
 
-### Visibility and Focus
+Boundary rules:
 
 - Hidden follower tabs do not open the main chat socket.
-- The leader may remain connected while backgrounded if the browser permits it.
-- Focus changes do not directly mutate read state. Read state changes only through explicit visible-message acknowledgement rules in the chat domain owner.
+- Focus changes do not directly mutate read state; explicit read acknowledgement rules do.
+- Reconnect always replays from the last committed cursor.
+- Leader exit triggers leadership re-election instead of each tab inventing its own reconnect path.
 
-### Online and Offline
+Placement rule for future work:
 
-- Offline transitions move the leader transport machine into a disconnected/recovering phase.
-- Optimistic local sends remain visible but unsent until transport resumes or the user cancels them.
-- Reconnect must be idempotent and replay from the last committed cursor only.
+- If the feature should behave differently per tab, it belongs on the tab-local side of the seam.
+- If the feature must preserve global ordering, replay correctness, or unread coherence across tabs, it belongs on the browser-profile side with the leader.
 
-### Reload and Tab Closure
+### Seam 3: State Ownership Boundary
 
-- Reload of a leader tab should not lose durable state because replay cursor, optimistic send journal, and unread projection state are persisted before acknowledgement.
-- Follower reloads are cheap because they recover from persisted snapshot plus leader sync.
-- Leader exit triggers transport leadership re-election.
+Why this boundary exists:
 
-## SSOT Ownership Matrix
+- The main failure mode in the iOS app is mixed ownership. `ChatViewModel` became too central because multiple concepts accumulated in one place without sharp mutation seams.
+- The web port must fix that structurally, not cosmetically. The purpose of state boundaries is to ensure each product concept has one owner and one write path.
 
-The web implementation should start from ownership, not from a list of stores.
+The authoritative ownership model is:
 
 | Product concept | Single authoritative owner | Readers | Allowed mutation paths |
 | --- | --- | --- | --- |
 | Authenticated user/session presence | `authSessionStore` | router guards, transport machine, settings UI | pairing success, logout, auth refresh |
 | Provider base URL and auth transport config | `authSessionStore` | pairing flow, transport machine, upload/terminal adapters | pairing success, settings edit, logout reset |
 | Device/browser identity | `authSessionStore` persisted via browser storage adapter | transport machine | first-run generation, explicit reset |
-| Transport phase (`idle`, `connecting`, `authenticating`, `replaying`, `live`, `recovering`, `failed`) | `transportMachine` | chat feature, diagnostics UI, send controls | transport reducer transitions only |
-| Replay cursor advancement | `transportMachine` | chat projection hydrator, persistence adapter | leader-only message commit path |
+| Transport phase (`idle`, `connecting`, `authenticating`, `replaying`, `live`, `recovering`, `failed`) | `transportMachine` | chat shell, diagnostics UI, send controls | transport reducer transitions only |
+| Replay cursor advancement | `transportMachine` | chat projection hydrator, persistence layer | leader-only message commit path |
 | Selected session | URL state | chat shell, stream UI, composer | router navigation only |
 | Send eligibility / provisioning state | `chatDomainStore` | composer, stream UI, banners | session snapshot handling, stream mutations, server events |
-| Stream metadata and ordering | `chatDomainStore` | sidebar/popover, chat shell, settings/debug UI | stream snapshot events, stream CRUD responses, adopt/untrack actions |
-| Messages and optimistic send reconciliation | `chatDomainStore` | message list, search/debug tooling, expanded message view | send pipeline, inbound events, replay hydrate, attachment hydrate |
-| Read/unread projection | `chatDomainStore` | stream UI, document title/badge, follower-tab mirrors | explicit mark-read action, incoming assistant messages, stream switch rules |
-| Draft text and staged attachments | component-local state within chat route subtree | composer and attachment tray only | local user input actions |
-| Appearance/font/debug preferences | `settingsStore` | all feature modules | settings UI only |
-| Toasts/global transient notifications | small notification service only | app shell | explicit publish calls from feature modules |
+| Stream metadata and ordering | `chatDomainStore` | stream management UI, chat shell, diagnostics | stream snapshot events, CRUD responses, adopt/untrack actions |
+| Messages and optimistic send reconciliation | `chatDomainStore` | message list, expanded views, diagnostics | send pipeline, inbound events, replay hydrate, attachment hydrate |
+| Read/unread projection | `chatDomainStore` | stream UI, document title/badge, follower mirrors | explicit mark-read action, incoming assistant messages, stream switch rules |
+| Draft text and staged attachments | chat-route local state | composer, attachment tray | local user input actions |
+| Appearance/font/debug preferences | `settingsStore` | all modules | settings UI only |
+| Global transient notifications | minimal notification service | app shell | explicit publish calls only |
 
-Two rules matter:
+How it relates to the rest of the system:
 
-- If a concept appears in this table, no second mutable owner may be introduced for convenience.
-- REST responses, WebSocket events, and local persistence hydration must all converge through the owner listed above.
+- All REST responses, socket events, and persistence hydration must converge through the owner listed above.
+- No second mutable owner may be introduced “for convenience.”
+- If a module only reads a concept, it does not gain mutation rights over it.
 
-## Proposed Web Architecture
+Placement rule for future work:
 
-### Recommended Application Shape
+- Before adding new shared state, decide which existing owner it belongs to.
+- If none fit, explain why a new owner is necessary in terms of mutation rights and failure mode, not in terms of “this felt cleaner.”
 
-Use React as the UI layer, but gate the app runtime around the approved deployment topology:
+### Seam 4: Runtime Layers
 
-- If the app is a pure browser client that talks directly to provider endpoints, a Vite-based SPA is a good fit.
-- If auth, TLS termination, or WebSocket brokering require a same-origin gateway/BFF, use a React framework with a server boundary instead of forcing a pure SPA shape.
+Why this boundary exists:
 
-This is the concrete recommendation:
+- The app has four different kinds of work, and each fails for a different reason:
+  - auth/bootstrap
+  - live transport and chat projection
+  - pure rendering
+  - shared preferences
+- Putting them in one layer would repeat the iOS mistake. Splitting them by runtime shape is the architecture.
 
-- UI layer: React 19 + TypeScript
-- Runtime/build:
-  - Direct-client variant: Vite
-  - Gateway/BFF variant: a server-capable React framework
-- Browser automation and E2E: Playwright
-- Durable local persistence: IndexedDB via Dexie or equivalent
-- Virtualized message rendering: `react-virtuoso` or TanStack Virtual
-- Rich content:
-  - markdown/render pipeline via `remark`/`rehype` or equivalent
-  - syntax highlighting via Shiki or `highlight.js`
-  - terminal rendering via `xterm.js`
-  - embedded HTML via sandboxed iframe plus strict sanitization
-
-### Minimum Shared Runtime Owners
-
-The revised architecture should keep the number of shared mutable authorities intentionally small:
+The minimum shared runtime owners are:
 
 - `authSessionStore`
-  - identity, provider config, persisted device ID
 - `transportMachine`
-  - socket leadership, phase transitions, replay cursor, reconnect/backoff
 - `chatDomainStore`
-  - streams, messages, unread/read projection, optimistic sends, provisioning state
 - `settingsStore`
-  - appearance, font scale, debug toggles
 
-What is intentionally not present:
+What is deliberately not an owner:
 
 - no global `uiStore`
 - no global `selectedSession` store
-- no parallel `streamStore` plus `chatStore` split unless runtime pressure proves it necessary
+- no parallel `streamStore` and `chatStore` split unless real runtime pressure proves the single chat-domain owner is too broad
 
-Selected session belongs in the URL. Draft text and staged attachments belong to route-local state, not a global store.
+How it relates to the rest of the system:
 
-### Routing and Overlay Model
+- URL state owns selected session and route-addressable overlays.
+- Chat-route local state owns drafts and staged attachments.
+- Shared runtime owners own only cross-component, cross-event concepts with real product meaning.
 
-Recommended routes:
+Placement rule for future work:
 
-- `/pair`
-- `/chat/:sessionKey?`
+- If the state only matters inside one route subtree, keep it local.
+- If the state only exists to present a URL address, put it in the router.
+- If the state is authoritative across events, tabs, or reconnects, it belongs in one of the shared runtime owners.
 
-Overlay model:
+### Seam 5: Route and Overlay Boundary
 
-- Settings should open as a modal or drawer anchored inside the chat shell, not as a full-route page that navigates the user away from the conversation.
-- Expanded message views, stream management, and similar flows should prefer route-backed overlays or subtree state, depending on whether deep-linking is product-useful.
+Why this boundary exists:
 
-Why:
+- Route changes mean navigational intent. Overlays mean contextual work that should not eject the user from the conversation.
+- Chat apps feel wrong when settings or detail views force full-page navigation away from the active thread without good reason.
 
-- The iOS app treats settings as a natural sheet from the main shell.
-- On web, full-page navigation away from chat is a product-feel regression for a conversation app.
+How it relates to the rest of the system:
 
-### Feature Modules and Boundary Rules
+- `/pair` owns first-run and no-session flows.
+- `/chat/:sessionKey?` owns the active conversation context.
+- Settings opens as a modal or drawer inside chat.
+- Stream management and expanded message views may be route-backed overlays if deep-linking is useful, but they should not become separate full-page domains unless product requirements demand it.
 
-The module split exists to separate different dependency shapes and different mutation rights. A module boundary is justified only when it groups code that changes for the same reason, depends on the same runtime inputs, and fails in the same way.
+Placement rule for future work:
+
+- If the user is changing where they are in the app, use a route.
+- If the user is performing contextual work anchored to the current conversation, use an overlay or route-backed overlay.
+
+### Seam 6: Feature Modules
+
+The feature split exists to separate different dependency shapes and mutation rights. A module boundary is real only if the code inside it changes for the same reason, depends on the same runtime inputs, and fails in the same way.
 
 #### `auth-pairing`
 
-Architectural reason this boundary exists:
+Why this boundary exists:
 
-- Everything in this module is about establishing or clearing identity and provider connectivity before chat can begin.
-- It is the only feature area that is allowed to create or destroy the authenticated session.
-- Its failure modes are first-run and auth/bootstrap failures, not live chat failures.
+- Everything here establishes or clears identity and provider connectivity before chat can begin.
+- It is the only area allowed to create or destroy the authenticated session.
+- Its failures are first-run bootstrap failures, not live chat failures.
 
-Relationship to other modules:
+How it relates to other modules:
 
 - It writes into `authSessionStore`.
-- It may trigger transport startup indirectly by completing pairing or logout.
-- It does not read or mutate chat projection state, unread state, or rendering state.
-- Other modules are allowed to read auth/session presence, but they must not duplicate pair/logout behavior.
+- It may start or stop transport indirectly through pairing or logout.
+- It does not read or mutate live chat projection, unread state, or rendering rules.
 
-Decision rule for new code:
+Placement rule:
 
-- If the code exists to establish identity, bootstrap provider config, recover first-run auth, or clear identity on logout, it belongs here.
-- If the code assumes chat is already running, it does not belong here.
+- If the code establishes identity, provider config, first-run auth recovery, or logout, it belongs here.
+- If it assumes chat is already running, it does not.
 
 #### `chat-runtime`
 
-Architectural reason this boundary exists:
+Why this boundary exists:
 
-- This is the live chat shell. Everything in it depends on transport state, session activation, or the chat domain projection.
-- If the WebSocket drops, reconnects, replays, or changes send eligibility, this module reacts immediately.
-- It is the only module that should feel “live” in the sense of transport-coupled UI behavior.
+- This is the live shell. Everything in it reacts to transport phase, session activation, send eligibility, or chat projection changes.
+- If the socket drops or replay starts, this whole area cares immediately. Things outside it should not.
 
-Relationship to other modules:
+How it relates to other modules:
 
 - It reads `transportMachine`, `chatDomainStore`, URL-selected session state, and `settingsStore`.
-- It delegates message body rendering to `message-rendering`.
-- It delegates upload and staging behavior to `attachments`.
-- It opens `stream-management` and `settings-appearance` as overlays.
-- It must not perform direct REST mutations or embed secondary transports itself.
+- It composes `message-rendering`.
+- It delegates uploads to `attachments`.
+- It opens `stream-management`, `settings-appearance`, and `rich-surfaces`.
+- It must not own explicit REST mutation workflows or secondary transports.
 
-Decision rule for new code:
+Placement rule:
 
-- If the component exists because chat is live right now and must react to connection phase, session activation, unread/read changes, or composer send state, it belongs here.
-- If it can render entirely from static message data with no transport awareness, it belongs elsewhere.
+- If the UI exists because chat is live right now, it belongs here.
+- If it can render from static data with no awareness of transport or session activation, it belongs elsewhere.
 
 #### `stream-management`
 
-Architectural reason this boundary exists:
+Why this boundary exists:
 
-- This boundary exists because stream/session administration mutates server state through explicit CRUD/adopt/untrack actions, not through the primary live message stream.
-- These actions have different failure modes, retry semantics, and permission/provisioning rules than live message receipt.
-- Keeping them separate prevents REST mutation concerns from leaking into the chat shell.
+- This area mutates server state through explicit CRUD/adopt/untrack flows.
+- Those flows fail and retry differently from live WebSocket-driven chat.
+- Keeping them separate prevents REST mutation logic from contaminating the live chat shell.
 
-Relationship to other modules:
+How it relates to other modules:
 
 - It reads stream metadata and provisioning state from `chatDomainStore`.
-- It dispatches explicit stream mutation actions that flow through typed HTTP modules and then back into `chatDomainStore`.
-- It may be launched from `chat-runtime`, but `chat-runtime` should not own the mutation workflows themselves.
-- It never touches message rendering rules or secondary rich-surface lifecycles.
+- It dispatches explicit mutation actions through typed HTTP modules, then the results flow back into `chatDomainStore`.
+- It can be launched from `chat-runtime`, but `chat-runtime` should not own the workflows.
 
-Decision rule for new code:
+Placement rule:
 
-- If the code exists to create, rename, delete, adopt, untrack, reorder, or explain the sendability of a stream/session, it belongs here.
-- If the code exists only to show the currently selected stream inside the running chat shell, it belongs in `chat-runtime`.
+- If the code creates, renames, deletes, adopts, untracks, reorders, or explains stream/session sendability, it belongs here.
+- If it only reflects the currently active stream in the running chat shell, it belongs in `chat-runtime`.
 
 #### `message-rendering`
 
-Architectural reason this boundary exists:
+Why this boundary exists:
 
-- This module is pure transformation: message data in, presentational UI out.
-- It should have no transport dependency, no mutation rights, and no side effects beyond local view behavior.
-- That purity is exactly why it can be tested with fixtures and snapshots instead of live servers.
+- This is the pure transformation seam: message data in, UI out.
+- It has no transport dependency, no mutation rights, and no server side effects.
+- That purity is why it should be testable with fixtures alone.
 
-Relationship to other modules:
+How it relates to other modules:
 
-- It reads normalized message/attachment data from `chatDomainStore`.
+- It reads normalized message and attachment data from `chatDomainStore`.
 - It may consume theme tokens from `settings-appearance`.
-- It must not open sockets, call REST endpoints, own uploads, or mutate chat state directly.
-- `chat-runtime` composes it, but should treat it as a pure renderer rather than another domain owner.
+- It must not open sockets, call REST endpoints, own uploads, or mutate chat state.
 
-Decision rule for new code:
+Placement rule:
 
-- If a component can be rendered from a static message fixture and should behave the same whether the app is live or disconnected, it belongs here.
-- If it needs to open a socket, mutate server state, or coordinate uploads, it does not belong here.
+- If the component should render identically from a static fixture whether the app is live or disconnected, it belongs here.
+- If it needs a socket, HTTP mutation, upload progress, or transport awareness, it does not.
 
 #### `attachments`
 
-Architectural reason this boundary exists:
+Why this boundary exists:
 
-- Attachments have a distinct side-effect surface: local file access, paste/drop handling, upload progress, hydration of uploaded assets, and failure/retry behavior.
-- Those concerns are neither pure rendering nor general chat-runtime logic.
-- This boundary keeps browser file APIs and upload lifecycle code out of the transport shell and out of the message renderer.
+- Attachments introduce browser file APIs, paste/drop behavior, upload progress, hydration, and retry semantics.
+- Those are side-effect boundaries distinct from both live chat runtime and pure rendering.
 
-Relationship to other modules:
+How it relates to other modules:
 
 - It reads draft/composer context from `chat-runtime`.
 - It dispatches staged attachment and upload completion events into `chatDomainStore`.
-- It may use typed upload HTTP modules, but it does not own stream CRUD or live message replay.
-- It hands fully described message parts to `message-rendering`; it does not render rich bodies itself.
+- It may call upload HTTP modules.
+- It hands already-described attachment data to `message-rendering`.
 
-Decision rule for new code:
+Placement rule:
 
-- If the code touches file inputs, paste/drop events, upload progress, asset hydration, or attachment retry semantics, it belongs here.
-- If the code only decides how an already-hydrated attachment should look on screen, it belongs in `message-rendering`.
+- If the code touches file inputs, paste/drop events, upload progress, asset hydration, or attachment retry behavior, it belongs here.
+- If it only decides how a hydrated attachment should look, it belongs in `message-rendering`.
 
 #### `rich-surfaces`
 
-Architectural reason this boundary exists:
+Why this boundary exists:
 
-- This module owns the features that bring their own secondary runtime boundaries: terminal WebSockets, iframe sandboxing, postMessage bridges, richer preview surfaces, and expanded content views.
-- Each of these surfaces has an independent lifecycle and a security profile that is stricter than ordinary chat rendering.
-- Keeping them isolated prevents the main chat shell from becoming responsible for transport types and trust boundaries it should not own.
+- This module owns features that bring their own runtime or trust boundary: terminal sockets, iframe sandboxing, postMessage bridges, and richer embedded surfaces.
+- These are not ordinary message rendering concerns. They have independent lifecycle and security rules.
 
-Relationship to other modules:
+How it relates to other modules:
 
-- It reads already-authoritative message and stream context from `chatDomainStore`.
+- It reads authoritative message and stream context from `chatDomainStore`.
 - It may own secondary transports such as terminal connections or isolated iframe bridges.
-- It is opened by `chat-runtime`, but `chat-runtime` must not manage its secondary transport or sandbox policy.
-- It may reuse primitives from `message-rendering`, but it must not inherit mutation rights from chat-runtime.
+- It is opened by `chat-runtime`, but `chat-runtime` must not manage its secondary lifecycle or sandbox policy.
+- It may reuse primitives from `message-rendering` without inheriting mutation rights.
 
-Decision rule for new code:
+Placement rule:
 
 - If the feature introduces a new transport, a new sandbox, a new security policy, or a new embedded runtime, it belongs here.
-- If it is just another static way to render a normal message body, it belongs in `message-rendering`.
+- If it is just another static rendering of normal message content, it belongs in `message-rendering`.
 
 #### `settings-appearance`
 
-Architectural reason this boundary exists:
+Why this boundary exists:
 
-- This boundary exists because settings and appearance are shared preferences, not conversation state.
-- They should be available from the chat shell without becoming part of chat runtime logic.
-- Their change frequency and persistence rules are different from both transport state and message state.
+- Settings and appearance are shared preferences, not conversation state.
+- They should be editable from the chat shell without becoming part of live chat runtime.
+- Their persistence and failure semantics differ from both transport state and message state.
 
-Relationship to other modules:
+How it relates to other modules:
 
 - It reads and writes `settingsStore`.
-- It may be opened from `chat-runtime`, but it should not know about live transport internals.
-- Other modules may read theme tokens and preference values, but they must not own the preference-editing workflow.
+- It may be opened from `chat-runtime`, but it should not know about transport internals.
+- Other modules may consume theme tokens or preference values, but they must not own the editing workflow.
 
-Decision rule for new code:
+Placement rule:
 
 - If the code edits shared appearance, font, or debug preferences, it belongs here.
-- If it only consumes theme tokens while performing another module’s job, it stays in that other module.
+- If it only consumes those values while doing another job, it stays in that other module.
 
-### Boundary Enforcement Rule
+Boundary enforcement rule:
 
-When a new component or controller is added, the deciding questions are:
+- Ask first which runtime dependency the code reacts to: auth bootstrap, live transport, REST mutation, pure rendering, browser file APIs, secondary transports, or shared preferences.
+- Ask second what state it is allowed to mutate.
+- Ask third what failure mode defines it.
 
-1. What runtime dependency does it react to first: auth bootstrap, live transport, REST mutation flow, pure rendering, browser file APIs, secondary transports, or shared preferences?
-2. What state is it allowed to mutate?
-3. What failure mode defines it: auth failure, disconnect/replay, REST mutation failure, upload failure, sandbox failure, or pure render correctness?
+If those answers point to different modules, the code is spanning too many responsibilities and should be split before it lands.
 
-If those answers point to different modules, the code is probably trying to span too many responsibilities and should be split before it lands.
+### Seam 7: Live Transport, Explicit Mutations, and Pure Rendering
 
-### Transport and Data Flow
+Why this boundary exists:
 
-Transport rules:
+- Clawline has three fundamentally different behaviors that must not blur together:
+  - live provider events over WebSocket
+  - explicit server mutations over HTTP
+  - pure message presentation
+- Each of these has different timing, retry, and correctness rules.
 
-- Keep WebSocket connection, replay, and cross-tab leadership out of React components.
-- Express provider events as reducer/state-machine inputs, not as direct component mutations.
-- All stream CRUD and send actions must write through the authoritative owner listed in the SSOT matrix.
+How they relate:
 
-REST strategy:
-
-- The current provider REST surface is small enough that typed fetch modules are sufficient at first.
-- Introduce TanStack Query only if the REST surface grows enough to justify an additional cache authority.
-- Do not make TanStack Query a second source of truth for streams or messages while the WebSocket remains primary.
-
-### Persistence Boundaries and Cache Semantics
-
-This is a persistence problem, not a repository-pattern exercise.
-
-Recommended boundaries:
-
-- IndexedDB
-  - hydrated transcript snapshots by session
-  - stream metadata snapshots
-  - optimistic send journal
-  - optional attachment metadata
-
-- `localStorage`
-  - appearance/font preferences
-  - low-risk debug flags
-  - non-sensitive routing or UI preferences only if URL state is not appropriate
-
-- Prefer secure HTTP-only cookies for auth if the deployment topology allows it.
-- If token storage is unavoidable, document the risk explicitly and keep tokens out of general-purpose UI state.
-
-Cache semantics:
-
-- `live`: current state built from acknowledged transport events
-- `hydrated`: restored from persisted snapshot before live replay completes
-- `replaying`: actively reconciling persisted state with server replay
-- `stale`: usable for immediate paint but known to require confirmation
-- `failed`: persistence restore or sync failed; app falls back to live fetch/replay
+- `transportMachine` owns the main socket, phase transitions, replay, and cross-tab leadership.
+- `chatDomainStore` projects those live events into user-visible message, stream, and unread state.
+- `stream-management` and `attachments` issue explicit HTTP mutations where needed.
+- `message-rendering` consumes already-authoritative projected data and renders it without side effects.
 
 Rules:
 
-- Persisted caches accelerate reload and cold start; they are not the final authority over live message order.
-- Replay cursor commit and message projection commit must happen together.
-- Read/unread projection state must not live in a separate, unsynchronized cache path.
+- React components do not own the main WebSocket lifecycle.
+- Provider events enter through reducer/state-machine inputs, not direct component mutation.
+- Explicit CRUD or upload flows do not bypass the domain owner just because they start from a button click.
+- Rendering code never becomes a side-effect owner just because a message type is “special.”
 
-### Accessibility and Embedded-Content Security Constraints
+Placement rule for future work:
 
-These are architecture inputs and belong in the main design, not in the final hardening phase.
+- If the code is about ordering, replay, reconnect, or cross-tab coherence, it belongs with `transportMachine`.
+- If it is about explicit server mutation initiated by the user, it belongs with the responsible feature module and then flows back through the domain owner.
+- If it is display only, it belongs in `message-rendering`.
 
-Accessibility requirements from the start:
+### Seam 8: Persistence Boundary
 
-- The message list virtualization layer must preserve keyboard navigation, focus visibility, and screen-reader readable ordering.
-- Composer interactions must be operable without pointer input.
-- Font scaling and contrast theming must remain functional at every supported breakpoint.
-- Stream switching, reconnect banners, and toasts must have clear accessible announcements.
+Why this boundary exists:
 
-Embedded-content security requirements from the start:
+- Persistence is not just caching. It is how reload, replay, offline transitions, and optimistic sends remain coherent.
+- The app needs durable local state, but persisted state must not become a rival authority to live transport.
 
-- Interactive HTML must render only in sandboxed iframes with a narrowly scoped postMessage bridge.
-- Sanitization must happen before render, not after a user interaction.
-- Link previews and rich embeds must not inherit ambient app credentials unless explicitly designed for it.
-- Terminal sessions must use isolated auth and lifecycle handling rather than piggybacking on generic chat socket state.
+How it relates to the rest of the system:
 
-### Styling Approach
+- IndexedDB holds transcript snapshots, stream metadata snapshots, optimistic send journal, and optional attachment metadata.
+- `localStorage` holds low-risk preferences and debug flags, not product-critical live chat truth.
+- Auth should prefer secure cookies where topology allows; unavoidable browser-held tokens stay outside general UI state.
+- Replay cursor commit and message projection commit happen together so persisted state and live resume stay aligned.
 
-Recommended styling model:
+Cache semantics:
 
-- CSS variables for theme tokens
-- scoped component CSS or CSS modules for bespoke chat surfaces
-- minimal utility classes only where they do not obscure layout rules
+- `live`: built from acknowledged transport events
+- `hydrated`: restored before live replay completes
+- `replaying`: being reconciled with the server
+- `stale`: usable for immediate paint but not yet confirmed
+- `failed`: restore or sync failed and the app must fall back to live recovery
 
-Theme guidance:
+Placement rule for future work:
 
-- Translate `ChatFlowTheme` and typography roles into web tokens
-- Preserve visual identity, but do not reproduce native layout mechanics literally
+- If local state exists only to make reload and recovery coherent, it belongs at this boundary.
+- If local state is trying to answer product questions that already have a live owner elsewhere, it does not belong here.
+
+### Seam 9: Accessibility, Security, and Styling as Architectural Constraints
+
+Why this boundary exists:
+
+- These are not post-build checks. They shape how the earlier seams must be implemented.
+- Virtualized chat, embedded rich surfaces, and themeable dense UI all become wrong if these constraints are left until the end.
+
+How they relate to the rest of the system:
+
+- Accessibility constrains `chat-runtime`, `message-rendering`, and route/overlay design: keyboard flow, focus order, readable message ordering, font scaling, and announcements must work under virtualization and reconnect flows.
+- Embedded-content security constrains `rich-surfaces`, `attachments`, and preview handling: interactive HTML stays inside sandboxed iframes with narrow postMessage bridges; terminal sessions own isolated auth and lifecycle; previews do not inherit ambient credentials casually.
+- Styling is not a separate state owner. It is a consumer of `settingsStore` and shared design tokens. The web layer should translate `ChatFlowTheme` and typography roles into CSS variables and scoped component styles without reproducing native layout mechanics literally.
+
+Placement rule for future work:
+
+- If a proposed feature breaks keyboard flow, focus semantics, sandbox guarantees, or token-based theming, the architecture must be changed before the feature ships.
+- Accessibility, security, and styling concerns may constrain a module boundary, but they do not justify inventing a parallel owner for the same product state.
 
 ## Test Strategy
 
