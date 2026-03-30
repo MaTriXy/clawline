@@ -100,13 +100,23 @@ struct SelectableAttributedText: UIViewRepresentable {
             emitSelectionChange(hasSelection)
         }
 
-        @available(iOS 17.0, *)
-        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
-            if case .link(let url) = textItem.content {
-                onLinkTap(url)
-                return nil
-            }
-            return defaultAction
+        func textView(_ textView: UITextView, shouldInteractWith url: URL, in characterRange: NSRange) -> Bool {
+            UnifiedMarkdownRenderer.handleReleaseTriggeredLinkActivation(url, openURL: onLinkTap)
+        }
+
+        func textView(
+            _ textView: UITextView,
+            shouldInteractWith url: URL,
+            in characterRange: NSRange,
+            interaction: UITextItemInteraction
+        ) -> Bool {
+            // Use the URL interaction delegate instead of `primaryActionFor` so activation happens
+            // on completed link interaction, not on initial press-down.
+            UnifiedMarkdownRenderer.handleReleaseTriggeredLinkActivation(
+                url,
+                interaction: interaction,
+                openURL: onLinkTap
+            )
         }
 
         private func emitSelectionChange(_ hasSelection: Bool) {

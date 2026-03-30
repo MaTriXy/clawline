@@ -1463,13 +1463,23 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fileTapHandlers[ObjectIdentifier(view)]?()
     }
 
-    @available(iOS 17.0, *)
-    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
-        if case .link(let url) = textItem.content {
-            UIApplication.shared.open(url)
-            return nil
+    func textView(_ textView: UITextView, shouldInteractWith url: URL, in characterRange: NSRange) -> Bool {
+        UnifiedMarkdownRenderer.handleReleaseTriggeredLinkActivation(url) { tappedURL in
+            UIApplication.shared.open(tappedURL)
         }
-        return defaultAction
+    }
+
+    func textView(
+        _ textView: UITextView,
+        shouldInteractWith url: URL,
+        in characterRange: NSRange,
+        interaction: UITextItemInteraction
+    ) -> Bool {
+        // Use the URL interaction delegate instead of `primaryActionFor` so activation happens
+        // on completed link interaction, not on initial press-down.
+        UnifiedMarkdownRenderer.handleReleaseTriggeredLinkActivation(url, interaction: interaction) { tappedURL in
+            UIApplication.shared.open(tappedURL)
+        }
     }
 
     private static func markdownStyle(

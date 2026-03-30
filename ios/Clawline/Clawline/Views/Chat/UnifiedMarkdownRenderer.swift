@@ -126,6 +126,19 @@ enum UnifiedMarkdownRenderer {
         textView.linkTextAttributes = linkTextAttributes
     }
 
+    @MainActor
+    static func handleReleaseTriggeredLinkActivation(
+        _ url: URL,
+        interaction: UITextItemInteraction = .invokeDefaultAction,
+        openURL: (URL) -> Void
+    ) -> Bool {
+        guard interaction == .invokeDefaultAction else {
+            return true
+        }
+        openURL(url)
+        return false
+    }
+
     static func render(
         plan: MarkdownRenderPlan,
         options: MarkdownRenderOptions
