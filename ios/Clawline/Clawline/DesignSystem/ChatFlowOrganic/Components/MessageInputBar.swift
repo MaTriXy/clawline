@@ -122,8 +122,14 @@ struct MessageInputBar: View {
         cachedMaxBarWidth = textWidth + chromeWidth
     }
 
+    // #61: On visionOS, keep the input bar in dark mode regardless of the global theme toggle.
+    // The rest of the UI still respects `settings.appearanceMode`.
     private var isLightModeForInputBar: Bool {
-        colorScheme == .light
+#if os(visionOS)
+        return false
+#else
+        return settings.appearanceMode == .light
+#endif
     }
 
     private var inputBarColorScheme: ColorScheme {
@@ -131,21 +137,21 @@ struct MessageInputBar: View {
     }
 
     private var addButtonForeground: Color {
-        #if os(visionOS)
+#if os(visionOS)
         return isLightModeForInputBar ? .black : .white
-        #else
+#else
         return .primary
-        #endif
+#endif
     }
 
     private var appearanceIconColor: Color { addButtonForeground }
 
     private var appearanceIconName: String {
-        colorScheme == .dark ? "moon.stars" : "sun.max"
+        settings.appearanceMode == .dark ? "moon.stars" : "sun.max"
     }
 
     private var isLightMode: Bool {
-        colorScheme == .light
+        settings.appearanceMode == .light
     }
 
     private var visionOSBorderColor: Color {

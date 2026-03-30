@@ -38,7 +38,6 @@ struct Clawline_SpatialApp: App {
         WindowGroup {
             @Bindable var settingsManager = settingsManager
             RootView(uploadService: uploadService)
-                .preferredColorScheme(settingsManager.preferredColorScheme)
                 .environment(authManager)
                 .environment(\.connectionService, connectionService)
                 .environment(\.deviceIdentifier, deviceIdentifier)
