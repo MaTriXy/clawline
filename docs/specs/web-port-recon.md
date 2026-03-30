@@ -479,256 +479,390 @@ Implication for web:
 
 - Replace them with typed domain stores and explicit actions
 
-## Proposed React Web Architecture
+## Deployment Preconditions
+
+Before implementation starts, the following must be fixed or explicitly gated. These are not late-stage polish decisions; they shape the web app architecture.
+
+### Auth and Deployment Topology
+
+The web client needs an approved answer for all of the following:
+
+- Is the app same-origin with a web gateway/BFF, or a pure client app talking directly to the provider?
+- Is auth cookie-backed, token-backed, or proxied through a gateway?
+- Does the gateway terminate WebSocket auth on behalf of the browser, or does the browser talk directly to the provider?
+
+Until those are decided, the framework recommendation is conditional rather than final.
+
+### TLS
+
+The native app supports self-signed trust and optional leaf fingerprint pinning through `ProviderBaseURLStore` and `URLSessionWebSocketConnector`. Browsers cannot reproduce this trust model.
+
+The web port therefore requires one of two approved paths:
+
+- Browser-trusted TLS on the provider endpoint
+- A browser-safe gateway/proxy that terminates trusted TLS and forwards to the provider
+
+If neither path is available, the web app should not proceed beyond prototype stage.
+
+## Browser Runtime Invariants
+
+The web client must define browser-specific behavior explicitly rather than inheriting iOS scene assumptions.
+
+### Chosen Runtime Model
+
+The recommended model is single-leader transport per authenticated browser profile:
+
+- One tab is the transport leader.
+- The leader owns the main chat WebSocket, replay cursor advancement, incoming event ordering, and durable unread/read projection updates.
+- Follower tabs use `BroadcastChannel` to mirror live state and issue user intents such as send, mark-read, or stream mutations through the leader.
+- If the leader closes or becomes unavailable, a follower may acquire leadership and reconnect using the persisted cursor state.
+
+Rationale:
+
+- It avoids duplicate sockets and duplicate replay advancement across tabs.
+- It reduces unread divergence between tabs.
+- It preserves a single authoritative connection lifecycle owner.
+
+### Per-Tab Versus Shared State
+
+- URL state is per-tab.
+- Selected session is per-tab because each tab may be focused on a different conversation.
+- Live transport, replay progress, unread/read projection updates, and message ordering are shared at the browser-profile level through the leader.
+- Settings and identity are shared persisted preferences.
+
+### Visibility and Focus
+
+- Hidden follower tabs do not open the main chat socket.
+- The leader may remain connected while backgrounded if the browser permits it.
+- Focus changes do not directly mutate read state. Read state changes only through explicit visible-message acknowledgement rules in the chat domain owner.
+
+### Online and Offline
+
+- Offline transitions move the leader transport machine into a disconnected/recovering phase.
+- Optimistic local sends remain visible but unsent until transport resumes or the user cancels them.
+- Reconnect must be idempotent and replay from the last committed cursor only.
+
+### Reload and Tab Closure
+
+- Reload of a leader tab should not lose durable state because replay cursor, optimistic send journal, and unread projection state are persisted before acknowledgement.
+- Follower reloads are cheap because they recover from persisted snapshot plus leader sync.
+- Leader exit triggers transport leadership re-election.
+
+## SSOT Ownership Matrix
+
+The web implementation should start from ownership, not from a list of stores.
+
+| Product concept | Single authoritative owner | Readers | Allowed mutation paths |
+| --- | --- | --- | --- |
+| Authenticated user/session presence | `authSessionStore` | router guards, transport machine, settings UI | pairing success, logout, auth refresh |
+| Provider base URL and auth transport config | `authSessionStore` | pairing flow, transport machine, upload/terminal adapters | pairing success, settings edit, logout reset |
+| Device/browser identity | `authSessionStore` persisted via browser storage adapter | transport machine | first-run generation, explicit reset |
+| Transport phase (`idle`, `connecting`, `authenticating`, `replaying`, `live`, `recovering`, `failed`) | `transportMachine` | chat feature, diagnostics UI, send controls | transport reducer transitions only |
+| Replay cursor advancement | `transportMachine` | chat projection hydrator, persistence adapter | leader-only message commit path |
+| Selected session | URL state | chat shell, stream UI, composer | router navigation only |
+| Send eligibility / provisioning state | `chatDomainStore` | composer, stream UI, banners | session snapshot handling, stream mutations, server events |
+| Stream metadata and ordering | `chatDomainStore` | sidebar/popover, chat shell, settings/debug UI | stream snapshot events, stream CRUD responses, adopt/untrack actions |
+| Messages and optimistic send reconciliation | `chatDomainStore` | message list, search/debug tooling, expanded message view | send pipeline, inbound events, replay hydrate, attachment hydrate |
+| Read/unread projection | `chatDomainStore` | stream UI, document title/badge, follower-tab mirrors | explicit mark-read action, incoming assistant messages, stream switch rules |
+| Draft text and staged attachments | component-local state within chat route subtree | composer and attachment tray only | local user input actions |
+| Appearance/font/debug preferences | `settingsStore` | all feature modules | settings UI only |
+| Toasts/global transient notifications | small notification service only | app shell | explicit publish calls from feature modules |
+
+Two rules matter:
+
+- If a concept appears in this table, no second mutable owner may be introduced for convenience.
+- REST responses, WebSocket events, and local persistence hydration must all converge through the owner listed above.
+
+## Proposed Web Architecture
 
 ### Recommended Application Shape
 
-Use a client-rendered React SPA with route-based onboarding and a state architecture split by domain, not by screen.
+Use React as the UI layer, but gate the app runtime around the approved deployment topology:
 
-Recommended high-level layers:
+- If the app is a pure browser client that talks directly to provider endpoints, a Vite-based SPA is a good fit.
+- If auth, TLS termination, or WebSocket brokering require a same-origin gateway/BFF, use a React framework with a server boundary instead of forcing a pure SPA shape.
 
-1. App shell
-2. Domain stores/controllers
-3. Transport/data services
-4. Presentational components
-5. Browser storage adapters
+This is the concrete recommendation:
 
-### Recommended Tech Stack
+- UI layer: React 19 + TypeScript
+- Runtime/build:
+  - Direct-client variant: Vite
+  - Gateway/BFF variant: a server-capable React framework
+- Browser automation and E2E: Playwright
+- Durable local persistence: IndexedDB via Dexie or equivalent
+- Virtualized message rendering: `react-virtuoso` or TanStack Virtual
+- Rich content:
+  - markdown/render pipeline via `remark`/`rehype` or equivalent
+  - syntax highlighting via Shiki or `highlight.js`
+  - terminal rendering via `xterm.js`
+  - embedded HTML via sandboxed iframe plus strict sanitization
 
-- React 19
-- TypeScript
-- Vite for app build and dev workflow
-- React Router for routing
-- Zustand for local domain stores
-- TanStack Query for REST-backed server state
-- IndexedDB via Dexie for message and stream caches
-- `react-virtuoso` or TanStack Virtual for message virtualization
-- `react-markdown` or `remark`/`rehype` pipeline plus custom renderers
-- `highlight.js` or Shiki for code blocks
-- `xterm.js` for terminal sessions
-- `DOMPurify` plus sandboxed iframes for interactive HTML and embedded previews
-- CSS variables plus a thin design-token layer; no heavy component framework
+### Minimum Shared Runtime Owners
 
-Why this stack:
+The revised architecture should keep the number of shared mutable authorities intentionally small:
 
-- The app is interaction-heavy, not SEO-heavy, so SSR is not a primary requirement.
-- The domain needs explicit client state ownership because the WebSocket session is central.
-- IndexedDB is the correct browser analogue for durable message caches.
-- A thin design system is preferable to importing a large UI framework that will fight the custom chat surface.
+- `authSessionStore`
+  - identity, provider config, persisted device ID
+- `transportMachine`
+  - socket leadership, phase transitions, replay cursor, reconnect/backoff
+- `chatDomainStore`
+  - streams, messages, unread/read projection, optimistic sends, provisioning state
+- `settingsStore`
+  - appearance, font scale, debug toggles
 
-### Routing
+What is intentionally not present:
+
+- no global `uiStore`
+- no global `selectedSession` store
+- no parallel `streamStore` plus `chatStore` split unless runtime pressure proves it necessary
+
+Selected session belongs in the URL. Draft text and staged attachments belong to route-local state, not a global store.
+
+### Routing and Overlay Model
 
 Recommended routes:
 
 - `/pair`
-- `/chat`
-- `/chat/:sessionKey`
-- `/settings`
+- `/chat/:sessionKey?`
 
-Routing notes:
+Overlay model:
 
-- Pairing should be a first-run/onboarding route
-- Session selection should be reflected in the URL
-- Deep links to a specific stream/session are useful and natural on web
+- Settings should open as a modal or drawer anchored inside the chat shell, not as a full-route page that navigates the user away from the conversation.
+- Expanded message views, stream management, and similar flows should prefer route-backed overlays or subtree state, depending on whether deep-linking is product-useful.
 
-### Domain Stores
+Why:
 
-Recommended store split:
+- The iOS app treats settings as a natural sheet from the main shell.
+- On web, full-page navigation away from chat is a product-feel regression for a conversation app.
 
-- `authStore`
-  - token/session presence
-  - user ID
-  - device ID
-  - provider base URL
+### Feature Modules and Owned Component Sets
 
-- `settingsStore`
-  - appearance
-  - font scale
-  - debug flags
+Component names are not enough. The implementation should define modules by feature ownership.
 
-- `connectionStore`
-  - socket status
-  - lifecycle phase
-  - reconnect state
-  - replay status
+Recommended module breakdown:
 
-- `chatStore`
-  - messages by session
-  - optimistic sends
-  - read/unread state
-  - input drafts
-  - attachment staging
+- `auth-pairing`
+  - owns pair flow, provider URL entry, auth bootstrap, logout
+  - likely components: pairing page, provider entry form, first-run state gates
 
-- `streamStore`
-  - stream metadata
-  - selected session
-  - active engine session
-  - adoption/tracking state
-  - provisioning state
+- `chat-runtime`
+  - owns chat route shell, message list, composer, read/unread rules, session activation, reconnect banners
+  - likely components: chat shell, message list, composer, scroll affordance, toast layer
 
-- `uiStore`
-  - sheet/modal state
-  - toasts
-  - scroll-to-bottom affordance state
-  - expanded message state
+- `stream-management`
+  - owns stream list, create/rename/delete/adopt/untrack, stream ordering presentation
+  - likely components: sidebar/popover, stream manager overlay, stream row actions
 
-This split directly addresses the current `ChatViewModel` overreach.
+- `message-rendering`
+  - owns markdown/code/table/link/image/file rendering rules
+  - likely components: message bubble, markdown block, code block, table block, link card, file/image renderers
 
-### Service Layer
+- `attachments`
+  - owns upload flow, paste/drop/file-input attachment staging, hydration of uploaded assets
+  - likely components: attachment tray, upload progress UI, paste/drop targets
 
-Recommended services:
+- `rich-surfaces`
+  - owns terminal sessions, interactive HTML, richer embedded previews, expanded message surfaces
+  - likely components: terminal panel, sandboxed HTML bubble, expanded message overlay
 
-- `PairingClient`
-- `ProviderSocketClient`
-- `StreamApiClient`
-- `UploadClient`
-- `TerminalSessionClient`
-- `MetadataPreviewClient`
-- `MessageCacheRepository`
-- `StreamCacheRepository`
+- `settings-appearance`
+  - owns appearance/font/debug preferences and background treatment
+  - likely components: settings drawer/modal, theme controls, font controls
+
+Each module should expose:
+
+- its owned components
+- the shared owners it may read
+- the exact actions it may dispatch into those owners
+
+### Transport and Data Flow
 
 Transport rules:
 
-- Keep WebSocket connection and replay state out of React components
-- Express provider events as typed actions into stores
-- Keep one authoritative owner for connection phase and one for stream selection
+- Keep WebSocket connection, replay, and cross-tab leadership out of React components.
+- Express provider events as reducer/state-machine inputs, not as direct component mutations.
+- All stream CRUD and send actions must write through the authoritative owner listed in the SSOT matrix.
 
-### Component Structure
+REST strategy:
 
-Recommended component tree:
+- The current provider REST surface is small enough that typed fetch modules are sufficient at first.
+- Introduce TanStack Query only if the REST surface grows enough to justify an additional cache authority.
+- Do not make TanStack Query a second source of truth for streams or messages while the WebSocket remains primary.
 
-- `AppShell`
-- `PairingPage`
-- `ChatPage`
-- `ChatLayout`
-- `StreamSidebar` or `StreamPopover`
-- `MessageList`
-- `MessageRow`
-- `MessageBubble`
-- `MessageRenderer`
-- `MarkdownBlock`
-- `CodeBlock`
-- `TableBlock`
-- `LinkCard`
-- `LinkPreview`
-- `ImageGallery`
-- `FileAttachment`
-- `InteractiveHtmlBubble`
-- `TerminalBubble`
-- `Composer`
-- `AttachmentTray`
-- `SettingsDialog`
-- `ToastLayer`
+### Persistence Boundaries and Cache Semantics
 
-Important implementation note:
+This is a persistence problem, not a repository-pattern exercise.
 
-Do not collapse the chat page into a single huge component. The current iOS complexity argues for smaller domain-driven UI seams.
+Recommended boundaries:
+
+- IndexedDB
+  - hydrated transcript snapshots by session
+  - stream metadata snapshots
+  - optimistic send journal
+  - optional attachment metadata
+
+- `localStorage`
+  - appearance/font preferences
+  - low-risk debug flags
+  - non-sensitive routing or UI preferences only if URL state is not appropriate
+
+- Prefer secure HTTP-only cookies for auth if the deployment topology allows it.
+- If token storage is unavoidable, document the risk explicitly and keep tokens out of general-purpose UI state.
+
+Cache semantics:
+
+- `live`: current state built from acknowledged transport events
+- `hydrated`: restored from persisted snapshot before live replay completes
+- `replaying`: actively reconciling persisted state with server replay
+- `stale`: usable for immediate paint but known to require confirmation
+- `failed`: persistence restore or sync failed; app falls back to live fetch/replay
+
+Rules:
+
+- Persisted caches accelerate reload and cold start; they are not the final authority over live message order.
+- Replay cursor commit and message projection commit must happen together.
+- Read/unread projection state must not live in a separate, unsynchronized cache path.
+
+### Accessibility and Embedded-Content Security Constraints
+
+These are architecture inputs and belong in the main design, not in the final hardening phase.
+
+Accessibility requirements from the start:
+
+- The message list virtualization layer must preserve keyboard navigation, focus visibility, and screen-reader readable ordering.
+- Composer interactions must be operable without pointer input.
+- Font scaling and contrast theming must remain functional at every supported breakpoint.
+- Stream switching, reconnect banners, and toasts must have clear accessible announcements.
+
+Embedded-content security requirements from the start:
+
+- Interactive HTML must render only in sandboxed iframes with a narrowly scoped postMessage bridge.
+- Sanitization must happen before render, not after a user interaction.
+- Link previews and rich embeds must not inherit ambient app credentials unless explicitly designed for it.
+- Terminal sessions must use isolated auth and lifecycle handling rather than piggybacking on generic chat socket state.
 
 ### Styling Approach
 
 Recommended styling model:
 
 - CSS variables for theme tokens
-- CSS modules or scoped component CSS for large bespoke surfaces
-- Minimal utility classes if desired, but avoid a Tailwind-only architecture that obscures product-specific layout rules
+- scoped component CSS or CSS modules for bespoke chat surfaces
+- minimal utility classes only where they do not obscure layout rules
 
-Rationale:
+Theme guidance:
 
-- The app already has its own design language
-- The chat surface needs deliberate CSS, not purely utility-composed styles
-- Theme tokens should map from current `ChatFlowTheme` and typography settings
+- Translate `ChatFlowTheme` and typography roles into web tokens
+- Preserve visual identity, but do not reproduce native layout mechanics literally
 
-### Storage Model
+## Test Strategy
 
-Recommended browser persistence:
+The migration needs explicit testing layers from the start.
 
-- IndexedDB
-  - message caches
-  - stream metadata cache
-  - optional attachment metadata cache
+### Protocol and State Correctness
 
-- `localStorage`
-  - theme/font preferences
-  - non-sensitive UI state
-  - generated device ID if no stronger auth model exists
+- Fixture tests for pairing/auth/chat payloads derived from current Swift behavior
+- Reducer/state-machine tests for transport phase transitions and replay semantics
+- Projection tests for unread/read rules, provisioning state, and optimistic send reconciliation
 
-- Prefer secure HTTP-only cookies for auth if server changes are allowed
-- If not, local token storage is possible but weaker than the native keychain model
+### Browser Runtime Behavior
+
+- Multi-tab leadership tests
+- Reload/reconnect tests
+- offline/online recovery tests
+- duplicate-send prevention tests
+
+### UI and Interaction
+
+- Playwright tests for pair flow, chat send/receive, stream switching, attachment upload, and settings overlay behavior
+- Scroll behavior tests for unread anchors, restore-on-reload, and scroll-to-bottom affordance logic
+- Accessibility checks for keyboard flow, focus order, announcements, and scalable typography
+
+### Rich Surface and Security
+
+- Terminal lifecycle tests
+- Interactive HTML sandbox contract tests
+- visual regression or screenshot diff coverage for critical chat surfaces
+
+Testing should follow the ownership model:
+
+- transport bugs are caught at the state-machine layer
+- projection bugs are caught at the domain-store layer
+- browser/runtime bugs are caught in end-to-end automation
 
 ## Migration Strategy
 
-### Phase 0: Contract Capture
+### Phase 0: Contract Capture and Runtime Definition
 
-Before writing much web UI, explicitly document and test the provider contracts currently implied by Swift code:
+Before major UI work, capture the behavior that the web client must preserve:
 
 - pairing request/result payloads
-- auth payload
-- message payloads
-- ack/error behavior
+- auth payload and token/cookie contract
+- message payloads and ack semantics
 - typing/service/session/stream event payloads
 - replay cursor behavior
+- stream CRUD payloads
 - terminal session protocol
 - upload API assumptions
+- chosen browser runtime invariants and cross-tab leadership rules
 
 Deliverables:
 
 - TypeScript protocol models
 - fixture payloads captured from Swift behavior
-- state machine notes for connection lifecycle
+- transport state-machine notes
+- browser runtime invariant document
 
-This phase reduces the chance of silently reinterpreting provider behavior.
+This is the only non-user-facing step in the high-level strategy. The detailed phase plan should still ensure each implementation phase yields a runnable app.
 
-### Phase 1: Core Shell and Pairing
-
-Build:
-
-- app shell
-- pairing flow
-- auth/provider persistence
-- guarded routing
-- settings baseline
-
-Exclude:
-
-- advanced message rendering
-- rich attachment surfaces
-
-### Phase 2: Core Transport and Basic Chat
+### Phase 1: Runnable Pairing and Text Chat
 
 Build:
 
-- authenticated WebSocket
-- connection lifecycle state
+- pair flow
+- auth bootstrap
+- chat shell
+- leader-tab transport machine
+- text send/receive
+- basic stream selection
+- baseline Playwright coverage
+
+Include from the start:
+
+- keyboard-operable composer
+- settings as in-chat overlay, not full navigation
+- basic accessibility announcements for connection/send state
+
+### Phase 2: Session Fidelity and Durable Reload
+
+Build:
+
 - replay/recovery
-- message send/ack
-- session selection
-- stream snapshot consumption
-- unread/read behavior
-- basic message list
+- unread/read projection
+- persisted transcript snapshots
+- durable reload behavior
+- multi-tab leadership tests
+- reconnect/offline handling
 
-This is the first end-to-end usable milestone.
-
-### Phase 3: Message Rendering and Attachments
+### Phase 3: Rich Rendering and Common Attachments
 
 Build:
 
-- markdown
-- code blocks
-- tables
+- markdown/code/tables
 - image/file attachments
+- paste/drop/file-input flows
 - link cards
 - upload/download pipeline
+- visual regression coverage for core message surfaces
 
-This gets the web app to practical parity for common messaging.
-
-### Phase 4: Stream Management and Cache Durability
+### Phase 4: Stream Management and Chat-Surface Maturity
 
 Build:
 
 - create/rename/delete/adopt/untrack stream flows
-- persistent caches
-- scroll restoration
-- deeper active-session behavior
+- improved message list virtualization
+- scroll restoration and unread anchors
+- mobile Safari/iPad browser tuning
+- accessibility pass on chat shell and stream management
 
 ### Phase 5: Advanced Rich Surfaces
 
@@ -736,20 +870,23 @@ Build:
 
 - terminal sessions
 - interactive HTML attachments
-- richer preview surfaces
-- expanded message views
+- richer embedded previews
+- expanded message surfaces
 
-This phase should be gated on real product need because it adds substantial security and QA cost.
+Gate:
 
-### Phase 6: Web-Specific Hardening
+- Only proceed if these are confirmed product requirements.
+- Their security constraints must be designed before implementation, not retrofitted after.
+
+### Phase 6: Release Hardening
 
 Build:
 
-- offline/reload resilience
-- accessibility audit
-- browser compatibility pass
-- mobile Safari/iPad browser tuning
-- security review for embedded content
+- cross-browser compatibility pass
+- deeper failure-mode coverage
+- production observability
+- performance tuning
+- final security review
 
 ## What Ports Cleanly, What Needs Reimplementation, What Should Be Dropped
 
@@ -850,29 +987,28 @@ This will make the web client easier to reason about and will also clarify futur
 
 ## Open Questions and Decision Points
 
-1. Is the web app expected to match only the iOS/iPad app, or also subsume watch/spatial companion behaviors over time?
-2. Can the provider/server be changed to support a safer web auth model, ideally secure cookies instead of token-in-storage?
-3. Will the web client be allowed to require valid CA-trusted TLS?
-4. Are terminal session attachments launch-critical?
-5. Are interactive HTML attachments launch-critical?
-6. Is salience highlighting a must-have feature or a native-only enhancement that can be omitted?
-7. Should session selection be URL-addressable on web?
+1. Is the web app expected to match only the iOS/iPad app, or also absorb watch/spatial-adjacent behaviors over time?
+2. Which deployment topology is approved: direct browser-to-provider, same-origin gateway/BFF, or another mediated path?
+3. Which auth model is approved for the browser: secure cookies, browser-held tokens, or gateway-brokered session auth?
+4. Will the web deployment require valid CA-trusted TLS end to end, or is a trusted gateway layer expected?
+5. Are terminal session attachments launch-critical?
+6. Are interactive HTML attachments launch-critical?
+7. Is salience highlighting a must-have feature or a native-only enhancement that can be omitted?
 8. Is a responsive mobile-web experience required to replace the iPad app in practice, or is desktop web the primary target?
-9. Should the web app preserve the exact stream-switch model of `uiSelectedSessionKey` versus `engineActiveSessionKey`, or can the UX be simplified?
-10. Is there a need for offline read access to cached messages, or is reload resilience sufficient?
-11. Should link preview metadata be fetched from the browser client or from a server-side preview service?
-12. Is arbitrary embedded HTML trusted content only, or must the web app handle untrusted interactive content?
+9. Is offline read access required, or is durable reload plus reconnect sufficient?
+10. Should link preview metadata be fetched in-browser or via a server-side preview service?
+11. Will interactive HTML be treated as trusted content only, or must the browser client support untrusted embeds?
 
 ## Recommended Implementation Order
 
-1. Freeze and document the provider client contract from current Swift behavior.
-2. Prototype the web message list and scroll model before heavy feature work.
-3. Build pairing, auth shell, transport, and basic stream navigation.
-4. Implement messaging, replay, unread state, and durable caches.
-5. Add markdown/code/table/image/file rendering.
-6. Add stream management flows.
-7. Decide whether terminal and interactive HTML make the first release.
-8. Run a dedicated security review for browser-embedded content.
+1. Resolve deployment topology, auth model, and TLS strategy.
+2. Freeze and document the provider contract and browser runtime invariants.
+3. Build the transport machine and a runnable pair-plus-text-chat slice.
+4. Add replay, unread/read projection, and durable reload behavior.
+5. Add rich rendering and common attachments.
+6. Add stream-management flows and mature the chat surface.
+7. Decide whether terminal and interactive HTML belong in the first release.
+8. Run dedicated accessibility, browser-runtime, and embedded-content security passes before launch.
 
 ## Feasibility Conclusion
 
