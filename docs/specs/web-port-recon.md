@@ -1146,13 +1146,19 @@ Mismatch handling rule:
 - If the mismatch is between older docs and both current iOS/provider behavior, treat the older doc as stale and call it out in implementation notes.
 - If the mismatch changes user-visible product behavior and no newer doc resolves it, stop and get a product decision.
 
-Current known mismatches:
+### Docs-vs-iOS Mismatch Table
 
-| Topic | Docs truth to implement | iOS / current behavior evidence | Implementer action |
+This section is intentionally explicit. The web spec must not silently normalize these drifts.
+
+| Area | Docs say | iOS does | Web spec decision |
 | --- | --- | --- | --- |
-| `stream_snapshot` ordering on auth | `docs/implementation_details/multi-stream.md` requires `stream_snapshot` before replayed messages | `docs/ios-provider-connection.md` is looser and does not make the ordering requirement explicit; iOS client is tolerant of independent stream events | Implement the web client assuming `stream_snapshot` arrives before replay on a healthy provider. Keep the client tolerant of out-of-order stream events for robustness, but do not define that tolerance as the intended contract. |
-| Attachment/download contract | Current implementer contract is asset references plus authenticated `GET /download/:assetId` | `UploadService.swift`, `Attachment.swift`, `WireAttachment.swift`, and provider architecture use `assetId`; older `docs/ios-provider-connection.md` still documents `type:"url"` under `/www/media/...` | Build the web client around `asset` attachments and authenticated downloads. Treat `url`-style attachment docs as stale until refreshed. |
-| Browser connection topology | Web architecture may require a gateway/BFF because browser auth and TLS differ from native iOS | `docs/ios-provider-connection.md` assumes direct provider connections | Treat this as a platform delta, not a product contradiction. The browser client contract is gated on the deployment/auth/TLS decision already called out in the main spec. |
+| `stream_snapshot` ordering on auth | `docs/implementation_details/multi-stream.md` requires `stream_snapshot` before replayed messages | `docs/ios-provider-connection.md` is looser on ordering; iOS tolerates stream events arriving independently | The intended contract is still `stream_snapshot` before replay. The web client should code to that contract but remain tolerant of older/out-of-order behavior during migration. |
+| Attachment/download contract | Older connection guide still documents large-file `type:"url"` attachments under `/www/media/...` | `WireAttachment.swift`, `Attachment.swift`, `UploadService.swift`, and provider docs use `assetId` plus authenticated `GET /download/:assetId` | Implement `asset` references and authenticated downloads. Treat `url` attachment docs as stale unless provider docs are intentionally reverted. |
+| Replay cursor resume shape | Implementation-details docs require sending all per-stream cursors, not just the active cursor | `ProviderChatService.sendAuth` currently sends `lastMessageId` and has `replayCursorsBySessionKey` in the payload type but currently sets it `nil` | The web target should support per-stream cursor resume. Confirm provider acceptance of `replayCursorsBySessionKey` during Phase 2; until then, treat this as a contract-validation item, not settled behavior. |
+| Pair pending state | `docs/ios-provider-connection.md` enumerates `pair_result` reasons, but does not foreground the transient pending shape | `ProviderConnectionService` explicitly treats `pair_result.reason == "pair_pending"` as a nonterminal wait state | Web pairing should support transient pending approval state and not misclassify it as a terminal denial. |
+| Typing event stream scoping | Older guide examples show `typing` without `sessionKey` | Current iOS payload type accepts optional `sessionKey`, and the UI only surfaces typing when a session key is present | In a multi-stream web client, unscoped typing is ambiguous. Accept it on the wire for compatibility, but do not surface it unless a stream scope is available. |
+| `session_info` / provisioning shape | Docs describe provisioning using `sessionKeys` and stream/session info events | Current iOS accepts both `sessionKeys` and `sessions: [{ stream, sessionKey }]` shapes | The web parser should accept both shapes. The normalized internal model remains a single provisioned `sessionKeys[]` list plus stream metadata inventory. |
+| Browser connection topology | iOS connection guide assumes direct provider connection | Web architecture may require same-origin gateway/BFF because browser auth and TLS rules differ from native iOS | Treat this as a platform delta. The Phase 1 implementation is blocked on an explicit topology/auth/TLS decision. |
 
 ### Product Invariants and Decision Tables
 
@@ -1208,6 +1214,484 @@ Current known mismatches:
 | live | connected | Composer active subject to provisioning rules |
 | recovering / reconnecting | reconnecting | No separate heartbeat or "unresponsive" state |
 | failed / disconnected | disconnected | Error banner stays removed; state is expressed in send affordance |
+
+### Typed Protocol Appendix
+
+The interfaces below are the implementation target for the browser client. Optional fields are marked with `?`. Where the docs and iOS differ, the interface includes the superset the parser should tolerate and the notes call out which fields are normative versus compatibility-only.
+
+#### Common wire types
+
+```ts
+type SessionKey = string;
+type DeviceId = string;
+type UserId = string;
+type ClientMessageId = `c_${string}`;
+type ServerEventId = `s_${string}`;
+type UnixMillis = number;
+
+type JSONValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JSONValue[]
+  | { [key: string]: JSONValue };
+
+interface DeviceInfoWire {
+  platform: string;
+  model: string;
+}
+
+interface ClientDescriptorWire {
+  id: string;
+  features?: string[];
+}
+
+interface InlineImageAttachmentWire {
+  type: "image";
+  mimeType: string;
+  data: string; // base64
+}
+
+interface AssetRefAttachmentWire {
+  type: "asset";
+  assetId: string;
+}
+
+type ClientAttachmentWire = InlineImageAttachmentWire | AssetRefAttachmentWire;
+
+interface AttachmentMetadataWire {
+  mimeType?: string;
+  filename?: string;
+  size?: number;
+  width?: number;
+  height?: number;
+}
+
+interface ServerAttachmentWire {
+  id?: string;
+  type: "image" | "asset" | "document";
+  mimeType?: string;
+  data?: string; // base64 when present
+  assetId?: string;
+  metadata?: AttachmentMetadataWire;
+}
+
+interface StreamSessionWire {
+  sessionKey: SessionKey;
+  displayName: string;
+  kind: string;
+  orderIndex: number;
+  isBuiltIn: boolean;
+  createdAt: UnixMillis;
+  updatedAt: UnixMillis;
+  adopted?: boolean;
+  trackingMode?: "serverManaged" | "adopted";
+}
+
+interface SessionDescriptorWire {
+  stream: string;
+  sessionKey: SessionKey;
+}
+```
+
+#### Main chat WebSocket: client to server
+
+```ts
+interface PairRequestEvent {
+  type: "pair_request";
+  protocolVersion: 1;
+  deviceId: DeviceId;
+  claimedName: string;
+  deviceInfo: DeviceInfoWire;
+}
+
+interface PairDecisionEvent {
+  type: "pair_decision";
+  deviceId: DeviceId;
+  approve: boolean;
+  userId?: UserId;
+}
+
+interface AuthEvent {
+  type: "auth";
+  protocolVersion: 1;
+  token: string;
+  deviceId: DeviceId;
+  lastMessageId?: ServerEventId | null;
+  adoptedSessionKeys?: SessionKey[];
+  replayCursorsBySessionKey?: Record<SessionKey, ServerEventId>;
+  clientFeatures?: string[];
+  client: ClientDescriptorWire;
+}
+
+interface OutboundMessageEvent {
+  type: "message";
+  id: ClientMessageId;
+  content: string;
+  attachments: ClientAttachmentWire[];
+  sessionKey?: SessionKey;
+}
+
+interface OutboundTypingEvent {
+  type: "typing";
+  active: boolean;
+  sessionKey?: SessionKey;
+}
+
+interface InteractiveCallbackEvent {
+  type: "interactive-callback";
+  messageId: ServerEventId;
+  payload: {
+    action: string;
+    data?: JSONValue;
+  };
+}
+```
+
+Complex field notes:
+
+| Event | Required fields | Optional/compatibility fields | Notes |
+| --- | --- | --- | --- |
+| `auth` | `type`, `protocolVersion`, auth credential, `deviceId`, `client.id` | `lastMessageId`, `adoptedSessionKeys`, `replayCursorsBySessionKey`, `client.features`, `clientFeatures` | `replayCursorsBySessionKey` is the target multi-stream resume shape, but provider acceptance must be confirmed because current iOS still resumes primarily via `lastMessageId`. |
+| `message` | `type`, `id`, `content`, `attachments` | `sessionKey` only if the provider allows a default session context | The browser client should always send `sessionKey` once multi-stream routing exists. |
+| `interactive-callback` | `type`, `messageId`, `payload.action` | `payload.data` | This event is inferable from provider/iOS behavior, but only required if interactive HTML ships. |
+
+Sample payloads:
+
+```json
+{
+  "type": "pair_request",
+  "protocolVersion": 1,
+  "deviceId": "9F6A1A72-3FE2-4B89-87D8-95D813B01234",
+  "claimedName": "Flynn MacBook",
+  "deviceInfo": { "platform": "Web", "model": "Chrome 136" }
+}
+```
+
+```json
+{
+  "type": "auth",
+  "protocolVersion": 1,
+  "token": "<jwt-or-gateway-session-token>",
+  "deviceId": "9F6A1A72-3FE2-4B89-87D8-95D813B01234",
+  "lastMessageId": "s_8c7d40d1",
+  "adoptedSessionKeys": ["agent:main:clawline:flynn:s_91ab23ef"],
+  "clientFeatures": ["terminal_bubbles_v1"],
+  "client": {
+    "id": "co.clicketyclacks.clawline.web",
+    "features": ["terminal_bubbles_v1"]
+  }
+}
+```
+
+#### Main chat WebSocket: server to client
+
+```ts
+interface PairResultEvent {
+  type: "pair_result";
+  success: boolean;
+  token?: string;
+  userId?: UserId;
+  reason?: string;
+}
+
+interface PairApprovalRequestEvent {
+  type: "pair_approval_request";
+  deviceId: DeviceId;
+  claimedName: string;
+  deviceInfo: DeviceInfoWire;
+}
+
+interface AuthResultEvent {
+  type: "auth_result";
+  success: boolean;
+  userId?: UserId;
+  sessionId?: string;
+  isAdmin?: boolean;
+  dmScope?: string;
+  features?: string[];
+  sessionKeys?: SessionKey[];
+  sessions?: SessionDescriptorWire[];
+  replayCount?: number;
+  replayTruncated?: boolean;
+  historyReset?: boolean;
+  reason?: string;
+}
+
+interface ServerMessageEvent {
+  type: "message";
+  id: ServerEventId;
+  role: "user" | "assistant";
+  sender?: string;
+  from?:
+    | string
+    | {
+        name?: string;
+        displayName?: string;
+        id?: string;
+        role?: string;
+      };
+  name?: string;
+  content: string;
+  timestamp: UnixMillis;
+  streaming: boolean;
+  deviceId?: DeviceId;
+  sessionKey?: SessionKey;
+  attachments?: ServerAttachmentWire[];
+}
+
+interface AckEvent {
+  type: "ack";
+  id: ClientMessageId;
+}
+
+interface ErrorEvent {
+  type: "error";
+  code: string;
+  message?: string;
+  messageId?: ClientMessageId;
+}
+
+interface UserInfoEvent {
+  type: "user_info";
+  userId: UserId;
+  isAdmin: boolean;
+}
+
+interface TypingEvent {
+  type: "typing";
+  role?: "user" | "assistant";
+  active: boolean;
+  sessionKey?: SessionKey;
+}
+
+interface SessionInfoEvent {
+  type: "session_info";
+  userId?: UserId;
+  isAdmin?: boolean;
+  dmScope?: string;
+  sessionKeys?: SessionKey[];
+  sessions?: SessionDescriptorWire[];
+}
+
+interface StreamSnapshotEvent {
+  type: "stream_snapshot";
+  streams: StreamSessionWire[];
+}
+
+interface StreamCreatedEvent {
+  type: "stream_created";
+  stream: StreamSessionWire;
+}
+
+interface StreamUpdatedEvent {
+  type: "stream_updated";
+  stream: StreamSessionWire;
+}
+
+interface StreamDeletedEvent {
+  type: "stream_deleted";
+  sessionKey: SessionKey;
+}
+
+interface ActivityExtensionEvent {
+  type: "event";
+  event: "activity";
+  payload: {
+    isActive: boolean;
+    sessionKey?: SessionKey;
+  };
+}
+```
+
+Complex field notes:
+
+| Event | Required fields | Optional/compatibility fields | Notes |
+| --- | --- | --- | --- |
+| `pair_result` | `type`, `success` | `token`, `userId`, `reason` | Treat `reason:"pair_pending"` as a transient waiting state, not a terminal denial. |
+| `auth_result` | `type`, `success` | `sessionId`, `features`, `sessionKeys`, `sessions`, replay metadata, `reason` | Accept both `sessionKeys` and `sessions` shapes. `sessionId` is diagnostic only and may be absent in current iOS handling. |
+| `message` | `type`, `id`, `content`, `timestamp`, `streaming` | `sender`, `from`, `name`, `deviceId`, `sessionKey`, `attachments` | Parser should accept legacy sender metadata shapes, but the normalized client message model remains `role + sender? + sessionKey + attachments[]`. |
+| `typing` | `type`, `active` | `role`, `sessionKey` | Ignore non-assistant roles. In multi-stream UI, do not surface typing without stream scope. |
+| `event(activity)` | `type`, `event:"activity"`, `payload.isActive` | `payload.sessionKey` | This is currently consumed by iOS as an activity/typing analogue, but docs under-specify it. Keep it typed and isolated from core chat state. |
+
+Sample payloads:
+
+```json
+{
+  "type": "message",
+  "id": "s_8c7d40d1",
+  "role": "assistant",
+  "content": "Still streaming",
+  "timestamp": 1764133200000,
+  "streaming": true,
+  "sessionKey": "agent:main:clawline:flynn:main",
+  "attachments": []
+}
+```
+
+```json
+{
+  "type": "stream_snapshot",
+  "streams": [
+    {
+      "sessionKey": "agent:main:clawline:flynn:main",
+      "displayName": "Main",
+      "kind": "main",
+      "orderIndex": 0,
+      "isBuiltIn": true,
+      "createdAt": 1764133200000,
+      "updatedAt": 1764133200000,
+      "adopted": false
+    }
+  ]
+}
+```
+
+#### HTTP control-plane surfaces
+
+These are not speculative. They come directly from `StreamAPIClient` and current provider docs.
+
+```ts
+interface FetchStreamsResponse {
+  streams: StreamSessionWire[];
+}
+
+interface FetchTrackableSessionsResponse {
+  sessions: {
+    sessionKey: SessionKey;
+    displayName: string;
+    updatedAt: UnixMillis;
+    channel?: string;
+    lastChannel?: string;
+    lastTo?: string;
+  }[];
+}
+
+interface CreateStreamRequest {
+  idempotencyKey: string;
+  displayName: string;
+}
+
+interface AdoptStreamRequest {
+  sessionKey: SessionKey;
+}
+
+interface RenameStreamRequest {
+  displayName: string;
+}
+
+interface DeleteStreamRequest {
+  idempotencyKey?: string | null;
+}
+
+interface MutateStreamResponse {
+  stream: StreamSessionWire;
+}
+
+interface DeleteStreamResponse {
+  deletedSessionKey: SessionKey;
+}
+```
+
+Required routes:
+
+| Route | Method | Request | Response |
+| --- | --- | --- | --- |
+| `/api/streams` | `GET` | authenticated | `FetchStreamsResponse` |
+| `/api/trackable-sessions` | `GET` | authenticated | `FetchTrackableSessionsResponse` |
+| `/api/streams` | `POST` | `CreateStreamRequest` | `MutateStreamResponse` |
+| `/api/streams/adopt` | `POST` | `AdoptStreamRequest` | `MutateStreamResponse` |
+| `/api/streams/:sessionKey` | `PATCH` | `RenameStreamRequest` | `MutateStreamResponse` |
+| `/api/streams/:sessionKey` | `DELETE` | `DeleteStreamRequest` | `DeleteStreamResponse` |
+
+#### Terminal WebSocket
+
+Only include these event names if the advanced rich-surface phase is in scope. The names below are directly inferable from `TerminalSessionService.swift`.
+
+```ts
+interface TerminalAuthEvent {
+  type: "terminal_auth";
+  protocolVersion: 1;
+  authMode: "chat_token" | "terminal_access_token";
+  authToken: string;
+  deviceId: DeviceId;
+  terminalSessionId: string;
+  backfillLines: number;
+  cols: number;
+  rows: number;
+}
+
+interface TerminalResizeEvent {
+  type: "terminal_resize";
+  cols: number;
+  rows: number;
+}
+
+interface TerminalDetachEvent {
+  type: "terminal_detach";
+}
+
+interface TerminalCloseEvent {
+  type: "terminal_close";
+}
+
+interface TerminalReadyEvent {
+  type: "terminal_ready";
+}
+
+interface TerminalBackfillEndEvent {
+  type: "terminal_backfill_end";
+}
+
+interface TerminalExitEvent {
+  type: "terminal_exit";
+  code?: number;
+}
+
+interface TerminalDataEnvelopeEvent {
+  type: "terminal_data";
+  data?: string; // base64 or raw utf8 text depending provider
+}
+
+interface TerminalErrorEvent {
+  type: "terminal_error";
+  message?: string;
+}
+
+interface TerminalClosedEvent {
+  type: "terminal_closed";
+  code?: number;
+  message?: string;
+  reason?: string;
+}
+```
+
+Sample payload:
+
+```json
+{
+  "type": "terminal_auth",
+  "protocolVersion": 1,
+  "authMode": "chat_token",
+  "authToken": "<jwt>",
+  "deviceId": "9F6A1A72-3FE2-4B89-87D8-95D813B01234",
+  "terminalSessionId": "term_abc123",
+  "backfillLines": 2000,
+  "cols": 100,
+  "rows": 28
+}
+```
+
+Ordering and idempotency notes:
+
+- `stream_snapshot` should precede replayed messages on auth.
+- Replay deduplication is by server event ID (`s_*`), not by client ID.
+- `ack` makes a client message accepted but not yet canonical; canonicalization happens on echoed user `message`.
+- Resends before `ack` reuse the same client ID and payload.
+- Retry after missing final assistant output is a new message at the tail with a new client ID.
+- Stream create/update/delete events are authoritative metadata deltas and must not trigger local renumbering.
+- Terminal output may arrive as raw text/data frames or as `terminal_data` envelopes. The terminal runtime must accept both.
 
 ### Protocol and Event Contracts in Implementer Form
 
@@ -1376,6 +1860,79 @@ Phase done when:
 
 - Someone unfamiliar with the code can open the app in a browser, pair, exchange text messages, reload, and repeat the flow without manual state repair.
 
+### Phase 1 Build Sheet
+
+This is the literal kickoff sheet for the first implementation engineer. It assumes the Phase 1 goal remains: runnable browser pairing plus text chat with real transport, real provisioning, and real optimistic/ack/canonical message behavior.
+
+Entry conditions:
+
+- Deployment topology is chosen: direct browser-to-provider or gateway/BFF.
+- Browser auth storage strategy is chosen: secure cookie, browser-held token, or gateway session.
+- Browser-trusted TLS path is defined for the chosen topology.
+- Protocol fixtures for `pair_request`, `pair_result`, `auth`, `auth_result`, `message`, `ack`, `stream_snapshot`, and `session_info` have been captured.
+
+Recommended file/module kickoff set:
+
+| Area | Files / modules to create | Why this must exist in Phase 1 |
+| --- | --- | --- |
+| App bootstrap | `src/app/bootstrap.tsx`, `src/app/routes.tsx`, `src/app/AppProviders.tsx` | One entrypoint is needed to wire routing, runtime providers, and test harnesses consistently. |
+| Protocol layer | `src/protocol/chat-wire.ts`, `src/protocol/stream-api.ts`, `src/protocol/terminal-wire.ts` | The typed protocol must be centralized before UI work starts so event parsing does not leak into feature components. |
+| Transport owner | `src/runtime/transport/transportMachine.ts`, `src/runtime/transport/leaderElection.ts`, `src/runtime/transport/wsClient.ts` | Phase 1 already depends on real connection ownership, reconnect semantics, and browser-tab leadership discipline. |
+| Conversation projection owner | `src/runtime/conversation/conversationStore.ts`, `src/runtime/conversation/applyServerEvent.ts`, `src/runtime/conversation/pendingSendJournal.ts` | Messages, cursors, unread, and optimistic reconciliation need one write seam from the start. |
+| Session catalog owner | `src/runtime/sessions/sessionCatalog.ts` | Stream inventory, provisioned session keys, and selected session cannot be left as ad hoc component state. |
+| Persistence boundary | `src/runtime/persistence/indexedDbChatPersistence.ts`, `src/runtime/persistence/preferences.ts` | Even Phase 1 needs durable auth bootstrap and the beginning of transcript/pending-send persistence. |
+| Pairing/auth feature | `src/features/auth/PairingScreen.tsx`, `src/features/auth/AwaitingApprovalScreen.tsx`, `src/features/auth/usePairingActions.ts` | Pairing is a real product flow, not a debug screen. |
+| Chat shell feature | `src/features/chat/ChatRoute.tsx`, `src/features/chat/ChatShell.tsx`, `src/features/chat/StreamRail.tsx`, `src/features/chat/MessageList.tsx`, `src/features/chat/Composer.tsx` | This is the first runnable slice the user actually uses. |
+| Settings overlay | `src/features/settings/SettingsDrawer.tsx` | Phase 1 must prove the web app keeps users anchored in chat while exposing settings. |
+| Test fixtures | `src/test/fixtures/protocol/*.json`, `src/test/fixtures/transcripts/*.ts` | The protocol and transcript rules must be codified before richer rendering lands. |
+| End-to-end coverage | `playwright/tests/phase1-pairing-and-chat.spec.ts` | Phase 1 is not ready without a browser-level proof of pair/auth/chat/reload. |
+
+Runtime owners that must exist before UI polish:
+
+| Owner | Must own | Must not own |
+| --- | --- | --- |
+| `transportMachine` | socket lifecycle, auth bootstrap, reconnect phase, leader-tab ownership, server event ingress | transcript mutation, unread state, selected stream UI |
+| `sessionCatalog` | ordered streams, provisioned session keys, selected session URL state normalization | socket lifecycle, message arrays |
+| `conversationStore` | messages by `sessionKey`, pending sends, replay cursors, unread/read markers, optimistic echo replacement | routing, settings UI, auth bootstrap |
+| `settingsState` | local appearance/debug preferences only | connection readiness, send gating, transcript truth |
+
+Routes and screens required in Phase 1:
+
+| Route / surface | Requirement |
+| --- | --- |
+| `/` | Bootstrap route that resolves to pairing or chat based on auth/runtime state |
+| `/pair` | Pairing entry with claimed-name input and error/pending handling |
+| `/chat/:sessionKey?` or equivalent URL-carried selected-session state | Main chat route; selected session must be URL-addressable |
+| Settings overlay on the chat route | Drawer/modal, not a dedicated route |
+| Awaiting approval surface | Required if `pair_pending` or `device_not_approved` occurs |
+
+Tests required before Phase 1 is ready for Flynn verification:
+
+- Serialization tests for every Phase 1 event: `pair_request`, `pair_result`, `auth`, `auth_result`, `message`, `ack`, `stream_snapshot`, `session_info`, `error`.
+- Transport-machine tests for: duplicate reconnect intent suppression, auth success transition, auth failure transition, and manual retry out of recovery.
+- Conversation-store tests for: optimistic send -> ack -> echoed user replacement, streaming assistant update in place, and hydrate/replay producing no unread.
+- Route/runtime tests proving selected session comes from URL state and that settings open as overlay, not navigation.
+- Playwright test covering: pair -> auth -> select session -> send -> receive -> reload -> transcript still usable.
+
+Stub versus omit guidance:
+
+| Category | Stub in Phase 1 | Omit entirely from Phase 1 |
+| --- | --- | --- |
+| Message rendering | Plain text bubble rendering only; attachments may render as unsupported placeholders if they arrive unexpectedly | Markdown, code blocks, tables, link cards, image gallery, file previews |
+| Typing/activity | Parse the events and allow a minimal text-only typing affordance if stream-scoped data exists | Fancy animation or richer activity surfaces |
+| Settings | Only ship settings needed for appearance and connection diagnostics under the chosen topology | Native-only trust toggles and any iOS platform settings |
+| Streams | Real stream selection from provisioned inventory; no fake local streams | Create/rename/delete/adopt/untrack flows |
+| Rich surfaces | None | Terminal, interactive HTML, embedded previews |
+| Uploads | None | Upload pipeline, paste/drop/file-input |
+
+Phase 1 engineer checklist:
+
+- Create the protocol types before writing transport logic.
+- Create the transport machine before writing the chat shell.
+- Create the conversation-store write seam before handling inbound `message` and `ack`.
+- Wire selected session to URL state before building the stream rail.
+- Land Phase 1 tests before adding any Phase 2 persistence or multi-tab elaboration beyond the chosen leader-tab minimum.
+
 #### Phase 2: Session fidelity and durable reload
 
 Manual acceptance:
@@ -1496,6 +2053,24 @@ These fixtures should exist as static JSON or TS objects plus screenshot fixture
 - Link preview fetching remains an open topology decision. If preview fetch happens server-side, the browser renders sanitized metadata only. If preview fetch happens client-side, preview rendering must not become a covert credential bridge.
 - Any preview or embed rule not grounded in the current docs remains unresolved and must be documented as such before implementation.
 
+### Unresolved Decisions Table
+
+These remain intentionally unresolved where the docs and iOS behavior do not settle them. An implementation engineer should not silently decide them in code.
+
+| Decision | Options | Impact | Blocks / affects |
+| --- | --- | --- | --- |
+| Browser deployment topology | direct browser-to-provider; same-origin gateway/BFF; another mediated proxy | Determines auth shape, TLS requirements, CORS, deployment, and whether the browser may talk to the provider WebSocket directly | Blocks Phase 1 |
+| Browser auth storage model | httpOnly cookie/session; browser-held token; gateway-issued opaque session | Changes `auth` bootstrap, logout semantics, XSS/CSRF surface, reload behavior, and upload/download auth plumbing | Blocks Phase 1 |
+| TLS / trust model for browser users | CA-trusted end-to-end; trusted gateway fronting self-signed provider; internal-only environment | Determines whether the browser app is viable outside controlled environments | Blocks external Phase 1 rollout |
+| Admin approval UX scope for web v1 | include pending approvals in v1; non-admin-only Phase 1 with admin approval deferred | Affects whether `pair_approval_request` / `pair_decision` need browser UI in the first release | Affects Phase 1 scope |
+| Multi-stream replay cursor contract | provider accepts `replayCursorsBySessionKey`; browser resumes only by `lastMessageId`; provider contract needs update | Changes how inactive streams recover and whether Phase 2 can preserve per-stream replay fidelity | Blocks full Phase 2 fidelity |
+| Preview-fetch topology | server-side preview service; client-side metadata fetch; no link previews in v1 | Changes security model, credential exposure, CSP, and rendering pipeline shape | Affects Phase 3 |
+| Offline support target | durable reload only; cached read-only transcripts; fuller offline browsing | Changes persistence semantics, cache eviction, and scope of browser storage | Affects Phase 2 and Phase 6 |
+| Mobile-web replacement target | desktop-first web; responsive mobile web replacing iPad usage; desktop-only v1 | Changes route/layout priorities, input bar behavior, and browser QA matrix | Affects Phase 4 and release criteria |
+| Terminal bubble launch scope | launch-critical; post-launch phase; omit from web | Determines whether terminal protocol/runtime is a v1 requirement or a gated later phase | Affects Phase 5 and launch scope |
+| Interactive HTML launch scope | launch-critical; post-launch phase; omit from web | Determines whether sandbox bridge/runtime must ship before launch | Affects Phase 5 and launch scope |
+| Salience/highlight parity | full `==highlight==` parity in v1; plain markdown first; omit salience entirely | Changes Phase 3 renderer fidelity and whether highlight tokens must be product-visible at launch | Affects Phase 3 |
+
 ### Engineering Conventions Grounded in Current System
 
 These are not stylistic preferences. They are direct translations of invariants already established in the docs and iOS implementation.
@@ -1512,10 +2087,3 @@ These are not stylistic preferences. They are direct translations of invariants 
 | Rich-surface isolation | Interactive HTML and terminal runtimes do not share incidental transport, process, or preview infrastructure. | interactive HTML and terminal docs |
 | Visibility is not lifecycle | React mount/unmount or tab visibility changes must not by themselves own socket teardown semantics. | chat VM lifecycle ownership doc |
 | Staged first-open materialization | Only large unvisited streams should use staged materialization, and only on first activation. | staged-stream-materialization doc |
-
-Unresolved product decisions that should stay unresolved here:
-
-- Whether the web launch requires terminal bubbles
-- Whether the web launch requires interactive HTML bubbles
-- Whether preview fetching is browser-side or server-side
-- Whether direct browser-to-provider auth is allowed or a gateway/BFF is mandatory
