@@ -635,45 +635,159 @@ Why:
 - The iOS app treats settings as a natural sheet from the main shell.
 - On web, full-page navigation away from chat is a product-feel regression for a conversation app.
 
-### Feature Modules and Owned Component Sets
+### Feature Modules and Boundary Rules
 
-Component names are not enough. The implementation should define modules by feature ownership.
+The module split exists to separate different dependency shapes and different mutation rights. A module boundary is justified only when it groups code that changes for the same reason, depends on the same runtime inputs, and fails in the same way.
 
-Recommended module breakdown:
+#### `auth-pairing`
 
-- `auth-pairing`
-  - owns pair flow, provider URL entry, auth bootstrap, logout
-  - likely components: pairing page, provider entry form, first-run state gates
+Architectural reason this boundary exists:
 
-- `chat-runtime`
-  - owns chat route shell, message list, composer, read/unread rules, session activation, reconnect banners
-  - likely components: chat shell, message list, composer, scroll affordance, toast layer
+- Everything in this module is about establishing or clearing identity and provider connectivity before chat can begin.
+- It is the only feature area that is allowed to create or destroy the authenticated session.
+- Its failure modes are first-run and auth/bootstrap failures, not live chat failures.
 
-- `stream-management`
-  - owns stream list, create/rename/delete/adopt/untrack, stream ordering presentation
-  - likely components: sidebar/popover, stream manager overlay, stream row actions
+Relationship to other modules:
 
-- `message-rendering`
-  - owns markdown/code/table/link/image/file rendering rules
-  - likely components: message bubble, markdown block, code block, table block, link card, file/image renderers
+- It writes into `authSessionStore`.
+- It may trigger transport startup indirectly by completing pairing or logout.
+- It does not read or mutate chat projection state, unread state, or rendering state.
+- Other modules are allowed to read auth/session presence, but they must not duplicate pair/logout behavior.
 
-- `attachments`
-  - owns upload flow, paste/drop/file-input attachment staging, hydration of uploaded assets
-  - likely components: attachment tray, upload progress UI, paste/drop targets
+Decision rule for new code:
 
-- `rich-surfaces`
-  - owns terminal sessions, interactive HTML, richer embedded previews, expanded message surfaces
-  - likely components: terminal panel, sandboxed HTML bubble, expanded message overlay
+- If the code exists to establish identity, bootstrap provider config, recover first-run auth, or clear identity on logout, it belongs here.
+- If the code assumes chat is already running, it does not belong here.
 
-- `settings-appearance`
-  - owns appearance/font/debug preferences and background treatment
-  - likely components: settings drawer/modal, theme controls, font controls
+#### `chat-runtime`
 
-Each module should expose:
+Architectural reason this boundary exists:
 
-- its owned components
-- the shared owners it may read
-- the exact actions it may dispatch into those owners
+- This is the live chat shell. Everything in it depends on transport state, session activation, or the chat domain projection.
+- If the WebSocket drops, reconnects, replays, or changes send eligibility, this module reacts immediately.
+- It is the only module that should feel “live” in the sense of transport-coupled UI behavior.
+
+Relationship to other modules:
+
+- It reads `transportMachine`, `chatDomainStore`, URL-selected session state, and `settingsStore`.
+- It delegates message body rendering to `message-rendering`.
+- It delegates upload and staging behavior to `attachments`.
+- It opens `stream-management` and `settings-appearance` as overlays.
+- It must not perform direct REST mutations or embed secondary transports itself.
+
+Decision rule for new code:
+
+- If the component exists because chat is live right now and must react to connection phase, session activation, unread/read changes, or composer send state, it belongs here.
+- If it can render entirely from static message data with no transport awareness, it belongs elsewhere.
+
+#### `stream-management`
+
+Architectural reason this boundary exists:
+
+- This boundary exists because stream/session administration mutates server state through explicit CRUD/adopt/untrack actions, not through the primary live message stream.
+- These actions have different failure modes, retry semantics, and permission/provisioning rules than live message receipt.
+- Keeping them separate prevents REST mutation concerns from leaking into the chat shell.
+
+Relationship to other modules:
+
+- It reads stream metadata and provisioning state from `chatDomainStore`.
+- It dispatches explicit stream mutation actions that flow through typed HTTP modules and then back into `chatDomainStore`.
+- It may be launched from `chat-runtime`, but `chat-runtime` should not own the mutation workflows themselves.
+- It never touches message rendering rules or secondary rich-surface lifecycles.
+
+Decision rule for new code:
+
+- If the code exists to create, rename, delete, adopt, untrack, reorder, or explain the sendability of a stream/session, it belongs here.
+- If the code exists only to show the currently selected stream inside the running chat shell, it belongs in `chat-runtime`.
+
+#### `message-rendering`
+
+Architectural reason this boundary exists:
+
+- This module is pure transformation: message data in, presentational UI out.
+- It should have no transport dependency, no mutation rights, and no side effects beyond local view behavior.
+- That purity is exactly why it can be tested with fixtures and snapshots instead of live servers.
+
+Relationship to other modules:
+
+- It reads normalized message/attachment data from `chatDomainStore`.
+- It may consume theme tokens from `settings-appearance`.
+- It must not open sockets, call REST endpoints, own uploads, or mutate chat state directly.
+- `chat-runtime` composes it, but should treat it as a pure renderer rather than another domain owner.
+
+Decision rule for new code:
+
+- If a component can be rendered from a static message fixture and should behave the same whether the app is live or disconnected, it belongs here.
+- If it needs to open a socket, mutate server state, or coordinate uploads, it does not belong here.
+
+#### `attachments`
+
+Architectural reason this boundary exists:
+
+- Attachments have a distinct side-effect surface: local file access, paste/drop handling, upload progress, hydration of uploaded assets, and failure/retry behavior.
+- Those concerns are neither pure rendering nor general chat-runtime logic.
+- This boundary keeps browser file APIs and upload lifecycle code out of the transport shell and out of the message renderer.
+
+Relationship to other modules:
+
+- It reads draft/composer context from `chat-runtime`.
+- It dispatches staged attachment and upload completion events into `chatDomainStore`.
+- It may use typed upload HTTP modules, but it does not own stream CRUD or live message replay.
+- It hands fully described message parts to `message-rendering`; it does not render rich bodies itself.
+
+Decision rule for new code:
+
+- If the code touches file inputs, paste/drop events, upload progress, asset hydration, or attachment retry semantics, it belongs here.
+- If the code only decides how an already-hydrated attachment should look on screen, it belongs in `message-rendering`.
+
+#### `rich-surfaces`
+
+Architectural reason this boundary exists:
+
+- This module owns the features that bring their own secondary runtime boundaries: terminal WebSockets, iframe sandboxing, postMessage bridges, richer preview surfaces, and expanded content views.
+- Each of these surfaces has an independent lifecycle and a security profile that is stricter than ordinary chat rendering.
+- Keeping them isolated prevents the main chat shell from becoming responsible for transport types and trust boundaries it should not own.
+
+Relationship to other modules:
+
+- It reads already-authoritative message and stream context from `chatDomainStore`.
+- It may own secondary transports such as terminal connections or isolated iframe bridges.
+- It is opened by `chat-runtime`, but `chat-runtime` must not manage its secondary transport or sandbox policy.
+- It may reuse primitives from `message-rendering`, but it must not inherit mutation rights from chat-runtime.
+
+Decision rule for new code:
+
+- If the feature introduces a new transport, a new sandbox, a new security policy, or a new embedded runtime, it belongs here.
+- If it is just another static way to render a normal message body, it belongs in `message-rendering`.
+
+#### `settings-appearance`
+
+Architectural reason this boundary exists:
+
+- This boundary exists because settings and appearance are shared preferences, not conversation state.
+- They should be available from the chat shell without becoming part of chat runtime logic.
+- Their change frequency and persistence rules are different from both transport state and message state.
+
+Relationship to other modules:
+
+- It reads and writes `settingsStore`.
+- It may be opened from `chat-runtime`, but it should not know about live transport internals.
+- Other modules may read theme tokens and preference values, but they must not own the preference-editing workflow.
+
+Decision rule for new code:
+
+- If the code edits shared appearance, font, or debug preferences, it belongs here.
+- If it only consumes theme tokens while performing another module’s job, it stays in that other module.
+
+### Boundary Enforcement Rule
+
+When a new component or controller is added, the deciding questions are:
+
+1. What runtime dependency does it react to first: auth bootstrap, live transport, REST mutation flow, pure rendering, browser file APIs, secondary transports, or shared preferences?
+2. What state is it allowed to mutate?
+3. What failure mode defines it: auth failure, disconnect/replay, REST mutation failure, upload failure, sandbox failure, or pure render correctness?
+
+If those answers point to different modules, the code is probably trying to span too many responsibilities and should be split before it lands.
 
 ### Transport and Data Flow
 
