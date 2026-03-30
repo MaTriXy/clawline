@@ -488,31 +488,30 @@ This section defines the real seams of the web client. The point is not to name 
 Why this boundary exists:
 
 - The browser cannot reproduce the iOS trust model. `ProviderBaseURLStore` and `URLSessionWebSocketConnector` can tolerate self-signed certificates and fingerprint pinning; the browser cannot.
-- The browser auth surface is also different. A cookie-backed same-origin app, a token-backed direct client, and a gateway-brokered session each imply a different runtime shape.
-- Because of that, deployment topology is not infrastructure trivia. It is the outermost architectural seam. Everything inside the app depends on it.
+- Flynn's direction settles the baseline product shape: the web app is still a Clawline client talking directly to the provider with the same pairing and token-auth flow as iOS.
+- The browser-specific differences are technical, not product-shape differences: token persistence, browser-trusted TLS, and whether the deployment environment can expose the provider directly to a browser.
 
 How it relates to the rest of the system:
 
-- `auth-pairing` needs to know how auth is established.
-- `transportMachine` needs to know where the main WebSocket actually terminates.
-- `attachments`, `stream-management`, and `rich-surfaces` need to know whether they call provider endpoints directly or go through a gateway.
-- The UI layer should not encode assumptions about direct-provider access if the deployment model has not been fixed.
+- `auth-pairing` uses the provider pairing flow and receives the same token-bearing result shape as iOS.
+- `transportMachine` terminates at provider `/ws`.
+- `attachments`, `stream-management`, and `rich-surfaces` call provider `/upload`, `/download/:assetId`, `/api/streams`, and `/ws/terminal` directly unless a later deployment exception is explicitly approved.
+- The UI layer should assume direct-provider semantics and should not invent a gateway abstraction that the product has not asked for.
 
 Placement rule for future work:
 
-- If a change affects TLS trust, auth cookies/tokens, same-origin assumptions, or WebSocket termination, it belongs at this boundary first.
-- No feature module should silently work around unresolved deployment questions.
+- If a change affects TLS trust, token persistence, direct provider reachability, or WebSocket termination, it belongs at this boundary first.
+- No feature module should silently add a gateway/BFF or alternate auth flow. That would be a spec change, not an implementation detail.
 
-Deployment decisions that must be fixed or explicitly gated:
+Deployment decisions that remain technical rather than product-shape decisions:
 
-- direct browser-to-provider vs same-origin gateway/BFF
-- cookie-backed vs token-backed vs gateway-brokered auth
-- browser-trusted provider TLS vs trusted gateway termination
+- where the provider token is persisted in the browser
+- whether the intended deployment environments can provide browser-trusted HTTPS/WSS to the provider
 
 Framework implication:
 
-- If the app is a pure browser client, a Vite-based SPA is a good fit.
-- If auth, TLS termination, or socket brokering require a server boundary, use a server-capable React framework instead of forcing a pure SPA.
+- The baseline target is a pure browser React client. A Vite-based SPA is the default fit.
+- Only introduce a server-capable framework if a deployment constraint later proves that direct provider access cannot satisfy browser requirements. That is an exception path, not the main spec.
 
 ### Seam 2: Browser Runtime Boundary
 
