@@ -1898,11 +1898,19 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
               self.isRenderPolicyFrozen == request.isRenderPolicyFrozen,
               self.isInputActive == request.isInputActive,
               abs(self.topInset - request.topInset) <= 0.5,
-              abs(self.truncationBottomInset - request.truncationBottomInset) <= 0.5,
               self.firstUnreadMessageId == request.firstUnreadMessageId,
               self.unreadCount == request.unreadCount else {
             return false
         }
+#if os(visionOS)
+        // On visionOS, multiline composer growth changes truncationBottomInset while typing.
+        // Deferring the active-session update until typing settles keeps those height changes
+        // from forcing a full list update on each line-wrap tick.
+#else
+        guard abs(self.truncationBottomInset - request.truncationBottomInset) <= 0.5 else {
+            return false
+        }
+#endif
         if let isDark = request.isDark, currentIsDark != isDark {
             return false
         }

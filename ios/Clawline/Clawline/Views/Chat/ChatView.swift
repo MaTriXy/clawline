@@ -170,6 +170,14 @@ struct ChatView: View {
     private let streamToastMinimumBusySeconds: TimeInterval = 0.45
     private let typingActivitySettleDelay: Duration = .milliseconds(180)
 
+    private var shouldInvalidateLayoutRevisionOnInputBarHeightChange: Bool {
+#if os(visionOS)
+        false
+#else
+        true
+#endif
+    }
+
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0.5
     }
@@ -823,7 +831,10 @@ struct ChatView: View {
         .onChange(of: keyboardHeight) { _, _ in layoutRevision &+= 1 }
         .onChange(of: keyboardAnimationDuration) { _, _ in layoutRevision &+= 1 }
         .onChange(of: keyboardAnimationCurve) { _, _ in layoutRevision &+= 1 }
-        .onChange(of: inputBarHeight) { _, _ in layoutRevision &+= 1 }
+        .onChange(of: inputBarHeight) { _, _ in
+            guard shouldInvalidateLayoutRevisionOnInputBarHeightChange else { return }
+            layoutRevision &+= 1
+        }
         .onChange(of: isInputFocused) { _, _ in layoutRevision &+= 1 }
         .onChange(of: geometry.safeAreaInsets.bottom) { _, _ in layoutRevision &+= 1 }
         .onChange(of: horizontalSizeClass) { _, _ in layoutRevision &+= 1 }
