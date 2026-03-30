@@ -128,7 +128,7 @@ struct MessageInputBar: View {
 #if os(visionOS)
         return false
 #else
-        return settings.appearanceMode == .light
+        return colorScheme == .light
 #endif
     }
 
