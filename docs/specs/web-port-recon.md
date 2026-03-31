@@ -332,7 +332,7 @@ The inventory below focuses on user-facing behavior and the current iOS implemen
 | Feature | Current iOS implementation | Portability and notes |
 | --- | --- | --- |
 | Pairing flow | `PairingViewModel` + `PairingView`; 3-stage UI with auto-normalized provider address and pending/retry state | Portable; implement as route-based onboarding |
-| Auth persistence | `AuthManager` with keychain + `UserDefaults` migration | Browser needs token storage redesign; use secure cookies if possible, else local storage with explicit risk acceptance |
+| Auth persistence | `AuthManager` with keychain + `UserDefaults` migration | Browser needs token storage redesign; provisional preference is secure cookies when the chosen topology allows them, else browser-held tokens with explicit risk acceptance |
 | Device identity | `DeviceIdentifier` persisted in keychain/defaults | Portable concept; use generated UUID in local storage/IndexedDB |
 | Provider URL and TLS settings | `ProviderBaseURLStore`; self-signed trust and fingerprint pinning | Base URL portable; browser cannot truly mirror self-signed trust or cert pinning |
 | Root routing | `RootView` switches pairing vs chat | Portable; use router/guarded routes |
@@ -341,7 +341,7 @@ The inventory below focuses on user-facing behavior and the current iOS implemen
 | Message send/ack | `ChatViewModel` optimistic send with placeholder reconciliation | Portable and required |
 | Slash commands | `/logout`, `/settings`, connection/debug commands interpreted client-side | Portable; good candidate for command palette abstraction |
 | Typing indicators | Provider event handling in `ProviderChatService` and `ChatViewModel` | Portable |
-| Stream/session switching | `uiSelectedSessionKey` vs `engineActiveSessionKey` split | Portable concept; preserve to avoid expensive rerender churn |
+| Stream/session switching | `uiSelectedSessionKey` vs `engineActiveSessionKey` split | iOS used this as a native performance optimization. Web should start with URL-owned selection only and add deferred activation only if profiling proves it necessary |
 | Stream CRUD | `StreamAPIClient` + `ChatViewModel` + `StreamManagerSheet` | Portable |
 | Adopt/untrack sessions | REST APIs plus `SessionRegistry` integration | Portable; should move to explicit domain store |
 | Session provisioning state | `session_info`, snapshot handling, send eligibility states | Portable and important |
@@ -355,7 +355,7 @@ The inventory below focuses on user-facing behavior and the current iOS implemen
 | Markdown | Unified parser for mixed streaming markdown | Portable behavior, new parser/render path needed |
 | Code blocks | Native text rendering + syntax highlighting support | Portable |
 | Tables | Specialized parsing and rendering | Portable |
-| Link cards | OG fetch + UIKit card | Portable, likely server-backed metadata fetch preferred |
+| Link cards | OG fetch + UIKit card | Portable; provisional preference is server-backed metadata fetch, but preview topology remains an explicit web decision |
 | Inline web preview | `WKWebView` preview surface | Partially portable; security-sensitive |
 | Images | Inline bubble rendering, paste, picker, upload/download | Portable |
 | Documents/files | UIDocumentPicker + file attachment pipeline | Portable via `<input type=file>` and drag/drop |
@@ -488,62 +488,63 @@ This section defines the real seams of the web client. The point is not to name 
 Why this boundary exists:
 
 - The browser cannot reproduce the iOS trust model. `ProviderBaseURLStore` and `URLSessionWebSocketConnector` can tolerate self-signed certificates and fingerprint pinning; the browser cannot.
-- Flynn's direction settles the baseline product shape: the web app is still a Clawline client talking directly to the provider with the same pairing and token-auth flow as iOS.
-- The browser-specific differences are technical, not product-shape differences: token persistence, browser-trusted TLS, and whether the deployment environment can expose the provider directly to a browser.
+- The browser auth surface is also different. A cookie-backed same-origin app, a token-backed direct client, and a gateway-brokered session each imply a different runtime shape.
+- Because of that, deployment topology is not infrastructure trivia. It is the outermost architectural seam. Everything inside the app depends on it.
 
 How it relates to the rest of the system:
 
-- `auth-pairing` uses the provider pairing flow and receives the same token-bearing result shape as iOS.
-- `transportMachine` terminates at provider `/ws`.
-- `attachments`, `stream-management`, and `rich-surfaces` call provider `/upload`, `/download/:assetId`, `/api/streams`, and `/ws/terminal` directly unless a later deployment exception is explicitly approved.
-- The UI layer should assume direct-provider semantics and should not invent a gateway abstraction that the product has not asked for.
+- `auth-pairing` needs to know how auth is established.
+- `transportMachine` needs to know where the main WebSocket actually terminates.
+- `attachments`, `stream-management`, and `rich-surfaces` need to know whether they call provider endpoints directly or go through a gateway.
+- The UI layer should not encode assumptions about direct-provider access if the deployment model has not been fixed.
 
 Placement rule for future work:
 
-- If a change affects TLS trust, token persistence, direct provider reachability, or WebSocket termination, it belongs at this boundary first.
-- No feature module should silently add a gateway/BFF or alternate auth flow. That would be a spec change, not an implementation detail.
+- If a change affects TLS trust, auth cookies/tokens, same-origin assumptions, or WebSocket termination, it belongs at this boundary first.
+- No feature module should silently work around unresolved deployment questions.
 
-Deployment decisions that remain technical rather than product-shape decisions:
+Deployment decisions that must be fixed or explicitly gated:
 
-- where the provider token is persisted in the browser
-- whether the intended deployment environments can provide browser-trusted HTTPS/WSS to the provider
+- direct browser-to-provider vs same-origin gateway/BFF
+- cookie-backed vs token-backed vs gateway-brokered auth
+- browser-trusted provider TLS vs trusted gateway termination
 
 Framework implication:
 
-- The baseline target is a pure browser React client. A Vite-based SPA is the default fit.
-- Only introduce a server-capable framework if a deployment constraint later proves that direct provider access cannot satisfy browser requirements. That is an exception path, not the main spec.
+- If the app is a pure browser client, a Vite-based SPA is a good fit.
+- If auth, TLS termination, or socket brokering require a server boundary, use a server-capable React framework instead of forcing a pure SPA.
 
 ### Seam 2: Browser Runtime Boundary
 
 Why this boundary exists:
 
 - iOS scene lifecycle is not the browser runtime. On web, multiple tabs, visibility state, reload, focus, offline/online, and shared browser storage are architectural facts.
-- If this seam is not explicit, replay ownership, unread state, and socket leadership will fragment across tabs.
+- If this seam is not explicit, implementers will accidentally mix per-tab behavior with shared browser persistence and mis-handle reconnect, reload, and read state.
 
 Chosen runtime model:
 
-- one transport leader per authenticated browser profile
-- follower tabs mirror state and send user intents through the leader
-- leader owns the main chat WebSocket, replay cursor advancement, and durable unread/read projection updates
+- each browser tab is an independent client runtime
+- each tab opens its own chat WebSocket, authenticates, replays, and maintains its own in-memory transport and projection state
+- multiple tabs are allowed to diverge briefly in unread/read state the same way multiple native devices can diverge today
 
 How it relates to the rest of the system:
 
-- `transportMachine` is browser-profile scoped, not per-tab.
-- URL-selected session is per-tab and may differ between tabs.
-- `chatDomainStore` receives authoritative live events from the leader and mirrored state in follower tabs.
-- `settingsStore` and auth identity are shared persisted preferences.
+- `transportMachine` is tab-local runtime state.
+- `chatDomainStore` is tab-local projected state.
+- URL-selected session is tab-local and may differ between tabs.
+- `settingsStore` and persisted auth material may be shared through browser storage, but live socket and unread state are not coordinated across tabs.
 
 Boundary rules:
 
-- Hidden follower tabs do not open the main chat socket.
+- Hidden tabs may remain connected or reconnect on their own according to normal transport rules; there is no cross-tab socket suppression layer.
 - Focus changes do not directly mutate read state; explicit read acknowledgement rules do.
 - Reconnect always replays from the last committed cursor.
-- Leader exit triggers leadership re-election instead of each tab inventing its own reconnect path.
+- A second tab is treated as another client instance, not as a subordinate mirror of the first tab.
 
 Placement rule for future work:
 
-- If the feature should behave differently per tab, it belongs on the tab-local side of the seam.
-- If the feature must preserve global ordering, replay correctness, or unread coherence across tabs, it belongs on the browser-profile side with the leader.
+- If the feature is about socket lifecycle, replay, unread, or selection inside one browser tab, keep it tab-local.
+- If a future feature truly requires cross-tab coordination, justify it as a new browser-specific product requirement rather than assuming it belongs in the baseline client architecture.
 
 ### Seam 3: State Ownership Boundary
 
@@ -560,12 +561,12 @@ The authoritative ownership model is:
 | Provider base URL and auth transport config | `authSessionStore` | pairing flow, transport machine, upload/terminal adapters | pairing success, settings edit, logout reset |
 | Device/browser identity | `authSessionStore` persisted via browser storage adapter | transport machine | first-run generation, explicit reset |
 | Transport phase (`idle`, `connecting`, `authenticating`, `replaying`, `live`, `recovering`, `failed`) | `transportMachine` | chat shell, diagnostics UI, send controls | transport reducer transitions only |
-| Replay cursor advancement | `transportMachine` | chat projection hydrator, persistence layer | leader-only message commit path |
+| Replay cursor advancement | `transportMachine` | chat projection hydrator, persistence layer | per-tab message commit path |
 | Selected session | URL state | chat shell, stream UI, composer | router navigation only |
 | Send eligibility / provisioning state | `chatDomainStore` | composer, stream UI, banners | session snapshot handling, stream mutations, server events |
 | Stream metadata and ordering | `chatDomainStore` | stream management UI, chat shell, diagnostics | stream snapshot events, CRUD responses, adopt/untrack actions |
 | Messages and optimistic send reconciliation | `chatDomainStore` | message list, expanded views, diagnostics | send pipeline, inbound events, replay hydrate, attachment hydrate |
-| Read/unread projection | `chatDomainStore` | stream UI, document title/badge, follower mirrors | explicit mark-read action, incoming assistant messages, stream switch rules |
+| Read/unread projection | `chatDomainStore` | stream UI, document title/badge | explicit mark-read action, incoming assistant messages, stream switch rules |
 | Draft text and staged attachments | chat-route local state | composer, attachment tray | local user input actions |
 | Appearance/font/debug preferences | `settingsStore` | all modules | settings UI only |
 | Global transient notifications | minimal notification service | app shell | explicit publish calls only |
@@ -615,7 +616,7 @@ Placement rule for future work:
 
 - If the state only matters inside one route subtree, keep it local.
 - If the state only exists to present a URL address, put it in the router.
-- If the state is authoritative across events, tabs, or reconnects, it belongs in one of the shared runtime owners.
+- If the state is authoritative across events or reconnects within one tab, it belongs in one of the shared runtime owners for that tab.
 
 ### Seam 5: Route and Overlay Boundary
 
@@ -794,7 +795,7 @@ Why this boundary exists:
 
 How they relate:
 
-- `transportMachine` owns the main socket, phase transitions, replay, and cross-tab leadership.
+- `transportMachine` owns the main socket, phase transitions, replay, and reconnect behavior for one tab.
 - `chatDomainStore` projects those live events into user-visible message, stream, and unread state.
 - `stream-management` and `attachments` issue explicit HTTP mutations where needed.
 - `message-rendering` consumes already-authoritative projected data and renders it without side effects.
@@ -808,7 +809,7 @@ Rules:
 
 Placement rule for future work:
 
-- If the code is about ordering, replay, reconnect, or cross-tab coherence, it belongs with `transportMachine`.
+- If the code is about ordering, replay, reconnect, or transport correctness inside one tab, it belongs with `transportMachine`.
 - If it is about explicit server mutation initiated by the user, it belongs with the responsible feature module and then flows back through the domain owner.
 - If it is display only, it belongs in `message-rendering`.
 
@@ -823,7 +824,7 @@ How it relates to the rest of the system:
 
 - IndexedDB holds transcript snapshots, stream metadata snapshots, optimistic send journal, and optional attachment metadata.
 - `localStorage` holds low-risk preferences and debug flags, not product-critical live chat truth.
-- Auth should prefer secure cookies where topology allows; unavoidable browser-held tokens stay outside general UI state.
+- Provisional preference until topology/auth is fixed: if the chosen deployment allows secure cookies, prefer them; otherwise keep browser-held tokens outside general UI state.
 - Replay cursor commit and message projection commit happen together so persisted state and live resume stay aligned.
 
 Cache semantics:
@@ -869,7 +870,7 @@ The migration needs explicit testing layers from the start.
 
 ### Browser Runtime Behavior
 
-- Multi-tab leadership tests
+- Independent-tab tests
 - Reload/reconnect tests
 - offline/online recovery tests
 - duplicate-send prevention tests
@@ -906,7 +907,7 @@ Before major UI work, capture the behavior that the web client must preserve:
 - stream CRUD payloads
 - terminal session protocol
 - upload API assumptions
-- chosen browser runtime invariants and cross-tab leadership rules
+- chosen browser runtime invariants for independent browser tabs
 
 Deliverables:
 
@@ -924,7 +925,7 @@ Build:
 - pair flow
 - auth bootstrap
 - chat shell
-- leader-tab transport machine
+- per-tab transport machine
 - text send/receive
 - basic stream selection
 - baseline Playwright coverage
@@ -943,7 +944,6 @@ Build:
 - unread/read projection
 - persisted transcript snapshots
 - durable reload behavior
-- multi-tab leadership tests
 - reconnect/offline handling
 
 ### Phase 3: Rich Rendering and Common Attachments
@@ -1081,10 +1081,10 @@ Recommendation:
 
 The web client should preserve behavior but adopt clearer owners:
 
-- connection state
-- stream/session state
-- message state
-- UI state
+- `authSessionStore` for identity and provider configuration
+- `transportMachine` for connection and replay phase
+- `chatDomainStore` for stream inventory, provisioning state, messages, cursors, and unread projection
+- URL state plus route-local state for selected session, drafts, and other contextual UI concerns
 
 This will make the web client easier to reason about and will also clarify future client parity work.
 
@@ -1153,7 +1153,7 @@ This section is intentionally explicit. The web spec must not silently normalize
 | --- | --- | --- | --- |
 | `stream_snapshot` ordering on auth | `docs/implementation_details/multi-stream.md` requires `stream_snapshot` before replayed messages | `docs/ios-provider-connection.md` is looser on ordering; iOS tolerates stream events arriving independently | The intended contract is still `stream_snapshot` before replay. The web client should code to that contract but remain tolerant of older/out-of-order behavior during migration. |
 | Attachment/download contract | Older connection guide still documents large-file `type:"url"` attachments under `/www/media/...` | `WireAttachment.swift`, `Attachment.swift`, `UploadService.swift`, and provider docs use `assetId` plus authenticated `GET /download/:assetId` | Implement `asset` references and authenticated downloads. Treat `url` attachment docs as stale unless provider docs are intentionally reverted. |
-| Replay cursor resume shape | Implementation-details docs require sending all per-stream cursors, not just the active cursor | `ProviderChatService.sendAuth` currently sends `lastMessageId` and has `replayCursorsBySessionKey` in the payload type but currently sets it `nil` | The web target should support per-stream cursor resume. Confirm provider acceptance of `replayCursorsBySessionKey` during Phase 2; until then, treat this as a contract-validation item, not settled behavior. |
+| Replay cursor resume shape | Implementation-details docs require sending all per-stream cursors, not just the active cursor | `ProviderChatService.sendAuth` currently sends `lastMessageId` and has `replayCursorsBySessionKey` in the payload type but currently sets it `nil` | The web target should track per-stream cursors locally as the authoritative resume model. On auth/reconnect, send `replayCursorsBySessionKey` when supported and also send the minimum provider-compatible singular cursor when older provider behavior still requires it. |
 | Pair pending state | `docs/ios-provider-connection.md` enumerates `pair_result` reasons, but does not foreground the transient pending shape | `ProviderConnectionService` explicitly treats `pair_result.reason == "pair_pending"` as a nonterminal wait state | Web pairing should support transient pending approval state and not misclassify it as a terminal denial. |
 | Typing event stream scoping | Older guide examples show `typing` without `sessionKey` | Current iOS payload type accepts optional `sessionKey`, and the UI only surfaces typing when a session key is present | In a multi-stream web client, unscoped typing is ambiguous. Accept it on the wire for compatibility, but do not surface it unless a stream scope is available. |
 | `session_info` / provisioning shape | Docs describe provisioning using `sessionKeys` and stream/session info events | Current iOS accepts both `sessionKeys` and `sessions: [{ stream, sessionKey }]` shapes | The web parser should accept both shapes. The normalized internal model remains a single provisioned `sessionKeys[]` list plus stream metadata inventory. |
@@ -1352,7 +1352,7 @@ Complex field notes:
 
 | Event | Required fields | Optional/compatibility fields | Notes |
 | --- | --- | --- | --- |
-| `auth` | `type`, `protocolVersion`, auth credential, `deviceId`, `client.id` | `lastMessageId`, `adoptedSessionKeys`, `replayCursorsBySessionKey`, `client.features`, `clientFeatures` | `replayCursorsBySessionKey` is the target multi-stream resume shape, but provider acceptance must be confirmed because current iOS still resumes primarily via `lastMessageId`. |
+| `auth` | `type`, `protocolVersion`, auth credential, `deviceId`, `client.id` | `lastMessageId`, `adoptedSessionKeys`, `replayCursorsBySessionKey`, `client.features`, `clientFeatures` | Client tracks per-stream cursors locally. Send `replayCursorsBySessionKey` whenever the provider accepts it; also send the minimum compatible `lastMessageId` when older provider behavior still depends on a singular cursor. |
 | `message` | `type`, `id`, `content`, `attachments` | `sessionKey` only if the provider allows a default session context | The browser client should always send `sessionKey` once multi-stream routing exists. |
 | `interactive-callback` | `type`, `messageId`, `payload.action` | `payload.data` | This event is inferable from provider/iOS behavior, but only required if interactive HTML ships. |
 
@@ -1771,7 +1771,7 @@ Implementation note:
 2. Submit `pair_request`.
 3. On `pair_result.success`, persist auth material, close pairing flow, and begin authenticated bootstrap.
 4. If approval is pending, remain in approval-waiting UI and keep the retry/polling behavior defined by the product docs.
-5. On authenticated bootstrap, send `auth` with the latest processed server cursor.
+5. On authenticated bootstrap, send `auth` with the locally tracked per-stream cursor map and the minimum provider-compatible singular cursor fallback when required by older provider behavior.
 6. On `auth_result.success`, seed admin capability, replay metadata, and initial stream inventory state.
 7. Do not render the chat shell as fully interactive until both auth success and initial stream provisioning state are available.
 
@@ -1799,7 +1799,7 @@ Done-state rule:
 1. Transport interruption moves the transport machine into recovery.
 2. Recovery backoff becomes the sole reconnect driver unless the user explicitly requests retry.
 3. Manual retry while recovering cancels the timer and reconnects immediately with reset delay.
-4. Successful auth resumes with all known per-stream cursors.
+4. Successful auth resumes from the local per-stream cursor map. If the provider still only honors a singular cursor on auth, send that minimum compatible fallback too, but do not drop the full local per-stream resume model.
 5. Replay applies before the app is marked live.
 6. Cache hydrate may fill missing local gaps before replay completes, but it may not overwrite replayed/live data.
 7. Once replay settles, any stale recovery work from older attempts is ignored by epoch/token validation.
@@ -1854,6 +1854,7 @@ Automated acceptance:
 - Fixture tests cover `pair_request`, `pair_result`, `auth`, `auth_result`, `message`, and `ack`.
 - End-to-end test covers pair -> auth -> send -> echoed user message -> assistant reply.
 - State-machine test proves duplicate reconnect intents are ignored while already connecting/live.
+- Runtime test proves two browser tabs can authenticate independently without either tab suppressing or corrupting the other's local transport state.
 
 Phase done when:
 
@@ -1875,10 +1876,9 @@ Recommended file/module kickoff set:
 | Area | Files / modules to create | Why this must exist in Phase 1 |
 | --- | --- | --- |
 | App bootstrap | `src/app/bootstrap.tsx`, `src/app/routes.tsx`, `src/app/AppProviders.tsx` | One entrypoint is needed to wire routing, runtime providers, and test harnesses consistently. |
-| Protocol layer | `src/protocol/chat-wire.ts`, `src/protocol/stream-api.ts`, `src/protocol/terminal-wire.ts` | The typed protocol must be centralized before UI work starts so event parsing does not leak into feature components. |
-| Transport owner | `src/runtime/transport/transportMachine.ts`, `src/runtime/transport/leaderElection.ts`, `src/runtime/transport/wsClient.ts` | Phase 1 already depends on real connection ownership, reconnect semantics, and browser-tab leadership discipline. |
-| Conversation projection owner | `src/runtime/conversation/conversationStore.ts`, `src/runtime/conversation/applyServerEvent.ts`, `src/runtime/conversation/pendingSendJournal.ts` | Messages, cursors, unread, and optimistic reconciliation need one write seam from the start. |
-| Session catalog owner | `src/runtime/sessions/sessionCatalog.ts` | Stream inventory, provisioned session keys, and selected session cannot be left as ad hoc component state. |
+| Protocol layer | `src/protocol/chat-wire.ts`, `src/protocol/stream-api.ts` | The typed Phase 1 protocol must be centralized before UI work starts so event parsing does not leak into feature components. |
+| Transport owner | `src/runtime/transport/transportMachine.ts`, `src/runtime/transport/wsClient.ts` | Phase 1 already depends on real connection ownership, reconnect semantics, and per-tab transport discipline. |
+| Chat domain owner | `src/runtime/chat/chatDomainStore.ts`, `src/runtime/chat/applyServerEvent.ts`, `src/runtime/chat/pendingSendJournal.ts` | Stream inventory, provisioning state, messages, cursors, unread state, and optimistic reconciliation need one write seam from the start. |
 | Persistence boundary | `src/runtime/persistence/indexedDbChatPersistence.ts`, `src/runtime/persistence/preferences.ts` | Even Phase 1 needs durable auth bootstrap and the beginning of transcript/pending-send persistence. |
 | Pairing/auth feature | `src/features/auth/PairingScreen.tsx`, `src/features/auth/AwaitingApprovalScreen.tsx`, `src/features/auth/usePairingActions.ts` | Pairing is a real product flow, not a debug screen. |
 | Chat shell feature | `src/features/chat/ChatRoute.tsx`, `src/features/chat/ChatShell.tsx`, `src/features/chat/StreamRail.tsx`, `src/features/chat/MessageList.tsx`, `src/features/chat/Composer.tsx` | This is the first runnable slice the user actually uses. |
@@ -1890,10 +1890,9 @@ Runtime owners that must exist before UI polish:
 
 | Owner | Must own | Must not own |
 | --- | --- | --- |
-| `transportMachine` | socket lifecycle, auth bootstrap, reconnect phase, leader-tab ownership, server event ingress | transcript mutation, unread state, selected stream UI |
-| `sessionCatalog` | ordered streams, provisioned session keys, selected session URL state normalization | socket lifecycle, message arrays |
-| `conversationStore` | messages by `sessionKey`, pending sends, replay cursors, unread/read markers, optimistic echo replacement | routing, settings UI, auth bootstrap |
-| `settingsState` | local appearance/debug preferences only | connection readiness, send gating, transcript truth |
+| `transportMachine` | socket lifecycle, auth bootstrap, reconnect phase, and server event ingress for one tab | transcript mutation, unread state, selected stream UI |
+| `chatDomainStore` | ordered streams, provisioned session keys, provisioning state, messages by `sessionKey`, pending sends, replay cursors, unread/read markers, optimistic echo replacement | socket lifecycle ownership, provider identity, route authority |
+| `settingsStore` | local appearance/debug preferences only | connection readiness, send gating, transcript truth |
 
 Routes and screens required in Phase 1:
 
@@ -1909,7 +1908,8 @@ Tests required before Phase 1 is ready for Flynn verification:
 
 - Serialization tests for every Phase 1 event: `pair_request`, `pair_result`, `auth`, `auth_result`, `message`, `ack`, `stream_snapshot`, `session_info`, `error`.
 - Transport-machine tests for: duplicate reconnect intent suppression, auth success transition, auth failure transition, and manual retry out of recovery.
-- Conversation-store tests for: optimistic send -> ack -> echoed user replacement, streaming assistant update in place, and hydrate/replay producing no unread.
+- Independent-tab transport tests proving two browser tabs can connect and recover independently without shared in-memory coordination.
+- Chat-domain-store tests for: optimistic send -> ack -> echoed user replacement, streaming assistant update in place, stream/provisioning snapshot application, and hydrate/replay producing no unread.
 - Route/runtime tests proving selected session comes from URL state and that settings open as overlay, not navigation.
 - Playwright test covering: pair -> auth -> select session -> send -> receive -> reload -> transcript still usable.
 
@@ -1928,9 +1928,9 @@ Phase 1 engineer checklist:
 
 - Create the protocol types before writing transport logic.
 - Create the transport machine before writing the chat shell.
-- Create the conversation-store write seam before handling inbound `message` and `ack`.
+- Create the chat-domain-store write seam before handling inbound `message` and `ack`.
 - Wire selected session to URL state before building the stream rail.
-- Land Phase 1 tests before adding any Phase 2 persistence or multi-tab elaboration beyond the chosen leader-tab minimum.
+- Land Phase 1 tests before adding any Phase 2 persistence or broader multi-tab UX polish.
 
 #### Phase 2: Session fidelity and durable reload
 
@@ -1944,7 +1944,6 @@ Manual acceptance:
 Automated acceptance:
 
 - Projection tests cover unread mutation call sites and read-cursor-to-tail behavior.
-- Multi-tab or simulated second-runtime tests prove only one leader owns live transport at a time.
 - Replay tests prove all per-stream cursors resume, not only the currently visible stream.
 
 Phase done when:
@@ -2062,7 +2061,6 @@ These remain intentionally unresolved where the docs and iOS behavior do not set
 | Browser auth storage model | httpOnly cookie/session; browser-held token; gateway-issued opaque session | Changes `auth` bootstrap, logout semantics, XSS/CSRF surface, reload behavior, and upload/download auth plumbing | Blocks Phase 1 |
 | TLS / trust model for browser users | CA-trusted end-to-end; trusted gateway fronting self-signed provider; internal-only environment | Determines whether the browser app is viable outside controlled environments | Blocks external Phase 1 rollout |
 | Admin approval UX scope for web v1 | include pending approvals in v1; non-admin-only Phase 1 with admin approval deferred | Affects whether `pair_approval_request` / `pair_decision` need browser UI in the first release | Affects Phase 1 scope |
-| Multi-stream replay cursor contract | provider accepts `replayCursorsBySessionKey`; browser resumes only by `lastMessageId`; provider contract needs update | Changes how inactive streams recover and whether Phase 2 can preserve per-stream replay fidelity | Blocks full Phase 2 fidelity |
 | Preview-fetch topology | server-side preview service; client-side metadata fetch; no link previews in v1 | Changes security model, credential exposure, CSP, and rendering pipeline shape | Affects Phase 3 |
 | Offline support target | durable reload only; cached read-only transcripts; fuller offline browsing | Changes persistence semantics, cache eviction, and scope of browser storage | Affects Phase 2 and Phase 6 |
 | Mobile-web replacement target | desktop-first web; responsive mobile web replacing iPad usage; desktop-only v1 | Changes route/layout priorities, input bar behavior, and browser QA matrix | Affects Phase 4 and release criteria |
@@ -2081,8 +2079,8 @@ These are not stylistic preferences. They are direct translations of invariants 
 | Gap-fill persistence | Hydrate from persisted state only to fill missing local gaps. Never overwrite or reorder live data. | connection lifecycle and message-stream seam docs |
 | Yield-boundary guards | After any async/yield boundary, capture and revalidate the relevant `sessionKey` and generation/epoch before applying per-stream side effects. | per-stream transition and encapsulation docs |
 | Shared bottom-threshold calculation | Compute one bottom-threshold decision and use it for auto-scroll, restore fallback, and scroll-to-bottom visibility. | scroll invariants docs |
-| UI vs engine stream split | Immediate UI selection and expensive stream activation are separate concerns with one commit seam. | stream-switch coordinator doc |
+| URL-selected session is authoritative | URL state owns selected session. If expensive activation work ever needs deferral, treat it as an internal optimization only after profiling proves the need; do not introduce a second user-visible selection owner. | stream-switch coordinator doc, selected-session ownership seam |
 | Render-plan reuse | Parse markdown once per message and reuse the plan across compact and expanded surfaces. | unified-markdown doc |
 | Rich-surface isolation | Interactive HTML and terminal runtimes do not share incidental transport, process, or preview infrastructure. | interactive HTML and terminal docs |
-| Visibility is not lifecycle | React mount/unmount or tab visibility changes must not by themselves own socket teardown semantics. | chat VM lifecycle ownership doc |
+| Main chat transport visibility is not lifecycle | React mount/unmount or tab visibility changes must not by themselves own main chat socket teardown semantics. Rich surfaces may define narrower lifecycle rules inside their own modules. | chat VM lifecycle ownership doc |
 | Staged first-open materialization | Only large unvisited streams should use staged materialization, and only on first activation. | staged-stream-materialization doc |

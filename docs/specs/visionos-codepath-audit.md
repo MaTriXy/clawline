@@ -1,255 +1,192 @@
-# T200: visionOS Codepath Audit
+# visionOS Codepath Audit
 
-**Date:** 2026-03-29
-**Hypothesis:** visionOS has its own code flows in places where it should share them with iPad and iOS.
-**Scope:** All `#if os(visionOS)`, `#if !os(visionOS)`, and runtime visionOS checks inside `Clawline/Clawline/` (the shared target). The `Clawline Spatial/` target itself is out of scope — it's the expected host for visionOS-only app entry.
+Date: 2026-03-30
 
----
+Scope:
+- Shared Clawline client target only: `ios/Clawline/Clawline/`
+- Compile-time and runtime visionOS branches that affect chat/UI behavior
+- `Clawline Spatial/` app entry remains out of scope; that target is expected to differ
 
-## Summary of Findings
+Method:
+- Rescanned current source for `#if os(visionOS)`, `#if !os(visionOS)`, and visionOS-specific runtime branches
+- Re-read the current shared codepaths around chat layout, message flow, link previews/cards, composer, and theme surfaces
+- Checked local docs/specs for explicit product intent
+- Used `engram explain` on three suspicious areas:
+  - `MessageInputBar.swift:125-145`
+  - `MessageFlowCollectionView.swift:1905-1913`
+  - `CodeBlockView.swift:19-24`
+  Engram gave provenance lineage but did not surface decisive product rationale for those divergences
 
-| Category | Count | Verdict |
-|----------|-------|---------|
-| Appearance/color-scheme overrides | ~15 | **Likely consolidatable** — a single "effective color scheme" helper would eliminate the per-view `#if os(visionOS)` pattern |
-| Material / glass effect fallbacks | ~10 | **Necessary** — `.glassEffect()` is iOS 26+ / Liquid Glass; visionOS needs `.regularMaterial` fallback |
-| Keyboard / layout geometry | ~6 | **Necessary** — spatial windows have different keyboard geometry semantics |
-| UIKit feature gating (camera, haptics, SFSafari, keyboard dismiss) | ~6 | **Necessary** — hardware/API not available on visionOS |
-| Scroll-cell opacity fade (spatial depth cue) | ~6 | **Questionable** — could be gated by a layout trait rather than platform |
-| Snapshot apply logging / timing | 2 | **Unnecessary** — should share the iOS path |
-| Bubble sizing (isVisionOS flag) | 2 | **Necessary** — spatial window height capping is genuinely different |
-| Page dots / scroll-to-bottom pinning strategy | 4 | **Necessary** — visionOS lacks keyboardLayoutGuide pinning |
-| Input bar z-offset | 1 | **Necessary** — spatial affordance (`offset(z:)`) is visionOS-only API |
+Product answers from Flynn applied in this revision:
+- “composer” means the bottom message input area: text field + add/send + growing bar
+- visionOS single-link preview cap should stay at 75%
+- code blocks and markdown behavior on visionOS should be exactly the same as iPad/iPhone
+- appearance/theme also need to be untangled as part of this work
 
-**Bottom line:** Roughly **15 out of ~52 `#if os(visionOS)` sites** are appearance/theme overrides that repeat the same pattern (`settings.appearanceMode == .dark` vs `colorScheme`). These should be consolidated into a shared helper. The remaining ~37 sites are either necessary platform divergence or could be lightly refactored but are defensible.
+## Bottom Line
 
----
+The current shared target has a real visionOS divergence surface, but it breaks into three very different buckets:
 
-## Detailed Inventory
+- Keep:
+  - keyboard/input-bar pinning geometry
+  - capability gates like camera, haptics, and browser presentation
+  - spatial sizing where product intent explicitly differs, including the 75% single-link preview cap
+  - visionOS material fallback where Liquid Glass APIs are unavailable
+  - a composer appearance that does not shift with app theme
+- Kill:
+  - disabled syntax highlighting in `CodeBlockView`
+  - most per-view appearance forks that read `settings.appearanceMode` only on visionOS
+  - visionOS-only typing/input-bar growth defer behavior if the performance invariant is supposed to apply cross-platform
+- Keep, but re-home:
+  - a small amount of explicit UIKit style bridging is still needed, but it should hang off one shared effective theme source instead of scattered visionOS-only branches
+  - the composer's non-shifting appearance should stay, but not as a visionOS-only rule
 
-### 1. Appearance / Color Scheme Overrides (CONSOLIDATION CANDIDATE)
+The major theme conclusion is this:
 
-On visionOS the system `colorScheme` environment value doesn't update when the user toggles appearance in Clawline's settings, so every view manually checks `settings.appearanceMode`. On iOS/iPad, the system `colorScheme` is the source of truth. This creates a scattered `#if os(visionOS) / settings.appearanceMode / #else / colorScheme / #endif` pattern repeated in many files.
+Current visionOS appearance handling is mostly workaround accumulation, not intended product differentiation.
 
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `Settings/SettingsView.swift` | 17 | `effectiveColorScheme` reads `settings.appearanceMode` on visionOS, `colorScheme` on iOS |
-| `DesignSystem/.../ScrollToBottomButton.swift` | 22 | `resolvedScheme` — same pattern |
-| `DesignSystem/.../CodeBlockView.swift` | 28 | `isDark` — same pattern |
-| `DesignSystem/.../MessageInputBar.swift` | 128 | `isLightModeForInputBar` — forces dark on visionOS (#61) |
-| `Views/Chat/ChannelToast.swift` | 21 | `isDarkMode` — same pattern |
-| `Views/Chat/ChatView.swift` | 2836 | `effectiveColorScheme` in `AttachmentPickerOverlay` — same pattern |
-| `Views/Chat/ChatView.swift` | 2908 | `effectiveColorScheme` in `AttachmentActionButton` — same pattern |
-| `Views/Chat/ExpandedMessageSheet.swift` | 28 | `effectiveColorScheme` — same pattern |
-| `Views/Chat/MessageFlowCollectionView.swift` | 46, 76 | `isDark` in make/update — same pattern |
-| `Views/Chat/MessageFlowCollectionView.swift` | 1992-1997 | `overrideUserInterfaceStyle` set only on visionOS |
-| `Views/RootView.swift` | 59 | `.preferredColorScheme(settings.preferredColorScheme)` only on visionOS |
+The codebase should keep one shared appearance model across iPhone, iPad, and visionOS, then keep only the narrow platform-specific pieces that are actually about platform capabilities or spatial geometry.
 
-**Recommendation:** Create a shared `effectiveColorScheme` computed property or environment key that resolves correctly on both platforms. Wire it once at `RootView` level, eliminating all per-view `#if os(visionOS)` appearance checks. The `overrideUserInterfaceStyle` in MessageFlowCollectionView would still need to exist but could read from the same single source.
+## Concrete Audit
 
----
+| Files / lines | Area / feature | What differs on visionOS | Necessary? | Intent vs drift | Opinion |
+| --- | --- | --- | --- | --- | --- |
+| `Views/RootView.swift:59-61,93-104`; `Settings/SettingsView.swift:16-21`; `Views/Chat/MessageFlowCollectionView.swift:46-50,76-80,2000-2007`; `Views/Chat/ExpandedMessageSheet.swift:27-32`; `Views/Chat/ChatView.swift:2846-2851,2918-2923`; `Views/Chat/ChannelToast.swift:20-25`; `DesignSystem/ChatFlowOrganic/Components/ScrollToBottomButton.swift:21-27`; `DesignSystem/ChatFlowOrganic/Components/CodeBlockView.swift:27-32` | Appearance / theme resolution | visionOS repeatedly bypasses the environment `colorScheme` and reads `settings.appearanceMode` directly; `RootView` also applies `.preferredColorScheme(...)` only on visionOS; `MessageFlowCollectionView` additionally forces `overrideUserInterfaceStyle` only on visionOS | Partly | Shared product intent, workaround implementation | This is the main workaround cluster. The product intent is shared appearance, not a visionOS-only theme fork. Keep one root/theme bridge, kill the scattered per-view visionOS checks. |
+| `DesignSystem/ChatFlowOrganic/Components/MessageInputBar.swift:125-161,194-223,324-340,438-442` | Composer theme / appearance toggle | visionOS keeps the composer dark regardless of selected appearance, adds a visionOS-only appearance toggle button in the composer, and uses a separate palette for editor chrome and controls | Partly | Product intent is real, platform scoping is drift | Flynn clarified that the composer should not shift with theme. Keep the non-shifting composer behavior, but kill the fact that it is implemented only on visionOS. The composer theme rule should be shared, while the visionOS-only control/palette branching should be simplified around that shared rule. |
+| `Views/Chat/ChatView.swift:173-178`; `Views/Chat/MessageFlowCollectionView.swift:1905-1913`; `docs/implementation_details/efficient-flow-layout.md` | Typing / input lag / input-bar growth | visionOS suppresses `layoutRevision` invalidation on input-bar height change and skips treating `truncationBottomInset` changes as active-typing update blockers; iOS/iPad still react more eagerly | No, not as platform-only behavior | Likely accidental drift | The local layout doc states this as a general interaction-performance invariant, not a visionOS-only rule. This should likely be shared once verified safe. |
+| `Views/Chat/ChatView.swift:668-707,2183-2612`; `Views/Chat/MessageFlowCollectionView.swift:926-957` | Keyboard geometry / pinned composer layout | visionOS adds 25% top and bottom spatial insets, uses container-bottom pinning instead of `keyboardLayoutGuide`, samples keyboard height from window bounds, and keeps the collection view in `view.bounds` instead of extending to window bounds | Yes | Matches platform geometry | This should remain different. It is a real platform/layout difference, not theme drift. |
+| `Views/Chat/ChatView.swift:842-879,1192-1208,2380-2476`; `Views/Chat/StreamPageDotsView.swift:81-84`; `DesignSystem/ChatFlowOrganic/Components/ScrollToBottomButton.swift:52-57` | Page dots / scroll-to-bottom placement | visionOS renders page dots and the scroll-to-bottom control in SwiftUI bottom overlays; iOS/iPad pins them to the UIKit keyboard host; `StreamPageDotsView` also skips the iOS glass effect on visionOS | Mostly yes | Mostly intended | The placement divergence is justified by keyboard-host differences. The visual finish difference is primarily material fallback, not theme intent. |
+| `Views/Chat/ChatView.swift:1540-1579`; `Views/Chat/StreamManagerSheet.swift:11-320`; upstream geometry at `Views/Chat/ChatView.swift:668-707` | Popup layout / cropping | The popup view itself is shared. I found no direct visionOS guard in `StreamManagerSheet.swift`. The likely difference is indirect: visionOS-specific composer/stream geometry changes the `maxAvailableHeight` passed into the popup | Shared popup, indirect geometry differs | Likely accidental symptom, not popup intent | If Flynn is seeing popup crop/layout problems on visionOS, investigate the geometry provider first, not the popup body. I do not see evidence that the popup is meant to differ on visionOS. |
+| `Views/Chat/LinkCardUIKitView.swift:270-282`; `Views/Chat/LinkPreviewView.swift:862-869` | URL cards / previews tap behavior | visionOS opens links via `UIApplication.shared.open`; iOS/iPad presents `SFSafariViewController` in-app | Yes | Capability-driven | Legitimate platform fork unless product later wants a visionOS in-app browser surface. |
+| `Views/Chat/BubbleSizingV2.swift:87-123`; `Views/Chat/MessageFlowCollectionView.swift:3493-3534,3873-3890`; design-system note in `design-system/design-system.html:995-1003,1024` | URL preview sizing / crop behavior | visionOS uses platform-aware bubble sizing: single-link bubbles cap at 75% of current window height, effective container height is capped, and mixed text+media bubbles disable outer scroll more aggressively | Yes for the single-link cap; partly for the rest | Intent confirmed for 75% cap; other heuristics are implementation choices | The 75% single-link cap is now explicitly keep. It is the most plausible intentional contributor to different preview height/crop behavior. The other visionOS sizing heuristics are still worth scrutinizing, but they are no longer blocked by product ambiguity on the cap. |
+| `Views/Chat/MessageFlowCollectionView.swift:986-1112`; `Views/Chat/MessageBubbleUIKitView.swift:1095-1099,1251-1255` | Edge fade / scroll chrome | visionOS fades visible cells near top/bottom, shifts bubble fade start to `0.95`, and skips scroll-indicator bottom inset adjustment | Partly | Fade looks intentional; indicator skip looks workaround-ish | The spatial fade treatment is defensible as a visionOS visual cue. The indicator-inset skip still reads like workaround residue. |
+| `Views/Chat/MessageFlowCollectionView.swift:2212-2253` | Snapshot apply path | The remaining visionOS-specific code after snapshot apply is just `updateVisibleCellOpacity()` to restore the spatial fade pass | Yes, if fade remains | Acceptable | This is no longer a major separate data path. |
+| `DesignSystem/ChatFlowOrganic/Components/CodeBlockView.swift:19-24` | Code blocks / syntax highlighting | visionOS disables syntax highlighting entirely and falls back to plain text | No | Product-confirmed drift | Flynn said code blocks and markdown behavior should be exactly the same across platforms. This branch should be removed. |
+| `DesignSystem/ChatFlowOrganic/Components/RichTextEditor.swift:49-51`; `Views/Chat/MessageFlowCollectionView.swift:3167-3169` | Interactive keyboard dismiss | visionOS skips `.keyboardDismissMode = .interactive` in both the editor and collection view | Yes | Capability / interaction-model driven | This should stay different. It is about input mechanics, not appearance. |
+| `Views/Chat/ChatView.swift:1694-1705,1372-1392,2855-2883`; `DesignSystem/ChatFlowOrganic/Components/CameraPicker.swift:8-60`; `ViewModels/ChatViewModel.swift:645-649`; `Views/Chat/ChatView.swift:806-810` | Camera / haptics / attachment actions | visionOS hides camera affordances, rejects camera presentation, and skips haptics | Yes | Clearly intended capability gating | This should remain different. |
+| `Views/Chat/ChannelToast.swift:28-40,69-76`; `Views/Chat/ChatView.swift:1947-1954` | Toast chrome / contrast | visionOS uses solid fills and different text-color logic instead of the iOS glass treatment | Partly | Mostly fallback, some workaround accumulation | The material fallback is required. The extra contrast logic is probably not a product-level theme split. It should be reevaluated after appearance propagation is unified. |
 
-### 2. Material / Glass Effect Fallbacks (NECESSARY)
+## Focused Callouts
 
-visionOS does not support iOS 26's `.glassEffect()` modifier. These sites use `.background(.regularMaterial)` + a border stroke on visionOS vs `.glassEffect(.regular)` on iOS.
+### URL cards / previews
 
-| File | Line(s) | Component |
-|------|---------|-----------|
-| `DesignSystem/.../ScrollToBottomButton.swift` | 52-56 | Scroll-to-bottom button circle |
-| `DesignSystem/.../MessageInputBar.swift` | 207, 237, 382, 512 | Add button, attachment button, text field, send button |
-| `Views/Chat/StreamPageDotsView.swift` | 82 | Page dots capsule (iOS-only `.glassEffect`) |
-| `Views/Chat/ChatView.swift` | 1936 | Empty-state pill background |
-| `Views/Chat/ChatView.swift` | 2939 | Attachment action button background |
-| `Views/Chat/ChannelToast.swift` | 69 | Toast background |
-| `Views/Pairing/PairingView.swift` | 167, 203, 233, 277, 319 | Pairing field backgrounds and submit buttons |
+The explicit visionOS branch inside the preview/card views is only the tap-open path:
+- `LinkCardUIKitView` and `LinkPreviewView` open externally on visionOS
 
-**Verdict:** Necessary. Liquid Glass is not available on visionOS. When/if Apple ships `.glassEffect()` for visionOS, these can be unified.
+The more likely cause of visionOS-only preview crop/height differences is the sizing path:
+- `BubbleSizingV2` gives visionOS its own single-link height cap
+- `MessageFlowCollectionView` caps effective container height on visionOS
+- mixed media bubbles disable outer scroll more aggressively on visionOS
 
----
+Product intent is now clear on the most important part:
+- keep the 75% single-link cap on visionOS
 
-### 3. Keyboard / Layout Geometry (NECESSARY)
+So if Flynn is chasing URL-card/preview crop regressions, I would investigate the other spatial sizing heuristics around that cap, not the cap itself.
 
-Spatial windows have different keyboard-related behavior — the keyboard can "over-report" its height, there's no physical home indicator, and `keyboardLayoutGuide` doesn't behave the same way.
+### Popup layout / cropping
 
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `Views/Chat/ChatView.swift` | 693-696 | `usesExternalKeyboardInsets = true` — bypasses keyboard geometry on visionOS |
-| `Views/Chat/ChatView.swift` | 2172-2175 | Keyboard height calculation uses window bounds instead of screen height on visionOS |
-| `Views/Chat/ChatView.swift` | 2330-2336 | Skips `keyboardLayoutGuide.usesBottomSafeArea = false` on visionOS |
-| `Views/Chat/ChatView.swift` | 2470, 2517 | `setDesiredBottomGap`/`ensureConstraints` — pins to container bottom instead of `keyboardLayoutGuide` on visionOS |
-| `Views/Chat/MessageFlowCollectionView.swift` | 936 | `collectionView.frame = view.bounds` instead of window-frame extension — prevents layout feedback loop on visionOS |
+I did not find a popup-specific visionOS codepath in `StreamManagerSheet.swift`.
 
-**Verdict:** Necessary. visionOS spatial windows have fundamentally different keyboard geometry semantics.
+That matters. Popup crop/layout bugs are more likely caused by shared popup UI receiving different geometry inputs on visionOS:
+- larger spatial top/bottom insets
+- container-bottom composer pinning
+- different `streamSelectorMaxHeight` calculation
 
----
+That is an accidental consequence until proven otherwise, not evidence that the popup is meant to differ on visionOS.
 
-### 4. UIKit Feature Gating (NECESSARY)
+### Typing / input lag / input-bar growth
 
-Features that don't exist or don't apply on Vision Pro.
+This is still the strongest accidental-drift candidate:
 
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `DesignSystem/.../CameraPicker.swift` | 8 | Entire file wrapped in `#if !os(visionOS)` — camera picker unavailable |
-| `Views/Chat/ChatView.swift` | 1361-1365 | `.camera` sheet case shows `Color.clear` + dismisses on visionOS |
-| `Views/Chat/ChatView.swift` | 1683-1686 | `presentCamera()` shows `.cameraUnavailable` toast on visionOS |
-| `Views/Chat/ChatView.swift` | 2866 | Hides "Camera" button from attachment picker on visionOS |
-| `ViewModels/ChatViewModel.swift` | 646-649 | `assistantIncomingHaptic` — no haptic engine on visionOS |
-| `Views/Chat/ChatView.swift` | 798-801 | Stream-switch haptic — no haptic engine on visionOS |
-| `DesignSystem/.../RichTextEditor.swift` | 49 | Skips `.keyboardDismissMode = .interactive` on visionOS |
-| `Views/Chat/MessageFlowCollectionView.swift` | 3159 | Skips `.keyboardDismissMode = .interactive` on visionOS |
-| `Views/Chat/LinkCardUIKitView.swift` | 272 | Opens URL with `UIApplication.shared.open` on visionOS (no SFSafariViewController) |
-| `Views/Chat/LinkPreviewView.swift` | 864 | Opens URL with `UIApplication.shared.open` on visionOS (no SFSafariViewController) |
+- `ChatView` disables layout-revision invalidation from composer-height changes on visionOS
+- `MessageFlowCollectionView` avoids re-running the active-session update when `truncationBottomInset` changes during typing on visionOS
+- `efficient-flow-layout.md` states the deferred-recalc rule as a general interaction invariant
 
-**Verdict:** Necessary. These are correct platform capability gates.
+That reads like a performance fix that landed only on visionOS even though the intended behavior is broader.
 
----
+### Appearance / theme behavior
 
-### 5. Scroll-Cell Opacity Fade (QUESTIONABLE)
+This is the part that most needs a keep-vs-kill cleanup.
 
-On visionOS, cells near the top and bottom edges of the collection view are faded in/out for a spatial depth cue. This is a visionOS-only ~30-line function (`updateVisibleCellOpacity`) called from multiple scroll delegate methods.
+What looks required:
+- some root-level propagation from app appearance setting into actual SwiftUI/UIKit color traits
+- explicit UIKit style bridging for hosted UIKit/SwiftUI seams that need deterministic trait resolution
 
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `Views/Chat/MessageFlowCollectionView.swift` | 986-988 | Calls `updateVisibleCellOpacity()` after layout |
-| `Views/Chat/MessageFlowCollectionView.swift` | 991-1018 | The `updateVisibleCellOpacity()` function itself |
-| `Views/Chat/MessageFlowCollectionView.swift` | 1023-1025 | Calls during `scrollViewDidScroll` |
-| `Views/Chat/MessageFlowCollectionView.swift` | 1036-1039 | Calls in `scrollViewDidEndDragging` |
-| `Views/Chat/MessageFlowCollectionView.swift` | 1058-1060 | Calls in `scrollViewDidEndDecelerating` |
-| `Views/Chat/MessageFlowCollectionView.swift` | 1110-1112 | Calls in `willDisplay cell` instead of iOS appearance animation |
+What looks like workaround accumulation:
+- repeated `#if os(visionOS)` appearance reads in leaf views
+- visionOS-only scoping of the composer appearance rule
+- theme logic split between `colorScheme`, `settings.appearanceMode`, and ad hoc UIKit overrides
 
-**Recommendation:** This is a visual nicety for spatial mode. It's defensible as-is, but could be made more portable by keying off a layout trait or a configuration flag rather than a compile-time OS check. If iPad ever wants a similar fade (e.g., for Stage Manager windows), the current gating would need refactoring.
+The product intent is shared appearance across iPhone, iPad, and visionOS. The code should reflect that.
 
----
+## Theme / Appearance Keep-vs-Kill Map
 
-### 6. Message Bubble Fade Location (MINOR)
+### Keep
 
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `Views/Chat/MessageBubbleUIKitView.swift` | 1095-1098 | `setFadeStartLocation(0.95)` on visionOS vs `nil` on iOS |
-| `Views/Chat/MessageBubbleUIKitView.swift` | 1251-1254 | Skips scroll indicator inset adjustment on visionOS |
+| Current behavior | Files | Keep? | Why |
+| --- | --- | --- | --- |
+| One user-controlled app appearance setting exists | `SettingsManager.appearanceMode`, `SettingsManager.preferredColorScheme` | Keep | Product intent is shared theme behavior across platforms. |
+| A root-level mechanism must drive effective app appearance into the tree | currently `RootView.swift:59-61` on visionOS only | Keep the concept, not the current asymmetric implementation | The app needs one authoritative appearance propagation path. |
+| Composer appearance does not shift with theme | currently `MessageInputBar.swift:125-161` on visionOS only | Keep the behavior, not the platform restriction | Flynn explicitly clarified this is intentional product behavior. |
+| UIKit style bridging where hosted UIKit/SwiftUI content needs explicit trait resolution | `MessageFlowCollectionView.swift:2000-2007`, `SelectableAttributedText.swift:33-39`, `MessageBubbleUIKitView.swift:2563-2572,2653-2657` | Keep | These are bridge seams, not product divergences. They should consume one shared effective theme value. |
+| visionOS material fallback where `glassEffect` is unavailable | multiple chat/pairing controls | Keep | Capability/API difference, not theme drift. |
 
-**Verdict:** The fade tuning (0.95 vs nil) is a spatial visual tweak — defensible. The scroll indicator inset skip might be masking a real issue on visionOS where indicator insets don't behave correctly.
+### Kill
 
----
+| Current behavior | Files | Kill? | Why |
+| --- | --- | --- | --- |
+| Leaf views on visionOS read `settings.appearanceMode` while iPhone/iPad read `colorScheme` | `SettingsView.swift`, `ExpandedMessageSheet.swift`, `ChannelToast.swift`, `ScrollToBottomButton.swift`, `ChatView.swift` attachment sheet types, `CodeBlockView.swift`, `MessageFlowCollectionView.swift` make/update path | Kill | This is workaround accumulation. Leaf views should not own platform-specific theme resolution. |
+| Composer non-shifting theme exists only on visionOS instead of being a shared rule | `MessageInputBar.swift:125-161` and related palette branches | Kill the platform restriction | The composer rule is intentional, but the platform-only implementation is drift. |
+| Composer-local appearance toggle exists only on visionOS | `MessageInputBar.swift:194-223` | Kill or move out of the composer-specific platform fork | The product rule is about composer appearance stability, not about a visionOS-only composer control owning theme changes. |
+| Syntax highlighting disabled on visionOS | `CodeBlockView.swift:19-24` | Kill | Flynn explicitly wants code/markdown behavior identical across platforms. |
 
-### 7. Snapshot Apply / Timing Logging (UNNECESSARY DIVERGENCE)
+### Keep, But Move / Simplify
 
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `Views/Chat/MessageFlowCollectionView.swift` | 2204-2223 | visionOS logs `StreamSwitchTiming.log("dataSource_apply_start")` before snapshot apply; iOS uses a different animation path |
-| `Views/Chat/MessageFlowCollectionView.swift` | 2226-2245 | Same pattern for non-morph apply |
+| Current behavior | Files | Action | Why |
+| --- | --- | --- | --- |
+| `RootView` applies `.preferredColorScheme(...)` only on visionOS | `RootView.swift:59-61` | Move to a shared root theme propagation strategy | The asymmetry causes downstream forks. |
+| `MessageFlowCollectionView` computes `isDark` from `settings.appearanceMode` only on visionOS | `MessageFlowCollectionView.swift:46-50,76-80` | Keep explicit `isDark` bridging, but feed it from one shared effective theme source | The collection view needs a concrete trait value, but not a platform-specific decision tree. |
+| Toast and button contrast tweaks on visionOS | `ChannelToast.swift`, `ScrollToBottomButton.swift` | Reevaluate after shared theme propagation is fixed | Some of this may become unnecessary once the theme source is consistent. |
 
-**Recommendation:** The logging should happen on all platforms. The actual divergence here is in the animation path (visionOS uses a simpler apply without the iOS animation wrapper), which may be worth investigating — it's unclear if the animation difference is intentional or a leftover from early porting.
+## Recommended Theme Untangling Direction
 
----
+Concrete target architecture:
 
-### 8. Bubble Sizing (isVisionOS flag) (NECESSARY)
+1. One shared effective appearance source
+   - The app-level appearance setting remains the product source of truth.
+   - Root applies the effective appearance consistently across iPhone, iPad, and visionOS.
 
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `Views/Chat/BubbleSizingV2.swift` | 22, 94 | `isVisionOS` in Environment struct; caps single-link bubbles at 75% window height on visionOS |
-| `Views/Chat/MessageFlowCollectionView.swift` | 3487-3490 | `effectiveContainerHeight()` caps at `bubbleReferenceSize.height` on visionOS |
-| `Views/Chat/MessageFlowCollectionView.swift` | 3514-3530 | `shouldDisableOuterScrollForMixedMediaBubble` — different scroll-disable logic on visionOS |
-| `Views/Chat/MessageFlowCollectionView.swift` | 3868-3871 | Sets `isVisionOS` flag for BubbleSizingV2.Environment |
-| `Views/Chat/MessageFlowCollectionView.swift` | 4931-4934 | `snapToPixel` — reads displayScale from traitCollection on visionOS (no window scene / screen) |
+2. Leaf views stop branching on platform for theme resolution
+   - Most current `effectiveColorScheme` helpers disappear.
+   - Leaf views consume the propagated environment color scheme or one shared resolved-theme helper.
 
-**Verdict:** Necessary. Spatial window sizing constraints are genuinely different from iOS screen-based layout.
+3. UIKit bridges stay explicit
+   - `MessageFlowCollectionView`
+   - `SelectableAttributedText`
+   - `MessageBubbleUIKitView` / table wrappers
+   These should still receive deterministic dark/light style values, but from the same shared source.
 
----
-
-### 9. Chat View Layout — Top/Bottom Insets (NECESSARY but heavy-handed)
-
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `Views/Chat/ChatView.swift` | 660-661 | Adds 25% of window height as top inset on visionOS (pushes messages down in spatial window) |
-| `Views/Chat/ChatView.swift` | 667-668 | Adds 25% of window height as additional bottom inset on visionOS |
-| `Views/Chat/ChatView.swift` | 506-507 | `Color.clear` background on visionOS (transparent window) |
-| `Views/RootView.swift` | 93-96 | `Color.clear` background on visionOS |
-| `Views/Chat/ChatView.swift` | 1400-1401 | `Color.clear` background for settings sheet on visionOS |
-
-**Verdict:** Mostly necessary — transparent backgrounds and spatial insets are core to the visionOS window experience. The 25% inset values are magic numbers that could be configuration-driven.
-
----
-
-### 10. Page Dots / Scroll-To-Bottom Button Pinning (NECESSARY)
-
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `Views/Chat/ChatView.swift` | 831-834 | visionOS uses floating page dots in SwiftUI overlay; iOS pins to keyboardLayoutGuide |
-| `Views/Chat/ChatView.swift` | 853-856 | visionOS places scroll-to-bottom button in SwiftUI overlay; iOS pins via UIKit |
-| `Views/Chat/ChatView.swift` | 1181-1184 | visionOS nil-s out the pinned scroll button (handled elsewhere) |
-| `Views/Chat/ChatView.swift` | 1328-1330 | Returns list directly on visionOS (no keyboard-pinned container wrapper) |
-| `Views/Chat/ChatView.swift` | 2369-2375 | `updateScrollButton` is a no-op on visionOS |
-| `Views/Chat/ChatView.swift` | 2430-2433 | `updatePageDots` is a no-op on visionOS |
-
-**Verdict:** Necessary. visionOS doesn't have `keyboardLayoutGuide` pinning in the same way. The SwiftUI overlay approach is the right strategy for spatial windows.
-
----
-
-### 11. Input Bar Depth Offset (NECESSARY)
-
-| File | Line(s) | What it does |
-|------|---------|--------------|
-| `Views/Chat/ChatView.swift` | 1253, 1964-1978 | `VisionOSInputBarDepthOffset` — applies `content.offset(z: 24)` on visionOS, passthrough on iOS |
-
-**Verdict:** Necessary. Z-offset is a visionOS-only spatial affordance. The modifier pattern is clean.
-
----
-
-### 12. Non-divergent visionOS Availability Annotations (NOT DIVERGENCE)
-
-These are `@available(iOS 26.0, visionOS 3.0, *)` annotations or `#available` checks that include visionOS as a supported platform alongside iOS. They do NOT create divergent behavior.
-
-| File | Line(s) |
-|------|---------|
-| `Services/SalientHighlightService.swift` | 160, 350, 398, 472 |
-| `Views/Chat/InteractiveHTMLBubbleUIKitView.swift` | 343 |
-| `Views/Chat/LinkPreviewView.swift` | 50, 502, 561 |
-| `Views/Chat/MessageBubbleUIKitView.swift` | 36 |
-| `Views/Chat/ChatView.swift` | 2315, 2444 |
-
-**Verdict:** No action needed. These are standard multi-platform availability annotations.
-
----
+4. Composer rejoins the shared theme system
+   - Keep the non-shifting composer appearance rule as product behavior.
+   - Remove the fact that this rule is visionOS-only.
+   - Reevaluate whether the inline appearance control belongs in the composer at all once theme ownership is centralized.
+   - Keep only platform differences that are about materials, geometry, and input mechanics.
 
 ## Recommendations
 
-### High Priority: Consolidate Appearance Theme Checks
+Priority order:
 
-Create a shared `effectiveColorScheme` utility:
+1. Keep the non-shifting composer appearance rule, but make it a shared rule instead of a visionOS-only fork.
+2. Remove the `CodeBlockView` visionOS syntax-highlighting disable path.
+3. Untangle appearance propagation so a single shared theme source drives all platforms.
+4. Keep the 75% visionOS single-link preview cap, but investigate the other spatial sizing heuristics around preview crop/layout.
+5. Treat the visionOS-only typing/input-bar growth defer path as likely accidental drift and evaluate sharing it with iOS/iPad.
+6. Leave capability and keyboard-geometry forks alone unless a specific bug proves them wrong.
 
-```swift
-// In a shared extension, e.g. DesignSystem/ThemeResolution.swift
-extension View {
-    var resolvedColorScheme: ColorScheme {
-        #if os(visionOS)
-        // On visionOS, the system color scheme doesn't follow our in-app toggle.
-        // Read from settings directly.
-        return settings.appearanceMode == .dark ? .dark : .light
-        #else
-        return colorScheme
-        #endif
-    }
-}
-```
+## Product-Intent Blockers
 
-Or better: wire `.preferredColorScheme()` at the root on both platforms (not just visionOS as currently done in `RootView.swift:59`) so the system `colorScheme` environment propagates correctly on visionOS too, eliminating the need for `settings.appearanceMode` checks entirely.
-
-This single change would eliminate **~15 `#if os(visionOS)` blocks** and reduce the visionOS divergence surface by ~30%.
-
-### Medium Priority: Investigate Snapshot Apply Divergence
-
-The different animation paths in `MessageFlowCollectionView.swift:2204-2245` for morph/non-morph snapshot applies may be an unintentional artifact. Verify whether visionOS can use the same animation wrapper as iOS.
-
-### Low Priority: Configuration-Driven Instead of Compile-Time
-
-Several sites (cell opacity fade, 25% spatial insets, bubble height caps) use compile-time `#if os(visionOS)` for values that could be configuration-driven or trait-based. This would make the codebase more testable and allow iPad to adopt spatial-like behaviors in the future.
-
----
-
-## Clawline Spatial Target
-
-The `Clawline Spatial/` target contains exactly 2 files:
-- `Clawline_SpatialApp.swift` — App entry point with `.windowStyle(.plain)`, identical DI setup to `ClawlineApp.swift`
-- `ContentView.swift` — Minimal content wrapper
-
-This is the expected structure for a separate visionOS app entry point and is not a concern.
+None at this point. Flynn’s answers are sufficient to classify the main open items:
+- composer should not shift with theme, but that rule should not stay visionOS-only
+- 75% visionOS single-link preview cap should stay
+- code/markdown behavior should be shared
+- appearance/theme should be unified instead of split
