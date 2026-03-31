@@ -465,7 +465,8 @@ struct ChatView: View {
         )
         .contentShape(Rectangle())
         .highPriorityGesture(
-            DragGesture(minimumDistance: 2)
+            // Keep translation stable while the hosted button itself is repositioned.
+            DragGesture(minimumDistance: 2, coordinateSpace: .global)
                 .onChanged { value in
                     handleScrollButtonDragChanged(value, containerWidth: containerWidth)
                 }
@@ -2278,8 +2279,9 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         uiView.updatePageDots(pageDotsView, gap: pageDotsGap)
         // Seed the pinned gap immediately on every SwiftUI update so launch layout matches the
         // steady-state hidden-keyboard position even before coordinator-driven transitions fire.
-        uiView.setDesiredBottomGap(desiredBottomGap, isKeyboardVisible: isKeyboardVisible)
-        uiView.layoutIfNeeded()
+        if uiView.updateDesiredBottomGapIfNeeded(desiredBottomGap, isKeyboardVisible: isKeyboardVisible) {
+            uiView.layoutIfNeeded()
+        }
         uiView.setOnBarHeightChange { [weak layoutCoordinator] height in
             // Break potential SwiftUI layout cycles by only propagating meaningful bar height changes.
             // (On some iOS 26.2 devices we observed AttributeGraph "cycle detected" during launch.)
@@ -2316,6 +2318,8 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private var versionLabelBottomToContainer: NSLayoutConstraint?
     private var onBarHeightChange: ((CGFloat) -> Void)?
     private var lastMeasuredHeight: CGFloat = 0
+    private var lastDesiredBottomGap: CGFloat?
+    private var lastPinnedKeyboardVisible: Bool?
 
     init(rootView: Content, versionText: AttributedString?) {
         hostingController = UIHostingController(rootView: rootView)
@@ -2492,6 +2496,17 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         versionLabelBottomToContainer?.isActive = !isKeyboardVisible
         versionLabel.isHidden = isKeyboardVisible || !hasVersionText
 #endif
+    }
+
+    @discardableResult
+    func updateDesiredBottomGapIfNeeded(_ gap: CGFloat, isKeyboardVisible: Bool) -> Bool {
+        let gapChanged = lastDesiredBottomGap.map { abs($0 - gap) > 0.5 } ?? true
+        let visibilityChanged = lastPinnedKeyboardVisible != isKeyboardVisible
+        guard gapChanged || visibilityChanged else { return false }
+        lastDesiredBottomGap = gap
+        lastPinnedKeyboardVisible = isKeyboardVisible
+        setDesiredBottomGap(gap, isKeyboardVisible: isKeyboardVisible)
+        return true
     }
 
     @available(*, unavailable)
