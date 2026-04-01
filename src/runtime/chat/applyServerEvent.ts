@@ -6,14 +6,20 @@ import type {
 import type {
   ChatDomainState,
   ChatMessageRecord,
+  IncomingMessageSource,
   StreamRecord
 } from "./chatDomainStore";
 
 export function applyServerMessage(
   state: ChatDomainState,
-  message: ServerMessagePayload,
-  localDeviceId: string
+  input: {
+    localDeviceId: string;
+    message: ServerMessagePayload;
+    selectedSessionKey?: string;
+    source: IncomingMessageSource;
+  }
 ) {
+  const { localDeviceId, message, selectedSessionKey, source } = input;
   const sessionKey = message.sessionKey ?? state.streams[0]?.sessionKey ?? "unassigned";
   const currentMessages = state.messagesBySessionKey[sessionKey] ?? [];
 
@@ -94,11 +100,39 @@ export function applyServerMessage(
   return {
     ...state,
     lastServerEventId: message.id,
+    firstUnreadMessageIdBySessionKey:
+      shouldMarkUnread(message, sessionKey, selectedSessionKey, source)
+        ? {
+            ...state.firstUnreadMessageIdBySessionKey,
+            [sessionKey]:
+              state.firstUnreadMessageIdBySessionKey[sessionKey] ?? message.id
+          }
+        : state.firstUnreadMessageIdBySessionKey,
     messagesBySessionKey: {
       ...state.messagesBySessionKey,
       [sessionKey]: [...currentMessages, nextMessage].sort(sortMessages)
-    }
+    },
+    unreadBySessionKey:
+      shouldMarkUnread(message, sessionKey, selectedSessionKey, source)
+        ? {
+            ...state.unreadBySessionKey,
+            [sessionKey]: (state.unreadBySessionKey[sessionKey] ?? 0) + 1
+          }
+        : state.unreadBySessionKey
   };
+}
+
+function shouldMarkUnread(
+  message: ServerMessagePayload,
+  sessionKey: string,
+  selectedSessionKey: string | undefined,
+  source: IncomingMessageSource
+) {
+  return (
+    source === "live" &&
+    message.role === "assistant" &&
+    sessionKey !== selectedSessionKey
+  );
 }
 
 export function applyStreamSnapshot(

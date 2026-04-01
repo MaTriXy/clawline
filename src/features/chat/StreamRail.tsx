@@ -3,11 +3,13 @@ import type { StreamRecord } from "../../runtime/chat/chatDomainStore";
 export function StreamRail({
   activeSessionKey,
   onSelectSession,
-  streams
+  streams,
+  unreadBySessionKey
 }: {
   activeSessionKey?: string;
   onSelectSession: (sessionKey: string) => void;
   streams: StreamRecord[];
+  unreadBySessionKey: Record<string, number>;
 }) {
   return (
     <nav aria-label="Sessions" className="stream-rail">
@@ -29,7 +31,18 @@ export function StreamRail({
             onClick={() => onSelectSession(stream.sessionKey)}
             type="button"
           >
-            <span>{stream.displayName}</span>
+            <span className="stream-chip-row">
+              <span>{stream.displayName}</span>
+              {typeof unreadBySessionKey[stream.sessionKey] === "number" &&
+              unreadBySessionKey[stream.sessionKey] > 0 ? (
+                <span
+                  aria-label={`${unreadBySessionKey[stream.sessionKey]} unread messages`}
+                  className="stream-unread-badge"
+                >
+                  {unreadBySessionKey[stream.sessionKey]}
+                </span>
+              ) : null}
+            </span>
             <code>{stream.sessionKey}</code>
           </button>
         ))

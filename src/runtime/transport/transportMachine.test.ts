@@ -4,6 +4,50 @@ import { createMemoryChatPersistence } from "../persistence/indexedDbChatPersist
 import { createTransportMachine } from "./transportMachine";
 import { FakeWebSocketFactory } from "../../test/support/fakeWebSocket";
 
+class FakeBrowserRuntime {
+  isCurrentlyOnline = true;
+  listeners = {
+    offline: new Set<() => void>(),
+    online: new Set<() => void>()
+  };
+  nextTimeoutId = 1;
+  pendingTimeouts = new Map<number, () => void>();
+
+  addEventListener(type: "offline" | "online", listener: () => void) {
+    this.listeners[type].add(listener);
+    return () => {
+      this.listeners[type].delete(listener);
+    };
+  }
+
+  clearTimeout(timeoutId: number) {
+    this.pendingTimeouts.delete(timeoutId);
+  }
+
+  emit(type: "offline" | "online") {
+    if (type === "offline") {
+      this.isCurrentlyOnline = false;
+    } else {
+      this.isCurrentlyOnline = true;
+    }
+
+    for (const listener of this.listeners[type]) {
+      listener();
+    }
+  }
+
+  isOnline() {
+    return this.isCurrentlyOnline;
+  }
+
+  setTimeout(listener: () => void) {
+    const timeoutId = this.nextTimeoutId;
+    this.nextTimeoutId += 1;
+    this.pendingTimeouts.set(timeoutId, listener);
+    return timeoutId;
+  }
+}
+
 function seedSession() {
   const authStore = createAuthSessionStore();
   authStore.storePairingSession({
@@ -164,5 +208,39 @@ describe("transportMachine", () => {
     expect(transportB.getState().phase).toBe("live");
     expect(factoryA.sockets).toHaveLength(1);
     expect(factoryB.sockets).toHaveLength(1);
+  });
+
+  it("waits for the browser to come back online before reconnecting", () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const browserRuntime = new FakeBrowserRuntime();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      browserRuntime,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({ type: "auth_result", success: true })
+    );
+
+    browserRuntime.emit("offline");
+
+    expect(transport.getState()).toMatchObject({
+      failureReason: "Browser offline",
+      isBrowserOnline: false,
+      phase: "recovering"
+    });
+    expect(factory.sockets).toHaveLength(1);
+
+    browserRuntime.emit("online");
+
+    expect(transport.getState().isBrowserOnline).toBe(true);
+    expect(factory.sockets).toHaveLength(2);
   });
 });

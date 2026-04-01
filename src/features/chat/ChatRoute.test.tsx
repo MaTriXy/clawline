@@ -65,29 +65,37 @@ function renderChatRoute(initialPath: string) {
   ]);
   chatStore.applyIncomingMessage(
     {
-      type: "message",
-      id: "s_main",
-      role: "assistant",
-      content: "Main thread",
-      timestamp: 10,
-      streaming: false,
-      sessionKey: "agent:main:clawline:user_1:main",
-      attachments: []
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_main",
+        role: "assistant",
+        content: "Main thread",
+        timestamp: 10,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
     },
-    "browser-device-1"
   );
   chatStore.applyIncomingMessage(
     {
-      type: "message",
-      id: "s_side",
-      role: "assistant",
-      content: "Side thread",
-      timestamp: 11,
-      streaming: false,
-      sessionKey: "agent:main:clawline:user_1:side",
-      attachments: []
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_side",
+        role: "assistant",
+        content: "Side thread",
+        timestamp: 11,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
     },
-    "browser-device-1"
   );
 
   const transportMachine = createTransportMachine({
@@ -142,5 +150,12 @@ describe("ChatRoute", () => {
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/chat/agent:main:clawline:user_1:main"
     );
+  });
+
+  it("clears unread state when the URL-selected session becomes active", () => {
+    renderChatRoute("/chat/agent:main:clawline:user_1:side");
+
+    expect(screen.getByText("Side thread")).toBeInTheDocument();
+    expect(screen.queryByLabelText("1 unread messages")).not.toBeInTheDocument();
   });
 });

@@ -10,7 +10,8 @@ export function ChatShell({
   onRetryConnection,
   onSelectSession,
   selectedMessages,
-  streams
+  streams,
+  unreadBySessionKey
 }: {
   activeSessionKey?: string;
   connectionLabel: string;
@@ -19,6 +20,7 @@ export function ChatShell({
   onSelectSession: (sessionKey: string) => void;
   selectedMessages: ChatMessageRecord[];
   streams: StreamRecord[];
+  unreadBySessionKey: Record<string, number>;
 }) {
   return (
     <section className="chat-layout">
@@ -26,6 +28,7 @@ export function ChatShell({
         activeSessionKey={activeSessionKey}
         onSelectSession={onSelectSession}
         streams={streams}
+        unreadBySessionKey={unreadBySessionKey}
       />
       <main className="chat-panel">
         <header className="chat-header">

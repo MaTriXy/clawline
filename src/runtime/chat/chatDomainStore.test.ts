@@ -30,17 +30,21 @@ describe("chatDomainStore", () => {
     store.markMessageAcked("c_1");
     store.applyIncomingMessage(
       {
-        type: "message",
-        id: "s_1",
-        role: "user",
-        content: "Hello",
-        timestamp: 101,
-        streaming: false,
-        deviceId: "browser-device-1",
-        sessionKey: "agent:main:clawline:user_1:main",
-        attachments: []
+        localDeviceId: "browser-device-1",
+        message: {
+          type: "message",
+          id: "s_1",
+          role: "user",
+          content: "Hello",
+          timestamp: 101,
+          streaming: false,
+          deviceId: "browser-device-1",
+          sessionKey: "agent:main:clawline:user_1:main",
+          attachments: []
+        },
+        selectedSessionKey: "agent:main:clawline:user_1:main",
+        source: "live"
       },
-      "browser-device-1"
     );
 
     const messages =
@@ -58,29 +62,37 @@ describe("chatDomainStore", () => {
 
     store.applyIncomingMessage(
       {
-        type: "message",
-        id: "s_stream",
-        role: "assistant",
-        content: "Hel",
-        timestamp: 100,
-        streaming: true,
-        sessionKey: "agent:main:clawline:user_1:main",
-        attachments: []
+        localDeviceId: "browser-device-1",
+        message: {
+          type: "message",
+          id: "s_stream",
+          role: "assistant",
+          content: "Hel",
+          timestamp: 100,
+          streaming: true,
+          sessionKey: "agent:main:clawline:user_1:main",
+          attachments: []
+        },
+        selectedSessionKey: "agent:main:clawline:user_1:main",
+        source: "live"
       },
-      "browser-device-1"
     );
     store.applyIncomingMessage(
       {
-        type: "message",
-        id: "s_stream",
-        role: "assistant",
-        content: "Hello",
-        timestamp: 101,
-        streaming: false,
-        sessionKey: "agent:main:clawline:user_1:main",
-        attachments: []
+        localDeviceId: "browser-device-1",
+        message: {
+          type: "message",
+          id: "s_stream",
+          role: "assistant",
+          content: "Hello",
+          timestamp: 101,
+          streaming: false,
+          sessionKey: "agent:main:clawline:user_1:main",
+          attachments: []
+        },
+        selectedSessionKey: "agent:main:clawline:user_1:main",
+        source: "live"
       },
-      "browser-device-1"
     );
 
     const messages =
@@ -135,16 +147,20 @@ describe("chatDomainStore", () => {
 
     store.applyIncomingMessage(
       {
-        type: "message",
-        id: "s_101",
-        role: "assistant",
-        content: "Hi there",
-        timestamp: 1704672000000,
-        streaming: false,
-        sessionKey: "agent:main:clawline:user_1:main",
-        attachments: []
+        localDeviceId: "browser-device-1",
+        message: {
+          type: "message",
+          id: "s_101",
+          role: "assistant",
+          content: "Hi there",
+          timestamp: 1704672000000,
+          streaming: false,
+          sessionKey: "agent:main:clawline:user_1:main",
+          attachments: []
+        },
+        selectedSessionKey: "agent:main:clawline:user_1:main",
+        source: "replay"
       },
-      "browser-device-1"
     );
 
     expect(
@@ -160,16 +176,20 @@ describe("chatDomainStore", () => {
 
     store.applyIncomingMessage(
       {
-        type: "message",
-        id: "s_live",
-        role: "assistant",
-        content: "fresh replayed copy",
-        timestamp: 1704673000000,
-        streaming: false,
-        sessionKey: "agent:main:clawline:user_1:main",
-        attachments: []
+        localDeviceId: "browser-device-1",
+        message: {
+          type: "message",
+          id: "s_live",
+          role: "assistant",
+          content: "fresh replayed copy",
+          timestamp: 1704673000000,
+          streaming: false,
+          sessionKey: "agent:main:clawline:user_1:main",
+          attachments: []
+        },
+        selectedSessionKey: "agent:main:clawline:user_1:main",
+        source: "replay"
       },
-      "browser-device-1"
     );
 
     await waitForHydration(store);
@@ -182,5 +202,59 @@ describe("chatDomainStore", () => {
         content: "fresh replayed copy"
       })
     ]);
+  });
+
+  it("marks non-active live assistant messages unread and clears them on selection", () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+
+    store.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_side_1",
+        role: "assistant",
+        content: "Side reply",
+        timestamp: 101,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    });
+    store.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_side_2",
+        role: "assistant",
+        content: "Another side reply",
+        timestamp: 102,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    });
+
+    expect(store.getState().unreadBySessionKey).toEqual({
+      "agent:main:clawline:user_1:side": 2
+    });
+    expect(store.getState().firstUnreadMessageIdBySessionKey).toEqual({
+      "agent:main:clawline:user_1:side": "s_side_1"
+    });
+
+    store.markSessionRead("agent:main:clawline:user_1:side");
+
+    expect(store.getState().unreadBySessionKey).toEqual({});
+    expect(store.getState().firstUnreadMessageIdBySessionKey).toEqual({});
+    expect(
+      store.getState().replayCursorsBySessionKey["agent:main:clawline:user_1:side"]
+    ).toEqual({
+      lastReadMessageId: "s_side_2"
+    });
   });
 });

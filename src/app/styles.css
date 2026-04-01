@@ -247,6 +247,24 @@ html[data-appearance="light"] {
   text-align: left;
 }
 
+.stream-chip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.stream-unread-badge {
+  min-width: 1.6rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(245, 201, 119, 0.2);
+  color: var(--color-accent-warm);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
 .stream-chip.active,
 .segment.active {
   border-color: var(--color-accent);
