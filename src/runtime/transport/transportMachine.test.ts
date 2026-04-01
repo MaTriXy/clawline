@@ -72,6 +72,17 @@ async function waitForSocket(factory: FakeWebSocketFactory, count = 1) {
   throw new Error(`Expected ${count} socket(s), found ${factory.sockets.length}`);
 }
 
+async function waitForHydration(store: ReturnType<typeof createChatDomainStore>) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (store.getState().hydrated) {
+      return;
+    }
+    await Promise.resolve();
+  }
+
+  throw new Error("Store did not hydrate");
+}
+
 describe("transportMachine", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -189,6 +200,121 @@ describe("transportMachine", () => {
     );
 
     expect(transport.getState().phase).toBe("live");
+  });
+
+  it("drops stale local transcript state when auth reports history reset", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence({
+        ...phase1TranscriptFixture,
+        pendingMessages: {
+          c_stale: {
+            content: "stale pending",
+            createdAt: 1704672000100,
+            sessionKey: "agent:main:clawline:user_1:main"
+          }
+        },
+        replayCursorsBySessionKey: {
+          "agent:main:clawline:user_1:main": {
+            lastReadMessageId: "s_101",
+            lastServerEventId: "s_101"
+          }
+        }
+      })
+    });
+    await waitForHydration(chatStore);
+    const factory = new FakeWebSocketFactory();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        userId: "user_1",
+        replayCount: 1,
+        historyReset: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    expect(chatStore.getState()).toMatchObject({
+      messagesBySessionKey: {},
+      pendingMessages: {},
+      replayCursorsBySessionKey: {},
+      streams: [
+        expect.objectContaining({
+          sessionKey: "agent:main:clawline:user_1:main"
+        })
+      ]
+    });
+    expect(transport.getState().phase).toBe("replaying");
+
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "message",
+        id: "s_fresh",
+        role: "assistant",
+        content: "fresh replay",
+        timestamp: 200,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      })
+    );
+
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toEqual([
+      expect.objectContaining({
+        id: "s_fresh",
+        content: "fresh replay"
+      })
+    ]);
+    expect(transport.getState().phase).toBe("live");
+  });
+
+  it("drops stale local transcript state when auth reports replay truncation", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence(phase1TranscriptFixture)
+    });
+    await waitForHydration(chatStore);
+    const factory = new FakeWebSocketFactory();
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        userId: "user_1",
+        replayCount: 0,
+        replayTruncated: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    expect(chatStore.getState()).toMatchObject({
+      lastServerEventId: null,
+      messagesBySessionKey: {},
+      replayCursorsBySessionKey: {},
+      streams: [
+        expect.objectContaining({
+          sessionKey: "agent:main:clawline:user_1:main"
+        })
+      ]
+    });
   });
 
   it("sends persisted per-stream replay cursors on auth bootstrap", async () => {

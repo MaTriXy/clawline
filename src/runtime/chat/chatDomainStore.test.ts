@@ -322,4 +322,41 @@ describe("chatDomainStore", () => {
       }
     });
   });
+
+  it("drops persisted/local transcript state on authoritative replay reset", async () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence({
+        ...phase1TranscriptFixture,
+        pendingMessages: {
+          c_pending: {
+            content: "stale pending",
+            createdAt: 1704672000100,
+            sessionKey: "agent:main:clawline:user_1:main"
+          }
+        },
+        replayCursorsBySessionKey: {
+          "agent:main:clawline:user_1:main": {
+            lastReadMessageId: "s_101",
+            lastServerEventId: "s_101"
+          }
+        },
+        unreadBySessionKey: {
+          "agent:main:clawline:user_1:side": 1
+        }
+      })
+    });
+    await waitForHydration(store);
+
+    store.resetForAuthoritativeReplay();
+
+    expect(store.getState()).toMatchObject({
+      hydrated: true,
+      lastServerEventId: null,
+      messagesBySessionKey: {},
+      pendingMessages: {},
+      replayCursorsBySessionKey: {},
+      streams: [],
+      unreadBySessionKey: {}
+    });
+  });
 });

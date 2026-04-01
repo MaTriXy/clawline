@@ -233,6 +233,10 @@ export function createTransportMachine({
       if (type === "auth_result") {
         const payload = parseAuthResultPayload(event.data);
         if (payload.success) {
+          if (payload.historyReset || payload.replayTruncated) {
+            chatDomainStore.resetForAuthoritativeReplay();
+          }
+
           replayMessagesRemaining = payload.replayCount ?? 0;
           hasInitialProvisioning = hasProvisioningSnapshot(payload);
           if (typeof payload.isAdmin === "boolean") {

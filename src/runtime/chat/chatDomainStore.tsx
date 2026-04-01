@@ -74,6 +74,7 @@ export interface ChatDomainStore {
   enqueueOptimisticMessage(input: EnqueueOptimisticMessageInput): void;
   markMessageAcked(messageId: string): void;
   markMessageFailed(messageId: string): void;
+  resetForAuthoritativeReplay(): void;
   applyIncomingMessage(input: {
     localDeviceId: string;
     message: ServerMessagePayload;
@@ -206,6 +207,17 @@ export function createChatDomainStore(options?: {
             ...current.messagesBySessionKey,
             [pendingRecord.sessionKey]: nextMessages
           }
+        };
+
+        persist(nextState);
+        return nextState;
+      });
+    },
+    resetForAuthoritativeReplay() {
+      baseStore.setState((current) => {
+        const nextState = {
+          ...EMPTY_STATE,
+          hydrated: current.hydrated
         };
 
         persist(nextState);
