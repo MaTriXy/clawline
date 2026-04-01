@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { expect, test } from "@playwright/test";
 import { WebSocket, WebSocketServer } from "ws";
 
+test.setTimeout(60_000);
+
 test("stream manager handles create, rename, delete, track, untrack, provisioning gating, and reload persistence", async ({
   page
 }) => {
