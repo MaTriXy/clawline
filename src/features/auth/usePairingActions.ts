@@ -19,6 +19,7 @@ export function usePairingActions() {
   const [stage, setStage] = useState<PairingStage>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [approvalReason, setApprovalReason] = useState<string | undefined>();
+  const [pendingRetryVersion, setPendingRetryVersion] = useState(0);
   const pairingAttemptInFlightRef = useRef(false);
 
   const normalizedServerUrl = useMemo(
@@ -35,6 +36,7 @@ export function usePairingActions() {
       if (!normalizedServerUrl) {
         setStage("error");
         setErrorMessage("Enter a valid provider address.");
+        setPendingRetryVersion(0);
         return;
       }
 
@@ -42,6 +44,7 @@ export function usePairingActions() {
       if (claimedName.length === 0) {
         setStage("error");
         setErrorMessage("Enter a name for this browser.");
+        setPendingRetryVersion(0);
         return;
       }
 
@@ -62,6 +65,7 @@ export function usePairingActions() {
         });
 
         if (result.status === "success") {
+          setPendingRetryVersion(0);
           store.storePairingSession({
             claimedName,
             deviceId,
@@ -77,17 +81,20 @@ export function usePairingActions() {
         if (result.status === "awaiting-approval") {
           setStage("awaiting-approval");
           setApprovalReason(result.reason);
+          setPendingRetryVersion((version) => version + 1);
           return;
         }
 
         if (keepAwaitingState) {
           setStage("awaiting-approval");
           setErrorMessage(result.reason ?? "Could not reach the provider.");
+          setPendingRetryVersion((version) => version + 1);
           return;
         }
 
         setStage("error");
         setErrorMessage(result.reason ?? "Pairing failed.");
+        setPendingRetryVersion(0);
       } finally {
         pairingAttemptInFlightRef.current = false;
       }
@@ -103,7 +110,7 @@ export function usePairingActions() {
   }
 
   useEffect(() => {
-    if (stage !== "awaiting-approval") {
+    if (stage !== "awaiting-approval" || pendingRetryVersion === 0) {
       return undefined;
     }
 
@@ -114,9 +121,10 @@ export function usePairingActions() {
     return () => {
       window.clearTimeout(retryTimer);
     };
-  }, [stage]);
+  }, [pendingRetryVersion, stage]);
 
   function resetPairing() {
+    setPendingRetryVersion(0);
     setStage("idle");
     setErrorMessage(null);
     setApprovalReason(undefined);
