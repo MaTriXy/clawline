@@ -358,9 +358,21 @@ struct ChatView: View {
     }
 
     private func handleScrollButtonDragEnded(_ value: DragGesture.Value, containerWidth: CGFloat) {
+        handleScrollButtonDragEnded(
+            translationWidth: value.translation.width,
+            predictedTranslationWidth: value.predictedEndTranslation.width,
+            containerWidth: containerWidth
+        )
+    }
+
+    private func handleScrollButtonDragEnded(
+        translationWidth: CGFloat,
+        predictedTranslationWidth: CGFloat,
+        containerWidth: CGFloat
+    ) {
         guard !scrollButtonIsDetentSettling else { return }
         scrollButtonIsDragging = false
-        if abs(value.translation.width) >= scrollButtonDragTapSuppressionThreshold {
+        if abs(translationWidth) >= scrollButtonDragTapSuppressionThreshold {
             armScrollButtonTapSuppression()
         }
         let maxOffset = scrollButtonMaxHorizontalOffset(containerWidth: containerWidth)
@@ -373,8 +385,8 @@ struct ChatView: View {
         }
 
         let base = scrollButtonHorizontalOffset(for: scrollButtonDetent, containerWidth: containerWidth)
-        let endOffset = min(max(base + value.translation.width, -maxOffset), maxOffset)
-        let predictedOffset = min(max(base + value.predictedEndTranslation.width, -maxOffset), maxOffset)
+        let endOffset = min(max(base + translationWidth, -maxOffset), maxOffset)
+        let predictedOffset = min(max(base + predictedTranslationWidth, -maxOffset), maxOffset)
         let flickDelta = predictedOffset - endOffset
         let targetDetent = targetScrollButtonDetent(
             near: endOffset,
@@ -468,16 +480,6 @@ struct ChatView: View {
             onTap: onTap
         )
         .contentShape(Rectangle())
-        .highPriorityGesture(
-            // Keep translation stable while the hosted button itself is repositioned.
-            DragGesture(minimumDistance: 2, coordinateSpace: .global)
-                .onChanged { value in
-                    handleScrollButtonDragChanged(value, containerWidth: containerWidth)
-                }
-                .onEnded { value in
-                    handleScrollButtonDragEnded(value, containerWidth: containerWidth)
-                }
-        )
     }
 
     @ViewBuilder
@@ -876,6 +878,16 @@ struct ChatView: View {
                 containerWidth: geometry.size.width,
                 onTap: { handleScrollButtonTap(sessionKey: sessionKey, viewModel: viewModel) }
             )
+            .highPriorityGesture(
+                // Keep translation stable while the hosted button itself is repositioned.
+                DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                    .onChanged { value in
+                        handleScrollButtonDragChanged(value, containerWidth: geometry.size.width)
+                    }
+                    .onEnded { value in
+                        handleScrollButtonDragEnded(value, containerWidth: geometry.size.width)
+                    }
+            )
             .offset(x: activeScrollButtonHorizontalOffset(containerWidth: geometry.size.width))
             .padding(.bottom, inputBarTopFromScreenBottom + floatingScrollButtonBottomGap)
             .frame(maxWidth: .infinity, alignment: .center)
@@ -1198,8 +1210,10 @@ struct ChatView: View {
         let pinnedScrollButtonView: AnyView? = nil
         let pinnedScrollButtonGap: CGFloat = 0
         let pinnedScrollButtonHorizontalOffset: CGFloat = 0
+        let pinnedScrollButtonMaxHorizontalOffset: CGFloat = 0
         let pinnedScrollButtonSettleStartOffset: CGFloat? = nil
         let pinnedScrollButtonHorizontalAnimationToken: Int = 0
+        let onPinnedScrollButtonPanEnded: ((CGFloat, CGFloat) -> Void)? = nil
         let pinnedPageDotsView: AnyView? = nil
         let pinnedPageDotsGap: CGFloat = 0
 #else
@@ -1209,9 +1223,18 @@ struct ChatView: View {
             for: scrollButtonDetent,
             containerWidth: geometry.size.width
         )
-        let pinnedScrollButtonDragTranslation = scrollButtonDragTranslation
+        let pinnedScrollButtonMaxHorizontalOffset = scrollButtonMaxHorizontalOffset(
+            containerWidth: geometry.size.width
+        )
         let pinnedScrollButtonSettleStartOffset = scrollButtonSettleStartOffset
         let pinnedScrollButtonHorizontalAnimationToken = scrollButtonSettleAnimationToken
+        let onPinnedScrollButtonPanEnded: ((CGFloat, CGFloat) -> Void)? = { translationWidth, predictedTranslationWidth in
+            handleScrollButtonDragEnded(
+                translationWidth: translationWidth,
+                predictedTranslationWidth: predictedTranslationWidth,
+                containerWidth: geometry.size.width
+            )
+        }
         let pinnedPageDotsView: AnyView? = pageDotsView
         let pinnedPageDotsGap: CGFloat = floatingPageDotsBottomGap
 #endif
@@ -1227,10 +1250,10 @@ struct ChatView: View {
             scrollButtonView: pinnedScrollButtonView,
             scrollButtonGap: pinnedScrollButtonGap,
             scrollButtonHorizontalOffset: pinnedScrollButtonHorizontalOffset,
-            scrollButtonDragTranslation: pinnedScrollButtonDragTranslation,
-            scrollButtonIsDragging: scrollButtonIsDragging,
+            scrollButtonMaxHorizontalOffset: pinnedScrollButtonMaxHorizontalOffset,
             scrollButtonHorizontalSettleStartOffset: pinnedScrollButtonSettleStartOffset,
             scrollButtonHorizontalAnimationToken: pinnedScrollButtonHorizontalAnimationToken,
+            onScrollButtonPanEnded: onPinnedScrollButtonPanEnded,
             pageDotsView: pinnedPageDotsView,
             pageDotsGap: pinnedPageDotsGap
         ) {
@@ -2233,10 +2256,10 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     let scrollButtonView: AnyView?
     let scrollButtonGap: CGFloat
     let scrollButtonHorizontalOffset: CGFloat
-    let scrollButtonDragTranslation: CGFloat
-    let scrollButtonIsDragging: Bool
+    let scrollButtonMaxHorizontalOffset: CGFloat
     let scrollButtonHorizontalSettleStartOffset: CGFloat?
     let scrollButtonHorizontalAnimationToken: Int
+    let onScrollButtonPanEnded: ((CGFloat, CGFloat) -> Void)?
     let pageDotsView: AnyView?
     let pageDotsGap: CGFloat
     let content: Content
@@ -2251,10 +2274,10 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         scrollButtonView: AnyView? = nil,
         scrollButtonGap: CGFloat = 0,
         scrollButtonHorizontalOffset: CGFloat = 0,
-        scrollButtonDragTranslation: CGFloat = 0,
-        scrollButtonIsDragging: Bool = false,
+        scrollButtonMaxHorizontalOffset: CGFloat = 0,
         scrollButtonHorizontalSettleStartOffset: CGFloat? = nil,
         scrollButtonHorizontalAnimationToken: Int = 0,
+        onScrollButtonPanEnded: ((CGFloat, CGFloat) -> Void)? = nil,
         pageDotsView: AnyView? = nil,
         pageDotsGap: CGFloat = 0,
         @ViewBuilder content: () -> Content
@@ -2268,10 +2291,10 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
         self.scrollButtonView = scrollButtonView
         self.scrollButtonGap = scrollButtonGap
         self.scrollButtonHorizontalOffset = scrollButtonHorizontalOffset
-        self.scrollButtonDragTranslation = scrollButtonDragTranslation
-        self.scrollButtonIsDragging = scrollButtonIsDragging
+        self.scrollButtonMaxHorizontalOffset = scrollButtonMaxHorizontalOffset
         self.scrollButtonHorizontalSettleStartOffset = scrollButtonHorizontalSettleStartOffset
         self.scrollButtonHorizontalAnimationToken = scrollButtonHorizontalAnimationToken
+        self.onScrollButtonPanEnded = onScrollButtonPanEnded
         self.pageDotsView = pageDotsView
         self.pageDotsGap = pageDotsGap
         self.content = content()
@@ -2289,11 +2312,11 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
             scrollButtonView,
             gap: scrollButtonGap,
             horizontalOffset: scrollButtonHorizontalOffset,
-            dragTranslation: scrollButtonDragTranslation,
-            isDragging: scrollButtonIsDragging,
+            maxHorizontalOffset: scrollButtonMaxHorizontalOffset,
             horizontalSettleStartOffset: scrollButtonHorizontalSettleStartOffset,
             horizontalAnimationToken: scrollButtonHorizontalAnimationToken
         )
+        uiView.setOnScrollButtonPanEnded(onScrollButtonPanEnded)
         uiView.updatePageDots(pageDotsView, gap: pageDotsGap)
         // Seed the pinned gap immediately on every SwiftUI update so launch layout matches the
         // steady-state hidden-keyboard position even before coordinator-driven transitions fire.
@@ -2324,9 +2347,15 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     let hostingController: UIHostingController<Content>
     let versionLabel: UILabel
     private var scrollButtonHost: UIHostingController<AnyView>?
+    private var scrollButtonPanGestureRecognizer: UIPanGestureRecognizer?
     private var scrollButtonBottomToBarTop: NSLayoutConstraint?
     private var scrollButtonCenterX: NSLayoutConstraint?
     private var lastScrollButtonHorizontalAnimationToken: Int = 0
+    private var scrollButtonBaseHorizontalOffset: CGFloat = 0
+    private var scrollButtonMaxHorizontalOffset: CGFloat = 0
+    private var scrollButtonLiveTranslation: CGFloat = 0
+    private var scrollButtonIsPanning = false
+    private var onScrollButtonPanEnded: ((CGFloat, CGFloat) -> Void)?
     private var pageDotsHost: UIHostingController<AnyView>?
     private var pageDotsBottomToBarTop: NSLayoutConstraint?
     private var minHeightConstraint: NSLayoutConstraint?
@@ -2396,8 +2425,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         _ view: AnyView?,
         gap: CGFloat,
         horizontalOffset: CGFloat,
-        dragTranslation: CGFloat,
-        isDragging: Bool,
+        maxHorizontalOffset: CGFloat,
         horizontalSettleStartOffset: CGFloat?,
         horizontalAnimationToken: Int
     ) {
@@ -2405,8 +2433,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         _ = view
         _ = gap
         _ = horizontalOffset
-        _ = dragTranslation
-        _ = isDragging
+        _ = maxHorizontalOffset
         _ = horizontalSettleStartOffset
         _ = horizontalAnimationToken
         return
@@ -2427,20 +2454,29 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             let centerX = host.view.centerXAnchor.constraint(equalTo: centerXAnchor, constant: horizontalOffset)
             scrollButtonBottomToBarTop = bottom
             scrollButtonCenterX = centerX
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handleScrollButtonPan(_:)))
+            pan.maximumNumberOfTouches = 1
+            pan.cancelsTouchesInView = false
+            pan.delaysTouchesBegan = false
+            pan.delaysTouchesEnded = false
+            host.view.addGestureRecognizer(pan)
+            scrollButtonPanGestureRecognizer = pan
             NSLayoutConstraint.activate([
                 centerX,
                 bottom,
             ])
         }
 
+        scrollButtonBaseHorizontalOffset = horizontalOffset
+        scrollButtonMaxHorizontalOffset = maxHorizontalOffset
         scrollButtonHost?.rootView = view ?? AnyView(EmptyView())
         scrollButtonHost?.view.isHidden = (view == nil)
         scrollButtonHost?.view.isUserInteractionEnabled = (view != nil)
         scrollButtonBottomToBarTop?.constant = -gap
-        if isDragging {
+        if scrollButtonIsPanning {
             scrollButtonCenterX?.constant = horizontalOffset
-            if scrollButtonHost?.view.transform.tx != dragTranslation {
-                scrollButtonHost?.view.transform = CGAffineTransform(translationX: dragTranslation, y: 0)
+            if scrollButtonHost?.view.transform.tx != scrollButtonLiveTranslation {
+                scrollButtonHost?.view.transform = CGAffineTransform(translationX: scrollButtonLiveTranslation, y: 0)
             }
             return
         }
@@ -2470,6 +2506,10 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             layoutIfNeeded()
         }
 #endif
+    }
+
+    func setOnScrollButtonPanEnded(_ handler: ((CGFloat, CGFloat) -> Void)?) {
+        onScrollButtonPanEnded = handler
     }
 
     func updatePageDots(_ view: AnyView?, gap: CGFloat) {
@@ -2539,6 +2579,40 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         setDesiredBottomGap(gap, isKeyboardVisible: isKeyboardVisible)
         return true
     }
+
+#if !os(visionOS)
+    @objc
+    private func handleScrollButtonPan(_ recognizer: UIPanGestureRecognizer) {
+        guard scrollButtonHost?.view.isHidden == false else { return }
+
+        switch recognizer.state {
+        case .began, .changed:
+            scrollButtonIsPanning = true
+            scrollButtonLiveTranslation = clampedScrollButtonTranslation(for: recognizer.translation(in: self).x)
+            if scrollButtonHost?.view.transform.tx != scrollButtonLiveTranslation {
+                scrollButtonHost?.view.transform = CGAffineTransform(translationX: scrollButtonLiveTranslation, y: 0)
+            }
+        case .ended, .cancelled, .failed:
+            let endTranslation = clampedScrollButtonTranslation(for: recognizer.translation(in: self).x)
+            let projectedTranslation = clampedScrollButtonTranslation(
+                for: recognizer.translation(in: self).x + (recognizer.velocity(in: self).x * 0.12)
+            )
+            scrollButtonIsPanning = false
+            scrollButtonLiveTranslation = endTranslation
+            onScrollButtonPanEnded?(endTranslation, projectedTranslation)
+        default:
+            break
+        }
+    }
+
+    private func clampedScrollButtonTranslation(for translationX: CGFloat) -> CGFloat {
+        let clampedOffset = min(
+            max(scrollButtonBaseHorizontalOffset + translationX, -scrollButtonMaxHorizontalOffset),
+            scrollButtonMaxHorizontalOffset
+        )
+        return clampedOffset - scrollButtonBaseHorizontalOffset
+    }
+#endif
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
