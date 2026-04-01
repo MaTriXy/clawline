@@ -318,8 +318,9 @@ export function StreamManagerDrawer({
             {chatState.streams.map((stream) => {
               const canRename = canRenameStream(stream);
               const canDelete = canDeleteStream(stream);
-              const canUntrack = Boolean(stream.adopted);
+              const canUntrack = Boolean(stream.adopted) && !stream.isBuiltIn;
               const isEditing = editingSessionKey === stream.sessionKey;
+              const deleteActionLabel = canUntrack ? "Untrack" : "Delete";
               const provisioningState = getSessionProvisioningState({
                 hasStream: true,
                 provisionedSessionKeys: chatState.provisionedSessionKeys,
@@ -396,7 +397,7 @@ export function StreamManagerDrawer({
                           }}
                           type="button"
                         >
-                          {stream.adopted ? "Untrack" : "Delete"}
+                          {deleteActionLabel}
                         </button>
                       </>
                     )}

@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatRoute } from "./ChatRoute";
 import {
   AuthSessionStoreProvider,
@@ -19,6 +20,39 @@ import {
   createTransportMachine
 } from "../../runtime/transport/transportMachine";
 import { FakeWebSocketFactory } from "../../test/support/fakeWebSocket";
+
+const TEST_STREAMS = [
+  {
+    sessionKey: "agent:main:clawline:user_1:main",
+    displayName: "Personal",
+    kind: "main",
+    orderIndex: 0,
+    isBuiltIn: true,
+    createdAt: 10,
+    updatedAt: 10,
+    adopted: false
+  },
+  {
+    sessionKey: "agent:main:main",
+    displayName: "Global DM",
+    kind: "global_dm",
+    orderIndex: 1,
+    isBuiltIn: true,
+    createdAt: 10,
+    updatedAt: 10,
+    adopted: true
+  },
+  {
+    sessionKey: "agent:main:clawline:user_1:side",
+    displayName: "Side Thread",
+    kind: "custom",
+    orderIndex: 2,
+    isBuiltIn: false,
+    createdAt: 11,
+    updatedAt: 11,
+    adopted: false
+  }
+] as const;
 
 function LocationProbe() {
   const location = useLocation();
@@ -41,31 +75,10 @@ function renderChatRoute(initialPath: string) {
     userId: "user_1"
   });
 
-  chatStore.applyStreamSnapshot([
-    {
-      sessionKey: "agent:main:clawline:user_1:main",
-      displayName: "Personal",
-      kind: "main",
-      orderIndex: 0,
-      isBuiltIn: true,
-      createdAt: 10,
-      updatedAt: 10,
-      adopted: false
-    },
-    {
-      sessionKey: "agent:main:clawline:user_1:side",
-      displayName: "Side Thread",
-      kind: "custom",
-      orderIndex: 1,
-      isBuiltIn: false,
-      createdAt: 11,
-      updatedAt: 11,
-      adopted: false
-    }
-  ]);
+  chatStore.applyStreamSnapshot(TEST_STREAMS.map((stream) => ({ ...stream })));
   chatStore.applySessionInfo({
     type: "session_info",
-    sessionKeys: ["agent:main:clawline:user_1:main"]
+    sessionKeys: ["agent:main:clawline:user_1:main", "agent:main:main"]
   });
   chatStore.applyIncomingMessage(
     {
@@ -142,6 +155,38 @@ function renderChatRoute(initialPath: string) {
 }
 
 describe("ChatRoute", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = input instanceof URL ? input : new URL(String(input));
+
+        if (url.pathname === "/api/streams") {
+          return new Response(JSON.stringify({ streams: TEST_STREAMS }), {
+            headers: { "Content-Type": "application/json" },
+            status: 200
+          });
+        }
+
+        if (url.pathname === "/api/trackable-sessions") {
+          return new Response(JSON.stringify({ sessions: [] }), {
+            headers: { "Content-Type": "application/json" },
+            status: 200
+          });
+        }
+
+        return new Response(JSON.stringify({ error: { code: "unexpected_path" } }), {
+          headers: { "Content-Type": "application/json" },
+          status: 404
+        });
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("uses the URL-selected session as the authoritative conversation", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:side");
 
@@ -169,6 +214,24 @@ describe("ChatRoute", () => {
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/chat/agent:main:clawline:user_1:main"
     );
+  });
+
+  it("disables untrack for built-in adopted sessions", async () => {
+    renderChatRoute("/chat/agent:main:clawline:user_1:main");
+
+    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+
+    const streamManager = await screen.findByLabelText("Manage streams");
+    const globalCard = within(streamManager)
+      .getByText("agent:main:main")
+      .closest(".stream-manager-card");
+    expect(globalCard).not.toBeNull();
+    expect(
+      within(globalCard as HTMLElement).queryByRole("button", { name: "Untrack" })
+    ).toBeNull();
+    expect(
+      within(globalCard as HTMLElement).getByRole("button", { name: "Delete" })
+    ).toBeDisabled();
   });
 
   it("clears unread state when the URL-selected session becomes active", () => {
