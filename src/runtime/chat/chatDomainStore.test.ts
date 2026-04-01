@@ -205,6 +205,46 @@ describe("chatDomainStore", () => {
     expect(store.getState().provisionedSessionKeys).toEqual([]);
   });
 
+  it("does not renumber surviving streams after a delete or untrack", async () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence({
+        ...phase1TranscriptFixture,
+        streams: [
+          {
+            sessionKey: "agent:main:clawline:user_1:main",
+            displayName: "Personal",
+            kind: "main",
+            orderIndex: 0,
+            isBuiltIn: true,
+            createdAt: 10,
+            updatedAt: 10,
+            adopted: false
+          },
+          {
+            sessionKey: "agent:main:clawline:user_1:side",
+            displayName: "Side Thread",
+            kind: "custom",
+            orderIndex: 3,
+            isBuiltIn: false,
+            createdAt: 11,
+            updatedAt: 11,
+            adopted: false
+          }
+        ]
+      })
+    });
+    await waitForHydration(store);
+
+    store.removeStream("agent:main:clawline:user_1:main");
+
+    expect(store.getState().streams).toEqual([
+      expect.objectContaining({
+        sessionKey: "agent:main:clawline:user_1:side",
+        orderIndex: 3
+      })
+    ]);
+  });
+
   it("merges stream upserts without renumbering surviving rows", async () => {
     const store = createChatDomainStore({
       persistence: createMemoryChatPersistence(phase1TranscriptFixture)

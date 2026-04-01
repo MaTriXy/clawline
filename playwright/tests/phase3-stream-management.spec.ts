@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { expect, test } from "@playwright/test";
 import { WebSocket, WebSocketServer } from "ws";
 
+test.setTimeout(60_000);
+
 test("stream manager handles create, rename, delete, track, untrack, provisioning gating, and reload persistence", async ({
   page
 }) => {
@@ -42,6 +44,10 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
     }
   ];
   const sockets = new Set<WebSocket>();
+  let delayNextAuthResult = false;
+  let releaseDelayedAuth: (() => void) | null = null;
+  let delayedAuthRequested: Promise<void> | null = null;
+  let resolveDelayedAuthRequested: (() => void) | null = null;
 
   const server = createServer(async (request, response) => {
     response.setHeader("Access-Control-Allow-Origin", "*");
@@ -178,7 +184,7 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
     socket.on("close", () => {
       sockets.delete(socket);
     });
-    socket.on("message", (buffer) => {
+    socket.on("message", async (buffer) => {
       const payload = JSON.parse(buffer.toString()) as {
         type: string;
       };
@@ -196,6 +202,15 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
       }
 
       if (payload.type === "auth") {
+        if (delayNextAuthResult) {
+          delayNextAuthResult = false;
+          resolveDelayedAuthRequested?.();
+          await new Promise<void>((resolve) => {
+            releaseDelayedAuth = resolve;
+          });
+          releaseDelayedAuth = null;
+        }
+
         socket.send(
           JSON.stringify({
             type: "auth_result",
@@ -256,6 +271,31 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
     await createdCard.getByRole("button", { name: "Save" }).click();
     await expect(createdCard.getByText("Research v2")).toBeVisible();
 
+    delayNextAuthResult = true;
+    delayedAuthRequested = new Promise<void>((resolve) => {
+      resolveDelayedAuthRequested = resolve;
+    });
+    for (const socket of sockets) {
+      socket.close();
+    }
+
+    await expect(
+      page.getByText("This session is waiting for provisioning before send becomes available.")
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+
+    await delayedAuthRequested;
+    provisionedSessionKeys.add(createdSessionKey);
+    releaseDelayedAuth?.();
+    resolveDelayedAuthRequested = null;
+    delayedAuthRequested = null;
+
+    await expect(page.locator("#composer-input")).toHaveAttribute(
+      "placeholder",
+      "Send a plain text message"
+    );
+    await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+
     await createdCard.getByRole("button", { name: "Delete" }).click();
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
     await expect(createdCard).toHaveCount(0);
@@ -296,6 +336,8 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
     await expect(page.locator(".stream-chip").filter({ hasText: mainSessionKey })).toHaveCount(
       1
     );
+    await expect(page.locator(".stream-chip").nth(0)).toContainText(mainSessionKey);
+    await expect(page.locator(".stream-chip").nth(1)).toContainText(sideSessionKey);
     await expect(page.locator(".stream-chip").filter({ hasText: sideSessionKey })).toContainText(
       "Side Thread v2"
     );
