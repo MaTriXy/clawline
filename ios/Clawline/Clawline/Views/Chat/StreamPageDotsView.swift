@@ -30,12 +30,16 @@ struct StreamPageDotsView: View {
     }
 
     private var maxVisibleDots: Int {
-        Self.fittingVisibleDotCount(totalSessionCount: sessionKeys.count, maxWidth: expandedMaxWidth)
+        Self.fittingVisibleDotCount(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget)
     }
 
-    private var expandedMaxWidth: CGFloat? {
+    private var expandedWidthBudget: CGFloat? {
         guard shouldExpandToMaxWidth else { return nil }
         return maxWidth
+    }
+
+    private var targetControlWidth: CGFloat? {
+        Self.targetControlWidth(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget)
     }
 
     private var shouldExpandToMaxWidth: Bool {
@@ -76,7 +80,7 @@ struct StreamPageDotsView: View {
     }
 
     private var warningBloomColor: Color {
-        ChatFlowTheme.unreadIndicator(colorScheme).opacity(colorScheme == .dark ? 0.98 : 0.92)
+        ChatFlowTheme.unreadIndicator(colorScheme)
     }
 
     static func fittingVisibleDotCount(totalSessionCount: Int, maxWidth: CGFloat?) -> Int {
@@ -110,6 +114,21 @@ struct StreamPageDotsView: View {
             + (CGFloat(overflowCount) * overflowDotDiameter)
         let totalSpacing = CGFloat(max(0, elementCount - 1)) * dotSpacing
         return totalDotWidth + totalSpacing + (horizontalPadding * 2)
+    }
+
+    static func targetControlWidth(totalSessionCount: Int, maxWidth: CGFloat?) -> CGFloat? {
+        guard totalSessionCount > collapsedMaxVisibleDots, let maxWidth else { return nil }
+        let visibleDotCount = fittingVisibleDotCount(totalSessionCount: totalSessionCount, maxWidth: maxWidth)
+        let targetWidth = requiredControlWidth(
+            visibleDotCount: visibleDotCount,
+            includesOverflowIndicators: visibleDotCount < totalSessionCount
+        )
+        let collapsedWidth = requiredControlWidth(
+            visibleDotCount: collapsedMaxVisibleDots,
+            includesOverflowIndicators: true
+        )
+        guard targetWidth > collapsedWidth else { return nil }
+        return min(targetWidth, maxWidth)
     }
 
     var body: some View {
@@ -153,7 +172,7 @@ struct StreamPageDotsView: View {
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, Self.verticalPadding)
-            .frame(width: expandedMaxWidth)
+            .frame(width: targetControlWidth)
 #if !os(visionOS)
             .glassEffect(.regular.interactive(), in: Capsule())
 #else
@@ -192,15 +211,35 @@ struct StreamPageDotsView: View {
 
     private func edgeWarningBloom(edge: HorizontalEdge) -> some View {
         ZStack {
-            Circle()
-                .fill(warningBloomColor)
-                .frame(width: 18, height: 18)
-            Circle()
-                .fill(warningBloomColor.opacity(colorScheme == .dark ? 0.92 : 0.84))
-                .frame(width: 32, height: 32)
-                .blur(radius: colorScheme == .dark ? 8 : 10)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            warningBloomColor.opacity(colorScheme == .dark ? 0.26 : 0.20),
+                            warningBloomColor.opacity(colorScheme == .dark ? 0.14 : 0.10),
+                            .clear
+                        ],
+                        startPoint: edge == .leading ? .leading : .trailing,
+                        endPoint: edge == .leading ? .trailing : .leading
+                    )
+                )
+                .frame(width: 24, height: 18)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            warningBloomColor.opacity(colorScheme == .dark ? 0.36 : 0.28),
+                            warningBloomColor.opacity(colorScheme == .dark ? 0.10 : 0.08),
+                            .clear
+                        ],
+                        startPoint: edge == .leading ? .leading : .trailing,
+                        endPoint: edge == .leading ? .trailing : .leading
+                    )
+                )
+                .frame(width: 34, height: 24)
+                .blur(radius: colorScheme == .dark ? 4 : 5)
         }
-        .frame(width: 30, height: 30)
-        .offset(x: edge == .leading ? -8 : 8)
+        .frame(width: 28, height: 24)
+        .offset(x: edge == .leading ? -5 : 5)
     }
 }

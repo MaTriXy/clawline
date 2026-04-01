@@ -22,6 +22,17 @@ struct StreamPageDotsViewTests {
         #expect(visibleCount > 11)
     }
 
+    @Test("Expanded indicator grows only to the width it needs")
+    func expandedIndicatorUsesExactNeededWidth() {
+        let targetWidth = StreamPageDotsView.targetControlWidth(
+            totalSessionCount: 40,
+            maxWidth: CGFloat(640)
+        )
+
+        #expect(targetWidth != nil)
+        #expect(targetWidth! < CGFloat(640))
+    }
+
     @Test("Collapsed indicator keeps the legacy visible-dot cap")
     func collapsedIndicatorKeepsLegacyCap() {
         let visibleCount = StreamPageDotsView.fittingVisibleDotCount(
