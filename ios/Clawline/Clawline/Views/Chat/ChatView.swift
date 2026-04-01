@@ -2594,8 +2594,11 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             }
         case .ended, .cancelled, .failed:
             let endTranslation = clampedScrollButtonTranslation(for: recognizer.translation(in: self).x)
+            let projectedAdditionalTranslation = projectedScrollButtonTranslation(
+                fromVelocity: recognizer.velocity(in: self).x
+            )
             let projectedTranslation = clampedScrollButtonTranslation(
-                for: recognizer.translation(in: self).x + (recognizer.velocity(in: self).x * 0.12)
+                for: recognizer.translation(in: self).x + projectedAdditionalTranslation
             )
             scrollButtonIsPanning = false
             scrollButtonLiveTranslation = endTranslation
@@ -2611,6 +2614,13 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             scrollButtonMaxHorizontalOffset
         )
         return clampedOffset - scrollButtonBaseHorizontalOffset
+    }
+
+    private func projectedScrollButtonTranslation(fromVelocity velocityX: CGFloat) -> CGFloat {
+        // Match SwiftUI's flick handoff more closely by projecting the pan velocity
+        // through UIKit's standard deceleration curve instead of a fixed-time scale.
+        let decelerationRate = UIScrollView.DecelerationRate.normal.rawValue
+        return (velocityX / 1000) * decelerationRate / (1 - decelerationRate)
     }
 #endif
 
