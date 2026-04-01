@@ -84,6 +84,22 @@ export function createTransportMachine({
   let connectionGeneration = 0;
   let replayMessagesRemaining = 0;
 
+  chatDomainStore.subscribe(() => {
+    if (!authSessionStore.getState().session) {
+      return;
+    }
+
+    if (baseStore.getState().phase !== "idle") {
+      return;
+    }
+
+    if (!isChatReadyForAuth(chatDomainStore.getState())) {
+      return;
+    }
+
+    void connect("auth-bootstrap");
+  });
+
   browserRuntime.addEventListener("online", () => {
     baseStore.setState((current) => ({
       ...current,
@@ -92,7 +108,9 @@ export function createTransportMachine({
     }));
 
     if (authSessionStore.getState().session && baseStore.getState().phase !== "live") {
-      void connect("retry");
+      if (isChatReadyForAuth(chatDomainStore.getState())) {
+        void connect("retry");
+      }
     }
   });
   browserRuntime.addEventListener("offline", () => {
@@ -120,11 +138,16 @@ export function createTransportMachine({
     }
 
     if (baseStore.getState().phase === "idle") {
-      void connect("auth-bootstrap");
+      if (isChatReadyForAuth(chatDomainStore.getState())) {
+        void connect("auth-bootstrap");
+      }
     }
   });
 
-  if (authSessionStore.getState().session) {
+  if (
+    authSessionStore.getState().session &&
+    isChatReadyForAuth(chatDomainStore.getState())
+  ) {
     void connect("auth-bootstrap");
   }
 
@@ -189,7 +212,10 @@ export function createTransportMachine({
           protocolVersion: 1,
           token: session.token,
           deviceId: session.deviceId,
-          lastMessageId: chatDomainStore.getState().lastServerEventId
+          lastMessageId: chatDomainStore.getState().lastServerEventId,
+          replayCursorsBySessionKey: toReplayCursorPayload(
+            chatDomainStore.getState().replayCursorsBySessionKey
+          )
         })
       );
     };
@@ -375,6 +401,36 @@ function createBrowserRuntime(): BrowserRuntime {
       return window.setTimeout(listener, delayMs);
     }
   };
+}
+
+function isChatReadyForAuth(
+  chatState: ChatDomainStore["getState"] extends () => infer State ? State : never
+) {
+  return (
+    chatState.hydrated ||
+    chatState.lastServerEventId != null ||
+    chatState.streams.length > 0 ||
+    Object.keys(chatState.messagesBySessionKey).length > 0 ||
+    Object.keys(chatState.replayCursorsBySessionKey).length > 0
+  );
+}
+
+function toReplayCursorPayload(
+  replayCursorsBySessionKey: ChatDomainStore["getState"] extends () => infer State
+    ? State extends { replayCursorsBySessionKey: infer ReplayCursors }
+      ? ReplayCursors
+      : never
+    : never
+) {
+  const entries = Object.entries(replayCursorsBySessionKey).flatMap(
+    ([sessionKey, cursor]) =>
+      typeof cursor?.lastServerEventId === "string" &&
+      cursor.lastServerEventId.length > 0
+        ? [[sessionKey, cursor.lastServerEventId] as const]
+        : []
+  );
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function createSelectedSessionKeySource() {

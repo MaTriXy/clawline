@@ -41,6 +41,15 @@ export function applyServerMessage(
     return {
       ...state,
       lastServerEventId: message.id,
+      replayCursorsBySessionKey: {
+        ...state.replayCursorsBySessionKey,
+        [sessionKey]: {
+          ...state.replayCursorsBySessionKey[sessionKey],
+          lastReadMessageId:
+            state.replayCursorsBySessionKey[sessionKey]?.lastReadMessageId ?? null,
+          lastServerEventId: message.id
+        }
+      },
       messagesBySessionKey: {
         ...state.messagesBySessionKey,
         [sessionKey]: replaceAtIndex(currentMessages, existingIndex, updated)
@@ -76,6 +85,15 @@ export function applyServerMessage(
         ...state,
         lastServerEventId: message.id,
         pendingMessages: nextPending,
+        replayCursorsBySessionKey: {
+          ...state.replayCursorsBySessionKey,
+          [sessionKey]: {
+            ...state.replayCursorsBySessionKey[sessionKey],
+            lastReadMessageId:
+              state.replayCursorsBySessionKey[sessionKey]?.lastReadMessageId ?? null,
+            lastServerEventId: message.id
+          }
+        },
         messagesBySessionKey: {
           ...state.messagesBySessionKey,
           [sessionKey]: replaceAtIndex(currentMessages, optimisticIndex, replacement)
@@ -100,6 +118,15 @@ export function applyServerMessage(
   return {
     ...state,
     lastServerEventId: message.id,
+    replayCursorsBySessionKey: {
+      ...state.replayCursorsBySessionKey,
+      [sessionKey]: {
+        ...state.replayCursorsBySessionKey[sessionKey],
+        lastReadMessageId:
+          state.replayCursorsBySessionKey[sessionKey]?.lastReadMessageId ?? null,
+        lastServerEventId: message.id
+      }
+    },
     firstUnreadMessageIdBySessionKey:
       shouldMarkUnread(message, sessionKey, selectedSessionKey, source)
         ? {

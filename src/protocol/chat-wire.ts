@@ -27,6 +27,7 @@ export interface AuthPayload {
   token: string;
   deviceId: string;
   lastMessageId?: string | null;
+  replayCursorsBySessionKey?: Record<string, string>;
 }
 
 export interface AuthResultPayload {

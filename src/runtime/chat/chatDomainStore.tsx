@@ -46,6 +46,7 @@ export interface PendingMessageRecord {
 }
 
 export interface ReplayCursorRecord {
+  lastServerEventId?: string | null;
   lastReadMessageId: string | null;
 }
 
@@ -279,6 +280,8 @@ export function createChatDomainStore(options?: {
             replayCursorsBySessionKey: {
               ...current.replayCursorsBySessionKey,
               [sessionKey]: {
+                lastServerEventId:
+                  current.replayCursorsBySessionKey[sessionKey]?.lastServerEventId ?? null,
                 lastReadMessageId: latestMessageId
               }
             }
@@ -302,6 +305,8 @@ export function createChatDomainStore(options?: {
           replayCursorsBySessionKey: {
             ...current.replayCursorsBySessionKey,
             [sessionKey]: {
+              lastServerEventId:
+                current.replayCursorsBySessionKey[sessionKey]?.lastServerEventId ?? null,
               lastReadMessageId: latestMessageId
             }
           },

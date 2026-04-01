@@ -3,6 +3,7 @@ import { createChatDomainStore } from "../chat/chatDomainStore";
 import { createMemoryChatPersistence } from "../persistence/indexedDbChatPersistence";
 import { createTransportMachine } from "./transportMachine";
 import { FakeWebSocketFactory } from "../../test/support/fakeWebSocket";
+import { phase1TranscriptFixture } from "../../test/fixtures/transcripts/phase1-transcript";
 
 class FakeBrowserRuntime {
   isCurrentlyOnline = true;
@@ -60,8 +61,23 @@ function seedSession() {
   return authStore;
 }
 
+async function waitForSocket(factory: FakeWebSocketFactory, count = 1) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (factory.sockets.length >= count) {
+      return;
+    }
+    await Promise.resolve();
+  }
+
+  throw new Error(`Expected ${count} socket(s), found ${factory.sockets.length}`);
+}
+
 describe("transportMachine", () => {
-  it("transitions idle -> connecting -> authenticating -> live on auth success", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("transitions idle -> connecting -> authenticating -> live on auth success", async () => {
     const authStore = seedSession();
     const chatStore = createChatDomainStore({
       persistence: createMemoryChatPersistence()
@@ -72,6 +88,8 @@ describe("transportMachine", () => {
       chatDomainStore: chatStore,
       webSocketFactory: factory.create
     });
+
+    await waitForSocket(factory);
 
     expect(transport.getState().phase).toBe("connecting");
     expect(factory.sockets).toHaveLength(1);
@@ -95,7 +113,62 @@ describe("transportMachine", () => {
     );
   });
 
-  it("suppresses duplicate reconnect intents while already live", () => {
+  it("sends persisted per-stream replay cursors on auth bootstrap", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    chatStore.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_main_1",
+        role: "assistant",
+        content: "Main",
+        timestamp: 100,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "replay"
+    });
+    chatStore.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_side_1",
+        role: "assistant",
+        content: "Side",
+        timestamp: 101,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "replay"
+    });
+    const factory = new FakeWebSocketFactory();
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+
+    expect(JSON.parse(factory.sockets[0].sentTexts[0])).toMatchObject({
+      type: "auth",
+      lastMessageId: "s_side_1",
+      replayCursorsBySessionKey: {
+        "agent:main:clawline:user_1:main": "s_main_1",
+        "agent:main:clawline:user_1:side": "s_side_1"
+      }
+    });
+  });
+
+  it("suppresses duplicate reconnect intents while already live", async () => {
     const authStore = seedSession();
     const chatStore = createChatDomainStore({
       persistence: createMemoryChatPersistence()
@@ -107,6 +180,7 @@ describe("transportMachine", () => {
       webSocketFactory: factory.create
     });
 
+    await waitForSocket(factory);
     factory.sockets[0].emitOpen();
     factory.sockets[0].emitMessage(
       JSON.stringify({ type: "auth_result", success: true })
@@ -119,7 +193,7 @@ describe("transportMachine", () => {
     expect(transport.getState().phase).toBe("live");
   });
 
-  it("transitions to failed and clears auth on auth failure", () => {
+  it("transitions to failed and clears auth on auth failure", async () => {
     const authStore = seedSession();
     const chatStore = createChatDomainStore({
       persistence: createMemoryChatPersistence()
@@ -131,6 +205,7 @@ describe("transportMachine", () => {
       webSocketFactory: factory.create
     });
 
+    await waitForSocket(factory);
     factory.sockets[0].emitOpen();
     factory.sockets[0].emitMessage(
       JSON.stringify({
@@ -144,7 +219,7 @@ describe("transportMachine", () => {
     expect(authStore.getState().session).toBeNull();
   });
 
-  it("allows manual retry out of recovery", () => {
+  it("allows manual retry out of recovery", async () => {
     vi.useFakeTimers();
 
     const authStore = seedSession();
@@ -158,6 +233,7 @@ describe("transportMachine", () => {
       webSocketFactory: factory.create
     });
 
+    await waitForSocket(factory);
     factory.sockets[0].emitOpen();
     factory.sockets[0].emitMessage(
       JSON.stringify({ type: "auth_result", success: true })
@@ -168,11 +244,9 @@ describe("transportMachine", () => {
 
     transport.retryNow();
     expect(factory.sockets).toHaveLength(2);
-
-    vi.useRealTimers();
   });
 
-  it("keeps tab transport independent across two runtimes", () => {
+  it("keeps tab transport independent across two runtimes", async () => {
     const authStoreA = seedSession();
     const authStoreB = seedSession();
     const chatStoreA = createChatDomainStore({
@@ -195,6 +269,8 @@ describe("transportMachine", () => {
       webSocketFactory: factoryB.create
     });
 
+    await waitForSocket(factoryA);
+    await waitForSocket(factoryB);
     factoryA.sockets[0].emitOpen();
     factoryB.sockets[0].emitOpen();
     factoryA.sockets[0].emitMessage(
@@ -210,7 +286,7 @@ describe("transportMachine", () => {
     expect(factoryB.sockets).toHaveLength(1);
   });
 
-  it("waits for the browser to come back online before reconnecting", () => {
+  it("waits for the browser to come back online before reconnecting", async () => {
     const authStore = seedSession();
     const chatStore = createChatDomainStore({
       persistence: createMemoryChatPersistence()
@@ -224,6 +300,7 @@ describe("transportMachine", () => {
       webSocketFactory: factory.create
     });
 
+    await waitForSocket(factory);
     factory.sockets[0].emitOpen();
     factory.sockets[0].emitMessage(
       JSON.stringify({ type: "auth_result", success: true })
@@ -242,5 +319,49 @@ describe("transportMachine", () => {
 
     expect(transport.getState().isBrowserOnline).toBe(true);
     expect(factory.sockets).toHaveLength(2);
+  });
+
+  it("waits for persisted hydration before auth bootstrap on restored sessions", async () => {
+    const authStore = seedSession();
+    let resolveLoad: ((snapshot: typeof phase1TranscriptFixture | null) => void) | null =
+      null;
+    const chatStore = createChatDomainStore({
+      persistence: {
+        clear: async () => undefined,
+        load: () =>
+          new Promise((resolve) => {
+            resolveLoad = resolve;
+          }),
+        save: async () => undefined
+      }
+    });
+    const factory = new FakeWebSocketFactory();
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    expect(factory.sockets).toHaveLength(0);
+    expect(chatStore.getState().hydrated).toBe(false);
+
+    const hydrateResolver = resolveLoad;
+    if (!hydrateResolver) {
+      throw new Error("Expected hydrate resolver to be captured");
+    }
+
+    (
+      hydrateResolver as (snapshot: typeof phase1TranscriptFixture | null) => void
+    )(phase1TranscriptFixture);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(chatStore.getState().hydrated).toBe(true);
+    expect(factory.sockets).toHaveLength(1);
+
+    factory.sockets[0].emitOpen();
+    expect(JSON.parse(factory.sockets[0].sentTexts[0])).toMatchObject({
+      lastMessageId: "s_101"
+    });
   });
 });

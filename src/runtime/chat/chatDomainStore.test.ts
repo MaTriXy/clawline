@@ -254,7 +254,72 @@ describe("chatDomainStore", () => {
     expect(
       store.getState().replayCursorsBySessionKey["agent:main:clawline:user_1:side"]
     ).toEqual({
+      lastServerEventId: "s_side_2",
       lastReadMessageId: "s_side_2"
+    });
+  });
+
+  it("tracks per-stream replay cursors independently and preserves them across hydrate", async () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+
+    store.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_main_1",
+        role: "assistant",
+        content: "Main",
+        timestamp: 100,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "replay"
+    });
+    store.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_side_1",
+        role: "assistant",
+        content: "Side",
+        timestamp: 101,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "replay"
+    });
+
+    expect(store.getState().replayCursorsBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": {
+        lastReadMessageId: null,
+        lastServerEventId: "s_main_1"
+      },
+      "agent:main:clawline:user_1:side": {
+        lastReadMessageId: null,
+        lastServerEventId: "s_side_1"
+      }
+    });
+
+    const rehydratedStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence(store.getState())
+    });
+    await waitForHydration(rehydratedStore);
+
+    expect(rehydratedStore.getState().replayCursorsBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": {
+        lastReadMessageId: null,
+        lastServerEventId: "s_main_1"
+      },
+      "agent:main:clawline:user_1:side": {
+        lastReadMessageId: null,
+        lastServerEventId: "s_side_1"
+      }
     });
   });
 });
