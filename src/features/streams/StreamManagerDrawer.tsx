@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import type { StreamRecord } from "../../runtime/chat/chatDomainStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
 import { generateUuidV4 } from "../../runtime/shared/uuid";
+import { useTransportMachine } from "../../runtime/transport/transportMachine";
 import {
   createStreamApiClient,
   type TrackableSessionPayload
 } from "../../protocol/stream-api";
+import { getSessionProvisioningState } from "./provisioning";
 
 const streamApiClient = createStreamApiClient();
 
@@ -23,6 +25,7 @@ export function StreamManagerDrawer({
 }) {
   const { state: authState } = useAuthSessionStore();
   const { state: chatState, store: chatStore } = useChatDomainStore();
+  const { state: transportState } = useTransportMachine();
   const [createName, setCreateName] = useState("");
   const [editingSessionKey, setEditingSessionKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -35,6 +38,15 @@ export function StreamManagerDrawer({
   );
 
   const session = authState.session;
+  const trackableRefreshToken = useMemo(
+    () =>
+      [
+        ...chatState.streams.map((stream) => `${stream.sessionKey}:${stream.adopted ? 1 : 0}`),
+        "---",
+        ...chatState.provisionedSessionKeys
+      ].join("|"),
+    [chatState.provisionedSessionKeys, chatState.streams]
+  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -54,9 +66,21 @@ export function StreamManagerDrawer({
       setTrackableSessions([]);
       return;
     }
+  }, [isOpen, session?.isAdmin, session?.serverUrl, session?.token]);
+
+  useEffect(() => {
+    if (!isOpen || !session?.isAdmin) {
+      return;
+    }
 
     void refreshTrackableSessions();
-  }, [isOpen, session?.isAdmin, session?.serverUrl, session?.token]);
+  }, [
+    isOpen,
+    session?.isAdmin,
+    session?.serverUrl,
+    session?.token,
+    trackableRefreshToken
+  ]);
 
   if (!isOpen) {
     return null;
@@ -296,6 +320,12 @@ export function StreamManagerDrawer({
               const canDelete = canDeleteStream(stream);
               const canUntrack = Boolean(stream.adopted);
               const isEditing = editingSessionKey === stream.sessionKey;
+              const provisioningState = getSessionProvisioningState({
+                hasStream: true,
+                provisionedSessionKeys: chatState.provisionedSessionKeys,
+                sessionKey: stream.sessionKey,
+                transportPhase: transportState.phase
+              });
 
               return (
                 <article className="stream-manager-card" key={stream.sessionKey}>
@@ -310,9 +340,16 @@ export function StreamManagerDrawer({
                       <strong>{stream.displayName}</strong>
                     )}
                     <code>{stream.sessionKey}</code>
-                    <p className="stream-manager-meta">
-                      {stream.adopted ? "Tracked session" : "Provider-managed stream"}
-                    </p>
+                    <div className="stream-manager-meta-row">
+                      <p className="stream-manager-meta">
+                        {stream.adopted ? "Tracked session" : "Provider-managed stream"}
+                      </p>
+                      <span
+                        className={`stream-status-pill stream-status-pill--${provisioningState}`}
+                      >
+                        {provisioningState}
+                      </span>
+                    </div>
                   </div>
                   <div className="stream-manager-actions">
                     {isEditing ? (

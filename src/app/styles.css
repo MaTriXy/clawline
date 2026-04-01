@@ -473,6 +473,14 @@ html[data-appearance="light"] {
   gap: 0.35rem;
 }
 
+.stream-manager-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .stream-manager-card-copy code,
 .stream-manager-meta {
   color: var(--color-text-dim);
