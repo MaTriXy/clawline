@@ -20,12 +20,14 @@ export type TransportPhase =
   | "idle"
   | "connecting"
   | "authenticating"
+  | "replaying"
   | "live"
   | "recovering"
   | "failed";
 
 export interface TransportState {
   failureReason: string | null;
+  isBrowserOnline: boolean;
   phase: TransportPhase;
   retryAttempt: number;
 }
@@ -46,13 +48,23 @@ export interface TransportMachine {
 interface CreateTransportMachineOptions {
   authSessionStore: AuthSessionStore;
   chatDomainStore: ChatDomainStore;
+  browserRuntime?: BrowserRuntime;
+  selectedSessionKeySource?: () => string | undefined;
   webSocketFactory?: WebSocketFactory;
+}
+
+interface BrowserRuntime {
+  addEventListener(type: "offline" | "online", listener: () => void): () => void;
+  clearTimeout(timeoutId: number): void;
+  isOnline(): boolean;
+  setTimeout(listener: () => void, delayMs: number): number;
 }
 
 const TransportMachineContext = createContext<TransportMachine | null>(null);
 
 const INITIAL_STATE: TransportState = {
   failureReason: null,
+  isBrowserOnline: true,
   phase: "idle",
   retryAttempt: 0
 };
@@ -60,30 +72,84 @@ const INITIAL_STATE: TransportState = {
 export function createTransportMachine({
   authSessionStore,
   chatDomainStore,
+  browserRuntime = createBrowserRuntime(),
+  selectedSessionKeySource = createSelectedSessionKeySource(),
   webSocketFactory = createBrowserWebSocketFactory()
 }: CreateTransportMachineOptions): TransportMachine {
-  const baseStore = createStore(INITIAL_STATE);
+  const baseStore = createStore<TransportState>({
+    ...INITIAL_STATE,
+    isBrowserOnline: browserRuntime.isOnline()
+  });
   let socket: SocketLike | null = null;
   let reconnectTimer: number | null = null;
   let connectionGeneration = 0;
+  let replayMessagesRemaining = 0;
+  let hasInitialProvisioning = false;
+
+  chatDomainStore.subscribe(() => {
+    if (!authSessionStore.getState().session) {
+      return;
+    }
+
+    if (baseStore.getState().phase !== "idle") {
+      return;
+    }
+
+    if (!isChatReadyForAuth(chatDomainStore.getState())) {
+      return;
+    }
+
+    void connect("auth-bootstrap");
+  });
+
+  browserRuntime.addEventListener("online", () => {
+    baseStore.setState((current) => ({
+      ...current,
+      failureReason: current.phase === "recovering" ? null : current.failureReason,
+      isBrowserOnline: true
+    }));
+
+    if (authSessionStore.getState().session && baseStore.getState().phase !== "live") {
+      if (isChatReadyForAuth(chatDomainStore.getState())) {
+        void connect("retry");
+      }
+    }
+  });
+  browserRuntime.addEventListener("offline", () => {
+    teardown(false);
+    baseStore.setState((current) => ({
+      ...current,
+      failureReason: "Browser offline",
+      isBrowserOnline: false,
+      phase: authSessionStore.getState().session ? "recovering" : "idle"
+    }));
+  });
 
   authSessionStore.subscribe(() => {
     const session = authSessionStore.getState().session;
     if (!session) {
       teardown(false);
       if (baseStore.getState().phase !== "failed") {
-        baseStore.setState(INITIAL_STATE);
+        baseStore.setState({
+          ...INITIAL_STATE,
+          isBrowserOnline: browserRuntime.isOnline()
+        });
       }
       chatDomainStore.reset();
       return;
     }
 
     if (baseStore.getState().phase === "idle") {
-      void connect("auth-bootstrap");
+      if (isChatReadyForAuth(chatDomainStore.getState())) {
+        void connect("auth-bootstrap");
+      }
     }
   });
 
-  if (authSessionStore.getState().session) {
+  if (
+    authSessionStore.getState().session &&
+    isChatReadyForAuth(chatDomainStore.getState())
+  ) {
     void connect("auth-bootstrap");
   }
 
@@ -92,6 +158,7 @@ export function createTransportMachine({
     if (
       state.phase === "connecting" ||
       state.phase === "authenticating" ||
+      state.phase === "replaying" ||
       state.phase === "live"
     ) {
       return;
@@ -102,18 +169,31 @@ export function createTransportMachine({
       return;
     }
 
+    if (!browserRuntime.isOnline()) {
+      baseStore.setState((current) => ({
+        ...current,
+        failureReason: "Browser offline",
+        isBrowserOnline: false,
+        phase: "recovering"
+      }));
+      return;
+    }
+
     if (reconnectTimer != null) {
-      window.clearTimeout(reconnectTimer);
+      browserRuntime.clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
 
     teardown(false);
 
     connectionGeneration += 1;
+    replayMessagesRemaining = 0;
+    hasInitialProvisioning = false;
     const generation = connectionGeneration;
     baseStore.setState((current) => ({
       ...current,
       failureReason: null,
+      isBrowserOnline: true,
       phase: "connecting"
     }));
 
@@ -136,7 +216,10 @@ export function createTransportMachine({
           protocolVersion: 1,
           token: session.token,
           deviceId: session.deviceId,
-          lastMessageId: chatDomainStore.getState().lastServerEventId
+          lastMessageId: chatDomainStore.getState().lastServerEventId,
+          replayCursorsBySessionKey: toReplayCursorPayload(
+            chatDomainStore.getState().replayCursorsBySessionKey
+          )
         })
       );
     };
@@ -150,6 +233,12 @@ export function createTransportMachine({
       if (type === "auth_result") {
         const payload = parseAuthResultPayload(event.data);
         if (payload.success) {
+          if (payload.historyReset || payload.replayTruncated) {
+            chatDomainStore.resetForAuthoritativeReplay();
+          }
+
+          replayMessagesRemaining = payload.replayCount ?? 0;
+          hasInitialProvisioning = hasProvisioningSnapshot(payload);
           if (typeof payload.isAdmin === "boolean") {
             authSessionStore.updateAdminStatus(payload.isAdmin);
           }
@@ -162,16 +251,13 @@ export function createTransportMachine({
             sessions: payload.sessions
           });
 
-          baseStore.setState({
-            failureReason: null,
-            phase: "live",
-            retryAttempt: trigger === "retry" ? baseStore.getState().retryAttempt : 0
-          });
+          syncReplayProgress(trigger);
           return;
         }
 
         baseStore.setState({
           failureReason: payload.reason ?? "Authentication failed",
+          isBrowserOnline: browserRuntime.isOnline(),
           phase: "failed",
           retryAttempt: baseStore.getState().retryAttempt
         });
@@ -183,19 +269,39 @@ export function createTransportMachine({
       const payload = parseServerPayload(event.data);
       switch (payload.type) {
         case "message":
+          const source = replayMessagesRemaining > 0 ? "replay" : "live";
           chatDomainStore.applyIncomingMessage(
-            payload,
-            authSessionStore.getState().session?.deviceId ?? ""
+            {
+              localDeviceId: authSessionStore.getState().session?.deviceId ?? "",
+              message: payload,
+              selectedSessionKey: selectedSessionKeySource(),
+              source
+            }
           );
+          if (replayMessagesRemaining > 0) {
+            replayMessagesRemaining -= 1;
+            syncReplayProgress(trigger);
+          }
           return;
         case "ack":
           chatDomainStore.markMessageAcked(payload.id);
           return;
         case "stream_snapshot":
           chatDomainStore.applyStreamSnapshot(payload.streams);
+          hasInitialProvisioning = true;
+          syncReplayProgress(trigger);
+          return;
+        case "stream_created":
+        case "stream_updated":
+          chatDomainStore.upsertStream(payload.stream);
+          return;
+        case "stream_deleted":
+          chatDomainStore.removeStream(payload.sessionKey);
           return;
         case "session_info":
           chatDomainStore.applySessionInfo(payload);
+          hasInitialProvisioning = true;
+          syncReplayProgress(trigger);
           return;
         case "error":
           if (payload.messageId) {
@@ -237,18 +343,33 @@ export function createTransportMachine({
 
     baseStore.setState((current) => {
       const retryAttempt = current.retryAttempt + 1;
-      scheduleReconnect(retryAttempt);
+      if (browserRuntime.isOnline()) {
+        scheduleReconnect(retryAttempt);
+      }
       return {
         failureReason: reason,
+        isBrowserOnline: browserRuntime.isOnline(),
         phase: "recovering",
         retryAttempt
       };
     });
   }
 
+  function syncReplayProgress(trigger: "auth-bootstrap" | "retry") {
+    baseStore.setState((current) => ({
+      failureReason: null,
+      isBrowserOnline: true,
+      phase:
+        replayMessagesRemaining === 0 && hasInitialProvisioning
+          ? "live"
+          : "replaying",
+      retryAttempt: trigger === "retry" ? current.retryAttempt : 0
+    }));
+  }
+
   function scheduleReconnect(retryAttempt: number) {
     const delayMs = Math.min(1000 * 2 ** Math.max(retryAttempt - 1, 0), 8000);
-    reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = browserRuntime.setTimeout(() => {
       reconnectTimer = null;
       void connect("retry");
     }, delayMs);
@@ -290,6 +411,73 @@ export function createTransportMachine({
         })
       );
     }
+  };
+}
+
+function createBrowserRuntime(): BrowserRuntime {
+  return {
+    addEventListener(type, listener) {
+      window.addEventListener(type, listener);
+      return () => window.removeEventListener(type, listener);
+    },
+    clearTimeout(timeoutId) {
+      window.clearTimeout(timeoutId);
+    },
+    isOnline() {
+      return navigator.onLine;
+    },
+    setTimeout(listener, delayMs) {
+      return window.setTimeout(listener, delayMs);
+    }
+  };
+}
+
+function hasProvisioningSnapshot(
+  payload: ReturnType<typeof parseAuthResultPayload>
+) {
+  return (
+    (payload.sessions?.length ?? 0) > 0 || (payload.sessionKeys?.length ?? 0) > 0
+  );
+}
+
+function isChatReadyForAuth(
+  chatState: ChatDomainStore["getState"] extends () => infer State ? State : never
+) {
+  return (
+    chatState.hydrated ||
+    chatState.lastServerEventId != null ||
+    chatState.streams.length > 0 ||
+    Object.keys(chatState.messagesBySessionKey).length > 0 ||
+    Object.keys(chatState.replayCursorsBySessionKey).length > 0
+  );
+}
+
+function toReplayCursorPayload(
+  replayCursorsBySessionKey: ChatDomainStore["getState"] extends () => infer State
+    ? State extends { replayCursorsBySessionKey: infer ReplayCursors }
+      ? ReplayCursors
+      : never
+    : never
+) {
+  const entries = Object.entries(replayCursorsBySessionKey).flatMap(
+    ([sessionKey, cursor]) =>
+      typeof cursor?.lastServerEventId === "string" &&
+      cursor.lastServerEventId.length > 0
+        ? [[sessionKey, cursor.lastServerEventId] as const]
+        : []
+  );
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function createSelectedSessionKeySource() {
+  return () => {
+    const hashPath =
+      window.location.hash.startsWith("#/") ?
+        window.location.hash.slice(1)
+      : window.location.pathname;
+    const match = hashPath.match(/^\/chat\/(.+)$/);
+    return match ? decodeURIComponent(match[1]) : undefined;
   };
 }
 

@@ -82,7 +82,7 @@ describe("usePairingActions", () => {
   });
 
   it("keeps retrying after pair_pending until approval succeeds", async () => {
-    MockPairingWebSocket.reset(["pending", "success"]);
+    MockPairingWebSocket.reset(["pending", "pending", "success"]);
 
     const authStore = createAuthSessionStore();
 
@@ -125,6 +125,22 @@ describe("usePairingActions", () => {
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Clawline is waiting on an approved device." })
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
       await Promise.resolve();
       await Promise.resolve();
     });

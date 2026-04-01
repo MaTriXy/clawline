@@ -12,14 +12,10 @@ import {
 import { createStore } from "../shared/store";
 import { useStoreValue } from "../shared/useStoreValue";
 import {
-  clearPendingSends,
-  loadPendingSends,
-  savePendingSends
-} from "./pendingSendJournal";
-import {
   applyServerMessage,
   applySessionDescriptors,
-  applyStreamSnapshot as applyStreamSnapshotToState
+  applyStreamSnapshot as applyStreamSnapshotToState,
+  applyStreamUpdate as applyStreamUpdateToState
 } from "./applyServerEvent";
 
 export type DeliveryState = "pending" | "acked" | "failed" | "server";
@@ -45,11 +41,21 @@ export interface PendingMessageRecord {
   sessionKey: string;
 }
 
+export interface ReplayCursorRecord {
+  lastServerEventId?: string | null;
+  lastReadMessageId: string | null;
+}
+
+export type IncomingMessageSource = "live" | "replay";
+
 export interface ChatDomainState {
+  firstUnreadMessageIdBySessionKey: Record<string, string>;
   hydrated: boolean;
   lastServerEventId: string | null;
   messagesBySessionKey: Record<string, ChatMessageRecord[]>;
   pendingMessages: Record<string, PendingMessageRecord>;
+  provisionedSessionKeys: string[];
+  replayCursorsBySessionKey: Record<string, ReplayCursorRecord>;
   streams: StreamRecord[];
   unreadBySessionKey: Record<string, number>;
 }
@@ -70,19 +76,31 @@ export interface ChatDomainStore {
   enqueueOptimisticMessage(input: EnqueueOptimisticMessageInput): void;
   markMessageAcked(messageId: string): void;
   markMessageFailed(messageId: string): void;
-  applyIncomingMessage(message: ServerMessagePayload, localDeviceId: string): void;
+  resetForAuthoritativeReplay(): void;
+  upsertStream(stream: StreamSessionPayload): void;
+  removeStream(sessionKey: string): void;
+  applyIncomingMessage(input: {
+    localDeviceId: string;
+    message: ServerMessagePayload;
+    selectedSessionKey?: string;
+    source: IncomingMessageSource;
+  }): void;
   applySessionInfo(info: SessionInfoPayload): void;
   applyStreamSnapshot(streams: StreamSessionPayload[]): void;
+  markSessionRead(sessionKey?: string): void;
   reset(): void;
 }
 
 const ChatDomainStoreContext = createContext<ChatDomainStore | null>(null);
 
 const EMPTY_STATE: ChatDomainState = {
+  firstUnreadMessageIdBySessionKey: {},
   hydrated: false,
   lastServerEventId: null,
   messagesBySessionKey: {},
   pendingMessages: {},
+  provisionedSessionKeys: [],
+  replayCursorsBySessionKey: {},
   streams: [],
   unreadBySessionKey: {}
 };
@@ -99,38 +117,18 @@ export function createChatDomainStore(options?: {
     const snapshot: ChatDomainSnapshot = {
       ...nextState
     };
-    const pendingEntries = Object.entries(nextState.pendingMessages).map(
-      ([id, record]) => ({
-        id,
-        ...record
-      })
-    );
-    savePendingSends(pendingEntries);
     void persistence.save(snapshot);
   }
 
   async function hydrate() {
     const persisted = await persistence.load();
-    const pending = loadPendingSends();
 
     baseStore.setState((current) => {
       const hydratedState = persisted ? mergeHydratedState(current, persisted) : current;
-      const nextPending = pending.reduce<Record<string, PendingMessageRecord>>(
-        (records, entry) => {
-          records[entry.id] = {
-            content: entry.content,
-            createdAt: entry.createdAt,
-            sessionKey: entry.sessionKey
-          };
-          return records;
-        },
-        hydratedState.pendingMessages
-      );
 
       return {
         ...hydratedState,
-        hydrated: true,
-        pendingMessages: nextPending
+        hydrated: true
       };
     });
   }
@@ -220,9 +218,40 @@ export function createChatDomainStore(options?: {
         return nextState;
       });
     },
-    applyIncomingMessage(message, localDeviceId) {
+    resetForAuthoritativeReplay() {
       baseStore.setState((current) => {
-        const nextState = applyServerMessage(current, message, localDeviceId);
+        const nextState = {
+          ...EMPTY_STATE,
+          hydrated: current.hydrated
+        };
+
+        persist(nextState);
+        return nextState;
+      });
+    },
+    upsertStream(stream) {
+      baseStore.setState((current) => {
+        const nextState = applyStreamUpdateToState(current, stream);
+        persist(nextState);
+        return nextState;
+      });
+    },
+    removeStream(sessionKey) {
+      baseStore.setState((current) => {
+        const nextState = {
+          ...current,
+          provisionedSessionKeys: current.provisionedSessionKeys.filter(
+            (entry) => entry !== sessionKey
+          ),
+          streams: current.streams.filter((stream) => stream.sessionKey !== sessionKey)
+        };
+        persist(nextState);
+        return nextState;
+      });
+    },
+    applyIncomingMessage(input) {
+      baseStore.setState((current) => {
+        const nextState = applyServerMessage(current, input);
         persist(nextState);
         return nextState;
       });
@@ -245,8 +274,62 @@ export function createChatDomainStore(options?: {
         return nextState;
       });
     },
+    markSessionRead(sessionKey) {
+      if (!sessionKey) {
+        return;
+      }
+
+      baseStore.setState((current) => {
+        const unreadCount = current.unreadBySessionKey[sessionKey] ?? 0;
+        const firstUnread = current.firstUnreadMessageIdBySessionKey[sessionKey];
+
+        const latestMessageId =
+          current.messagesBySessionKey[sessionKey]?.at(-1)?.id ?? null;
+
+        if (unreadCount === 0 && firstUnread == null) {
+          const nextState = {
+            ...current,
+            replayCursorsBySessionKey: {
+              ...current.replayCursorsBySessionKey,
+              [sessionKey]: {
+                lastServerEventId:
+                  current.replayCursorsBySessionKey[sessionKey]?.lastServerEventId ?? null,
+                lastReadMessageId: latestMessageId
+              }
+            }
+          };
+
+          persist(nextState);
+          return nextState;
+        }
+
+        const nextUnreadBySessionKey = { ...current.unreadBySessionKey };
+        delete nextUnreadBySessionKey[sessionKey];
+
+        const nextFirstUnreadBySessionKey = {
+          ...current.firstUnreadMessageIdBySessionKey
+        };
+        delete nextFirstUnreadBySessionKey[sessionKey];
+
+        const nextState = {
+          ...current,
+          firstUnreadMessageIdBySessionKey: nextFirstUnreadBySessionKey,
+          replayCursorsBySessionKey: {
+            ...current.replayCursorsBySessionKey,
+            [sessionKey]: {
+              lastServerEventId:
+                current.replayCursorsBySessionKey[sessionKey]?.lastServerEventId ?? null,
+              lastReadMessageId: latestMessageId
+            }
+          },
+          unreadBySessionKey: nextUnreadBySessionKey
+        };
+
+        persist(nextState);
+        return nextState;
+      });
+    },
     reset() {
-      clearPendingSends();
       void persistence.clear();
       baseStore.setState({
         ...EMPTY_STATE,
@@ -314,6 +397,18 @@ function mergeHydratedState(
     pendingMessages: {
       ...persistedState.pendingMessages,
       ...liveState.pendingMessages
+    },
+    replayCursorsBySessionKey: {
+      ...persistedState.replayCursorsBySessionKey,
+      ...liveState.replayCursorsBySessionKey
+    },
+    provisionedSessionKeys:
+      liveState.provisionedSessionKeys.length > 0
+        ? [...liveState.provisionedSessionKeys]
+        : [...persistedState.provisionedSessionKeys],
+    firstUnreadMessageIdBySessionKey: {
+      ...persistedState.firstUnreadMessageIdBySessionKey,
+      ...liveState.firstUnreadMessageIdBySessionKey
     },
     unreadBySessionKey: {
       ...persistedState.unreadBySessionKey,

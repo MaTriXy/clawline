@@ -247,6 +247,67 @@ html[data-appearance="light"] {
   text-align: left;
 }
 
+.stream-chip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.stream-chip-meta,
+.stream-manager-actions,
+.stream-manager-create-row,
+.stream-manager-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.stream-chip-meta {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.stream-unread-badge {
+  min-width: 1.6rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(245, 201, 119, 0.2);
+  color: var(--color-accent-warm);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.stream-status-pill {
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.stream-status-pill--ready {
+  background: rgba(99, 210, 198, 0.16);
+  color: var(--color-accent);
+}
+
+.stream-status-pill--waiting {
+  background: rgba(245, 201, 119, 0.16);
+  color: var(--color-accent-warm);
+}
+
+.stream-status-pill--unavailable,
+.provisioning-banner--warning {
+  background: rgba(242, 126, 126, 0.14);
+  color: var(--color-danger);
+}
+
+.stream-status-pill--none {
+  background: var(--color-panel-soft);
+  color: var(--color-text-dim);
+}
+
 .stream-chip.active,
 .segment.active {
   border-color: var(--color-accent);
@@ -281,6 +342,12 @@ html[data-appearance="light"] {
   gap: 1rem;
 }
 
+.chat-header code {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: var(--color-text-dim);
+}
+
 .status-pill {
   padding: 0.45rem 0.7rem;
   border-radius: 999px;
@@ -293,6 +360,15 @@ html[data-appearance="light"] {
   overflow: auto;
   display: grid;
   gap: 0.9rem;
+}
+
+.provisioning-banner {
+  margin: 0 1.25rem;
+  padding: 0.8rem 1rem;
+  border-radius: 1rem;
+  background: rgba(245, 201, 119, 0.14);
+  color: var(--color-accent-warm);
+  border: 1px solid rgba(245, 201, 119, 0.2);
 }
 
 .empty-state {
@@ -358,6 +434,64 @@ html[data-appearance="light"] {
   display: grid;
   gap: 1rem;
   align-content: start;
+}
+
+.stream-manager-drawer {
+  overflow: auto;
+}
+
+.stream-manager-create-row,
+.stream-manager-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.stream-manager-create-row input,
+.stream-manager-card input {
+  width: 100%;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 1rem;
+  background: var(--color-panel-soft);
+  color: var(--color-text);
+  padding: 0.8rem 0.95rem;
+}
+
+.stream-manager-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.stream-manager-card {
+  padding: 1rem;
+  border-radius: 1rem;
+  background: var(--color-panel-soft);
+  border: 1px solid var(--color-border);
+}
+
+.stream-manager-card-copy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.stream-manager-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stream-manager-card-copy code,
+.stream-manager-meta {
+  color: var(--color-text-dim);
+}
+
+.stream-manager-meta {
+  margin: 0;
+}
+
+.stream-manager-section-header {
+  justify-content: space-between;
 }
 
 .settings-header,

@@ -6,14 +6,20 @@ import type {
 import type {
   ChatDomainState,
   ChatMessageRecord,
+  IncomingMessageSource,
   StreamRecord
 } from "./chatDomainStore";
 
 export function applyServerMessage(
   state: ChatDomainState,
-  message: ServerMessagePayload,
-  localDeviceId: string
+  input: {
+    localDeviceId: string;
+    message: ServerMessagePayload;
+    selectedSessionKey?: string;
+    source: IncomingMessageSource;
+  }
 ) {
+  const { localDeviceId, message, selectedSessionKey, source } = input;
   const sessionKey = message.sessionKey ?? state.streams[0]?.sessionKey ?? "unassigned";
   const currentMessages = state.messagesBySessionKey[sessionKey] ?? [];
 
@@ -35,6 +41,15 @@ export function applyServerMessage(
     return {
       ...state,
       lastServerEventId: message.id,
+      replayCursorsBySessionKey: {
+        ...state.replayCursorsBySessionKey,
+        [sessionKey]: {
+          ...state.replayCursorsBySessionKey[sessionKey],
+          lastReadMessageId:
+            state.replayCursorsBySessionKey[sessionKey]?.lastReadMessageId ?? null,
+          lastServerEventId: message.id
+        }
+      },
       messagesBySessionKey: {
         ...state.messagesBySessionKey,
         [sessionKey]: replaceAtIndex(currentMessages, existingIndex, updated)
@@ -70,6 +85,15 @@ export function applyServerMessage(
         ...state,
         lastServerEventId: message.id,
         pendingMessages: nextPending,
+        replayCursorsBySessionKey: {
+          ...state.replayCursorsBySessionKey,
+          [sessionKey]: {
+            ...state.replayCursorsBySessionKey[sessionKey],
+            lastReadMessageId:
+              state.replayCursorsBySessionKey[sessionKey]?.lastReadMessageId ?? null,
+            lastServerEventId: message.id
+          }
+        },
         messagesBySessionKey: {
           ...state.messagesBySessionKey,
           [sessionKey]: replaceAtIndex(currentMessages, optimisticIndex, replacement)
@@ -94,18 +118,66 @@ export function applyServerMessage(
   return {
     ...state,
     lastServerEventId: message.id,
+    replayCursorsBySessionKey: {
+      ...state.replayCursorsBySessionKey,
+      [sessionKey]: {
+        ...state.replayCursorsBySessionKey[sessionKey],
+        lastReadMessageId:
+          state.replayCursorsBySessionKey[sessionKey]?.lastReadMessageId ?? null,
+        lastServerEventId: message.id
+      }
+    },
+    firstUnreadMessageIdBySessionKey:
+      shouldMarkUnread(message, sessionKey, selectedSessionKey, source)
+        ? {
+            ...state.firstUnreadMessageIdBySessionKey,
+            [sessionKey]:
+              state.firstUnreadMessageIdBySessionKey[sessionKey] ?? message.id
+          }
+        : state.firstUnreadMessageIdBySessionKey,
     messagesBySessionKey: {
       ...state.messagesBySessionKey,
       [sessionKey]: [...currentMessages, nextMessage].sort(sortMessages)
-    }
+    },
+    unreadBySessionKey:
+      shouldMarkUnread(message, sessionKey, selectedSessionKey, source)
+        ? {
+            ...state.unreadBySessionKey,
+            [sessionKey]: (state.unreadBySessionKey[sessionKey] ?? 0) + 1
+          }
+        : state.unreadBySessionKey
   };
+}
+
+function shouldMarkUnread(
+  message: ServerMessagePayload,
+  sessionKey: string,
+  selectedSessionKey: string | undefined,
+  source: IncomingMessageSource
+) {
+  return (
+    source === "live" &&
+    message.role === "assistant" &&
+    sessionKey !== selectedSessionKey
+  );
 }
 
 export function applyStreamSnapshot(
   state: ChatDomainState,
   streams: StreamSessionPayload[]
 ) {
-  const mergedStreams = mergeStreams(state.streams, streams.map(toStreamRecord));
+  const mergedStreams = mergeStreams([], streams.map(toStreamRecord));
+  return {
+    ...state,
+    streams: mergedStreams
+  };
+}
+
+export function applyStreamUpdate(
+  state: ChatDomainState,
+  stream: StreamSessionPayload
+) {
+  const mergedStreams = mergeStreams(state.streams, [toStreamRecord(stream)]);
   return {
     ...state,
     streams: mergedStreams
@@ -117,6 +189,10 @@ export function applySessionDescriptors(
   descriptors: SessionDescriptor[] | undefined,
   sessionKeys: string[] | undefined
 ) {
+  const nextProvisionedSessionKeys = normalizeProvisionedSessionKeys(
+    descriptors,
+    sessionKeys
+  );
   const provisionalStreams = [
     ...(descriptors ?? []).map((descriptor, index) => ({
       sessionKey: descriptor.sessionKey,
@@ -141,13 +217,49 @@ export function applySessionDescriptors(
   ];
 
   if (provisionalStreams.length === 0) {
-    return state;
+    if (!nextProvisionedSessionKeys) {
+      return state;
+    }
+
+    return {
+      ...state,
+      provisionedSessionKeys: nextProvisionedSessionKeys
+    };
   }
 
   return {
     ...state,
+    provisionedSessionKeys:
+      nextProvisionedSessionKeys ?? state.provisionedSessionKeys,
     streams: mergeStreams(state.streams, provisionalStreams)
   };
+}
+
+function normalizeProvisionedSessionKeys(
+  descriptors: SessionDescriptor[] | undefined,
+  sessionKeys: string[] | undefined
+) {
+  if (!descriptors && !sessionKeys) {
+    return undefined;
+  }
+
+  const orderedKeys = [
+    ...(descriptors ?? []).map((descriptor) => descriptor.sessionKey),
+    ...(sessionKeys ?? [])
+  ];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const sessionKey of orderedKeys) {
+    const trimmed = sessionKey.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+
+  return normalized;
 }
 
 function mergeStreams(

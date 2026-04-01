@@ -22,7 +22,7 @@ The revised main spec in `web-port-recon.md` is assumed here. In particular:
 - settings is an in-chat overlay, not a dedicated route
 - selected session is URL-owned
 - transport is an explicit state machine
-- cross-tab behavior uses a single leader-tab transport model
+- cross-tab behavior treats each browser tab as its own device/runtime
 - architecture is ownership-first, with no global `uiStore`
 
 ## Part 1: Incremental Phasing Plan
@@ -89,7 +89,7 @@ iOS source areas covered:
 
 ### Explicitly Not In Scope Yet
 
-- multi-tab leadership
+- any cross-tab coordination layer
 - unread/read projection
 - stream CRUD
 - markdown/code/table rendering
@@ -120,7 +120,7 @@ A new user can pair the web app, hold a basic text conversation, refresh the pag
 
 ### Scope
 
-Make the app behave like Clawline rather than a single-threaded demo by porting replay, session selection, unread/read projection, and the leader-tab browser runtime model.
+Make the app behave like Clawline rather than a single-threaded demo by porting replay, session selection, unread/read projection, and durable per-tab browser runtime behavior.
 
 iOS source areas covered:
 
@@ -135,36 +135,35 @@ iOS source areas covered:
 - Switch between sessions/streams using URL-backed selection.
 - See unread indicators when assistant messages arrive in non-active sessions.
 - Reload the page and recover prior messages and session selection quickly from durable snapshots plus replay.
-- Open a second tab and keep using the app without duplicate sends or divergent unread state.
+- Open a second tab and keep using the app as another independent client runtime without duplicate sends or cross-tab interference.
 - Go offline and recover cleanly when network returns.
 
 ### Included Web Features
 
-- leader-tab transport ownership via `BroadcastChannel`
 - durable replay cursor handling
 - persisted transcript snapshots
 - unread/read projection
-- per-tab selected session, shared live transport
+- per-tab selected session, per-tab live transport
 - reconnect/offline handling
 
 ### Manual Testing
 
-- Open two tabs, send from one, confirm the other mirrors state through the leader.
+- Open two tabs, send from each, and confirm both behave as independent client runtimes.
 - Switch sessions in each tab independently.
 - Receive assistant messages in a background session and verify unread state.
-- Reload the leader tab and verify leadership handoff or recovery.
+- Reload either tab and verify it recovers from persisted snapshots plus replay without corrupting the other tab.
 - Toggle offline/online and confirm no duplicate-send or message-order corruption.
 
 ### Automated Testing
 
 - State-machine tests for replay and reconnect transitions.
 - Projection tests for unread/read behavior and provisioning state.
-- Multi-tab Playwright tests for leader election, mirrored state, and per-tab selected-session routing.
+- Multi-tab Playwright tests for independent per-tab connections, divergent selected-session routing, and unread/read behavior.
 - Reload/reconnect tests using persisted snapshots.
 
 ### Done Definition
 
-The app is no longer a demo chat window. It behaves like a real multi-session chat client with durable reload and stable multi-tab behavior.
+The app is no longer a demo chat window. It behaves like a real multi-session chat client with durable reload and stable independent-tab behavior.
 
 ## Phase 3: Stream Management and Session Provisioning
 
@@ -375,7 +374,7 @@ No phase gets a free pass on regression. At the end of every phase:
 If the team wants usable milestones rather than long branches:
 
 - Release Phase 1 internally as the first real browser client.
-- Release Phase 2 when reload, replay, and multi-tab behavior are stable enough for daily engineering use.
+- Release Phase 2 when reload, replay, and independent-tab behavior are stable enough for daily engineering use.
 - Release Phase 4 as the first version suitable for broad dogfooding.
 - Release Phase 5 as the first version that can plausibly replace iPad-web usage for heavy internal users.
 - Treat Phase 6 as optional launch-plus scope unless terminal and interactive HTML are confirmed launch-critical.

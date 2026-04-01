@@ -1,9 +1,9 @@
 import { openDB } from "idb";
 import type { ChatDomainSnapshot } from "../chat/chatDomainStore";
+import { getOrCreateTabRuntimeScopeId } from "./tabRuntimeScope";
 
 const DATABASE_NAME = "clawline-web";
 const DATABASE_VERSION = 1;
-const SNAPSHOT_KEY = "phase1-snapshot";
 
 export interface ChatPersistence {
   load(): Promise<ChatDomainSnapshot | null>;
@@ -29,19 +29,23 @@ export function createMemoryChatPersistence(
   };
 }
 
-export function createIndexedDbChatPersistence(): ChatPersistence {
+export function createIndexedDbChatPersistence(
+  scopeId = getOrCreateTabRuntimeScopeId()
+): ChatPersistence {
+  const snapshotKey = `chat-snapshot:${scopeId}`;
+
   return {
     async load() {
       const database = await openDatabase();
-      return (await database.get("chatSnapshots", SNAPSHOT_KEY)) ?? null;
+      return (await database.get("chatSnapshots", snapshotKey)) ?? null;
     },
     async save(snapshot) {
       const database = await openDatabase();
-      await database.put("chatSnapshots", snapshot, SNAPSHOT_KEY);
+      await database.put("chatSnapshots", snapshot, snapshotKey);
     },
     async clear() {
       const database = await openDatabase();
-      await database.delete("chatSnapshots", SNAPSHOT_KEY);
+      await database.delete("chatSnapshots", snapshotKey);
     }
   };
 }

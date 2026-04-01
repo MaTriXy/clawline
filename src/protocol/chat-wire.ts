@@ -27,6 +27,7 @@ export interface AuthPayload {
   token: string;
   deviceId: string;
   lastMessageId?: string | null;
+  replayCursorsBySessionKey?: Record<string, string>;
 }
 
 export interface AuthResultPayload {
@@ -106,12 +107,24 @@ export interface StreamSnapshotPayload {
   streams: StreamSessionPayload[];
 }
 
+export interface StreamMutationPayload {
+  type: "stream_created" | "stream_updated";
+  stream: StreamSessionPayload;
+}
+
+export interface StreamDeletedPayload {
+  type: "stream_deleted";
+  sessionKey: string;
+}
+
 export type PhaseOneServerPayload =
   | AckPayload
   | AuthResultPayload
   | ErrorPayload
   | ServerMessagePayload
   | SessionInfoPayload
+  | StreamDeletedPayload
+  | StreamMutationPayload
   | StreamSnapshotPayload;
 
 export function serializePairRequest(payload: PairRequestPayload) {
@@ -174,6 +187,11 @@ export function parseServerPayload(raw: string): PhaseOneServerPayload {
       return parseAckFromRecord(value);
     case "stream_snapshot":
       return parseStreamSnapshotFromRecord(value);
+    case "stream_created":
+    case "stream_updated":
+      return parseStreamMutationFromRecord(value);
+    case "stream_deleted":
+      return parseStreamDeletedFromRecord(value);
     case "session_info":
       return parseSessionInfoFromRecord(value);
     case "auth_result":
@@ -222,6 +240,26 @@ function parseStreamSnapshotFromRecord(value: JsonRecord): StreamSnapshotPayload
     streams: requiredArray(value.streams, "stream_snapshot.streams").map(
       (stream, index) => parseStreamSession(stream, `stream_snapshot.streams[${index}]`)
     )
+  };
+}
+
+function parseStreamMutationFromRecord(value: JsonRecord): StreamMutationPayload {
+  const type = requiredString(value.type, "stream_mutation.type");
+  if (type !== "stream_created" && type !== "stream_updated") {
+    throw new Error(`Unsupported stream mutation payload type: ${type}`);
+  }
+
+  return {
+    type,
+    stream: parseStreamSession(value.stream, `${type}.stream`)
+  };
+}
+
+function parseStreamDeletedFromRecord(value: JsonRecord): StreamDeletedPayload {
+  assertLiteral(value.type, "stream_deleted", "stream_deleted.type");
+  return {
+    type: "stream_deleted",
+    sessionKey: requiredString(value.sessionKey, "stream_deleted.sessionKey")
   };
 }
 
