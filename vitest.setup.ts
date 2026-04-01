@@ -13,10 +13,12 @@ async function clearDatabase(name: string) {
 
 beforeEach(async () => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   await clearDatabase("clawline-web");
 });
 
 afterEach(async () => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   await clearDatabase("clawline-web");
 });

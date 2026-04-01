@@ -84,7 +84,8 @@ export function Composer({
             : transportState.phase === "recovering"
               ? "Reconnecting"
               : transportState.phase === "connecting" ||
-                  transportState.phase === "authenticating"
+                  transportState.phase === "authenticating" ||
+                  transportState.phase === "replaying"
                 ? "Connecting"
                 : "Disconnected"}
         </p>

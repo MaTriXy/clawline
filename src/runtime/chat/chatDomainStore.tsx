@@ -12,11 +12,6 @@ import {
 import { createStore } from "../shared/store";
 import { useStoreValue } from "../shared/useStoreValue";
 import {
-  clearPendingSends,
-  loadPendingSends,
-  savePendingSends
-} from "./pendingSendJournal";
-import {
   applyServerMessage,
   applySessionDescriptors,
   applyStreamSnapshot as applyStreamSnapshotToState
@@ -116,38 +111,18 @@ export function createChatDomainStore(options?: {
     const snapshot: ChatDomainSnapshot = {
       ...nextState
     };
-    const pendingEntries = Object.entries(nextState.pendingMessages).map(
-      ([id, record]) => ({
-        id,
-        ...record
-      })
-    );
-    savePendingSends(pendingEntries);
     void persistence.save(snapshot);
   }
 
   async function hydrate() {
     const persisted = await persistence.load();
-    const pending = loadPendingSends();
 
     baseStore.setState((current) => {
       const hydratedState = persisted ? mergeHydratedState(current, persisted) : current;
-      const nextPending = pending.reduce<Record<string, PendingMessageRecord>>(
-        (records, entry) => {
-          records[entry.id] = {
-            content: entry.content,
-            createdAt: entry.createdAt,
-            sessionKey: entry.sessionKey
-          };
-          return records;
-        },
-        hydratedState.pendingMessages
-      );
 
       return {
         ...hydratedState,
-        hydrated: true,
-        pendingMessages: nextPending
+        hydrated: true
       };
     });
   }
@@ -318,7 +293,6 @@ export function createChatDomainStore(options?: {
       });
     },
     reset() {
-      clearPendingSends();
       void persistence.clear();
       baseStore.setState({
         ...EMPTY_STATE,

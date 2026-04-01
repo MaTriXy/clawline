@@ -113,6 +113,84 @@ describe("transportMachine", () => {
     );
   });
 
+  it("stays replaying until replay messages complete even after auth succeeds", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        userId: "user_1",
+        replayCount: 1,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    expect(transport.getState().phase).toBe("replaying");
+
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "message",
+        id: "s_101",
+        role: "assistant",
+        content: "Replay complete",
+        timestamp: 101,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      })
+    );
+
+    expect(transport.getState().phase).toBe("live");
+  });
+
+  it("waits for provisioning before entering live when auth result has no session inventory", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        userId: "user_1",
+        replayCount: 0
+      })
+    );
+
+    expect(transport.getState().phase).toBe("replaying");
+
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "session_info",
+        userId: "user_1",
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    expect(transport.getState().phase).toBe("live");
+  });
+
   it("sends persisted per-stream replay cursors on auth bootstrap", async () => {
     const authStore = seedSession();
     const chatStore = createChatDomainStore({
@@ -183,7 +261,11 @@ describe("transportMachine", () => {
     await waitForSocket(factory);
     factory.sockets[0].emitOpen();
     factory.sockets[0].emitMessage(
-      JSON.stringify({ type: "auth_result", success: true })
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
     );
 
     transport.retryNow();
@@ -274,10 +356,18 @@ describe("transportMachine", () => {
     factoryA.sockets[0].emitOpen();
     factoryB.sockets[0].emitOpen();
     factoryA.sockets[0].emitMessage(
-      JSON.stringify({ type: "auth_result", success: true })
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
     );
     factoryB.sockets[0].emitMessage(
-      JSON.stringify({ type: "auth_result", success: true })
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
     );
 
     expect(transportA.getState().phase).toBe("live");

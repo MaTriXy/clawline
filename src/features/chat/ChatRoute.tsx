@@ -45,7 +45,11 @@ export function ChatRoute() {
             ? "Connected"
             : transportState.phase === "recovering"
               ? "Reconnecting"
-              : "Disconnected"
+              : transportState.phase === "connecting" ||
+                  transportState.phase === "authenticating" ||
+                  transportState.phase === "replaying"
+                ? "Connecting"
+                : "Disconnected"
         }
         onOpenSettings={() => setSettingsOpen(true)}
         onRetryConnection={() => transportStore.retryNow()}
