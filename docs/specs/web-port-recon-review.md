@@ -24,6 +24,11 @@ This review uses two lenses:
 1. Standard architectural review: coherence, completeness, contradictions, weak assumptions, and unowned risks
 2. iOS-pattern transplant audit: where the proposed web architecture still appears shaped by the existing iOS app instead of web-native defaults
 
+Runtime decision note:
+
+- The browser runtime decision is now settled: each browser tab is its own device/socket.
+- Any older ambiguity in this review about leader/follower coordination should be read as resolved in favor of independent per-tab sockets.
+
 ## Blocking Findings
 
 ### 1. The spec names stores, but it does not define SSOT ownership for the critical runtime concepts
@@ -68,8 +73,8 @@ Missing web-specific invariants:
 
 - what happens with multiple tabs open at once
 - whether each tab opens its own WebSocket
-- who owns replay cursor advancement across tabs
-- whether read/unread state is per tab or cross-tab
+- how replay cursor advancement works when each tab is independent
+- whether read/unread state is intentionally allowed to diverge per tab the way it diverges per device
 - how visibility changes affect connection policy
 - how focus, blur, online/offline, page refresh, and tab close affect session state
 - whether background tabs are allowed to keep live sockets
@@ -79,10 +84,7 @@ This is not a secondary hardening detail. On web, this is part of the primary ar
 Required spec change:
 
 - Add a `Web Runtime Invariants` section before the proposed architecture.
-- Explicitly choose between:
-  - independent-per-tab sessions
-  - one tab as connection leader with cross-tab coordination via `BroadcastChannel`/storage events
-  - another clearly named strategy
+- Settle the runtime as independent-per-tab sessions and make the divergence rules explicit.
 
 ### 3. The auth, TLS, and deployment topology is still an open question when it should be a prerequisite
 
@@ -238,7 +240,7 @@ Given how much of the cost sits in replay, unread state, virtualization, and ric
 
 - protocol fixture tests
 - reducer/state-machine tests
-- multi-tab coordination tests
+- independent-tab behavior tests
 - browser automation for chat scroll and composer behavior
 - rich-surface security tests
 
@@ -300,7 +302,7 @@ This section adjudicates the review findings against the original spec.
 
 2. Add a browser runtime invariants section covering multi-tab, visibility, focus, online/offline, replay, and unread behavior.
    Verdict: `AGREE`
-   Why: This is a real omission. The original spec translated iOS transport concerns into web transport concerns, but it did not go far enough on browser runtime semantics. Multi-tab and visibility behavior are first-order architectural constraints on the web.
+   Why: This is a real omission. The original spec translated iOS transport concerns into web transport concerns, but it did not go far enough on browser runtime semantics. The settled answer is now independent per-tab sockets, but that still had to be stated explicitly because visibility and reload behavior are first-order architectural constraints on the web.
 
 3. Resolve or explicitly gate the deployment topology, auth model, and TLS model before locking the framework recommendation.
    Verdict: `AGREE`
@@ -320,7 +322,7 @@ This section adjudicates the review findings against the original spec.
 
 7. Add a concrete test strategy section.
    Verdict: `AGREE`
-   Why: The spec should have named the test categories needed to make the migration credible, especially around protocol fixtures, state machines, multi-tab coordination, browser automation, and rich-surface security behavior.
+   Why: The spec should have named the test categories needed to make the migration credible, especially around protocol fixtures, state machines, independent-tab behavior, browser automation, and rich-surface security behavior.
 
 ### iOS-Pattern Transplant Audit Adjudication
 

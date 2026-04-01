@@ -4,6 +4,11 @@ Date: 2026-03-30
 
 Primary lens: internal consistency. Secondary lens: architectural weakness, ambiguity, and implementation traps.
 
+Runtime decision note:
+
+- The later settled product decision is that each browser tab is its own device/socket.
+- The old leader/follower runtime criticized below was removed from the main spec. Any references to that coordinated-tab model are historical review context, not current architecture.
+
 ## Blocking Findings
 
 1. **The spec says two incompatible things about stream selection and activation.**  
@@ -20,8 +25,8 @@ Primary lens: internal consistency. Secondary lens: architectural weakness, ambi
 4. **Terminal protocol and lifecycle guidance drift across sections.**  
    The typed terminal appendix says to include those event names only if the advanced rich-surface phase is in scope ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L1610)), but the Phase 1 build sheet still requires `src/protocol/terminal-wire.ts` from day one ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L1879)) even though Phase 1 explicitly omits rich surfaces. Separately, the terminal contract says terminal bubbles bind/teardown with normal view reuse and do not preserve offscreen runtime ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L1760)), while the conventions section globally says React mount/unmount must not own socket teardown semantics ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L2088)). That convention may be right for the main chat transport, but it is not right as a global rule when the terminal section says the opposite.
 
-5. **The browser-runtime model is declared as chosen architecture, but the phase plan does not require proving it when it first appears.**  
-   The architecture chooses a leader/follower multi-tab runtime from the start ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L526), [web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L527), [web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L528)). Phase 1 also includes a leader-tab transport machine ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L928)) and makes `leaderElection.ts` a required kickoff file ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L1880)). But the explicit multi-tab leadership tests do not arrive until Phase 2 ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L947)), and the Phase 1 acceptance criteria do not require follower-tab correctness. That creates a gap where a Phase 1 implementation can satisfy the checklist while violating the chosen runtime architecture.
+5. **Resolved historical finding: the earlier coordinated-tab runtime model was removed.**  
+   This review originally flagged a contradiction where the spec chose a leader/follower runtime but deferred proving that runtime until later phases. That finding is no longer active. The current spec now treats each browser tab as its own device/socket, which removes the old `leaderElection.ts` and multi-tab coordination requirement from the critical path. The remaining expectation is simpler: phase and acceptance language should only require independent-tab behavior, not shared-transport leadership.
 
 6. **Several “open decisions” are phrased elsewhere as if the spec already picked a winner.**  
    The feature inventory says auth persistence should use secure cookies if possible, else local storage with accepted risk ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L335)), but the unresolved decisions table still says the browser auth storage model blocks Phase 1 ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L2063)). The feature inventory also says link cards likely prefer server-backed metadata fetch ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L358)), while preview-fetch topology remains unresolved ([web-port-recon.md](/Users/mike/shared-workspace/clawline/specs/web-port-recon.md#L2067)). Recommendations are fine, but they need to be explicitly marked as provisional; otherwise the “unresolved” table is not trustworthy.
