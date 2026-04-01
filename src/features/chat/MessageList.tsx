@@ -1,10 +1,15 @@
+import { useState } from "react";
 import type { ChatMessageRecord } from "../../runtime/chat/chatDomainStore";
+import { ExpandedMessageOverlay } from "./ExpandedMessageOverlay";
+import { RichMessageBody, shouldOfferExpandedMessage } from "./RichMessageBody";
 
 export function MessageList({
   messages
 }: {
   messages: ChatMessageRecord[];
 }) {
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
+
   if (messages.length === 0) {
     return (
       <section className="message-list empty-state">
@@ -15,31 +20,52 @@ export function MessageList({
     );
   }
 
+  const expandedMessage = messages.find((message) => message.id === expandedMessageId) ?? null;
+
   return (
-    <section aria-live="polite" className="message-list">
-      {messages.map((message) => (
-        <article
-          className={
-            message.role === "user"
-              ? "message-bubble message-bubble--user"
-              : "message-bubble message-bubble--assistant"
-          }
-          data-testid={`message-${message.id}`}
-          key={message.id}
-        >
-          <header className="message-meta">
-            <span>{message.role === "user" ? "You" : message.sender ?? "Assistant"}</span>
-            <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
-          </header>
-          <p>{message.content}</p>
-          <footer className="message-status">
-            {message.delivery === "pending" ? "Sending..." : null}
-            {message.delivery === "acked" ? "Accepted by provider" : null}
-            {message.delivery === "failed" ? "Send failed" : null}
-            {message.streaming ? "Streaming..." : null}
-          </footer>
-        </article>
-      ))}
-    </section>
+    <>
+      <section aria-live="polite" className="message-list">
+        {messages.map((message) => (
+          <article
+            className={
+              message.role === "user"
+                ? "message-bubble message-bubble--user"
+                : "message-bubble message-bubble--assistant"
+            }
+            data-testid={`message-${message.id}`}
+            key={message.id}
+          >
+            <header className="message-meta">
+              <span>{message.role === "user" ? "You" : message.sender ?? "Assistant"}</span>
+              <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
+            </header>
+            <RichMessageBody content={message.content} />
+            {shouldOfferExpandedMessage(message.content) ? (
+              <div className="message-actions">
+                <button
+                  className="button-secondary"
+                  onClick={() => setExpandedMessageId(message.id)}
+                  type="button"
+                >
+                  Expand
+                </button>
+              </div>
+            ) : null}
+            <footer className="message-status">
+              {message.delivery === "pending" ? "Sending..." : null}
+              {message.delivery === "acked" ? "Accepted by provider" : null}
+              {message.delivery === "failed" ? "Send failed" : null}
+              {message.streaming ? "Streaming..." : null}
+            </footer>
+          </article>
+        ))}
+      </section>
+      {expandedMessage ? (
+        <ExpandedMessageOverlay
+          message={expandedMessage}
+          onClose={() => setExpandedMessageId(null)}
+        />
+      ) : null}
+    </>
   );
 }
