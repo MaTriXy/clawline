@@ -16,8 +16,16 @@ export function ChatRoute() {
   const { state: transportState, store: transportStore } = useTransportMachine();
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [isStreamManagerOpen, setStreamManagerOpen] = useState(false);
+  const [bootRequestedSessionKey, setBootRequestedSessionKey] = useState(
+    params.sessionKey ?? null
+  );
 
-  const selectedSessionKey = params.sessionKey ?? chatState.streams[0]?.sessionKey;
+  const firstProviderValidSessionKey =
+    chatState.streams.find((stream) =>
+      chatState.provisionedSessionKeys.includes(stream.sessionKey)
+    )?.sessionKey ?? chatState.streams[0]?.sessionKey;
+
+  const selectedSessionKey = params.sessionKey ?? firstProviderValidSessionKey;
   const activeStream = chatState.streams.find(
     (stream) => stream.sessionKey === selectedSessionKey
   );
@@ -40,16 +48,57 @@ export function ChatRoute() {
     chatStore.markSessionRead(selectedSessionKey);
   }, [chatStore, selectedSessionKey]);
 
+  useEffect(() => {
+    if (!bootRequestedSessionKey) {
+      return;
+    }
+
+    if (params.sessionKey !== bootRequestedSessionKey) {
+      setBootRequestedSessionKey(null);
+      return;
+    }
+
+    if (
+      transportState.phase === "live" &&
+      chatState.provisionedSessionKeys.includes(bootRequestedSessionKey)
+    ) {
+      setBootRequestedSessionKey(null);
+    }
+  }, [
+    bootRequestedSessionKey,
+    chatState.provisionedSessionKeys,
+    params.sessionKey,
+    transportState.phase
+  ]);
+
   if (!authState.session?.token) {
     return <Navigate to="/pair" replace />;
   }
 
-  if (!params.sessionKey && chatState.streams.length > 0) {
-    return <Navigate replace to={`/chat/${chatState.streams[0].sessionKey}`} />;
+  if (!params.sessionKey && firstProviderValidSessionKey) {
+    return <Navigate replace to={`/chat/${firstProviderValidSessionKey}`} />;
   }
 
-  if (params.sessionKey && !activeStream && chatState.streams.length > 0) {
-    return <Navigate replace to={`/chat/${chatState.streams[0].sessionKey}`} />;
+  if (
+    bootRequestedSessionKey &&
+    params.sessionKey === bootRequestedSessionKey &&
+    transportState.phase === "live" &&
+    chatState.provisionedSessionKeys.length > 0 &&
+    !chatState.provisionedSessionKeys.includes(bootRequestedSessionKey)
+  ) {
+    return firstProviderValidSessionKey ? (
+      <Navigate replace to={`/chat/${firstProviderValidSessionKey}`} />
+    ) : (
+      <Navigate replace to="/chat" />
+    );
+  }
+
+  if (params.sessionKey && !activeStream) {
+    return firstProviderValidSessionKey ? (
+      <Navigate replace to={`/chat/${firstProviderValidSessionKey}`} />
+    ) : (
+      <Navigate replace to="/chat" />
+    );
   }
 
   return (

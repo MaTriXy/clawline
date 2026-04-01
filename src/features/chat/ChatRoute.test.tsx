@@ -59,7 +59,14 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname}</div>;
 }
 
-function renderChatRoute(initialPath: string) {
+function renderChatRoute(
+  initialPath: string,
+  {
+    sessionKeys = ["agent:main:clawline:user_1:main", "agent:main:main"]
+  }: {
+    sessionKeys?: string[];
+  } = {}
+) {
   const authStore = createAuthSessionStore();
   const chatStore = createChatDomainStore({
     persistence: createMemoryChatPersistence()
@@ -78,7 +85,7 @@ function renderChatRoute(initialPath: string) {
   chatStore.applyStreamSnapshot(TEST_STREAMS.map((stream) => ({ ...stream })));
   chatStore.applySessionInfo({
     type: "session_info",
-    sessionKeys: ["agent:main:clawline:user_1:main", "agent:main:main"]
+    sessionKeys
   });
   chatStore.applyIncomingMessage(
     {
@@ -125,7 +132,7 @@ function renderChatRoute(initialPath: string) {
     JSON.stringify({
       type: "auth_result",
       success: true,
-      sessionKeys: ["agent:main:clawline:user_1:main"]
+      sessionKeys
     })
   );
 
@@ -187,11 +194,27 @@ describe("ChatRoute", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses the URL-selected session as the authoritative conversation", () => {
-    renderChatRoute("/chat/agent:main:clawline:user_1:side");
+  it("keeps the URL-selected session active when provider inventory still exposes it", () => {
+    renderChatRoute("/chat/agent:main:clawline:user_1:side", {
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
 
     expect(screen.getByText("Side thread")).toBeInTheDocument();
     expect(screen.queryByText("Main thread")).not.toBeInTheDocument();
+  });
+
+  it("reconciles a boot-selected stream back to provider-visible inventory when it is no longer available", () => {
+    renderChatRoute("/chat/agent:main:clawline:user_1:side");
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat/agent:main:clawline:user_1:main"
+    );
+    expect(screen.getByText("Main thread")).toBeInTheDocument();
+    expect(screen.queryByText("Side thread")).not.toBeInTheDocument();
   });
 
   it("opens settings as an overlay without changing the route", () => {
@@ -235,15 +258,26 @@ describe("ChatRoute", () => {
   });
 
   it("clears unread state when the URL-selected session becomes active", () => {
-    renderChatRoute("/chat/agent:main:clawline:user_1:side");
+    renderChatRoute("/chat/agent:main:clawline:user_1:side", {
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
 
     expect(screen.getByText("Side thread")).toBeInTheDocument();
     expect(screen.queryByLabelText("1 unread messages")).not.toBeInTheDocument();
   });
 
-  it("shows unavailable provisioning state for non-provisioned sessions", () => {
-    renderChatRoute("/chat/agent:main:clawline:user_1:side");
+  it("shows unavailable provisioning state when the user explicitly switches to a non-provisioned session", () => {
+    renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
+    fireEvent.click(screen.getByRole("button", { name: /Side Thread/i }));
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat/agent:main:clawline:user_1:side"
+    );
     expect(
       screen.getByText("This session is unavailable for sending. Switch streams and try again.")
     ).toBeInTheDocument();

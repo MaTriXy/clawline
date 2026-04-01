@@ -385,10 +385,16 @@ test("reload resumes multi-session state with per-stream replay cursors", async 
     await page.reload();
 
     await expect(page).toHaveURL(
+      new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`)
+    );
+    await expect(page.getByRole("button", { name: /Main/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Side thread/ })).toBeVisible();
+
+    await page.getByRole("button", { name: /Side thread/ }).click();
+    await expect(page).toHaveURL(
       new RegExp(`/chat/${escapeForRegExp(sideSessionKey)}$`)
     );
     await expect(page.getByText("Side reload proof").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /Main/ })).toBeVisible();
 
     await expect.poll(() => authPayloads.length).toBeGreaterThanOrEqual(2);
     const latestAuth = authPayloads.at(-1) as {
