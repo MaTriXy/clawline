@@ -18,7 +18,6 @@ import {
   TransportMachineProvider,
   createTransportMachine
 } from "../../runtime/transport/transportMachine";
-import { FakeCrossTabHub } from "../../test/support/fakeCrossTabChannel";
 import { FakeWebSocketFactory } from "../../test/support/fakeWebSocket";
 
 function LocationProbe() {
@@ -27,14 +26,12 @@ function LocationProbe() {
 }
 
 function renderChatRoute(initialPath: string) {
-  vi.useFakeTimers();
   const authStore = createAuthSessionStore();
   const chatStore = createChatDomainStore({
     persistence: createMemoryChatPersistence()
   });
   const settingsStore = createSettingsStore();
   const webSocketFactory = new FakeWebSocketFactory();
-  const crossTabHub = new FakeCrossTabHub();
 
   authStore.storePairingSession({
     claimedName: "Desk Browser",
@@ -104,10 +101,8 @@ function renderChatRoute(initialPath: string) {
   const transportMachine = createTransportMachine({
     authSessionStore: authStore,
     chatDomainStore: chatStore,
-    crossTabChannel: crossTabHub.createChannel("route-test-peer"),
     webSocketFactory: webSocketFactory.create
   });
-  vi.advanceTimersByTime(300);
   webSocketFactory.sockets[0]?.emitOpen();
   webSocketFactory.sockets[0]?.emitMessage(
     JSON.stringify({ type: "auth_result", success: true })
@@ -139,10 +134,6 @@ function renderChatRoute(initialPath: string) {
 }
 
 describe("ChatRoute", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it("uses the URL-selected session as the authoritative conversation", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:side");
 
