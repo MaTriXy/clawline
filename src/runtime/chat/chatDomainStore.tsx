@@ -78,6 +78,7 @@ export interface ChatDomainStore {
   enqueueOptimisticMessage(input: EnqueueOptimisticMessageInput): void;
   markMessageAcked(messageId: string): void;
   markMessageFailed(messageId: string): void;
+  replaceSnapshot(snapshot: ChatDomainSnapshot): void;
   applyIncomingMessage(input: {
     localDeviceId: string;
     message: ServerMessagePayload;
@@ -234,6 +235,12 @@ export function createChatDomainStore(options?: {
 
         persist(nextState);
         return nextState;
+      });
+    },
+    replaceSnapshot(snapshot) {
+      baseStore.setState(() => {
+        persist(snapshot);
+        return snapshot;
       });
     },
     applyIncomingMessage(input) {

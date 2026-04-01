@@ -22,6 +22,7 @@ import {
   createTransportMachine,
   type TransportMachine
 } from "../../runtime/transport/transportMachine";
+import { FakeCrossTabHub } from "./fakeCrossTabChannel";
 import type { WebSocketFactory } from "../../runtime/transport/wsClient";
 
 interface Options {
@@ -39,11 +40,13 @@ export function renderWithProviders(element: ReactElement, options: Options = {}
     options.chatStore ??
     createChatDomainStore({ persistence: createMemoryChatPersistence() });
   const settingsStore = options.settingsStore ?? createSettingsStore();
+  const crossTabHub = new FakeCrossTabHub();
   const transportMachine =
     options.transportMachine ??
     createTransportMachine({
       authSessionStore: authStore,
       chatDomainStore: chatStore,
+      crossTabChannel: crossTabHub.createChannel("render-test-peer"),
       webSocketFactory: options.webSocketFactory
     });
 

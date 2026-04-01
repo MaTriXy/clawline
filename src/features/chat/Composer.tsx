@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
-import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
 import { generateUuidV4 } from "../../runtime/shared/uuid";
 import { useTransportMachine } from "../../runtime/transport/transportMachine";
 
@@ -9,8 +7,6 @@ export function Composer({
 }: {
   sessionKey?: string;
 }) {
-  const { state: authState } = useAuthSessionStore();
-  const { store: chatStore } = useChatDomainStore();
   const { state: transportState, store: transportStore } = useTransportMachine();
   const [draft, setDraft] = useState("");
 
@@ -20,7 +16,7 @@ export function Composer({
     draft.trim().length > 0;
 
   async function submit() {
-    if (!sessionKey || !authState.session) {
+    if (!sessionKey) {
       return;
     }
 
@@ -32,24 +28,17 @@ export function Composer({
     const id = `c_${generateUuidV4()}`;
     const timestamp = Date.now();
 
-    chatStore.enqueueOptimisticMessage({
-      content,
-      deviceId: authState.session.deviceId,
-      id,
-      sessionKey,
-      timestamp
-    });
-
     setDraft("");
 
     try {
       await transportStore.sendMessage({
         content,
         id,
-        sessionKey
+        sessionKey,
+        timestamp
       });
     } catch {
-      chatStore.markMessageFailed(id);
+      setDraft(content);
     }
   }
 

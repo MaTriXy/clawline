@@ -2,6 +2,7 @@ import { createAuthSessionStore } from "../auth/authSessionStore";
 import { createChatDomainStore } from "../chat/chatDomainStore";
 import { createMemoryChatPersistence } from "../persistence/indexedDbChatPersistence";
 import { createTransportMachine } from "./transportMachine";
+import { FakeCrossTabHub } from "../../test/support/fakeCrossTabChannel";
 import { FakeWebSocketFactory } from "../../test/support/fakeWebSocket";
 
 class FakeBrowserRuntime {
@@ -10,8 +11,6 @@ class FakeBrowserRuntime {
     offline: new Set<() => void>(),
     online: new Set<() => void>()
   };
-  nextTimeoutId = 1;
-  pendingTimeouts = new Map<number, () => void>();
 
   addEventListener(type: "offline" | "online", listener: () => void) {
     this.listeners[type].add(listener);
@@ -21,15 +20,15 @@ class FakeBrowserRuntime {
   }
 
   clearTimeout(timeoutId: number) {
-    this.pendingTimeouts.delete(timeoutId);
+    window.clearTimeout(timeoutId);
+  }
+
+  clearInterval(intervalId: number) {
+    window.clearInterval(intervalId);
   }
 
   emit(type: "offline" | "online") {
-    if (type === "offline") {
-      this.isCurrentlyOnline = false;
-    } else {
-      this.isCurrentlyOnline = true;
-    }
+    this.isCurrentlyOnline = type === "online";
 
     for (const listener of this.listeners[type]) {
       listener();
@@ -40,11 +39,16 @@ class FakeBrowserRuntime {
     return this.isCurrentlyOnline;
   }
 
-  setTimeout(listener: () => void) {
-    const timeoutId = this.nextTimeoutId;
-    this.nextTimeoutId += 1;
-    this.pendingTimeouts.set(timeoutId, listener);
-    return timeoutId;
+  now() {
+    return Date.now();
+  }
+
+  setInterval(listener: () => void, delayMs: number) {
+    return window.setInterval(listener, delayMs);
+  }
+
+  setTimeout(listener: () => void, delayMs: number) {
+    return window.setTimeout(listener, delayMs);
   }
 }
 
@@ -60,20 +64,46 @@ function seedSession() {
   return authStore;
 }
 
-describe("transportMachine", () => {
-  it("transitions idle -> connecting -> authenticating -> live on auth success", () => {
-    const authStore = seedSession();
-    const chatStore = createChatDomainStore({
-      persistence: createMemoryChatPersistence()
-    });
-    const factory = new FakeWebSocketFactory();
-    const transport = createTransportMachine({
-      authSessionStore: authStore,
-      chatDomainStore: chatStore,
-      webSocketFactory: factory.create
-    });
+function setupSingleRuntime() {
+  vi.useFakeTimers();
 
-    expect(transport.getState().phase).toBe("connecting");
+  const authStore = seedSession();
+  const chatStore = createChatDomainStore({
+    persistence: createMemoryChatPersistence()
+  });
+  const factory = new FakeWebSocketFactory();
+  const hub = new FakeCrossTabHub();
+  const transport = createTransportMachine({
+    authSessionStore: authStore,
+    browserRuntime: new FakeBrowserRuntime(),
+    crossTabChannel: hub.createChannel("peer-a"),
+    chatDomainStore: chatStore,
+    selectedSessionKeySource: () => "agent:main:clawline:user_1:main",
+    webSocketFactory: factory.create
+  });
+
+  vi.advanceTimersByTime(300);
+
+  return {
+    authStore,
+    chatStore,
+    factory,
+    transport
+  };
+}
+
+describe("transportMachine", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("transitions idle -> connecting -> authenticating -> live on auth success", () => {
+    const { chatStore, factory, transport } = setupSingleRuntime();
+
+    expect(transport.getState()).toMatchObject({
+      ownership: "leader",
+      phase: "connecting"
+    });
     expect(factory.sockets).toHaveLength(1);
 
     factory.sockets[0].emitOpen();
@@ -96,16 +126,7 @@ describe("transportMachine", () => {
   });
 
   it("suppresses duplicate reconnect intents while already live", () => {
-    const authStore = seedSession();
-    const chatStore = createChatDomainStore({
-      persistence: createMemoryChatPersistence()
-    });
-    const factory = new FakeWebSocketFactory();
-    const transport = createTransportMachine({
-      authSessionStore: authStore,
-      chatDomainStore: chatStore,
-      webSocketFactory: factory.create
-    });
+    const { factory, transport } = setupSingleRuntime();
 
     factory.sockets[0].emitOpen();
     factory.sockets[0].emitMessage(
@@ -120,16 +141,7 @@ describe("transportMachine", () => {
   });
 
   it("transitions to failed and clears auth on auth failure", () => {
-    const authStore = seedSession();
-    const chatStore = createChatDomainStore({
-      persistence: createMemoryChatPersistence()
-    });
-    const factory = new FakeWebSocketFactory();
-    const transport = createTransportMachine({
-      authSessionStore: authStore,
-      chatDomainStore: chatStore,
-      webSocketFactory: factory.create
-    });
+    const { authStore, factory, transport } = setupSingleRuntime();
 
     factory.sockets[0].emitOpen();
     factory.sockets[0].emitMessage(
@@ -145,18 +157,7 @@ describe("transportMachine", () => {
   });
 
   it("allows manual retry out of recovery", () => {
-    vi.useFakeTimers();
-
-    const authStore = seedSession();
-    const chatStore = createChatDomainStore({
-      persistence: createMemoryChatPersistence()
-    });
-    const factory = new FakeWebSocketFactory();
-    const transport = createTransportMachine({
-      authSessionStore: authStore,
-      chatDomainStore: chatStore,
-      webSocketFactory: factory.create
-    });
+    const { factory, transport } = setupSingleRuntime();
 
     factory.sockets[0].emitOpen();
     factory.sockets[0].emitMessage(
@@ -168,11 +169,11 @@ describe("transportMachine", () => {
 
     transport.retryNow();
     expect(factory.sockets).toHaveLength(2);
-
-    vi.useRealTimers();
   });
 
-  it("keeps tab transport independent across two runtimes", () => {
+  it("shares one leader-owned socket and mirrors follower sends", async () => {
+    vi.useFakeTimers();
+
     const authStoreA = seedSession();
     const authStoreB = seedSession();
     const chatStoreA = createChatDomainStore({
@@ -181,49 +182,118 @@ describe("transportMachine", () => {
     const chatStoreB = createChatDomainStore({
       persistence: createMemoryChatPersistence()
     });
-    const factoryA = new FakeWebSocketFactory();
-    const factoryB = new FakeWebSocketFactory();
+    const factory = new FakeWebSocketFactory();
+    const hub = new FakeCrossTabHub();
 
     const transportA = createTransportMachine({
       authSessionStore: authStoreA,
+      browserRuntime: new FakeBrowserRuntime(),
+      crossTabChannel: hub.createChannel("peer-b"),
       chatDomainStore: chatStoreA,
-      webSocketFactory: factoryA.create
+      selectedSessionKeySource: () => "agent:main:clawline:user_1:main",
+      webSocketFactory: factory.create
     });
     const transportB = createTransportMachine({
       authSessionStore: authStoreB,
+      browserRuntime: new FakeBrowserRuntime(),
+      crossTabChannel: hub.createChannel("peer-c"),
       chatDomainStore: chatStoreB,
-      webSocketFactory: factoryB.create
+      selectedSessionKeySource: () => "agent:main:clawline:user_1:main",
+      webSocketFactory: factory.create
     });
 
-    factoryA.sockets[0].emitOpen();
-    factoryB.sockets[0].emitOpen();
-    factoryA.sockets[0].emitMessage(
-      JSON.stringify({ type: "auth_result", success: true })
-    );
-    factoryB.sockets[0].emitMessage(
+    vi.advanceTimersByTime(300);
+
+    expect(factory.sockets).toHaveLength(1);
+
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
       JSON.stringify({ type: "auth_result", success: true })
     );
 
     expect(transportA.getState().phase).toBe("live");
     expect(transportB.getState().phase).toBe("live");
-    expect(factoryA.sockets).toHaveLength(1);
-    expect(factoryB.sockets).toHaveLength(1);
+    expect(
+      [transportA.getState().ownership, transportB.getState().ownership].sort()
+    ).toEqual(["follower", "leader"]);
+
+    const follower =
+      transportA.getState().ownership === "follower" ? transportA : transportB;
+    const leaderStore =
+      transportA.getState().ownership === "leader" ? chatStoreA : chatStoreB;
+    const followerStore =
+      transportA.getState().ownership === "follower" ? chatStoreA : chatStoreB;
+
+    await follower.sendMessage({
+      content: "hello from follower",
+      id: "c_shared_1",
+      sessionKey: "agent:main:clawline:user_1:main",
+      timestamp: 100
+    });
+
+    expect(factory.sockets[0].sentTexts).toContain(
+      JSON.stringify({
+        type: "message",
+        id: "c_shared_1",
+        content: "hello from follower",
+        attachments: [],
+        sessionKey: "agent:main:clawline:user_1:main"
+      })
+    );
+    expect(
+      leaderStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toHaveLength(1);
+    expect(
+      followerStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toHaveLength(1);
+
+    factory.sockets[0].emitMessage(
+      JSON.stringify({ type: "ack", id: "c_shared_1" })
+    );
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "message",
+        id: "s_shared_1",
+        role: "user",
+        content: "hello from follower",
+        timestamp: 101,
+        streaming: false,
+        deviceId: "browser-device-1",
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      })
+    );
+
+    expect(
+      leaderStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"][0]
+        ?.id
+    ).toBe("s_shared_1");
+    expect(
+      followerStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"][0]
+        ?.id
+    ).toBe("s_shared_1");
   });
 
   it("waits for the browser to come back online before reconnecting", () => {
+    vi.useFakeTimers();
+
     const authStore = seedSession();
     const chatStore = createChatDomainStore({
       persistence: createMemoryChatPersistence()
     });
     const factory = new FakeWebSocketFactory();
     const browserRuntime = new FakeBrowserRuntime();
+    const hub = new FakeCrossTabHub();
     const transport = createTransportMachine({
       authSessionStore: authStore,
       browserRuntime,
+      crossTabChannel: hub.createChannel("peer-a"),
       chatDomainStore: chatStore,
+      selectedSessionKeySource: () => "agent:main:clawline:user_1:main",
       webSocketFactory: factory.create
     });
 
+    vi.advanceTimersByTime(300);
     factory.sockets[0].emitOpen();
     factory.sockets[0].emitMessage(
       JSON.stringify({ type: "auth_result", success: true })
@@ -239,6 +309,7 @@ describe("transportMachine", () => {
     expect(factory.sockets).toHaveLength(1);
 
     browserRuntime.emit("online");
+    vi.advanceTimersByTime(300);
 
     expect(transport.getState().isBrowserOnline).toBe(true);
     expect(factory.sockets).toHaveLength(2);
