@@ -57,6 +57,23 @@ export interface ClientMessagePayload {
   sessionKey?: string;
 }
 
+export interface AttachmentMetadataPayload {
+  mimeType?: string;
+  filename?: string;
+  size?: number;
+  width?: number;
+  height?: number;
+}
+
+export interface ServerAttachmentPayload {
+  id?: string;
+  type: "image" | "asset" | "document";
+  mimeType?: string;
+  data?: string;
+  assetId?: string;
+  metadata?: AttachmentMetadataPayload;
+}
+
 export interface ServerMessagePayload {
   type: "message";
   id: string;
@@ -67,7 +84,7 @@ export interface ServerMessagePayload {
   deviceId?: string;
   sessionKey?: string;
   sender?: string;
-  attachments: unknown[];
+  attachments: ServerAttachmentPayload[];
 }
 
 export interface AckPayload {
@@ -281,7 +298,48 @@ function parseServerMessageFromRecord(value: JsonRecord): ServerMessagePayload {
     deviceId: optionalString(value.deviceId, "message.deviceId"),
     sessionKey: optionalString(value.sessionKey, "message.sessionKey"),
     sender: optionalString(value.sender, "message.sender"),
-    attachments: optionalArray(value.attachments, "message.attachments") ?? []
+    attachments:
+      optionalArray(value.attachments, "message.attachments")?.map((attachment, index) =>
+        parseServerAttachment(attachment, `message.attachments[${index}]`)
+      ) ?? []
+  };
+}
+
+function parseServerAttachment(
+  value: unknown,
+  field: string
+): ServerAttachmentPayload {
+  const record = asRecord(value, field);
+  const type = requiredString(record.type, `${field}.type`);
+  if (type !== "image" && type !== "asset" && type !== "document") {
+    throw new Error(`${field}.type must be image, asset, or document`);
+  }
+
+  return {
+    id: optionalString(record.id, `${field}.id`),
+    type,
+    mimeType: optionalString(record.mimeType, `${field}.mimeType`),
+    data: optionalString(record.data, `${field}.data`),
+    assetId: optionalString(record.assetId, `${field}.assetId`),
+    metadata: optionalAttachmentMetadata(record.metadata, `${field}.metadata`)
+  };
+}
+
+function optionalAttachmentMetadata(
+  value: unknown,
+  field: string
+): AttachmentMetadataPayload | undefined {
+  if (value == null) {
+    return undefined;
+  }
+
+  const record = asRecord(value, field);
+  return {
+    mimeType: optionalString(record.mimeType, `${field}.mimeType`),
+    filename: optionalString(record.filename, `${field}.filename`),
+    size: optionalNumber(record.size, `${field}.size`),
+    width: optionalNumber(record.width, `${field}.width`),
+    height: optionalNumber(record.height, `${field}.height`)
   };
 }
 

@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import type { ChatMessageRecord } from "../../runtime/chat/chatDomainStore";
 import { ExpandedMessageOverlay } from "./ExpandedMessageOverlay";
+import { MessageAttachments } from "./MessageAttachments";
 import { RichMessageBody, shouldOfferExpandedMessage } from "./RichMessageBody";
 
 export function MessageList({
@@ -8,6 +10,7 @@ export function MessageList({
 }: {
   messages: ChatMessageRecord[];
 }) {
+  const { state: authState } = useAuthSessionStore();
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
 
   if (messages.length === 0) {
@@ -40,6 +43,11 @@ export function MessageList({
               <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
             </header>
             <RichMessageBody content={message.content} />
+            <MessageAttachments
+              attachments={message.attachments}
+              serverUrl={authState.session?.serverUrl}
+              token={authState.session?.token}
+            />
             {shouldOfferExpandedMessage(message.content) ? (
               <div className="message-actions">
                 <button

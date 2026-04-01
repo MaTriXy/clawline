@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { createContext, useContext } from "react";
 import type {
+  ServerAttachmentPayload,
   ServerMessagePayload,
   SessionInfoPayload,
   StreamSessionPayload
@@ -31,7 +32,7 @@ export interface ChatMessageRecord {
   deviceId?: string;
   sessionKey: string;
   sender?: string;
-  attachments: unknown[];
+  attachments: ServerAttachmentPayload[];
   delivery: DeliveryState;
 }
 

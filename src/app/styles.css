@@ -482,6 +482,46 @@ html[data-appearance="light"] {
   justify-content: flex-end;
 }
 
+.message-attachments {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.message-attachment-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.85rem;
+  border-radius: 1rem;
+  background: rgba(5, 10, 14, 0.24);
+  border: 1px solid var(--color-border);
+}
+
+.message-attachment-card figcaption,
+.message-attachment-copy span {
+  color: var(--color-text-dim);
+}
+
+.message-attachment-copy {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.message-attachment-card--file {
+  align-items: center;
+}
+
+.message-attachment-image,
+.message-attachment-video {
+  width: 100%;
+  max-height: 24rem;
+  border-radius: 0.9rem;
+  background: rgba(5, 10, 14, 0.5);
+}
+
+.message-attachment-audio {
+  width: 100%;
+}
+
 .composer-shell {
   border-top: 1px solid var(--color-border);
   border-bottom: 0;
