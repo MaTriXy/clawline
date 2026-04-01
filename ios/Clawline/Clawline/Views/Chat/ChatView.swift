@@ -1564,6 +1564,7 @@ struct ChatView: View {
                 viewModel: viewModel,
                 streams: effectiveStreams,
                 unreadSessionKeys: unreadSessionKeys,
+                userTailSessionKeys: userTailSessionKeys,
                 isPresented: $isStreamManagerPopoverPresented,
                 shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
                 searchFocusRequestID: streamPopupSearchFocusRequestID,

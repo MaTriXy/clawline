@@ -15,6 +15,7 @@ struct StreamManagerSheet: View {
     @Bindable var viewModel: ChatViewModel
     let streams: [StreamSession]
     let unreadSessionKeys: Set<String>
+    let userTailSessionKeys: Set<String>
     @Binding var isPresented: Bool
     let shouldAutoFocusSearchOnAppear: Bool
     let searchFocusRequestID: Int
@@ -356,12 +357,13 @@ struct StreamManagerSheet: View {
                 HStack(spacing: 10) {
                     let isActive = stream.sessionKey == viewModel.uiSelectedSessionKey
                     let hasUnread = unreadSessionKeys.contains(stream.sessionKey)
+                    let hasUserTail = userTailSessionKeys.contains(stream.sessionKey)
                     Circle()
                         .fill(
                             StreamDotColor.resolve(
                                 isActive: isActive,
                                 hasUnread: hasUnread,
-                                hasUserTail: false,
+                                hasUserTail: hasUserTail,
                                 colorScheme: colorScheme
                             )
                         )
