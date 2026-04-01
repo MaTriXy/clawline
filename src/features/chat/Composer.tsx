@@ -1,12 +1,15 @@
 import { useState } from "react";
+import type { SessionProvisioningState } from "../streams/provisioning";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
 import { generateUuidV4 } from "../../runtime/shared/uuid";
 import { useTransportMachine } from "../../runtime/transport/transportMachine";
 
 export function Composer({
+  provisioningState,
   sessionKey
 }: {
+  provisioningState: SessionProvisioningState;
   sessionKey?: string;
 }) {
   const { state: authState } = useAuthSessionStore();
@@ -17,6 +20,7 @@ export function Composer({
   const canSend =
     Boolean(sessionKey) &&
     transportState.phase === "live" &&
+    provisioningState === "ready" &&
     draft.trim().length > 0;
 
   async function submit() {
@@ -69,9 +73,13 @@ export function Composer({
         }}
         placeholder={
           sessionKey
-            ? transportState.phase === "live"
+            ? transportState.phase === "live" && provisioningState === "ready"
               ? "Send a plain text message"
-              : "Waiting for connection"
+              : provisioningState === "unavailable"
+                ? "This stream is unavailable for sending"
+                : provisioningState === "waiting"
+                  ? "Waiting for provisioning"
+                  : "Waiting for connection"
             : "Select a session"
         }
         rows={3}

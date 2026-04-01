@@ -178,6 +178,10 @@ export function applySessionDescriptors(
   descriptors: SessionDescriptor[] | undefined,
   sessionKeys: string[] | undefined
 ) {
+  const nextProvisionedSessionKeys = normalizeProvisionedSessionKeys(
+    descriptors,
+    sessionKeys
+  );
   const provisionalStreams = [
     ...(descriptors ?? []).map((descriptor, index) => ({
       sessionKey: descriptor.sessionKey,
@@ -202,13 +206,49 @@ export function applySessionDescriptors(
   ];
 
   if (provisionalStreams.length === 0) {
-    return state;
+    if (!nextProvisionedSessionKeys) {
+      return state;
+    }
+
+    return {
+      ...state,
+      provisionedSessionKeys: nextProvisionedSessionKeys
+    };
   }
 
   return {
     ...state,
+    provisionedSessionKeys:
+      nextProvisionedSessionKeys ?? state.provisionedSessionKeys,
     streams: mergeStreams(state.streams, provisionalStreams)
   };
+}
+
+function normalizeProvisionedSessionKeys(
+  descriptors: SessionDescriptor[] | undefined,
+  sessionKeys: string[] | undefined
+) {
+  if (!descriptors && !sessionKeys) {
+    return undefined;
+  }
+
+  const orderedKeys = [
+    ...(descriptors ?? []).map((descriptor) => descriptor.sessionKey),
+    ...(sessionKeys ?? [])
+  ];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const sessionKey of orderedKeys) {
+    const trimmed = sessionKey.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+
+  return normalized;
 }
 
 function mergeStreams(

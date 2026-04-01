@@ -122,6 +122,9 @@ describe("transportMachine", () => {
     expect(chatStore.getState().streams[0]?.sessionKey).toBe(
       "agent:main:clawline:user_1:main"
     );
+    expect(chatStore.getState().provisionedSessionKeys).toEqual([
+      "agent:main:clawline:user_1:main"
+    ]);
   });
 
   it("stays replaying until replay messages complete even after auth succeeds", async () => {
@@ -370,6 +373,60 @@ describe("transportMachine", () => {
         "agent:main:clawline:user_1:side": "s_side_1"
       }
     });
+  });
+
+  it("applies incremental stream mutation events through the transport owner", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "stream_created",
+        stream: {
+          sessionKey: "agent:main:clawline:user_1:custom",
+          displayName: "Custom",
+          kind: "custom",
+          orderIndex: 2,
+          isBuiltIn: false,
+          createdAt: 10,
+          updatedAt: 10,
+          adopted: false
+        }
+      })
+    );
+
+    expect(chatStore.getState().streams.map((stream) => stream.sessionKey)).toEqual([
+      "agent:main:clawline:user_1:main",
+      "agent:main:clawline:user_1:custom"
+    ]);
+
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "stream_deleted",
+        sessionKey: "agent:main:clawline:user_1:custom"
+      })
+    );
+
+    expect(chatStore.getState().streams.map((stream) => stream.sessionKey)).toEqual([
+      "agent:main:clawline:user_1:main"
+    ]);
   });
 
   it("suppresses duplicate reconnect intents while already live", async () => {

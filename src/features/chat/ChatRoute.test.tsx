@@ -63,6 +63,10 @@ function renderChatRoute(initialPath: string) {
       adopted: false
     }
   ]);
+  chatStore.applySessionInfo({
+    type: "session_info",
+    sessionKeys: ["agent:main:clawline:user_1:main"]
+  });
   chatStore.applyIncomingMessage(
     {
       localDeviceId: "browser-device-1",
@@ -105,7 +109,11 @@ function renderChatRoute(initialPath: string) {
   });
   webSocketFactory.sockets[0]?.emitOpen();
   webSocketFactory.sockets[0]?.emitMessage(
-    JSON.stringify({ type: "auth_result", success: true })
+    JSON.stringify({
+      type: "auth_result",
+      success: true,
+      sessionKeys: ["agent:main:clawline:user_1:main"]
+    })
   );
 
   return render(
@@ -152,10 +160,30 @@ describe("ChatRoute", () => {
     );
   });
 
+  it("opens stream management as an overlay without changing the route", () => {
+    renderChatRoute("/chat/agent:main:clawline:user_1:main");
+
+    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+
+    expect(screen.getByRole("heading", { name: "Manage sessions" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat/agent:main:clawline:user_1:main"
+    );
+  });
+
   it("clears unread state when the URL-selected session becomes active", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:side");
 
     expect(screen.getByText("Side thread")).toBeInTheDocument();
     expect(screen.queryByLabelText("1 unread messages")).not.toBeInTheDocument();
+  });
+
+  it("shows unavailable provisioning state for non-provisioned sessions", () => {
+    renderChatRoute("/chat/agent:main:clawline:user_1:side");
+
+    expect(
+      screen.getByText("This session is unavailable for sending. Switch streams and try again.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
 });

@@ -53,6 +53,7 @@ export interface ChatDomainState {
   lastServerEventId: string | null;
   messagesBySessionKey: Record<string, ChatMessageRecord[]>;
   pendingMessages: Record<string, PendingMessageRecord>;
+  provisionedSessionKeys: string[];
   replayCursorsBySessionKey: Record<string, ReplayCursorRecord>;
   streams: StreamRecord[];
   unreadBySessionKey: Record<string, number>;
@@ -75,6 +76,8 @@ export interface ChatDomainStore {
   markMessageAcked(messageId: string): void;
   markMessageFailed(messageId: string): void;
   resetForAuthoritativeReplay(): void;
+  upsertStream(stream: StreamSessionPayload): void;
+  removeStream(sessionKey: string): void;
   applyIncomingMessage(input: {
     localDeviceId: string;
     message: ServerMessagePayload;
@@ -95,6 +98,7 @@ const EMPTY_STATE: ChatDomainState = {
   lastServerEventId: null,
   messagesBySessionKey: {},
   pendingMessages: {},
+  provisionedSessionKeys: [],
   replayCursorsBySessionKey: {},
   streams: [],
   unreadBySessionKey: {}
@@ -220,6 +224,26 @@ export function createChatDomainStore(options?: {
           hydrated: current.hydrated
         };
 
+        persist(nextState);
+        return nextState;
+      });
+    },
+    upsertStream(stream) {
+      baseStore.setState((current) => {
+        const nextState = applyStreamSnapshotToState(current, [stream]);
+        persist(nextState);
+        return nextState;
+      });
+    },
+    removeStream(sessionKey) {
+      baseStore.setState((current) => {
+        const nextState = {
+          ...current,
+          provisionedSessionKeys: current.provisionedSessionKeys.filter(
+            (entry) => entry !== sessionKey
+          ),
+          streams: current.streams.filter((stream) => stream.sessionKey !== sessionKey)
+        };
         persist(nextState);
         return nextState;
       });
@@ -377,6 +401,10 @@ function mergeHydratedState(
       ...persistedState.replayCursorsBySessionKey,
       ...liveState.replayCursorsBySessionKey
     },
+    provisionedSessionKeys:
+      liveState.provisionedSessionKeys.length > 0
+        ? [...liveState.provisionedSessionKeys]
+        : [...persistedState.provisionedSessionKeys],
     firstUnreadMessageIdBySessionKey: {
       ...persistedState.firstUnreadMessageIdBySessionKey,
       ...liveState.firstUnreadMessageIdBySessionKey

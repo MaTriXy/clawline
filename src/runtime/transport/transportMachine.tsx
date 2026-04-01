@@ -291,6 +291,13 @@ export function createTransportMachine({
           hasInitialProvisioning = true;
           syncReplayProgress(trigger);
           return;
+        case "stream_created":
+        case "stream_updated":
+          chatDomainStore.upsertStream(payload.stream);
+          return;
+        case "stream_deleted":
+          chatDomainStore.removeStream(payload.sessionKey);
+          return;
         case "session_info":
           chatDomainStore.applySessionInfo(payload);
           hasInitialProvisioning = true;

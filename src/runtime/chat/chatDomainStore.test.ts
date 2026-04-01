@@ -137,6 +137,52 @@ describe("chatDomainStore", () => {
         adopted: false
       }
     ]);
+    expect(store.getState().provisionedSessionKeys).toEqual([
+      "agent:main:clawline:user_1:main"
+    ]);
+  });
+
+  it("keeps transcript history when a stream is untracked or deleted locally", async () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence(phase1TranscriptFixture)
+    });
+    await waitForHydration(store);
+
+    store.removeStream("agent:main:clawline:user_1:main");
+
+    expect(store.getState().streams).toEqual([]);
+    expect(
+      store.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toEqual(phase1TranscriptFixture.messagesBySessionKey["agent:main:clawline:user_1:main"]);
+    expect(store.getState().provisionedSessionKeys).toEqual([]);
+  });
+
+  it("merges stream upserts without renumbering surviving rows", async () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence(phase1TranscriptFixture)
+    });
+    await waitForHydration(store);
+
+    store.upsertStream({
+      sessionKey: "agent:main:clawline:user_1:side",
+      displayName: "Side Thread",
+      kind: "custom",
+      orderIndex: 3,
+      isBuiltIn: false,
+      createdAt: 1704673000000,
+      updatedAt: 1704673000000,
+      adopted: true
+    });
+
+    expect(store.getState().streams.map((stream) => stream.sessionKey)).toEqual([
+      "agent:main:clawline:user_1:main",
+      "agent:main:clawline:user_1:side"
+    ]);
+    expect(store.getState().streams[1]).toMatchObject({
+      displayName: "Side Thread",
+      adopted: true,
+      orderIndex: 3
+    });
   });
 
   it("hydrates snapshots without generating unread state or replay duplicates", async () => {
@@ -354,6 +400,7 @@ describe("chatDomainStore", () => {
       lastServerEventId: null,
       messagesBySessionKey: {},
       pendingMessages: {},
+      provisionedSessionKeys: [],
       replayCursorsBySessionKey: {},
       streams: [],
       unreadBySessionKey: {}

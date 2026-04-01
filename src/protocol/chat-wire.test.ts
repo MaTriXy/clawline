@@ -120,6 +120,31 @@ describe("chat-wire protocol fixtures", () => {
     );
   });
 
+  it("parses incremental stream mutation payloads", () => {
+    expect(
+      parseServerPayload(
+        JSON.stringify({
+          type: "stream_created",
+          stream: streamSnapshotFixture.streams[0]
+        })
+      )
+    ).toEqual({
+      type: "stream_created",
+      stream: streamSnapshotFixture.streams[0]
+    });
+    expect(
+      parseServerPayload(
+        JSON.stringify({
+          type: "stream_deleted",
+          sessionKey: streamSnapshotFixture.streams[0].sessionKey
+        })
+      )
+    ).toEqual({
+      type: "stream_deleted",
+      sessionKey: streamSnapshotFixture.streams[0].sessionKey
+    });
+  });
+
   it("parses session_info fixtures", () => {
     expect(parseServerPayload(JSON.stringify(sessionInfoFixture))).toEqual(
       sessionInfoFixture
