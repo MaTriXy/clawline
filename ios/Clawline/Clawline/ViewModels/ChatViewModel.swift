@@ -152,6 +152,10 @@ final class ChatViewModel: ChatViewModelHosting {
         sessionMessages[sessionKey] ?? []
     }
 
+    func lastMessageIsUser(for sessionKey: String) -> Bool {
+        sessionMessages[sessionKey]?.last?.role == .user
+    }
+
     func stream(for sessionKey: String) -> StreamSession? {
         streamsBySessionKey[sessionKey]
     }

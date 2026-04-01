@@ -49,8 +49,16 @@ struct StreamManagerSheet: View {
     private let actionBarBottomPadding: CGFloat = 20
     private let listOuterVerticalPadding: CGFloat = 20
     private let minimumPopoverHeight: CGFloat = 140
+    private let minimumPopoverWidth: CGFloat = 280
+    private let idealPopoverWidth: CGFloat = 320
+    private let baselineMaximumPopoverWidth: CGFloat = 360
     private let popupCornerRadius: CGFloat = 20
     private let actionBarSeparatorInset: CGFloat = 12
+
+    private var maximumPopoverWidth: CGFloat {
+        let windowWidth = UIScreen.main.bounds.width
+        return max(baselineMaximumPopoverWidth, floor(windowWidth * 0.8))
+    }
 
     private var actionBarContentHeight: CGFloat {
         functionBarHeight + actionBarTopPadding + actionBarBottomPadding
@@ -212,7 +220,11 @@ struct StreamManagerSheet: View {
             bottomActionBar
         }
         .frame(height: cappedContainerHeight)
-        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360)
+        .frame(
+            minWidth: minimumPopoverWidth,
+            idealWidth: idealPopoverWidth,
+            maxWidth: maximumPopoverWidth
+        )
         .background(Color.clear)
         .overlay(
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
@@ -349,6 +361,7 @@ struct StreamManagerSheet: View {
                             StreamDotColor.resolve(
                                 isActive: isActive,
                                 hasUnread: hasUnread,
+                                hasUserTail: false,
                                 colorScheme: colorScheme
                             )
                         )
@@ -547,6 +560,7 @@ struct TrackPickerSheet: View {
         StreamDotColor.resolve(
             isActive: true,
             hasUnread: false,
+            hasUserTail: false,
             colorScheme: colorScheme
         )
     }

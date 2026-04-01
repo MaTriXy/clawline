@@ -1544,16 +1544,20 @@ struct ChatView: View {
                 .filter { $0.value }
                 .map(\.key)
         )
+        let userTailSessionKeys = Set(
+            effectiveSessionKeys.filter { viewModel.lastMessageIsUser(for: $0) }
+        )
         return StreamPageDotsView(
             sessionKeys: effectiveSessionKeys,
             activeSessionKey: viewModel.uiSelectedSessionKey,
             unreadSessionKeys: unreadSessionKeys,
+            userTailSessionKeys: userTailSessionKeys,
             maxWidth: streamPageDotsMaxWidth,
             onTap: { isStreamManagerPopoverPresented = true }
         )
         .popover(
             isPresented: $isStreamManagerPopoverPresented,
-            attachmentAnchor: .rect(.bounds),
+            attachmentAnchor: .point(.center),
             arrowEdge: .bottom
         ) {
             StreamManagerSheet(
@@ -1591,7 +1595,13 @@ struct ChatView: View {
 
     private var streamPageDotsMaxWidth: CGFloat? {
         guard horizontalSizeClass != .compact else { return nil }
-        return ChatFlowTheme.maxLineWidth(bodyFont: UIFont.clawline(.bodyText))
+        let themeMetrics = ChatFlowTheme.Metrics(isCompact: false)
+        let textWidth = ChatFlowTheme.maxLineWidth(bodyFont: UIFont.clawline(.bodyText))
+        let chromeWidth = (themeMetrics.inputBarPaddingHorizontal * 2)
+            + MessageInputBarMetrics.minInputBarHeight
+            + MessageInputBarMetrics.minInputBarHeight
+            + (MessageInputBarMetrics.elementSpacing * 2)
+        return textWidth + chromeWidth
     }
 
     private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {

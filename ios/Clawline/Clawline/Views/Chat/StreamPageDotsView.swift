@@ -13,14 +13,34 @@ struct StreamPageDotsView: View {
     let sessionKeys: [String]
     let activeSessionKey: String
     let unreadSessionKeys: Set<String>
+    let userTailSessionKeys: Set<String>
     let maxWidth: CGFloat?
     let onTap: () -> Void
 
-    private let maxVisibleDots = 11
+    private static let collapsedMaxVisibleDots = 11
+    private static let dotDiameter: CGFloat = 7
+    private static let overflowDotDiameter: CGFloat = 4
+    private static let dotSpacing: CGFloat = 7
+    private static let horizontalPadding: CGFloat = 12
+    private static let verticalPadding: CGFloat = 8
     static let controlHeight: CGFloat = 23
 
     private var activeIndex: Int {
         sessionKeys.firstIndex(of: activeSessionKey) ?? 0
+    }
+
+    private var maxVisibleDots: Int {
+        Self.fittingVisibleDotCount(totalSessionCount: sessionKeys.count, maxWidth: expandedMaxWidth)
+    }
+
+    private var expandedMaxWidth: CGFloat? {
+        guard shouldExpandToMaxWidth else { return nil }
+        return maxWidth
+    }
+
+    private var shouldExpandToMaxWidth: Bool {
+        guard maxWidth != nil else { return false }
+        return sessionKeys.count > Self.collapsedMaxVisibleDots
     }
 
     private var visibleDotIndices: [Int] {
@@ -56,7 +76,40 @@ struct StreamPageDotsView: View {
     }
 
     private var warningBloomColor: Color {
-        ChatFlowTheme.unreadIndicator(colorScheme).opacity(colorScheme == .dark ? 0.82 : 0.76)
+        ChatFlowTheme.unreadIndicator(colorScheme).opacity(colorScheme == .dark ? 0.98 : 0.92)
+    }
+
+    static func fittingVisibleDotCount(totalSessionCount: Int, maxWidth: CGFloat?) -> Int {
+        let collapsedCount = min(totalSessionCount, collapsedMaxVisibleDots)
+        guard totalSessionCount > collapsedMaxVisibleDots, let maxWidth else {
+            return collapsedCount
+        }
+
+        var bestCount = collapsedCount
+        for candidateCount in collapsedCount...totalSessionCount {
+            let requiredWidth = requiredControlWidth(
+                visibleDotCount: candidateCount,
+                includesOverflowIndicators: candidateCount < totalSessionCount
+            )
+            if requiredWidth <= maxWidth {
+                bestCount = candidateCount
+            } else {
+                break
+            }
+        }
+        return bestCount
+    }
+
+    static func requiredControlWidth(
+        visibleDotCount: Int,
+        includesOverflowIndicators: Bool
+    ) -> CGFloat {
+        let overflowCount = includesOverflowIndicators ? 2 : 0
+        let elementCount = visibleDotCount + overflowCount
+        let totalDotWidth = (CGFloat(visibleDotCount) * dotDiameter)
+            + (CGFloat(overflowCount) * overflowDotDiameter)
+        let totalSpacing = CGFloat(max(0, elementCount - 1)) * dotSpacing
+        return totalDotWidth + totalSpacing + (horizontalPadding * 2)
     }
 
     var body: some View {
@@ -71,11 +124,13 @@ struct StreamPageDotsView: View {
                     let sessionKey = sessionKeys[index]
                     let isActive = index == activeIndex
                     let hasUnread = unreadSessionKeys.contains(sessionKey)
+                    let hasUserTail = userTailSessionKeys.contains(sessionKey)
                     Circle()
                         .fill(
                             StreamDotColor.resolve(
                                 isActive: isActive,
                                 hasUnread: hasUnread,
+                                hasUserTail: hasUserTail,
                                 colorScheme: colorScheme
                             )
                         )
@@ -95,25 +150,19 @@ struct StreamPageDotsView: View {
                         .frame(width: 4, height: 4)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: maxWidth)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.horizontal, Self.horizontalPadding)
+            .padding(.vertical, Self.verticalPadding)
+            .frame(width: expandedMaxWidth)
 #if !os(visionOS)
             .glassEffect(.regular.interactive(), in: Capsule())
 #else
             .background(.regularMaterial, in: Capsule())
 #endif
-            .overlay(alignment: .leading) {
-                if hasHiddenUnreadLeading {
-                    edgeWarningBloom
-                        .offset(x: -8)
-                }
-            }
-            .overlay(alignment: .trailing) {
-                if hasHiddenUnreadTrailing {
-                    edgeWarningBloom
-                        .offset(x: 8)
-                }
+            .overlay {
+                unreadEdgeBloomOverlay
+                    .mask(Capsule())
+                    .allowsHitTesting(false)
             }
 #if os(visionOS)
             .overlay {
@@ -128,11 +177,30 @@ struct StreamPageDotsView: View {
         .accessibilityHint("Opens stream manager")
     }
 
-    private var edgeWarningBloom: some View {
-        Circle()
-            .fill(warningBloomColor)
-            .frame(width: 18, height: 18)
-            .blur(radius: colorScheme == .dark ? 8 : 10)
-            .allowsHitTesting(false)
+    private var unreadEdgeBloomOverlay: some View {
+        ZStack {
+            if hasHiddenUnreadLeading {
+                edgeWarningBloom(edge: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if hasHiddenUnreadTrailing {
+                edgeWarningBloom(edge: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+    }
+
+    private func edgeWarningBloom(edge: HorizontalEdge) -> some View {
+        ZStack {
+            Circle()
+                .fill(warningBloomColor)
+                .frame(width: 18, height: 18)
+            Circle()
+                .fill(warningBloomColor.opacity(colorScheme == .dark ? 0.92 : 0.84))
+                .frame(width: 32, height: 32)
+                .blur(radius: colorScheme == .dark ? 8 : 10)
+        }
+        .frame(width: 30, height: 30)
+        .offset(x: edge == .leading ? -8 : 8)
     }
 }
