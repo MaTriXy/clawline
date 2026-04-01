@@ -283,13 +283,15 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
     await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
 
     await delayedAuthRequested;
+    provisionedSessionKeys.add(createdSessionKey);
     releaseDelayedAuth?.();
     resolveDelayedAuthRequested = null;
     delayedAuthRequested = null;
 
-    await expect(
-      page.getByText("This session is unavailable for sending. Switch streams and try again.")
-    ).toBeVisible();
+    await expect(page.locator("#composer-input")).toHaveAttribute(
+      "placeholder",
+      "Send a plain text message"
+    );
     await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
 
     await createdCard.getByRole("button", { name: "Delete" }).click();
