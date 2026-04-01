@@ -53,9 +53,24 @@ export interface ClientMessagePayload {
   type: "message";
   id: string;
   content: string;
-  attachments: unknown[];
+  attachments: ClientAttachmentPayload[];
   sessionKey?: string;
 }
+
+export interface ClientInlineImageAttachmentPayload {
+  type: "image";
+  mimeType: string;
+  data: string;
+}
+
+export interface ClientAssetAttachmentPayload {
+  type: "asset";
+  assetId: string;
+}
+
+export type ClientAttachmentPayload =
+  | ClientAssetAttachmentPayload
+  | ClientInlineImageAttachmentPayload;
 
 export interface AttachmentMetadataPayload {
   mimeType?: string;

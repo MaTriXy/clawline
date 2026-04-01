@@ -21,6 +21,17 @@ describe("chatDomainStore", () => {
     });
 
     store.enqueueOptimisticMessage({
+      attachments: [
+        {
+          type: "asset",
+          assetId: "a_upload_1",
+          metadata: {
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+            size: 7
+          }
+        }
+      ],
       content: "Hello",
       deviceId: "browser-device-1",
       id: "c_1",
@@ -40,7 +51,12 @@ describe("chatDomainStore", () => {
           streaming: false,
           deviceId: "browser-device-1",
           sessionKey: "agent:main:clawline:user_1:main",
-          attachments: []
+          attachments: [
+            {
+              type: "asset",
+              assetId: "a_upload_1"
+            }
+          ]
         },
         selectedSessionKey: "agent:main:clawline:user_1:main",
         source: "live"
@@ -53,6 +69,17 @@ describe("chatDomainStore", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].id).toBe("s_1");
     expect(messages[0].delivery).toBe("server");
+    expect(messages[0].attachments).toEqual([
+      {
+        type: "asset",
+        assetId: "a_upload_1",
+        metadata: {
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          size: 7
+        }
+      }
+    ]);
   });
 
   it("updates streaming assistant replies in place", () => {
@@ -463,6 +490,7 @@ describe("chatDomainStore", () => {
         ...phase1TranscriptFixture,
         pendingMessages: {
           c_pending: {
+            attachments: [],
             content: "stale pending",
             createdAt: 1704672000100,
             sessionKey: "agent:main:clawline:user_1:main"

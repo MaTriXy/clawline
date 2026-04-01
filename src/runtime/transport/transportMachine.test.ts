@@ -212,6 +212,7 @@ describe("transportMachine", () => {
         ...phase1TranscriptFixture,
         pendingMessages: {
           c_stale: {
+            attachments: [],
             content: "stale pending",
             createdAt: 1704672000100,
             sessionKey: "agent:main:clawline:user_1:main"
@@ -518,6 +519,64 @@ describe("transportMachine", () => {
 
     expect(factory.sockets).toHaveLength(1);
     expect(transport.getState().phase).toBe("live");
+  });
+
+  it("serializes attachment payloads through the live socket send path", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    await transport.sendMessage({
+      attachments: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "aW1hZ2U="
+        },
+        {
+          type: "asset",
+          assetId: "a_upload_1"
+        }
+      ],
+      content: "hello",
+      id: "c_101",
+      sessionKey: "agent:main:clawline:user_1:main"
+    });
+
+    expect(JSON.parse(factory.sockets[0].sentTexts.at(-1) ?? "{}")).toEqual({
+      type: "message",
+      id: "c_101",
+      content: "hello",
+      attachments: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "aW1hZ2U="
+        },
+        {
+          type: "asset",
+          assetId: "a_upload_1"
+        }
+      ],
+      sessionKey: "agent:main:clawline:user_1:main"
+    });
   });
 
   it("transitions to failed and clears auth on auth failure", async () => {

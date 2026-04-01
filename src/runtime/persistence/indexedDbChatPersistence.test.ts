@@ -10,6 +10,7 @@ describe("indexedDbChatPersistence", () => {
       ...phase1TranscriptFixture,
       pendingMessages: {
         c_a: {
+          attachments: [],
           content: "hello from tab a",
           createdAt: 111,
           sessionKey: "agent:main:clawline:user_1:main"
@@ -29,6 +30,7 @@ describe("indexedDbChatPersistence", () => {
       ...phase1TranscriptFixture,
       pendingMessages: {
         c_b: {
+          attachments: [],
           content: "hello from tab b",
           createdAt: 222,
           sessionKey: "agent:main:clawline:user_1:side"

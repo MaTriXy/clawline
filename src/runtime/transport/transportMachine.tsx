@@ -6,6 +6,7 @@ import {
   serializeAuthPayload,
   serializeClientMessage
 } from "../../protocol/chat-wire";
+import type { ClientAttachmentPayload } from "../../protocol/chat-wire";
 import type { AuthSessionStore } from "../auth/authSessionStore";
 import type { ChatDomainStore } from "../chat/chatDomainStore";
 import { createStore } from "../shared/store";
@@ -33,6 +34,7 @@ export interface TransportState {
 }
 
 export interface SendMessageInput {
+  attachments: ClientAttachmentPayload[];
   content: string;
   id: string;
   sessionKey?: string;
@@ -406,7 +408,7 @@ export function createTransportMachine({
           type: "message",
           id: input.id,
           content: input.content,
-          attachments: [],
+          attachments: input.attachments,
           sessionKey: input.sessionKey
         })
       );

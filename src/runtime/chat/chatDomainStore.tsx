@@ -37,6 +37,7 @@ export interface ChatMessageRecord {
 }
 
 export interface PendingMessageRecord {
+  attachments: ServerAttachmentPayload[];
   content: string;
   createdAt: number;
   sessionKey: string;
@@ -64,6 +65,7 @@ export interface ChatDomainState {
 export interface ChatDomainSnapshot extends ChatDomainState {}
 
 export interface EnqueueOptimisticMessageInput {
+  attachments: ServerAttachmentPayload[];
   content: string;
   deviceId: string;
   id: string;
@@ -147,7 +149,7 @@ export function createChatDomainStore(options?: {
           streaming: false,
           deviceId: input.deviceId,
           sessionKey: input.sessionKey,
-          attachments: [],
+          attachments: input.attachments,
           delivery: "pending"
         };
         const nextState = {
@@ -162,6 +164,7 @@ export function createChatDomainStore(options?: {
           pendingMessages: {
             ...current.pendingMessages,
             [input.id]: {
+              attachments: input.attachments,
               content: input.content,
               createdAt: input.timestamp,
               sessionKey: input.sessionKey
