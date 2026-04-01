@@ -1548,6 +1548,7 @@ struct ChatView: View {
             sessionKeys: effectiveSessionKeys,
             activeSessionKey: viewModel.uiSelectedSessionKey,
             unreadSessionKeys: unreadSessionKeys,
+            maxWidth: streamPageDotsMaxWidth,
             onTap: { isStreamManagerPopoverPresented = true }
         )
         .popover(
@@ -1586,6 +1587,11 @@ struct ChatView: View {
         ) {
             TrackPickerSheet(viewModel: viewModel)
         }
+    }
+
+    private var streamPageDotsMaxWidth: CGFloat? {
+        guard horizontalSizeClass != .compact else { return nil }
+        return ChatFlowTheme.maxLineWidth(bodyFont: UIFont.clawline(.bodyText))
     }
 
     private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {

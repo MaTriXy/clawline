@@ -13,6 +13,7 @@ struct StreamPageDotsView: View {
     let sessionKeys: [String]
     let activeSessionKey: String
     let unreadSessionKeys: Set<String>
+    let maxWidth: CGFloat?
     let onTap: () -> Void
 
     private let maxVisibleDots = 11
@@ -38,6 +39,24 @@ struct StreamPageDotsView: View {
 
     private var showsTrailingOverflow: Bool {
         (visibleDotIndices.last ?? -1) < sessionKeys.count - 1
+    }
+
+    private var hasHiddenUnreadLeading: Bool {
+        guard let firstVisibleIndex = visibleDotIndices.first, firstVisibleIndex > 0 else {
+            return false
+        }
+        return sessionKeys[..<firstVisibleIndex].contains { unreadSessionKeys.contains($0) }
+    }
+
+    private var hasHiddenUnreadTrailing: Bool {
+        guard let lastVisibleIndex = visibleDotIndices.last, lastVisibleIndex < sessionKeys.count - 1 else {
+            return false
+        }
+        return sessionKeys[(lastVisibleIndex + 1)...].contains { unreadSessionKeys.contains($0) }
+    }
+
+    private var warningBloomColor: Color {
+        ChatFlowTheme.unreadIndicator(colorScheme).opacity(colorScheme == .dark ? 0.82 : 0.76)
     }
 
     var body: some View {
@@ -78,14 +97,42 @@ struct StreamPageDotsView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(.ultraThinMaterial, in: Capsule())
+            .frame(maxWidth: maxWidth)
 #if !os(visionOS)
-            .glassEffect(.regular, in: Capsule())
+            .glassEffect(.regular.interactive(), in: Capsule())
+#else
+            .background(.regularMaterial, in: Capsule())
+#endif
+            .overlay(alignment: .leading) {
+                if hasHiddenUnreadLeading {
+                    edgeWarningBloom
+                        .offset(x: -8)
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if hasHiddenUnreadTrailing {
+                    edgeWarningBloom
+                        .offset(x: 8)
+                }
+            }
+#if os(visionOS)
+            .overlay {
+                Capsule()
+                    .stroke(Color.white.opacity(0.5), lineWidth: 1)
+            }
 #endif
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Manage streams")
         .accessibilityValue("Stream \(activeIndex + 1) of \(sessionKeys.count)")
         .accessibilityHint("Opens stream manager")
+    }
+
+    private var edgeWarningBloom: some View {
+        Circle()
+            .fill(warningBloomColor)
+            .frame(width: 18, height: 18)
+            .blur(radius: colorScheme == .dark ? 8 : 10)
+            .allowsHitTesting(false)
     }
 }
