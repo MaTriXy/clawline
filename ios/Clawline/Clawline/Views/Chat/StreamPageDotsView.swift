@@ -118,17 +118,14 @@ struct StreamPageDotsView: View {
 
     static func targetControlWidth(totalSessionCount: Int, maxWidth: CGFloat?) -> CGFloat? {
         guard totalSessionCount > collapsedMaxVisibleDots, let maxWidth else { return nil }
-        let visibleDotCount = fittingVisibleDotCount(totalSessionCount: totalSessionCount, maxWidth: maxWidth)
-        let targetWidth = requiredControlWidth(
-            visibleDotCount: visibleDotCount,
-            includesOverflowIndicators: visibleDotCount < totalSessionCount
-        )
         let collapsedWidth = requiredControlWidth(
             visibleDotCount: collapsedMaxVisibleDots,
             includesOverflowIndicators: true
         )
-        guard targetWidth > collapsedWidth else { return nil }
-        return min(targetWidth, maxWidth)
+        let visibleDotCount = fittingVisibleDotCount(totalSessionCount: totalSessionCount, maxWidth: maxWidth)
+        guard visibleDotCount > collapsedMaxVisibleDots else { return nil }
+        guard maxWidth > collapsedWidth else { return nil }
+        return maxWidth
     }
 
     var body: some View {
