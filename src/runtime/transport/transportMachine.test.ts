@@ -429,6 +429,68 @@ describe("transportMachine", () => {
     ]);
   });
 
+  it("treats stream snapshots as authoritative across restored sessions", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence({
+        ...phase1TranscriptFixture,
+        streams: [
+          ...phase1TranscriptFixture.streams,
+          {
+            sessionKey: "agent:main:clawline:user_1:old",
+            displayName: "Old Thread",
+            kind: "custom",
+            orderIndex: 9,
+            isBuiltIn: false,
+            createdAt: 10,
+            updatedAt: 10,
+            adopted: true
+          }
+        ]
+      })
+    });
+    await waitForHydration(chatStore);
+    const factory = new FakeWebSocketFactory();
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "stream_snapshot",
+        streams: [
+          {
+            sessionKey: "agent:main:clawline:user_1:main",
+            displayName: "Personal",
+            kind: "main",
+            orderIndex: 0,
+            isBuiltIn: true,
+            createdAt: 10,
+            updatedAt: 11,
+            adopted: false
+          }
+        ]
+      })
+    );
+
+    expect(chatStore.getState().streams).toEqual([
+      expect.objectContaining({
+        sessionKey: "agent:main:clawline:user_1:main"
+      })
+    ]);
+  });
+
   it("suppresses duplicate reconnect intents while already live", async () => {
     const authStore = seedSession();
     const chatStore = createChatDomainStore({

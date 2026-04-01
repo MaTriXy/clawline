@@ -142,6 +142,54 @@ describe("chatDomainStore", () => {
     ]);
   });
 
+  it("treats stream snapshots as authoritative and drops stale persisted rows", async () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence({
+        ...phase1TranscriptFixture,
+        streams: [
+          ...phase1TranscriptFixture.streams,
+          {
+            sessionKey: "agent:main:clawline:user_1:old",
+            displayName: "Old Thread",
+            kind: "custom",
+            orderIndex: 9,
+            isBuiltIn: false,
+            createdAt: 1704673000100,
+            updatedAt: 1704673000100,
+            adopted: true
+          }
+        ]
+      })
+    });
+    await waitForHydration(store);
+
+    store.applyStreamSnapshot([
+      {
+        sessionKey: "agent:main:clawline:user_1:main",
+        displayName: "Personal",
+        kind: "main",
+        orderIndex: 0,
+        isBuiltIn: true,
+        createdAt: 10,
+        updatedAt: 11,
+        adopted: false
+      }
+    ]);
+
+    expect(store.getState().streams).toEqual([
+      {
+        sessionKey: "agent:main:clawline:user_1:main",
+        displayName: "Personal",
+        kind: "main",
+        orderIndex: 0,
+        isBuiltIn: true,
+        createdAt: 10,
+        updatedAt: 11,
+        adopted: false
+      }
+    ]);
+  });
+
   it("keeps transcript history when a stream is untracked or deleted locally", async () => {
     const store = createChatDomainStore({
       persistence: createMemoryChatPersistence(phase1TranscriptFixture)

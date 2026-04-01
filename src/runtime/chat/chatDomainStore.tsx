@@ -14,7 +14,8 @@ import { useStoreValue } from "../shared/useStoreValue";
 import {
   applyServerMessage,
   applySessionDescriptors,
-  applyStreamSnapshot as applyStreamSnapshotToState
+  applyStreamSnapshot as applyStreamSnapshotToState,
+  applyStreamUpdate as applyStreamUpdateToState
 } from "./applyServerEvent";
 
 export type DeliveryState = "pending" | "acked" | "failed" | "server";
@@ -230,7 +231,7 @@ export function createChatDomainStore(options?: {
     },
     upsertStream(stream) {
       baseStore.setState((current) => {
-        const nextState = applyStreamSnapshotToState(current, [stream]);
+        const nextState = applyStreamUpdateToState(current, stream);
         persist(nextState);
         return nextState;
       });

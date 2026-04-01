@@ -26,6 +26,7 @@ export function StreamManagerDrawer({
   const [createName, setCreateName] = useState("");
   const [editingSessionKey, setEditingSessionKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isLoadingStreams, setLoadingStreams] = useState(false);
   const [isLoadingTrackables, setLoadingTrackables] = useState(false);
   const [pendingActionKey, setPendingActionKey] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -42,7 +43,14 @@ export function StreamManagerDrawer({
       return;
     }
 
-    if (!session?.isAdmin) {
+    if (!session) {
+      return;
+    }
+
+    setErrorMessage(null);
+    void refreshStreams();
+
+    if (!session.isAdmin) {
       setTrackableSessions([]);
       return;
     }
@@ -76,6 +84,26 @@ export function StreamManagerDrawer({
     }
   }
 
+  async function refreshStreams() {
+    if (!session) {
+      return;
+    }
+
+    setLoadingStreams(true);
+
+    try {
+      const response = await streamApiClient.fetchStreams({
+        serverUrl: session.serverUrl,
+        token: session.token
+      });
+      chatStore.applyStreamSnapshot(response.streams);
+    } catch (error) {
+      setErrorMessage(toErrorMessage(error, "Could not load streams."));
+    } finally {
+      setLoadingStreams(false);
+    }
+  }
+
   async function createStream() {
     if (!session) {
       return;
@@ -99,6 +127,7 @@ export function StreamManagerDrawer({
       chatStore.upsertStream(response.stream);
       setCreateName("");
       onSelectSession(response.stream.sessionKey);
+      void refreshStreams();
       onClose();
     } catch (error) {
       setErrorMessage(toErrorMessage(error, "Could not create stream."));
@@ -128,6 +157,7 @@ export function StreamManagerDrawer({
         token: session.token
       });
       chatStore.upsertStream(response.stream);
+      void refreshStreams();
       setEditingSessionKey(null);
       setRenameValue("");
     } catch (error) {
@@ -164,6 +194,7 @@ export function StreamManagerDrawer({
       if (session.isAdmin) {
         void refreshTrackableSessions();
       }
+      void refreshStreams();
     } catch (error) {
       setErrorMessage(
         toErrorMessage(
@@ -194,6 +225,7 @@ export function StreamManagerDrawer({
       setTrackableSessions((current) =>
         current.filter((entry) => entry.sessionKey !== trackableSession.sessionKey)
       );
+      void refreshStreams();
       onSelectSession(response.stream.sessionKey);
     } catch (error) {
       setErrorMessage(toErrorMessage(error, "Could not track session."));
@@ -246,7 +278,18 @@ export function StreamManagerDrawer({
         <section className="settings-section">
           <div className="stream-manager-section-header">
             <h3>Current streams</h3>
+            <button
+              className="button-secondary"
+              disabled={isLoadingStreams}
+              onClick={() => {
+                void refreshStreams();
+              }}
+              type="button"
+            >
+              Refresh
+            </button>
           </div>
+          {isLoadingStreams ? <p>Refreshing streams…</p> : null}
           <div className="stream-manager-list">
             {chatState.streams.map((stream) => {
               const canRename = canRenameStream(stream);

@@ -166,7 +166,18 @@ export function applyStreamSnapshot(
   state: ChatDomainState,
   streams: StreamSessionPayload[]
 ) {
-  const mergedStreams = mergeStreams(state.streams, streams.map(toStreamRecord));
+  const mergedStreams = mergeStreams([], streams.map(toStreamRecord));
+  return {
+    ...state,
+    streams: mergedStreams
+  };
+}
+
+export function applyStreamUpdate(
+  state: ChatDomainState,
+  stream: StreamSessionPayload
+) {
+  const mergedStreams = mergeStreams(state.streams, [toStreamRecord(stream)]);
   return {
     ...state,
     streams: mergedStreams

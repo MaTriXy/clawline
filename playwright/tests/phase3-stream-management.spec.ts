@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { expect, test } from "@playwright/test";
 import { WebSocketServer } from "ws";
 
-test("stream manager handles create, rename, delete, track, untrack, and provisioning gating", async ({
+test("stream manager handles create, rename, delete, track, untrack, provisioning gating, and reload persistence", async ({
   page
 }) => {
   const port = 20_901 + Math.floor(Math.random() * 1_000);
@@ -267,6 +267,42 @@ test("stream manager handles create, rename, delete, track, untrack, and provisi
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
     await page.getByRole("button", { name: "Streams" }).click();
     await expect(trackCard.getByRole("button", { name: "Track" })).toBeVisible();
+
+    const sideCard = page.locator(".stream-manager-card").filter({
+      hasText: sideSessionKey
+    });
+    await sideCard.getByRole("button", { name: "Rename" }).click();
+    await sideCard.getByLabel("Rename Side Thread").fill("Side Thread v2");
+    await sideCard.getByRole("button", { name: "Save" }).click();
+    await expect(sideCard.getByText("Side Thread v2")).toBeVisible();
+
+    await page.getByRole("button", { name: "Close" }).click();
+    await page.reload();
+
+    await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
+    await expect(page.locator(".stream-chip").filter({ hasText: mainSessionKey })).toHaveCount(
+      1
+    );
+    await expect(page.locator(".stream-chip").filter({ hasText: sideSessionKey })).toContainText(
+      "Side Thread v2"
+    );
+    await expect(
+      page.locator(".stream-chip").filter({ hasText: createdSessionKey })
+    ).toHaveCount(0);
+    await expect(
+      page.locator(".stream-chip").filter({ hasText: trackableSessionKey })
+    ).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Streams" }).click();
+    await expect(
+      page.locator(".stream-manager-card").filter({ hasText: sideSessionKey })
+    ).toContainText("Side Thread v2");
+    await expect(
+      page.locator(".stream-manager-card").filter({ hasText: createdSessionKey })
+    ).toHaveCount(0);
+    await expect(
+      page.locator(".stream-manager-card").filter({ hasText: trackableSessionKey })
+    ).toHaveCount(1);
   } finally {
     for (const client of wss.clients) {
       client.terminate();
