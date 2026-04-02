@@ -73,6 +73,26 @@ const ATTACHMENT_MESSAGE: ChatMessageRecord = {
   sender: "Assistant"
 };
 
+const LINK_MESSAGE: ChatMessageRecord = {
+  id: "s_links",
+  role: "assistant",
+  content: [
+    "Visit https://example.com/docs for docs.",
+    "",
+    "Here is a markdown link to [OpenAI](https://openai.com/research).",
+    "",
+    "```",
+    "https://example.com/in-code",
+    "```"
+  ].join("\n"),
+  timestamp: 1_764_201_200_200,
+  streaming: false,
+  sessionKey: "agent:main:clawline:flynn:main",
+  attachments: [],
+  delivery: "server",
+  sender: "Assistant"
+};
+
 function renderMessageList(messages: ChatMessageRecord[]) {
   const authStore = createAuthSessionStore();
   authStore.storePairingSession({
@@ -170,5 +190,22 @@ describe("MessageList rich rendering", () => {
     expect(await screen.findByLabelText("note.mp3")).toBeInTheDocument();
     expect(await screen.findByLabelText("demo.mp4")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download report.pdf" })).toBeInTheDocument();
+  });
+
+  it("renders link cards for visible message links but not code-block URLs", async () => {
+    renderMessageList([LINK_MESSAGE]);
+
+    const cards = await screen.findByText("EXAMPLE.COM");
+    const cardSurface = cards.closest(".message-link-cards");
+    expect(cardSurface).not.toBeNull();
+
+    const linkCards = Array.from(
+      (cardSurface as HTMLElement).querySelectorAll<HTMLAnchorElement>(".message-link-card")
+    );
+    expect(linkCards.map((card) => card.href)).toEqual([
+      "https://example.com/docs",
+      "https://openai.com/research"
+    ]);
+    expect(linkCards.some((card) => card.href.includes("in-code"))).toBe(false);
   });
 });

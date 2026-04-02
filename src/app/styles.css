@@ -493,6 +493,55 @@ html[data-appearance="light"] {
   gap: 0.75rem;
 }
 
+.message-link-cards {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.message-link-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--color-border);
+  background:
+    linear-gradient(145deg, rgba(99, 210, 198, 0.09), rgba(111, 169, 255, 0.08)),
+    rgba(5, 10, 14, 0.28);
+  color: inherit;
+  text-decoration: none;
+}
+
+.message-link-card-copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.message-link-card-copy strong,
+.message-link-card-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-link-card-domain,
+.message-link-card-copy span {
+  color: var(--color-text-dim);
+}
+
+.message-link-card-domain {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+}
+
+.message-link-card-arrow {
+  color: var(--color-accent);
+  font-size: 1.1rem;
+}
+
 .message-attachment-card {
   display: grid;
   gap: 0.6rem;
