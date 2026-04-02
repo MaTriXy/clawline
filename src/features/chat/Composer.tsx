@@ -261,6 +261,10 @@ export function Composer({
           onClick={() => {
             void submit();
           }}
+          onPointerDown={(event) => {
+            // Prevent the button tap from blurring the textarea / dropping the keyboard on iOS
+            event.preventDefault();
+          }}
           type="button"
         >
           {isSubmitting ? (

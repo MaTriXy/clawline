@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { LayoutList, RefreshCw, Search, Settings2 } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import type { StreamRecord } from "../../runtime/chat/chatDomainStore";
 import type { TransportPhase } from "../../runtime/transport/transportMachine";
 import { getSessionProvisioningState } from "../streams/provisioning";
@@ -158,46 +158,19 @@ export function SessionListSheet({
               value={filterQuery}
             />
           </label>
-          <div className="session-popover-actions">
-            <button
-              aria-label="Retry"
-              className="button-secondary button-icon session-popover-action-button"
-              onClick={() => {
-                onClose();
-                onRetryConnection();
-              }}
-              title="Retry"
-              type="button"
-            >
-              <RefreshCw size={18} strokeWidth={2} />
-            </button>
-            <button
-              aria-label="Settings"
-              className="button-secondary button-icon session-popover-action-button"
-              onClick={() => {
-                onClose();
-                onOpenSettings();
-              }}
-              title="Settings"
-              type="button"
-            >
-              <Settings2 size={18} strokeWidth={2} />
-            </button>
-            <button
-              aria-label="Manage"
-              className="button-secondary button-icon session-popover-action-button session-popover-action-button--primary"
-              onClick={() => {
-                onClose();
-                onOpenStreamManager();
-              }}
-              title="Manage"
-              type="button"
-            >
-              <LayoutList size={18} strokeWidth={2} />
-            </button>
-          </div>
+          <button
+            aria-label="Add stream"
+            className="button-icon session-popover-action-button"
+            onClick={() => {
+              onClose();
+              onOpenStreamManager();
+            }}
+            title="Add stream"
+            type="button"
+          >
+            <Plus size={18} strokeWidth={2} />
+          </button>
         </div>
-        <span className="status-pill session-popover-status">{connectionLabel}</span>
       </aside>
     </div>
   );
