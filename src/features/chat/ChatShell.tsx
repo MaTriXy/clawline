@@ -6,13 +6,16 @@ import type {
 import type { TransportPhase } from "../../runtime/transport/transportMachine";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
-import { StreamRail } from "./StreamRail";
+import { SessionListSheet } from "./SessionListSheet";
 import type { SessionProvisioningState } from "../streams/provisioning";
 
 export function ChatShell({
   activeSessionKey,
   activeStreamName,
   connectionLabel,
+  isSessionListOpen,
+  onCloseSessionList,
+  onOpenSessionList,
   onOpenStreamManager,
   onOpenSettings,
   onRememberScrollState,
@@ -32,6 +35,9 @@ export function ChatShell({
   activeSessionKey?: string;
   activeStreamName?: string;
   connectionLabel: string;
+  isSessionListOpen: boolean;
+  onCloseSessionList: () => void;
+  onOpenSessionList: () => void;
   onOpenStreamManager: () => void;
   onOpenSettings: () => void;
   onRememberScrollState: (input: {
@@ -54,27 +60,18 @@ export function ChatShell({
 }) {
   return (
     <section className="chat-layout" data-testid="chat-layout">
-      <StreamRail
-        activeSessionKey={activeSessionKey}
-        onOpenStreamManager={onOpenStreamManager}
-        onSelectSession={onSelectSession}
-        provisionedSessionKeys={provisionedSessionKeys}
-        streams={streams}
-        transportPhase={transportPhase}
-        unreadBySessionKey={unreadBySessionKey}
-      />
       <main className="chat-panel" data-testid="chat-panel">
         <header className="chat-header">
-          <div>
-            <p className="eyebrow">Clawline</p>
+          <div className="chat-header-copy">
+            <p className="eyebrow">Conversation</p>
             <h1>{activeStreamName ?? activeSessionKey ?? "Waiting for a session"}</h1>
-            {activeSessionKey ? <code>{activeSessionKey}</code> : null}
+            {activeSessionKey ? <code className="chat-header-session">{activeSessionKey}</code> : null}
           </div>
           <div className="chat-header-actions">
             <span className="status-pill">{connectionLabel}</span>
             <button
               className="button-secondary"
-              onClick={onOpenStreamManager}
+              onClick={onOpenSessionList}
               type="button"
             >
               Streams
@@ -110,6 +107,17 @@ export function ChatShell({
           sessionKey={activeSessionKey}
         />
       </main>
+      <SessionListSheet
+        activeSessionKey={activeSessionKey}
+        isOpen={isSessionListOpen}
+        onClose={onCloseSessionList}
+        onOpenStreamManager={onOpenStreamManager}
+        onSelectSession={onSelectSession}
+        provisionedSessionKeys={provisionedSessionKeys}
+        streams={streams}
+        transportPhase={transportPhase}
+        unreadBySessionKey={unreadBySessionKey}
+      />
     </section>
   );
 }

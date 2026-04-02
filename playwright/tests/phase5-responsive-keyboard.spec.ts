@@ -23,26 +23,27 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
         await page.goto(`/chat/${MAIN_SESSION_KEY}`);
         await expect(page.locator(".status-pill", { hasText: "Connected" })).toBeVisible();
 
-        const railBox = await page.getByTestId("stream-rail").boundingBox();
         const panelBox = await page.getByTestId("chat-panel").boundingBox();
-        expect(railBox).not.toBeNull();
         expect(panelBox).not.toBeNull();
-        expect(railBox!.y).toBeLessThan(panelBox!.y);
-        expect(Math.abs(railBox!.x - panelBox!.x)).toBeLessThanOrEqual(2);
-        expect(Math.abs(railBox!.width - panelBox!.width)).toBeLessThanOrEqual(2);
+        expect(await page.getByTestId("session-sheet").count()).toBe(0);
 
-        expect(
-          await page.getByTestId("stream-rail-list").evaluate((element) => {
-            const styles = window.getComputedStyle(element);
-            return {
-              gridAutoFlow: styles.gridAutoFlow,
-              overflowX: styles.overflowX
-            };
-          })
-        ).toEqual({
-          gridAutoFlow: "column",
-          overflowX: "auto"
-        });
+        await page.getByRole("button", { name: "Streams" }).click();
+        const sheet = page.getByTestId("session-sheet");
+        await expect(sheet).toBeVisible();
+        const sheetBox = await sheet.boundingBox();
+        expect(sheetBox).not.toBeNull();
+
+        if (viewport.width > 500) {
+          expect(sheetBox!.width).toBeLessThan(viewport.width * 0.8);
+          expect(sheetBox!.y).toBeGreaterThan(24);
+        } else {
+          expect(sheetBox!.width).toBeGreaterThan(viewport.width * 0.88);
+          expect(sheetBox!.y).toBeGreaterThan(viewport.height * 0.12);
+        }
+
+        await expect(page.getByTestId("session-sheet-list")).toBeVisible();
+        await page.getByRole("button", { name: "Close" }).click();
+        await expect(sheet).toHaveCount(0);
 
         if (viewport.width <= 390) {
           expect(
@@ -78,11 +79,8 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
       await page.goto(`/chat/${MAIN_SESSION_KEY}`);
       await expect(page.locator(".status-pill", { hasText: "Connected" })).toBeVisible();
 
-      const focusOrder = await captureFocusOrder(page, 8);
+      const focusOrder = await captureFocusOrder(page, 5);
       expect(focusOrder).toEqual([
-        "Manage",
-        `Main ready ${MAIN_SESSION_KEY}`,
-        `Side ready ${SIDE_SESSION_KEY}`,
         "Streams",
         "Retry",
         "Settings",
