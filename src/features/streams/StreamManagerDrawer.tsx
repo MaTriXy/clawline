@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { RefreshCw, X } from "lucide-react";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import type { StreamRecord } from "../../runtime/chat/chatDomainStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
@@ -270,8 +271,13 @@ export function StreamManagerDrawer({
             <p className="eyebrow">Streams</p>
             <h2>Manage sessions</h2>
           </div>
-          <button className="button-secondary" onClick={onClose} type="button">
-            Close
+          <button
+            aria-label="Close stream manager"
+            className="button-secondary button-icon"
+            onClick={onClose}
+            type="button"
+          >
+            <X size={18} strokeWidth={2.1} />
           </button>
         </div>
 
@@ -303,14 +309,16 @@ export function StreamManagerDrawer({
           <div className="stream-manager-section-header">
             <h3>Current streams</h3>
             <button
-              className="button-secondary"
+              aria-label="Refresh streams"
+              className="button-secondary button-icon"
               disabled={isLoadingStreams}
               onClick={() => {
                 void refreshStreams();
               }}
+              title="Refresh streams"
               type="button"
             >
-              Refresh
+              <RefreshCw size={18} strokeWidth={2} />
             </button>
           </div>
           {isLoadingStreams ? <p>Refreshing streams…</p> : null}
@@ -413,14 +421,16 @@ export function StreamManagerDrawer({
             <div className="stream-manager-section-header">
               <h3>Track sessions</h3>
               <button
-                className="button-secondary"
+                aria-label="Refresh trackable sessions"
+                className="button-secondary button-icon"
                 disabled={isLoadingTrackables}
                 onClick={() => {
                   void refreshTrackableSessions();
                 }}
+                title="Refresh trackable sessions"
                 type="button"
               >
-                Refresh
+                <RefreshCw size={18} strokeWidth={2} />
               </button>
             </div>
             {isLoadingTrackables ? (

@@ -39,6 +39,16 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
         });
         await page.mouse.click(12, 12);
         await expect(popover).toHaveCount(0);
+
+        if (appearance === "dark") {
+          await swipeChatPanel(page, { endX: 120, startX: 300, y: 360 });
+          await expect(page.getByText("Responsive shell check")).toBeVisible();
+          await expect(page).toHaveURL(new RegExp(`${SIDE_SESSION_KEY.replaceAll(":", "\\:")}$`));
+
+          await swipeChatPanel(page, { endX: 300, startX: 120, y: 360 });
+          await expect(page.getByText("Keyboard flow check")).toBeVisible();
+          await expect(page).toHaveURL(new RegExp(`${MAIN_SESSION_KEY.replaceAll(":", "\\:")}$`));
+        }
       }
 
       for (const viewport of [{ height: 1180, width: 820 }, { height: 844, width: 390 }]) {
@@ -291,6 +301,7 @@ async function applyAppearance(
   page: import("@playwright/test").Page,
   appearance: "dark" | "light"
 ) {
+  await page.waitForLoadState("domcontentloaded");
   await page.evaluate((mode) => {
     window.localStorage.setItem(
       "clawline-web:settings",
@@ -317,6 +328,29 @@ async function focusComposerWithKeyboard(page: import("@playwright/test").Page) 
   }
 
   throw new Error("Failed to focus composer input with keyboard navigation");
+}
+
+async function swipeChatPanel(
+  page: import("@playwright/test").Page,
+  input: { endX: number; startX: number; y: number }
+) {
+  await page.getByTestId("chat-panel").evaluate((element, gesture) => {
+    const start = new Event("touchstart", { bubbles: true, cancelable: true });
+    Object.defineProperty(start, "touches", {
+      value: [{ clientX: gesture.startX, clientY: gesture.y }]
+    });
+    Object.defineProperty(start, "changedTouches", {
+      value: [{ clientX: gesture.startX, clientY: gesture.y }]
+    });
+    element.dispatchEvent(start);
+
+    const end = new Event("touchend", { bubbles: true, cancelable: true });
+    Object.defineProperty(end, "touches", { value: [] });
+    Object.defineProperty(end, "changedTouches", {
+      value: [{ clientX: gesture.endX, clientY: gesture.y }]
+    });
+    element.dispatchEvent(end);
+  }, input);
 }
 
 async function captureFocusOrder(

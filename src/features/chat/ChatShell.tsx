@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type {
   ChatMessageRecord,
   SessionScrollState,
@@ -57,15 +58,93 @@ export function ChatShell({
   transportPhase: TransportPhase;
   unreadBySessionKey: Record<string, number>;
 }) {
+  const touchStartRef = useRef<{
+    active: boolean;
+    x: number;
+    y: number;
+  }>({
+    active: false,
+    x: 0,
+    y: 0
+  });
   const unreadSessionKeys = new Set(
     Object.entries(unreadBySessionKey)
       .filter(([, unreadCount]) => unreadCount > 0)
       .map(([sessionKey]) => sessionKey)
   );
+  const orderedSessionKeys = streams.map((stream) => stream.sessionKey);
 
   return (
     <section className="chat-layout" data-testid="chat-layout">
-      <main className="chat-panel" data-testid="chat-panel">
+      <main
+        className="chat-panel"
+        data-testid="chat-panel"
+        onTouchEnd={(event) => {
+          if (!touchStartRef.current.active || orderedSessionKeys.length < 2) {
+            return;
+          }
+
+          touchStartRef.current.active = false;
+          const touch = event.changedTouches[0];
+
+          if (!touch) {
+            return;
+          }
+
+          const deltaX = touch.clientX - touchStartRef.current.x;
+          const deltaY = touch.clientY - touchStartRef.current.y;
+
+          if (Math.abs(deltaX) < 56 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.25) {
+            return;
+          }
+
+          const currentIndex = activeSessionKey
+            ? orderedSessionKeys.indexOf(activeSessionKey)
+            : -1;
+
+          if (currentIndex < 0) {
+            return;
+          }
+
+          const nextIndex = deltaX < 0 ? currentIndex + 1 : currentIndex - 1;
+          const nextSessionKey = orderedSessionKeys[nextIndex];
+
+          if (!nextSessionKey || nextSessionKey === activeSessionKey) {
+            return;
+          }
+
+          onSelectSession(nextSessionKey);
+        }}
+        onTouchCancel={() => {
+          touchStartRef.current.active = false;
+        }}
+        onTouchStart={(event) => {
+          const target = event.target;
+
+          if (
+            !(target instanceof Element) ||
+            target.closest(
+              "button, input, textarea, select, a, label, audio, video, .chat-floating-stack"
+            )
+          ) {
+            touchStartRef.current.active = false;
+            return;
+          }
+
+          const touch = event.touches[0];
+
+          if (!touch) {
+            touchStartRef.current.active = false;
+            return;
+          }
+
+          touchStartRef.current = {
+            active: true,
+            x: touch.clientX,
+            y: touch.clientY
+          };
+        }}
+      >
         <MessageList
           messages={selectedMessages}
           onRememberScrollState={onRememberScrollState}

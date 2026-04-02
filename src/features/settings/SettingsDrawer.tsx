@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import {
@@ -49,8 +50,13 @@ export function SettingsDrawer({
             <p className="eyebrow">Settings</p>
             <h2>Appearance and diagnostics</h2>
           </div>
-          <button className="button-secondary" onClick={onClose} type="button">
-            Close
+          <button
+            aria-label="Close settings"
+            className="button-secondary button-icon"
+            onClick={onClose}
+            type="button"
+          >
+            <X size={18} strokeWidth={2.1} />
           </button>
         </div>
 

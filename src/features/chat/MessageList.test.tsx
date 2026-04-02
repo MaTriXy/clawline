@@ -223,7 +223,7 @@ describe("MessageList rich rendering", () => {
     expect(within(dialog).getByText("console.log('hi');")).toBeInTheDocument();
     expect(within(dialog).getByRole("table")).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close expanded message" }));
     expect(screen.queryByRole("dialog", { name: "Expanded message" })).not.toBeInTheDocument();
   });
 

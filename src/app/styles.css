@@ -244,10 +244,26 @@ html[data-appearance="light"] body::before {
 .button-danger,
 .segment,
 .session-sheet-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
   border: 1px solid transparent;
   border-radius: 999px;
   padding: 0.8rem 1rem;
   transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+
+.button-icon {
+  min-width: 2.7rem;
+  min-height: 2.7rem;
+  padding: 0;
+}
+
+.button-icon svg,
+.session-popover-filter-icon svg {
+  display: block;
+  flex: 0 0 auto;
 }
 
 .button-primary {
@@ -1021,7 +1037,9 @@ html[data-appearance="light"] .session-popover {
 }
 
 .session-popover-filter-icon {
-  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
   opacity: 0.82;
 }
@@ -1059,8 +1077,9 @@ html[data-appearance="light"] .session-popover {
 }
 
 .session-popover-action-button {
-  min-height: 2.55rem;
-  padding: 0.65rem 0.95rem;
+  min-width: 2.7rem;
+  min-height: 2.7rem;
+  padding: 0;
   border-radius: 1.25rem;
   background: var(--session-popup-pill-bg);
   border-color: var(--session-popup-border);

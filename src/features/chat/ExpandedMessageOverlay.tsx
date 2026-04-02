@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import type { ChatMessageRecord } from "../../runtime/chat/chatDomainStore";
 import { RichMessageBody } from "./RichMessageBody";
 
@@ -21,8 +22,13 @@ export function ExpandedMessageOverlay({
             <p className="eyebrow">Message</p>
             <h2>Expanded view</h2>
           </div>
-          <button className="button-secondary" onClick={onClose} type="button">
-            Close
+          <button
+            aria-label="Close expanded message"
+            className="button-secondary button-icon"
+            onClick={onClose}
+            type="button"
+          >
+            <X size={18} strokeWidth={2.1} />
           </button>
         </div>
         <header className="message-meta">

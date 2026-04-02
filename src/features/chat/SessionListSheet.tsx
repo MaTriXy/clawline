@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { LayoutList, RefreshCw, Search, Settings2 } from "lucide-react";
 import type { StreamRecord } from "../../runtime/chat/chatDomainStore";
 import type { TransportPhase } from "../../runtime/transport/transportMachine";
 import { getSessionProvisioningState } from "../streams/provisioning";
@@ -147,7 +148,7 @@ export function SessionListSheet({
         <div className="session-popover-footer">
           <label className="session-popover-filter">
             <span aria-hidden="true" className="session-popover-filter-icon">
-              ⌕
+              <Search size={16} strokeWidth={2.15} />
             </span>
             <input
               aria-label="Filter chats"
@@ -159,34 +160,40 @@ export function SessionListSheet({
           </label>
           <div className="session-popover-actions">
             <button
-              className="button-secondary session-popover-action-button"
+              aria-label="Retry"
+              className="button-secondary button-icon session-popover-action-button"
               onClick={() => {
                 onClose();
                 onRetryConnection();
               }}
+              title="Retry"
               type="button"
             >
-              Retry
+              <RefreshCw size={18} strokeWidth={2} />
             </button>
             <button
-              className="button-secondary session-popover-action-button"
+              aria-label="Settings"
+              className="button-secondary button-icon session-popover-action-button"
               onClick={() => {
                 onClose();
                 onOpenSettings();
               }}
+              title="Settings"
               type="button"
             >
-              Settings
+              <Settings2 size={18} strokeWidth={2} />
             </button>
             <button
-              className="button-secondary session-popover-action-button session-popover-action-button--primary"
+              aria-label="Manage"
+              className="button-secondary button-icon session-popover-action-button session-popover-action-button--primary"
               onClick={() => {
                 onClose();
                 onOpenStreamManager();
               }}
+              title="Manage"
               type="button"
             >
-              Manage
+              <LayoutList size={18} strokeWidth={2} />
             </button>
           </div>
         </div>
