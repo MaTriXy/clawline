@@ -4,9 +4,12 @@ import { getSessionProvisioningState } from "../streams/provisioning";
 
 export function SessionListSheet({
   activeSessionKey,
+  connectionLabel,
   isOpen,
   onClose,
+  onOpenSettings,
   onOpenStreamManager,
+  onRetryConnection,
   onSelectSession,
   provisionedSessionKeys,
   streams,
@@ -14,9 +17,12 @@ export function SessionListSheet({
   unreadBySessionKey
 }: {
   activeSessionKey?: string;
+  connectionLabel: string;
   isOpen: boolean;
   onClose: () => void;
+  onOpenSettings: () => void;
   onOpenStreamManager: () => void;
+  onRetryConnection: () => void;
   onSelectSession: (sessionKey: string) => void;
   provisionedSessionKeys: string[];
   streams: StreamRecord[];
@@ -28,31 +34,22 @@ export function SessionListSheet({
   }
 
   return (
-    <div className="drawer-backdrop session-sheet-backdrop" onClick={onClose}>
+    <div className="session-popover-backdrop" onClick={onClose}>
       <aside
         aria-label="Sessions"
-        aria-modal="true"
-        className="session-sheet"
-        data-testid="session-sheet"
+        className="session-popover"
+        data-testid="session-popover"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
-        <div className="session-sheet-header">
+        <div className="session-popover-header">
           <div>
             <p className="eyebrow">Streams</p>
-            <h2>Sessions</h2>
-            <p className="session-sheet-copy">Pick a conversation or manage the list.</p>
-          </div>
-          <div className="session-sheet-header-actions">
-            <button className="button-secondary" onClick={onOpenStreamManager} type="button">
-              Manage
-            </button>
-            <button className="button-secondary" onClick={onClose} type="button">
-              Close
-            </button>
+            <h2>Chats</h2>
+            <p className="session-popover-copy">Swipe between conversations or pick one here.</p>
           </div>
         </div>
-        <div className="session-sheet-list" data-testid="session-sheet-list">
+        <div className="session-popover-list" data-testid="session-popover-list">
           {streams.length === 0 ? (
             <p className="stream-empty">Waiting for provisioned sessions...</p>
           ) : (
@@ -73,7 +70,10 @@ export function SessionListSheet({
                       : "session-sheet-card"
                   }
                   key={stream.sessionKey}
-                  onClick={() => onSelectSession(stream.sessionKey)}
+                  onClick={() => {
+                    onSelectSession(stream.sessionKey);
+                    onClose();
+                  }}
                   type="button"
                 >
                   <span className="session-sheet-card-row">
@@ -100,6 +100,41 @@ export function SessionListSheet({
               );
             })
           )}
+        </div>
+        <div className="session-popover-footer">
+          <span className="status-pill session-popover-status">{connectionLabel}</span>
+          <div className="session-popover-actions">
+            <button
+              className="button-secondary"
+              onClick={() => {
+                onClose();
+                onRetryConnection();
+              }}
+              type="button"
+            >
+              Retry
+            </button>
+            <button
+              className="button-secondary"
+              onClick={() => {
+                onClose();
+                onOpenSettings();
+              }}
+              type="button"
+            >
+              Settings
+            </button>
+            <button
+              className="button-secondary"
+              onClick={() => {
+                onClose();
+                onOpenStreamManager();
+              }}
+              type="button"
+            >
+              Manage
+            </button>
+          </div>
         </div>
       </aside>
     </div>

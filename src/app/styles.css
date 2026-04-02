@@ -112,9 +112,12 @@ html[data-appearance="light"] {
 
 .pairing-shell,
 .chat-layout {
-  max-width: var(--layout-max-width);
   margin: 0 auto;
   padding: 1rem 1.25rem;
+}
+
+.pairing-shell {
+  max-width: var(--layout-max-width);
 }
 
 .pairing-shell {
@@ -124,8 +127,6 @@ html[data-appearance="light"] {
 }
 
 .pairing-card,
-.chat-panel,
-.session-sheet,
 .settings-drawer {
   background: var(--color-panel);
   border: 1px solid var(--color-border);
@@ -140,8 +141,7 @@ html[data-appearance="light"] {
 }
 
 .pairing-card h1,
-.chat-header h1,
-.session-sheet h2,
+.session-popover h2,
 .settings-header h2,
 .empty-state h2 {
   margin: 0;
@@ -184,15 +184,7 @@ html[data-appearance="light"] {
   padding: 0.95rem 1rem;
 }
 
-.pairing-actions,
-.chat-header-actions,
-.composer-footer {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-}
-
-.composer-footer-leading {
+.pairing-actions {
   display: flex;
   gap: 0.75rem;
   align-items: center;
@@ -239,15 +231,24 @@ html[data-appearance="light"] {
 }
 
 .chat-layout {
-  height: calc(100vh - 2rem);
-  height: calc(100dvh - 2rem);
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  height: 100vh;
+  height: 100dvh;
   min-height: 0;
   display: block;
 }
 
 .chat-panel {
-  border-radius: 1.5rem;
-  min-height: 0;
+  position: relative;
+  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .session-sheet-card-meta,
@@ -319,46 +320,6 @@ html[data-appearance="light"] {
   font-size: 0.8rem;
 }
 
-.chat-panel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-  min-width: 0;
-  border-radius: 1.75rem;
-}
-
-.chat-header,
-.composer-shell {
-  padding: 1rem 1.1rem;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.chat-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
-}
-
-.chat-header-copy {
-  min-width: 0;
-}
-
-.chat-header h1 {
-  font-size: clamp(1.65rem, 3vw, 2.5rem);
-}
-
-.chat-header-session {
-  display: inline-block;
-  margin-top: 0.35rem;
-  color: var(--color-text-dim);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .status-pill {
   padding: 0.45rem 0.7rem;
   border-radius: 999px;
@@ -370,9 +331,11 @@ html[data-appearance="light"] {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 1rem 1.1rem 1.25rem;
+  height: 100%;
+  padding: 1.2rem clamp(0.9rem, 2.5vw, 2rem)
+    calc(11.5rem + env(safe-area-inset-bottom, 0px));
   overscroll-behavior: contain;
-  scroll-padding-bottom: 8rem;
+  scroll-padding-bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
 }
 
 .message-list-virtual-surface {
@@ -388,7 +351,7 @@ html[data-appearance="light"] {
 
 .message-list-affordance-bar {
   position: sticky;
-  bottom: 1.15rem;
+  bottom: calc(8.4rem + env(safe-area-inset-bottom, 0px));
   display: flex;
   justify-content: center;
   margin-top: -4rem;
@@ -399,17 +362,24 @@ html[data-appearance="light"] {
 .message-list-jump-button {
   pointer-events: auto;
   border-color: rgba(99, 210, 198, 0.28);
-  background: rgba(8, 16, 22, 0.92);
+  background: rgba(8, 16, 22, 0.76);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(24px);
 }
 
 .provisioning-banner {
-  margin: 0 1.1rem;
   padding: 0.8rem 1rem;
-  border-radius: 1rem;
+  border-radius: 999px;
   background: rgba(245, 201, 119, 0.14);
   color: var(--color-accent-warm);
   border: 1px solid rgba(245, 201, 119, 0.2);
+}
+
+.provisioning-banner--floating {
+  width: min(40rem, calc(100vw - 1.5rem));
+  margin: 0 auto;
+  text-align: center;
+  backdrop-filter: blur(24px);
 }
 
 .empty-state {
@@ -612,31 +582,101 @@ html[data-appearance="light"] {
   width: 100%;
 }
 
-.composer-shell {
-  border-top: 1px solid var(--color-border);
-  border-bottom: 0;
+.chat-floating-stack {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: grid;
-  gap: 0.9rem;
-  padding-top: 0.9rem;
-  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  gap: 0.8rem;
+  justify-items: center;
+  padding:
+    0 0.75rem
+    calc(0.8rem + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+  z-index: 4;
+}
+
+.chat-floating-stack > * {
+  pointer-events: auto;
+}
+
+.chat-dots-dock {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.stream-page-dots {
+  border: 1px solid rgba(150, 210, 225, 0.22);
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem;
+  background: rgba(9, 20, 28, 0.62);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(24px);
+}
+
+.stream-page-dots-track {
+  display: flex;
+  align-items: center;
+  gap: 0.44rem;
+}
+
+.stream-page-dot {
+  width: 0.44rem;
+  height: 0.44rem;
+  border-radius: 999px;
+  background: rgba(237, 244, 246, 0.28);
+}
+
+.stream-page-dot--active {
+  background: var(--color-text);
+  box-shadow: 0 0 0.65rem rgba(237, 244, 246, 0.45);
+}
+
+.stream-page-dot--unread {
+  background: var(--color-accent-warm);
+}
+
+.stream-page-dot--overflow {
+  width: 0.28rem;
+  height: 0.28rem;
+}
+
+.composer-shell {
+  display: grid;
+  gap: 0.65rem;
+  width: min(54rem, 100%);
+  padding: 0;
+  background: none;
+  border: 0;
 }
 
 .composer-shell textarea {
+  width: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  padding: 0;
   resize: none;
-  min-height: 5rem;
-  max-height: 13.75rem;
+  min-height: 1.65rem;
+  max-height: 8.75rem;
   overflow: auto;
 }
 
+.composer-shell textarea:focus-visible {
+  outline: none;
+}
+
 .composer-shell--drag-active {
-  background:
-    linear-gradient(145deg, rgba(99, 210, 198, 0.12), rgba(111, 169, 255, 0.14)),
-    var(--color-panel);
+  filter: saturate(1.08);
 }
 
 .composer-attachments {
   display: grid;
   gap: 0.65rem;
+  width: min(54rem, 100%);
 }
 
 .composer-attachment-chip {
@@ -660,134 +700,113 @@ html[data-appearance="light"] {
   font-size: 0.85rem;
 }
 
-.connection-status {
-  margin: 0;
-  color: var(--color-text-dim);
+.composer-input-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.7rem;
+  width: min(54rem, 100%);
+  padding: 0.6rem 0.68rem;
+  border-radius: 2rem;
+  border: 1px solid rgba(150, 210, 225, 0.22);
+  background: rgba(9, 20, 28, 0.68);
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(28px);
 }
 
-@media (max-width: 1080px) {
-  .pairing-shell,
-  .chat-layout {
-    padding: 0.9rem;
-  }
-
-  .chat-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .chat-header-actions {
-    flex-wrap: wrap;
-  }
+.composer-circle-button {
+  display: grid;
+  place-items: center;
+  width: 2.95rem;
+  height: 2.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(150, 210, 225, 0.24);
+  background: rgba(21, 40, 55, 0.72);
+  color: var(--color-text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-@media (max-width: 720px) {
-  .pairing-shell,
-  .chat-layout {
-    padding: 0.75rem;
-  }
-
-  .chat-layout {
-    height: calc(100vh - 1.5rem);
-    height: calc(100dvh - 1.5rem);
-  }
-
-  .chat-header,
-  .composer-shell {
-    padding: 1rem;
-  }
-
-  .chat-header-session {
-    display: block;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .message-list {
-    padding: 1rem;
-  }
-
-  .message-bubble {
-    max-width: 100%;
-  }
-
-  .composer-attachment-chip,
-  .composer-footer,
-  .composer-footer-leading,
-  .chat-header-actions {
-    flex-wrap: wrap;
-  }
-
-  .composer-footer,
-  .composer-footer-leading {
-    justify-content: space-between;
-  }
-
-  .composer-footer > .button-primary {
-    width: 100%;
-  }
-
-  .message-list-affordance-bar {
-    bottom: 0.75rem;
-  }
+.composer-circle-button span {
+  font-size: 1.2rem;
+  line-height: 1;
 }
 
-.drawer-backdrop {
+.composer-circle-button--send {
+  background: linear-gradient(145deg, rgba(99, 210, 198, 0.9), rgba(111, 169, 255, 0.9));
+  color: #061115;
+}
+
+.composer-input-field {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0.55rem 0.2rem;
+}
+
+.composer-input-field textarea {
+  flex: 1 1 auto;
+  line-height: 1.45;
+}
+
+.session-popover-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(5, 10, 14, 0.45);
-  display: flex;
-  justify-content: flex-end;
-  padding: 1rem;
   z-index: 30;
 }
 
-.session-sheet-backdrop {
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: clamp(4rem, 12vh, 7rem);
-}
-
-.session-sheet {
-  width: min(32rem, calc(100vw - 2rem));
-  max-height: min(78vh, 48rem);
-  border-radius: 1.8rem;
-  padding: 1.15rem;
+.session-popover {
+  position: absolute;
+  left: 50%;
+  bottom: calc(8.8rem + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: min(26rem, calc(100vw - 1.5rem));
+  max-height: min(56vh, 32rem);
+  padding: 1rem;
+  border-radius: 1.5rem;
+  background: rgba(10, 23, 33, 0.9);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(28px);
   display: grid;
-  gap: 1rem;
-  overflow: hidden;
+  gap: 0.9rem;
 }
 
-.session-sheet-header,
-.session-sheet-header-actions,
+.session-popover::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -0.45rem;
+  width: 1rem;
+  height: 1rem;
+  background: inherit;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.session-popover-header,
+.session-popover-footer,
 .session-sheet-card-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
 
-.session-sheet-header {
+.session-popover-header {
   justify-content: space-between;
 }
 
-.session-sheet-header-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.session-sheet-copy {
+.session-popover-copy {
   margin: 0.35rem 0 0;
   color: var(--color-text-dim);
 }
 
-.session-sheet-list {
+.session-popover-list {
   display: grid;
   gap: 0.75rem;
   min-height: 0;
   overflow: auto;
-  padding-right: 0.2rem;
+  padding-right: 0.1rem;
 }
 
 .session-sheet-card {
@@ -804,6 +823,89 @@ html[data-appearance="light"] {
 
 .session-sheet-card-title {
   font-weight: 600;
+}
+
+.session-popover-footer {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.session-popover-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.session-popover-status {
+  background: rgba(99, 210, 198, 0.12);
+}
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 10, 14, 0.45);
+  display: flex;
+  justify-content: flex-end;
+  padding: 1rem;
+  z-index: 30;
+}
+
+@media (max-width: 1080px) {
+  .pairing-shell,
+  .chat-layout {
+    padding: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .pairing-shell,
+  .chat-layout {
+    padding: 0;
+  }
+
+  .chat-layout {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .message-list {
+    padding:
+      1rem
+      0.85rem
+      calc(11.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .message-bubble {
+    max-width: 100%;
+  }
+
+  .composer-attachment-chip,
+  .session-popover-footer,
+  .session-popover-actions {
+    flex-wrap: wrap;
+  }
+
+  .composer-input-bar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.55rem;
+    border-radius: 1.55rem;
+  }
+
+  .composer-circle-button {
+    width: 2.7rem;
+    height: 2.7rem;
+  }
+
+  .message-list-affordance-bar {
+    bottom: calc(8.1rem + env(safe-area-inset-bottom, 0px));
+  }
+  
+  .session-popover {
+    width: min(100vw - 1rem, 24rem);
+    bottom: calc(8.2rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .message-overlay-backdrop {
@@ -918,40 +1020,20 @@ html[data-appearance="light"] {
 @media (max-width: 860px) {
   .pairing-shell,
   .chat-layout {
-    padding: 1rem;
+    padding: 0;
   }
 
   .chat-panel {
-    min-height: auto;
-    border-radius: 1.5rem;
+    min-height: 100%;
   }
 
-  .chat-header,
-  .chat-header-actions {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .composer-footer,
-  .composer-footer-leading,
-  .composer-attachment-chip {
+  .composer-attachment-chip,
+  .session-popover-footer {
     flex-direction: column;
     align-items: flex-start;
   }
 
   .message-bubble {
     max-width: 100%;
-  }
-
-  .session-sheet-backdrop {
-    align-items: flex-end;
-    padding: 0.75rem;
-  }
-
-  .session-sheet {
-    width: min(100%, 34rem);
-    max-height: min(82vh, 42rem);
-    border-bottom-left-radius: 1.35rem;
-    border-bottom-right-radius: 1.35rem;
   }
 }

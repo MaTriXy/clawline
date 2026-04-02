@@ -47,7 +47,7 @@ export function Composer({
     }
 
     textarea.style.height = "0px";
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 88), 220);
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 28), 140);
     textarea.style.height = `${nextHeight}px`;
   }, [draft]);
 
@@ -146,6 +146,7 @@ export function Composer({
       className={
         isDragActive ? "composer-shell composer-shell--drag-active" : "composer-shell"
       }
+      data-testid="composer-shell"
       onDragEnter={(event) => {
         if (event.dataTransfer?.files.length) {
           event.preventDefault();
@@ -167,7 +168,7 @@ export function Composer({
         setDragActive(false);
         appendFiles(Array.from(event.dataTransfer?.files ?? []));
       }}
-    >
+      >
       <input
         aria-hidden="true"
         className="sr-only"
@@ -181,45 +182,6 @@ export function Composer({
       <label className="sr-only" htmlFor="composer-input">
         Message
       </label>
-      <textarea
-        aria-keyshortcuts="Enter,Shift+Enter,Escape"
-        enterKeyHint="send"
-        id="composer-input"
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.currentTarget.blur();
-            return;
-          }
-
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void submit();
-          }
-        }}
-        onPaste={(event) => {
-          const files = Array.from(event.clipboardData?.files ?? []);
-          if (files.length > 0) {
-            event.preventDefault();
-            appendFiles(files);
-          }
-        }}
-        placeholder={
-          sessionKey
-            ? transportState.phase === "live" && provisioningState === "ready"
-              ? "Send a plain text message"
-              : provisioningState === "unavailable"
-                ? "This stream is unavailable for sending"
-                : provisioningState === "waiting"
-                  ? "Waiting for provisioning"
-                  : "Waiting for connection"
-            : "Select a session"
-        }
-        ref={textareaRef}
-        rows={3}
-        value={draft}
-      />
       {stagedAttachments.length > 0 ? (
         <div className="composer-attachments" data-testid="composer-attachments">
           {stagedAttachments.map((attachment) => (
@@ -240,39 +202,67 @@ export function Composer({
         </div>
       ) : null}
       {submitError ? <p className="field-error">{submitError}</p> : null}
-      <div className="composer-footer">
-        <div className="composer-footer-leading">
-          <p className="connection-status">
-            {isSubmitting
-              ? "Uploading"
-              : transportState.phase === "live"
-                ? "Connected"
-                : transportState.phase === "recovering"
-                  ? "Reconnecting"
-                  : transportState.phase === "connecting" ||
-                      transportState.phase === "authenticating" ||
-                      transportState.phase === "replaying"
-                    ? "Connecting"
-                    : "Disconnected"}
-          </p>
-          <button
-            className="button-secondary"
-            disabled={!sessionKey || isSubmitting}
-            onClick={() => fileInputRef.current?.click()}
-            type="button"
-          >
-            Attach files
-          </button>
+      <div className="composer-input-bar" data-testid="composer-input-bar">
+        <button
+          aria-label="Add attachment"
+          className="composer-circle-button composer-circle-button--attach"
+          disabled={!sessionKey || isSubmitting}
+          onClick={() => fileInputRef.current?.click()}
+          type="button"
+        >
+          <span aria-hidden="true">+</span>
+        </button>
+        <div className="composer-input-field">
+          <textarea
+            aria-keyshortcuts="Enter,Shift+Enter,Escape"
+            enterKeyHint="send"
+            id="composer-input"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.currentTarget.blur();
+                return;
+              }
+
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void submit();
+              }
+            }}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData?.files ?? []);
+              if (files.length > 0) {
+                event.preventDefault();
+                appendFiles(files);
+              }
+            }}
+            placeholder={
+              sessionKey
+                ? transportState.phase === "live" && provisioningState === "ready"
+                  ? "Send a plain text message"
+                  : provisioningState === "unavailable"
+                    ? "This stream is unavailable for sending"
+                    : provisioningState === "waiting"
+                      ? "Waiting for provisioning"
+                      : "Waiting for connection"
+                : "Select a session"
+            }
+            ref={textareaRef}
+            rows={1}
+            value={draft}
+          />
         </div>
         <button
-          className="button-primary"
+          aria-label={isSubmitting ? "Uploading…" : "Send"}
+          className="composer-circle-button composer-circle-button--send"
           disabled={!canSend}
           onClick={() => {
             void submit();
           }}
           type="button"
         >
-          {isSubmitting ? "Uploading…" : "Send"}
+          <span aria-hidden="true">{isSubmitting ? "…" : "↑"}</span>
         </button>
       </div>
     </section>

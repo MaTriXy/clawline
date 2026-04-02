@@ -21,41 +21,50 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
       ]) {
         await page.setViewportSize(viewport);
         await page.goto(`/chat/${MAIN_SESSION_KEY}`);
-        await expect(page.locator(".status-pill", { hasText: "Connected" })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Manage streams" })).toBeVisible();
 
         const panelBox = await page.getByTestId("chat-panel").boundingBox();
         expect(panelBox).not.toBeNull();
-        expect(await page.getByTestId("session-sheet").count()).toBe(0);
+        expect(await page.getByTestId("session-popover").count()).toBe(0);
 
-        await page.getByRole("button", { name: "Streams" }).click();
-        const sheet = page.getByTestId("session-sheet");
-        await expect(sheet).toBeVisible();
-        const sheetBox = await sheet.boundingBox();
-        expect(sheetBox).not.toBeNull();
+        const dots = page.getByRole("button", { name: "Manage streams" });
+        const dotsBox = await dots.boundingBox();
+        expect(dotsBox).not.toBeNull();
+
+        const composerBox = await page.getByTestId("composer-input-bar").boundingBox();
+        expect(composerBox).not.toBeNull();
+        expect(composerBox!.width).toBeGreaterThan(viewport.width * 0.72);
+        expect(composerBox!.y + composerBox!.height).toBeGreaterThan(viewport.height * 0.88);
+        expect(dotsBox!.y + dotsBox!.height).toBeLessThan(composerBox!.y);
+
+        await dots.click();
+        const popover = page.getByTestId("session-popover");
+        await expect(popover).toBeVisible();
+        const popoverBox = await popover.boundingBox();
+        expect(popoverBox).not.toBeNull();
 
         if (viewport.width > 500) {
-          expect(sheetBox!.width).toBeLessThan(viewport.width * 0.8);
-          expect(sheetBox!.y).toBeGreaterThan(24);
+          expect(popoverBox!.width).toBeLessThan(viewport.width * 0.52);
         } else {
-          expect(sheetBox!.width).toBeGreaterThan(viewport.width * 0.88);
-          expect(sheetBox!.y).toBeGreaterThan(viewport.height * 0.12);
+          expect(popoverBox!.width).toBeGreaterThan(viewport.width * 0.78);
         }
+        expect(popoverBox!.y + popoverBox!.height).toBeLessThan(composerBox!.y);
 
-        await expect(page.getByTestId("session-sheet-list")).toBeVisible();
-        await page.getByRole("button", { name: "Close" }).click();
-        await expect(sheet).toHaveCount(0);
+        await expect(page.getByTestId("session-popover-list")).toBeVisible();
+        await page.mouse.click(12, 12);
+        await expect(popover).toHaveCount(0);
 
         if (viewport.width <= 390) {
           expect(
-            await page.locator(".chat-header-actions").evaluate((element) => {
-              return window.getComputedStyle(element).flexWrap;
+            await page.locator(".chat-floating-stack").evaluate((element) => {
+              return window.getComputedStyle(element).justifyItems;
             })
-          ).toBe("wrap");
+          ).toBe("center");
           expect(
-            await page.locator(".composer-footer").evaluate((element) => {
-              return window.getComputedStyle(element).flexWrap;
+            await page.locator(".composer-input-bar").evaluate((element) => {
+              return window.getComputedStyle(element).display;
             })
-          ).toBe("wrap");
+          ).toBe("grid");
         }
       }
     } finally {
@@ -77,15 +86,13 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
 
       await page.setViewportSize({ height: 1180, width: 820 });
       await page.goto(`/chat/${MAIN_SESSION_KEY}`);
-      await expect(page.locator(".status-pill", { hasText: "Connected" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Manage streams" })).toBeVisible();
 
-      const focusOrder = await captureFocusOrder(page, 5);
+      const focusOrder = await captureFocusOrder(page, 3);
       expect(focusOrder).toEqual([
-        "Streams",
-        "Retry",
-        "Settings",
-        "Message",
-        "Attach files"
+        "Manage streams",
+        "Add attachment",
+        "Message"
       ]);
 
       await focusComposerWithKeyboard(page);

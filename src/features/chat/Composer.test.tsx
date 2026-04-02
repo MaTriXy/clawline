@@ -90,7 +90,7 @@ describe("Composer", () => {
     fireEvent.change(textarea, { target: { value: "Expanded draft" } });
 
     await waitFor(() => {
-      expect(textarea).toHaveStyle({ height: "180px" });
+      expect(textarea).toHaveStyle({ height: "140px" });
     });
 
     textarea.focus();

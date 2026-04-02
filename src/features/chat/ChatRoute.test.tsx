@@ -220,6 +220,7 @@ describe("ChatRoute", () => {
   it("opens settings as an overlay without changing the route", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
+    fireEvent.click(screen.getByRole("button", { name: "Manage streams" }));
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     expect(screen.getByRole("heading", { name: "Appearance and diagnostics" })).toBeInTheDocument();
@@ -231,9 +232,9 @@ describe("ChatRoute", () => {
   it("opens session selection as an overlay without changing the route", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
-    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage streams" }));
 
-    expect(screen.getByRole("heading", { name: "Sessions" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Sessions" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/chat/agent:main:clawline:user_1:main"
     );
@@ -242,7 +243,7 @@ describe("ChatRoute", () => {
   it("opens stream management from the session sheet without changing the route", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
-    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage streams" }));
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
 
     expect(screen.getByRole("heading", { name: "Manage sessions" })).toBeInTheDocument();
@@ -254,11 +255,15 @@ describe("ChatRoute", () => {
   it("disables untrack for built-in adopted sessions", async () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
-    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage streams" }));
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
 
-    const streamManager = await screen.findByLabelText("Manage streams");
-    const globalCard = within(streamManager)
+    const streamManager = await screen.findByRole("heading", {
+      name: "Manage sessions"
+    });
+    const streamManagerPanel = streamManager.closest("aside");
+    expect(streamManagerPanel).not.toBeNull();
+    const globalCard = within(streamManagerPanel as HTMLElement)
       .getByText("agent:main:main")
       .closest(".stream-manager-card");
     expect(globalCard).not.toBeNull();
@@ -289,7 +294,7 @@ describe("ChatRoute", () => {
   it("shows unavailable provisioning state when the user explicitly switches to a non-provisioned session", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
-    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage streams" }));
     fireEvent.click(screen.getByRole("button", { name: /Side Thread/i }));
 
     expect(screen.getByTestId("location")).toHaveTextContent(
