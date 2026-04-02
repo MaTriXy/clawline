@@ -784,21 +784,11 @@ html[data-appearance="light"] {
   transform: translateX(-50%) rotate(45deg);
 }
 
-.session-popover-header,
 .session-popover-footer,
 .session-sheet-card-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-}
-
-.session-popover-header {
-  justify-content: space-between;
-}
-
-.session-popover-copy {
-  margin: 0.35rem 0 0;
-  color: var(--color-text-dim);
 }
 
 .session-popover-list {
@@ -815,6 +805,8 @@ html[data-appearance="light"] {
   text-align: left;
   border-radius: 1.2rem;
   padding: 0.95rem 1rem;
+  border-color: var(--color-border);
+  background: var(--color-panel);
 }
 
 .session-sheet-card-row {
@@ -830,6 +822,40 @@ html[data-appearance="light"] {
   flex-wrap: wrap;
 }
 
+.session-popover-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: min(16rem, 100%);
+  padding: 0.7rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-panel);
+  color: var(--color-text-dim);
+}
+
+.session-popover-filter-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.session-popover-filter input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  padding: 0;
+}
+
+.session-popover-filter input::placeholder {
+  color: var(--color-text-dim);
+}
+
+.session-popover-filter input:focus-visible {
+  outline: none;
+}
+
 .session-popover-actions {
   display: flex;
   align-items: center;
@@ -839,7 +865,20 @@ html[data-appearance="light"] {
 }
 
 .session-popover-status {
-  background: rgba(99, 210, 198, 0.12);
+  justify-self: flex-end;
+  color: var(--color-text-dim);
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+}
+
+.session-sheet-card .stream-status-pill {
+  background: var(--color-panel-soft);
+  color: var(--color-text-dim);
+}
+
+.session-sheet-card.active {
+  border-color: var(--color-border-strong);
+  box-shadow: none;
 }
 
 .drawer-backdrop {
@@ -885,6 +924,10 @@ html[data-appearance="light"] {
   .session-popover-footer,
   .session-popover-actions {
     flex-wrap: wrap;
+  }
+
+  .session-popover-filter {
+    min-width: 100%;
   }
 
   .composer-input-bar {

@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type { StreamRecord } from "../../runtime/chat/chatDomainStore";
 import type { TransportPhase } from "../../runtime/transport/transportMachine";
 import { getSessionProvisioningState } from "../streams/provisioning";
@@ -29,6 +30,18 @@ export function SessionListSheet({
   transportPhase: TransportPhase;
   unreadBySessionKey: Record<string, number>;
 }) {
+  const [filterQuery, setFilterQuery] = useState("");
+  const filteredStreams = useMemo(() => {
+    const normalizedQuery = filterQuery.trim().toLowerCase();
+    if (normalizedQuery.length === 0) {
+      return streams;
+    }
+
+    return streams.filter((stream) =>
+      stream.displayName.toLowerCase().includes(normalizedQuery)
+    );
+  }, [filterQuery, streams]);
+
   if (!isOpen) {
     return null;
   }
@@ -42,18 +55,15 @@ export function SessionListSheet({
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
-        <div className="session-popover-header">
-          <div>
-            <p className="eyebrow">Streams</p>
-            <h2>Chats</h2>
-            <p className="session-popover-copy">Swipe between conversations or pick one here.</p>
-          </div>
-        </div>
         <div className="session-popover-list" data-testid="session-popover-list">
-          {streams.length === 0 ? (
-            <p className="stream-empty">Waiting for provisioned sessions...</p>
+          {filteredStreams.length === 0 ? (
+            <p className="stream-empty">
+              {streams.length === 0
+                ? "Waiting for provisioned sessions..."
+                : "No chats match the filter."}
+            </p>
           ) : (
-            streams.map((stream) => {
+            filteredStreams.map((stream) => {
               const provisioningState = getSessionProvisioningState({
                 hasStream: true,
                 provisionedSessionKeys,
@@ -95,14 +105,24 @@ export function SessionListSheet({
                       </span>
                     </span>
                   </span>
-                  <code>{stream.sessionKey}</code>
                 </button>
               );
             })
           )}
         </div>
         <div className="session-popover-footer">
-          <span className="status-pill session-popover-status">{connectionLabel}</span>
+          <label className="session-popover-filter">
+            <span aria-hidden="true" className="session-popover-filter-icon">
+              ⌕
+            </span>
+            <input
+              aria-label="Filter chats"
+              onChange={(event) => setFilterQuery(event.target.value)}
+              placeholder="Filter…"
+              type="text"
+              value={filterQuery}
+            />
+          </label>
           <div className="session-popover-actions">
             <button
               className="button-secondary"
@@ -136,6 +156,7 @@ export function SessionListSheet({
             </button>
           </div>
         </div>
+        <span className="status-pill session-popover-status">{connectionLabel}</span>
       </aside>
     </div>
   );

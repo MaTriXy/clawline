@@ -339,19 +339,16 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
 
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
     await page.getByRole("button", { name: "Manage streams" }).click();
-    await expect(page.locator(".session-sheet-card").filter({ hasText: mainSessionKey })).toHaveCount(
+    await expect(page.locator(".session-sheet-card").filter({ hasText: "Personal" })).toHaveCount(
       1
     );
-    await expect(page.locator(".session-sheet-card").nth(0)).toContainText(mainSessionKey);
-    await expect(page.locator(".session-sheet-card").nth(1)).toContainText(sideSessionKey);
-    await expect(page.locator(".session-sheet-card").filter({ hasText: sideSessionKey })).toContainText(
-      "Side Thread v2"
+    await expect(page.locator(".session-sheet-card").nth(0)).toContainText("Personal");
+    await expect(page.locator(".session-sheet-card").nth(1)).toContainText("Side Thread v2");
+    await expect(page.locator(".session-sheet-card").filter({ hasText: "Research v2" })).toHaveCount(
+      0
     );
     await expect(
-      page.locator(".session-sheet-card").filter({ hasText: createdSessionKey })
-    ).toHaveCount(0);
-    await expect(
-      page.locator(".session-sheet-card").filter({ hasText: trackableSessionKey })
+      page.locator(".session-sheet-card").filter({ hasText: "External Session" })
     ).toHaveCount(0);
 
     await page.getByTestId("session-popover").getByRole("button", { name: "Manage" }).click();
