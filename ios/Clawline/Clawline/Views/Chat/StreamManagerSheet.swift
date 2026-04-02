@@ -51,14 +51,35 @@ struct StreamManagerSheet: View {
     private let listOuterVerticalPadding: CGFloat = 20
     private let minimumPopoverHeight: CGFloat = 140
     private let minimumPopoverWidth: CGFloat = 280
-    private let idealPopoverWidth: CGFloat = 320
+    private let baselineIdealPopoverWidth: CGFloat = 320
     private let baselineMaximumPopoverWidth: CGFloat = 360
     private let popupCornerRadius: CGFloat = 20
     private let actionBarSeparatorInset: CGFloat = 12
+    private let rowDotDiameter: CGFloat = 8
+    private let rowContentSpacing: CGFloat = 10
+    private let rowTrailingAccessoryReserve: CGFloat = 28
 
     private var maximumPopoverWidth: CGFloat {
         let windowWidth = UIScreen.main.bounds.width
         return max(baselineMaximumPopoverWidth, floor(windowWidth * 0.8))
+    }
+
+    private var idealPopoverWidth: CGFloat {
+        let visibleNames = filteredStreams.map(\.displayName) + filteredPendingCreateRows.map(\.displayName)
+        let titleFont = UIFont.clawline(.subsectionHeader)
+        let longestTitleWidth = visibleNames
+            .map { ceil(($0 as NSString).size(withAttributes: [.font: titleFont]).width) }
+            .max() ?? 0
+        return StreamSelectorLayout.popupWidth(
+            longestItemWidth: longestTitleWidth,
+            minimumPopoverWidth: minimumPopoverWidth,
+            baselineIdealPopoverWidth: baselineIdealPopoverWidth,
+            maximumPopoverWidth: maximumPopoverWidth,
+            rowHorizontalInset: listRowHorizontalInset,
+            rowContentSpacing: rowContentSpacing,
+            leadingDotDiameter: rowDotDiameter,
+            trailingAccessoryReserve: rowTrailingAccessoryReserve
+        )
     }
 
     private var actionBarContentHeight: CGFloat {
@@ -942,6 +963,25 @@ struct TrackPickerSheet: View {
 }
 
 enum StreamSelectorLayout {
+    static func popupWidth(
+        longestItemWidth: CGFloat,
+        minimumPopoverWidth: CGFloat,
+        baselineIdealPopoverWidth: CGFloat,
+        maximumPopoverWidth: CGFloat,
+        rowHorizontalInset: CGFloat,
+        rowContentSpacing: CGFloat,
+        leadingDotDiameter: CGFloat,
+        trailingAccessoryReserve: CGFloat
+    ) -> CGFloat {
+        let chromeWidth = (rowHorizontalInset * 2)
+            + leadingDotDiameter
+            + rowContentSpacing
+            + trailingAccessoryReserve
+        let contentDrivenWidth = longestItemWidth + chromeWidth
+        let idealWidth = max(baselineIdealPopoverWidth, contentDrivenWidth)
+        return min(maximumPopoverWidth, max(minimumPopoverWidth, idealWidth))
+    }
+
     static func filter(streams: [StreamSession], query: String) -> [StreamSession] {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return streams }
