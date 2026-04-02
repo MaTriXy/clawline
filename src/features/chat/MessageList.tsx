@@ -279,64 +279,47 @@ function MessageBubble({
   const isUser = message.role === "user";
 
   return (
-    <div
+    <article
       className={
         isUser
-          ? "message-cluster message-cluster--user"
-          : "message-cluster message-cluster--assistant"
+          ? "message-bubble message-bubble--user"
+          : "message-bubble message-bubble--assistant"
       }
+      data-testid={`message-${message.id}`}
     >
-      {!isUser ? (
+      <header className="message-header">
         <div
           aria-hidden="true"
-          className="message-avatar message-avatar--assistant"
+          className={isUser ? "message-avatar message-avatar--user" : "message-avatar message-avatar--assistant"}
           data-testid={`message-avatar-${message.id}`}
         >
           {senderInitial}
         </div>
-      ) : null}
-      <article
-        className={
-          isUser
-            ? "message-bubble message-bubble--user"
-            : "message-bubble message-bubble--assistant"
-        }
-        data-testid={`message-${message.id}`}
-      >
-        <header className="message-meta">
-          <span>{senderLabel}</span>
-          <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
-        </header>
-        <RichMessageBody content={message.content} contentRef={contentRef} />
-        <MessageLinkCards content={message.content} contentRef={contentRef} />
-        <MessageAttachments
-          attachments={message.attachments}
-          serverUrl={serverUrl}
-          token={token}
-        />
-        {shouldOfferExpandedMessage(message.content) ? (
-          <div className="message-actions">
-            <button className="button-secondary" onClick={onExpand} type="button">
-              Expand
-            </button>
-          </div>
-        ) : null}
-        <footer className="message-status">
-          {message.delivery === "pending" ? "Sending..." : null}
-          {message.delivery === "acked" ? "Accepted by provider" : null}
-          {message.delivery === "failed" ? "Send failed" : null}
-          {message.streaming ? "Streaming..." : null}
-        </footer>
-      </article>
-      {isUser ? (
-        <div
-          aria-hidden="true"
-          className="message-avatar message-avatar--user"
-          data-testid={`message-avatar-${message.id}`}
-        >
-          {senderInitial}
+        <div className="message-header-text">
+          <span className="message-sender-name">{senderLabel}</span>
+          <span className="message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</span>
+        </div>
+      </header>
+      <RichMessageBody content={message.content} contentRef={contentRef} />
+      <MessageLinkCards content={message.content} contentRef={contentRef} />
+      <MessageAttachments
+        attachments={message.attachments}
+        serverUrl={serverUrl}
+        token={token}
+      />
+      {shouldOfferExpandedMessage(message.content) ? (
+        <div className="message-actions">
+          <button className="button-secondary" onClick={onExpand} type="button">
+            Expand
+          </button>
         </div>
       ) : null}
-    </div>
+      <footer className="message-status">
+        {message.delivery === "pending" ? "Sending..." : null}
+        {message.delivery === "acked" ? "Accepted by provider" : null}
+        {message.delivery === "failed" ? "Send failed" : null}
+        {message.streaming ? "Streaming..." : null}
+      </footer>
+    </article>
   );
 }
