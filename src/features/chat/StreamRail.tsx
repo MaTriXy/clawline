@@ -20,7 +20,7 @@ export function StreamRail({
   unreadBySessionKey: Record<string, number>;
 }) {
   return (
-    <nav aria-label="Sessions" className="stream-rail">
+    <nav aria-label="Sessions" className="stream-rail" data-testid="stream-rail">
       <div className="stream-rail-header">
         <div>
           <p className="eyebrow">Sessions</p>
@@ -30,52 +30,55 @@ export function StreamRail({
           Manage
         </button>
       </div>
-      {streams.length === 0 ? (
-        <p className="stream-empty">Waiting for provisioned sessions...</p>
-      ) : (
-        streams.map((stream) => {
-          const provisioningState = getSessionProvisioningState({
-            hasStream: true,
-            provisionedSessionKeys,
-            sessionKey: stream.sessionKey,
-            transportPhase
-          });
+      <div className="stream-rail-list" data-testid="stream-rail-list">
+        {streams.length === 0 ? (
+          <p className="stream-empty">Waiting for provisioned sessions...</p>
+        ) : (
+          streams.map((stream) => {
+            const provisioningState = getSessionProvisioningState({
+              hasStream: true,
+              provisionedSessionKeys,
+              sessionKey: stream.sessionKey,
+              transportPhase
+            });
 
-          return (
-            <button
-              className={
-                stream.sessionKey === activeSessionKey
-                  ? "stream-chip active"
-                  : "stream-chip"
-              }
-              key={stream.sessionKey}
-              onClick={() => onSelectSession(stream.sessionKey)}
-              type="button"
-            >
-              <span className="stream-chip-row">
-                <span>{stream.displayName}</span>
-                <span className="stream-chip-meta">
-                  {typeof unreadBySessionKey[stream.sessionKey] === "number" &&
-                  unreadBySessionKey[stream.sessionKey] > 0 ? (
+            return (
+              <button
+                aria-current={stream.sessionKey === activeSessionKey ? "page" : undefined}
+                className={
+                  stream.sessionKey === activeSessionKey
+                    ? "stream-chip active"
+                    : "stream-chip"
+                }
+                key={stream.sessionKey}
+                onClick={() => onSelectSession(stream.sessionKey)}
+                type="button"
+              >
+                <span className="stream-chip-row">
+                  <span>{stream.displayName}</span>
+                  <span className="stream-chip-meta">
+                    {typeof unreadBySessionKey[stream.sessionKey] === "number" &&
+                    unreadBySessionKey[stream.sessionKey] > 0 ? (
+                      <span
+                        aria-label={`${unreadBySessionKey[stream.sessionKey]} unread messages`}
+                        className="stream-unread-badge"
+                      >
+                        {unreadBySessionKey[stream.sessionKey]}
+                      </span>
+                    ) : null}
                     <span
-                      aria-label={`${unreadBySessionKey[stream.sessionKey]} unread messages`}
-                      className="stream-unread-badge"
+                      className={`stream-status-pill stream-status-pill--${provisioningState}`}
                     >
-                      {unreadBySessionKey[stream.sessionKey]}
+                      {provisioningState}
                     </span>
-                  ) : null}
-                  <span
-                    className={`stream-status-pill stream-status-pill--${provisioningState}`}
-                  >
-                    {provisioningState}
                   </span>
                 </span>
-              </span>
-              <code>{stream.sessionKey}</code>
-            </button>
-          );
-        })
-      )}
+                <code>{stream.sessionKey}</code>
+              </button>
+            );
+          })
+        )}
+      </div>
     </nav>
   );
 }

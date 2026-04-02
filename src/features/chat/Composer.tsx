@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { SessionProvisioningState } from "../streams/provisioning";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
@@ -31,6 +31,7 @@ export function Composer({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const canSend =
     Boolean(sessionKey) &&
@@ -38,6 +39,17 @@ export function Composer({
     provisioningState === "ready" &&
     !isSubmitting &&
     (draft.trim().length > 0 || stagedAttachments.length > 0);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = "0px";
+    const nextHeight = Math.min(Math.max(textarea.scrollHeight, 88), 220);
+    textarea.style.height = `${nextHeight}px`;
+  }, [draft]);
 
   async function submit() {
     if (!sessionKey || !authState.session) {
@@ -90,6 +102,9 @@ export function Composer({
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus({ preventScroll: true });
+    });
 
     try {
       await transportStore.sendMessage({
@@ -165,9 +180,17 @@ export function Composer({
         Message
       </label>
       <textarea
+        aria-keyshortcuts="Enter,Shift+Enter,Escape"
+        enterKeyHint="send"
         id="composer-input"
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.currentTarget.blur();
+            return;
+          }
+
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             void submit();
@@ -191,6 +214,7 @@ export function Composer({
                   : "Waiting for connection"
             : "Select a session"
         }
+        ref={textareaRef}
         rows={3}
         value={draft}
       />

@@ -53,7 +53,7 @@ export function ChatShell({
   unreadBySessionKey: Record<string, number>;
 }) {
   return (
-    <section className="chat-layout">
+    <section className="chat-layout" data-testid="chat-layout">
       <StreamRail
         activeSessionKey={activeSessionKey}
         onOpenStreamManager={onOpenStreamManager}
@@ -63,7 +63,7 @@ export function ChatShell({
         transportPhase={transportPhase}
         unreadBySessionKey={unreadBySessionKey}
       />
-      <main className="chat-panel">
+      <main className="chat-panel" data-testid="chat-panel">
         <header className="chat-header">
           <div>
             <p className="eyebrow">Clawline</p>
