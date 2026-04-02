@@ -41,6 +41,16 @@ test("scroll state restores on stream switch and reload, and unread stream selec
     sessionKey: sideSessionKey,
     attachments: []
   };
+  const liveMainMessage = {
+    type: "message",
+    id: "s_main_live",
+    role: "assistant",
+    content: "Live region target",
+    timestamp: 1_764_320_210_000,
+    streaming: false,
+    sessionKey: mainSessionKey,
+    attachments: []
+  };
 
   const server = createServer();
   const wss = new WebSocketServer({ server, path: "/ws" });
@@ -130,6 +140,49 @@ test("scroll state restores on stream switch and reload, and unread stream selec
       server.listen(port, "127.0.0.1", () => resolve());
     });
 
+    await page.addInitScript(() => {
+      const announcementLog: string[] = [];
+      const seen = new Set<string>();
+
+      function normalize(value: string | null | undefined) {
+        return value?.replace(/\s+/g, " ").trim() ?? "";
+      }
+
+      function recordLiveRegions() {
+        for (const element of document.querySelectorAll<HTMLElement>("[aria-live]")) {
+          const text = normalize(element.textContent);
+          if (!text || seen.has(text)) {
+            continue;
+          }
+
+          seen.add(text);
+          announcementLog.push(text);
+        }
+      }
+
+      const observer = new MutationObserver(() => {
+        recordLiveRegions();
+      });
+
+      const start = () => {
+        observer.observe(document.documentElement, {
+          subtree: true,
+          childList: true,
+          characterData: true
+        });
+        recordLiveRegions();
+      };
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start, { once: true });
+      } else {
+        start();
+      }
+
+      (window as Window & { __clawlineAnnouncementLog?: string[] }).__clawlineAnnouncementLog =
+        announcementLog;
+    });
+
     await page.addInitScript((session) => {
       window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
       window.localStorage.setItem(
@@ -150,6 +203,17 @@ test("scroll state restores on stream switch and reload, and unread stream selec
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
     await expect(page.getByText("Main message 1")).toBeVisible();
     await expect(page.locator(".status-pill", { hasText: "Connected" })).toBeVisible();
+    await expect(page.locator('[data-testid="message-list"][aria-live="polite"]')).toBeVisible();
+    await expect
+      .poll(async () => {
+        return await page.evaluate(() => {
+          return (
+            (window as Window & { __clawlineAnnouncementLog?: string[] })
+              .__clawlineAnnouncementLog ?? []
+          );
+        });
+      })
+      .toContainEqual(expect.stringContaining("Main message 1"));
 
     const messageList = page.getByTestId("message-list");
     await messageList.evaluate((element) => {
@@ -166,6 +230,19 @@ test("scroll state restores on stream switch and reload, and unread stream selec
     await page.getByTestId("scroll-to-bottom-button").click();
     await expect(page.getByTestId("scroll-to-bottom-button")).toHaveCount(0);
     await expect(page.getByText("Main message 90")).toBeVisible();
+
+    activeSocket?.send(JSON.stringify(liveMainMessage));
+    await expect(page.getByText("Live region target")).toBeVisible();
+    await expect
+      .poll(async () => {
+        return await page.evaluate(() => {
+          return (
+            (window as Window & { __clawlineAnnouncementLog?: string[] })
+              .__clawlineAnnouncementLog ?? []
+          );
+        });
+      })
+      .toContainEqual(expect.stringContaining("Live region target"));
 
     activeSocket?.send(JSON.stringify(unreadSideMessage));
     await expect(page.getByLabel("1 unread messages")).toHaveCount(1);

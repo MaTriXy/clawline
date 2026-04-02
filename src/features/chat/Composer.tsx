@@ -169,11 +169,13 @@ export function Composer({
       }}
     >
       <input
+        aria-hidden="true"
         className="sr-only"
         id={fileInputId}
         multiple
         onChange={(event) => appendFiles(Array.from(event.target.files ?? []))}
         ref={fileInputRef}
+        tabIndex={-1}
         type="file"
       />
       <label className="sr-only" htmlFor="composer-input">

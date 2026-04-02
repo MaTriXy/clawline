@@ -78,6 +78,18 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
       await page.goto(`/chat/${MAIN_SESSION_KEY}`);
       await expect(page.locator(".status-pill", { hasText: "Connected" })).toBeVisible();
 
+      const focusOrder = await captureFocusOrder(page, 8);
+      expect(focusOrder).toEqual([
+        "Manage",
+        `Main ready ${MAIN_SESSION_KEY}`,
+        `Side ready ${SIDE_SESSION_KEY}`,
+        "Streams",
+        "Retry",
+        "Settings",
+        "Message",
+        "Attach files"
+      ]);
+
       await focusComposerWithKeyboard(page);
 
       await page.keyboard.type("Line one");
@@ -100,8 +112,8 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
       await expect(page.getByLabel("Message")).not.toBeFocused();
     } finally {
       await close();
-    }
-  });
+  }
+});
 });
 
 const MAIN_SESSION_KEY = "agent:main:clawline:flynn:main";
@@ -270,4 +282,36 @@ async function focusComposerWithKeyboard(page: import("@playwright/test").Page) 
   }
 
   throw new Error("Failed to focus composer input with keyboard navigation");
+}
+
+async function captureFocusOrder(
+  page: import("@playwright/test").Page,
+  steps: number
+) {
+  const labels: string[] = [];
+
+  for (let index = 0; index < steps; index += 1) {
+    await page.keyboard.press("Tab");
+    labels.push(
+      await page.evaluate(() => {
+        const element = document.activeElement as HTMLElement | null;
+        if (!element) {
+          return "<none>";
+        }
+
+        if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+          return element.labels?.[0]?.textContent?.trim() ?? element.id ?? element.tagName;
+        }
+
+        return (
+          element.getAttribute("aria-label") ??
+          element.getAttribute("aria-labelledby") ??
+          element.textContent?.replace(/\s+/g, " ").trim() ??
+          element.tagName
+        );
+      })
+    );
+  }
+
+  return labels.map((label) => label.replace(/(?<=\w)(ready)(?=\w)/g, " ready "));
 }
