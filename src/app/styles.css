@@ -317,6 +317,7 @@ html[data-appearance="light"] body::before {
   border: 0;
   box-shadow: none;
   backdrop-filter: none;
+  touch-action: pan-y;
 }
 
 .session-sheet-card-meta,
