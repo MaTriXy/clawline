@@ -10,6 +10,8 @@ import { MessageLinkCards } from "./MessageLinkCards";
 import { RichMessageBody, shouldOfferExpandedMessage } from "./RichMessageBody";
 import { useVirtualMessageWindow } from "./useVirtualMessageWindow";
 
+type MessageSizeClass = "short" | "medium" | "long";
+
 function getMessageSenderLabel(message: ChatMessageRecord) {
   return message.role === "user" ? "You" : message.sender ?? "Assistant";
 }
@@ -18,6 +20,42 @@ function getMessageSenderInitial(message: ChatMessageRecord) {
   const label = getMessageSenderLabel(message).trim();
   const initial = Array.from(label).find((character) => /\p{Letter}|\p{Number}/u.test(character));
   return (initial ?? "?").toUpperCase();
+}
+
+function analyzeMessagePresentation(message: ChatMessageRecord) {
+  const normalizedContent = message.content.trim();
+  const wordCount = countWords(normalizedContent);
+  const hasMarkdownTable = /\n\|(?:\s*:?-+:?\s*\|)+\s*(?:\n|$)/m.test(normalizedContent);
+  const hasBlockContent =
+    message.attachments.length > 0 ||
+    hasMarkdownTable ||
+    normalizedContent.includes("```") ||
+    normalizedContent.includes("\n\n");
+  const hasLinkPreviewCandidate = /https?:\/\/\S+|\[[^\]]+\]\((https?:\/\/[^)]+)\)/.test(
+    normalizedContent
+  );
+  const sizeClass: MessageSizeClass = hasBlockContent
+    ? "long"
+    : wordCount <= 3
+      ? "short"
+      : wordCount <= 20
+        ? "medium"
+        : "long";
+
+  return {
+    isTruncated: shouldOfferExpandedMessage(message.content),
+    isWide: message.attachments.length > 0 || hasMarkdownTable || hasLinkPreviewCandidate,
+    sizeClass
+  };
+}
+
+function countWords(content: string) {
+  return content
+    .replace(/```[\s\S]*?```/g, " code ")
+    .replace(/\[[^\]]+\]\((https?:\/\/[^)]+)\)/g, " link ")
+    .replace(/[|*_`>#-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean).length;
 }
 
 export function MessageList({
@@ -277,14 +315,22 @@ function MessageBubble({
   const senderLabel = getMessageSenderLabel(message);
   const senderInitial = getMessageSenderInitial(message);
   const isUser = message.role === "user";
+  const presentation = analyzeMessagePresentation(message);
 
   return (
     <article
       className={
-        isUser
-          ? "message-bubble message-bubble--user"
-          : "message-bubble message-bubble--assistant"
+        [
+          "message-bubble",
+          isUser ? "message-bubble--user" : "message-bubble--assistant",
+          `message-bubble--${presentation.sizeClass}`,
+          presentation.isWide ? "message-bubble--wide" : null,
+          presentation.isTruncated ? "message-bubble--truncated" : null
+        ]
+          .filter(Boolean)
+          .join(" ")
       }
+      data-message-size={presentation.sizeClass}
       data-testid={`message-${message.id}`}
     >
       <header className="message-header">
@@ -300,7 +346,16 @@ function MessageBubble({
           <span className="message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</span>
         </div>
       </header>
-      <RichMessageBody content={message.content} contentRef={contentRef} />
+      <RichMessageBody
+        className={[
+          `message-markdown--${presentation.sizeClass}`,
+          presentation.isWide ? "message-markdown--wide" : null
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        content={message.content}
+        contentRef={contentRef}
+      />
       <MessageLinkCards content={message.content} contentRef={contentRef} />
       <MessageAttachments
         attachments={message.attachments}
