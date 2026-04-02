@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import type { ChatMessageRecord } from "../../runtime/chat/chatDomainStore";
 import { ExpandedMessageOverlay } from "./ExpandedMessageOverlay";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageLinkCards } from "./MessageLinkCards";
 import { RichMessageBody, shouldOfferExpandedMessage } from "./RichMessageBody";
+import { useVirtualMessageWindow } from "./useVirtualMessageWindow";
 
 export function MessageList({
   messages
@@ -13,6 +14,12 @@ export function MessageList({
 }) {
   const { state: authState } = useAuthSessionStore();
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
+  const {
+    containerRef,
+    registerMessageHeight,
+    renderedMessages,
+    totalHeight
+  } = useVirtualMessageWindow(messages);
 
   if (messages.length === 0) {
     return (
@@ -28,16 +35,32 @@ export function MessageList({
 
   return (
     <>
-      <section aria-live="polite" className="message-list">
-        {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            onExpand={() => setExpandedMessageId(message.id)}
-            serverUrl={authState.session?.serverUrl}
-            token={authState.session?.token}
-          />
-        ))}
+      <section
+        aria-live="polite"
+        className="message-list"
+        data-testid="message-list"
+        ref={containerRef}
+      >
+        <div
+          className="message-list-virtual-surface"
+          style={{ height: `${Math.max(totalHeight, 0)}px` }}
+        >
+          {renderedMessages.map(({ message, offsetTop }) => (
+            <MeasuredMessageRow
+              key={message.id}
+              messageId={message.id}
+              offsetTop={offsetTop}
+              onHeightChange={registerMessageHeight}
+            >
+              <MessageBubble
+                message={message}
+                onExpand={() => setExpandedMessageId(message.id)}
+                serverUrl={authState.session?.serverUrl}
+                token={authState.session?.token}
+              />
+            </MeasuredMessageRow>
+          ))}
+        </div>
       </section>
       {expandedMessage ? (
         <ExpandedMessageOverlay
@@ -46,6 +69,60 @@ export function MessageList({
         />
       ) : null}
     </>
+  );
+}
+
+function MeasuredMessageRow({
+  children,
+  messageId,
+  offsetTop,
+  onHeightChange
+}: {
+  children: ReactNode;
+  messageId: string;
+  offsetTop: number;
+  onHeightChange: (messageId: string, height: number) => void;
+}) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) {
+      return;
+    }
+
+    function measure() {
+      if (!rowRef.current) {
+        return;
+      }
+
+      onHeightChange(messageId, rowRef.current.getBoundingClientRect().height);
+    }
+
+    measure();
+
+    const resizeObserver =
+      typeof window.ResizeObserver === "function"
+        ? new window.ResizeObserver(() => {
+            measure();
+          })
+        : null;
+
+    resizeObserver?.observe(row);
+
+    return () => {
+      resizeObserver?.disconnect();
+    };
+  }, [messageId, onHeightChange]);
+
+  return (
+    <div
+      className="message-list-row"
+      ref={rowRef}
+      style={{ top: `${offsetTop}px` }}
+    >
+      {children}
+    </div>
   );
 }
 

@@ -362,10 +362,19 @@ html[data-appearance="light"] {
 }
 
 .message-list {
-  padding: 1.25rem;
   overflow: auto;
-  display: grid;
-  gap: 0.9rem;
+  padding: 1.25rem;
+}
+
+.message-list-virtual-surface {
+  position: relative;
+  min-height: 100%;
+}
+
+.message-list-row {
+  position: absolute;
+  left: 0;
+  right: 0;
 }
 
 .provisioning-banner {

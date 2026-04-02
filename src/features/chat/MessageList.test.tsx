@@ -93,6 +93,20 @@ const LINK_MESSAGE: ChatMessageRecord = {
   sender: "Assistant"
 };
 
+function makeMessage(index: number): ChatMessageRecord {
+  return {
+    id: `s_bulk_${index}`,
+    role: index % 3 === 0 ? "user" : "assistant",
+    content: `Message ${index} ${"detail ".repeat(24)}`,
+    timestamp: 1_764_201_300_000 + index,
+    streaming: false,
+    sessionKey: "agent:main:clawline:flynn:main",
+    attachments: [],
+    delivery: "server",
+    sender: index % 3 === 0 ? undefined : "Assistant"
+  };
+}
+
 function renderMessageList(messages: ChatMessageRecord[]) {
   const authStore = createAuthSessionStore();
   authStore.storePairingSession({
@@ -207,5 +221,20 @@ describe("MessageList rich rendering", () => {
       "https://openai.com/research"
     ]);
     expect(linkCards.some((card) => card.href.includes("in-code"))).toBe(false);
+  });
+
+  it("virtualizes large transcripts while keeping deep messages reachable", async () => {
+    renderMessageList(Array.from({ length: 240 }, (_, index) => makeMessage(index + 1)));
+
+    const list = screen.getByTestId("message-list");
+    const initialRows = list.querySelectorAll<HTMLElement>('[data-testid^="message-s_bulk_"]');
+    expect(initialRows.length).toBeGreaterThan(0);
+    expect(initialRows.length).toBeLessThan(30);
+    expect(screen.queryByTestId("message-s_bulk_240")).not.toBeInTheDocument();
+
+    fireEvent.scroll(list, { target: { scrollTop: 100_000 } });
+
+    expect(await screen.findByTestId("message-s_bulk_240")).toBeInTheDocument();
+    expect(screen.queryByTestId("message-s_bulk_1")).not.toBeInTheDocument();
   });
 });
