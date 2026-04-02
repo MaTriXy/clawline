@@ -294,6 +294,7 @@ html[data-appearance="light"] body::before {
 }
 
 .chat-layout {
+  --chat-keyboard-inset: 0px;
   width: 100%;
   max-width: none;
   padding: 0;
@@ -400,9 +401,10 @@ html[data-appearance="light"] body::before {
   overflow: auto;
   height: 100%;
   padding: 1.2rem clamp(0.9rem, 2.5vw, 2rem)
-    calc(11.5rem + env(safe-area-inset-bottom, 0px));
+    calc(11.5rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
   overscroll-behavior: contain;
-  scroll-padding-bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
+  scroll-padding-bottom:
+    calc(10rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
 }
 
 .message-list-virtual-surface {
@@ -463,7 +465,7 @@ html[data-appearance="light"] body::before {
 
 .message-list-affordance-bar {
   position: sticky;
-  bottom: calc(8.4rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(8.4rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
   display: flex;
   justify-content: center;
   margin-top: -4rem;
@@ -713,7 +715,7 @@ html[data-appearance="light"] body::before {
   justify-items: center;
   padding:
     0 0.75rem
-    calc(0.8rem + env(safe-area-inset-bottom, 0px));
+    calc(0.8rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
   pointer-events: none;
   z-index: 4;
 }
@@ -1229,7 +1231,7 @@ html[data-appearance="light"] .session-popover {
     padding:
       1rem
       0.85rem
-      calc(11.75rem + env(safe-area-inset-bottom, 0px));
+      calc(11.75rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
   }
 
   .message-bubble {
@@ -1269,7 +1271,7 @@ html[data-appearance="light"] .session-popover {
   }
 
   .message-list-affordance-bar {
-    bottom: calc(8.1rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(8.1rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
   }
   
   .session-popover {
