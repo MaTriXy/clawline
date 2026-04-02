@@ -207,7 +207,23 @@ export function applyStreamSnapshot(
   state: ChatDomainState,
   streams: StreamSessionPayload[]
 ) {
-  const mergedStreams = mergeStreams([], streams.map(toStreamRecord));
+  if (typeof process === "undefined" || process.env.NODE_ENV !== "production") {
+    console.warn(
+      "clawline applyStreamSnapshot displayNames",
+      streams.map((stream) => ({
+        displayName: stream.displayName,
+        sessionKey: stream.sessionKey
+      }))
+    );
+  }
+
+  const mergedStreams = mergeStreams(
+    [],
+    streams.map((stream) => ({
+      ...toStreamRecord(stream),
+      displayName: stream.displayName
+    }))
+  );
   return {
     ...state,
     streams: mergedStreams
