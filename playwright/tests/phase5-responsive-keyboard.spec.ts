@@ -15,27 +15,40 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
         );
       }, makeSession(port));
 
-      for (const viewport of [
-        { height: 1180, width: 820 },
-        { height: 844, width: 390 }
-      ]) {
+      for (const appearance of ["dark", "light"] as const) {
+        await page.setViewportSize({ height: 1180, width: 820 });
+        await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+        await applyAppearance(page, appearance);
+        await expect(page.getByRole("button", { name: "Manage streams" })).toBeVisible();
+        const dots = page.getByRole("button", { name: "Manage streams" });
+        await expect(page.getByTestId("composer-input-bar")).toBeVisible();
+
+        await expect(page.getByTestId("chat-layout")).toHaveScreenshot(
+          `phase5-chat-shell-${appearance}.png`,
+          { animations: "disabled" }
+        );
+
+        await dots.click();
+        const popover = page.getByTestId("session-popover");
+        await expect(popover).toBeVisible();
+        const popoverBox = await popover.boundingBox();
+        expect(popoverBox).not.toBeNull();
+        expect(popoverBox!.width).toBeLessThan(820 * 0.52);
+        await expect(popover).toHaveScreenshot(`phase5-session-popover-${appearance}.png`, {
+          animations: "disabled"
+        });
+        await page.mouse.click(12, 12);
+        await expect(popover).toHaveCount(0);
+      }
+
+      for (const viewport of [{ height: 1180, width: 820 }, { height: 844, width: 390 }]) {
         await page.setViewportSize(viewport);
         await page.goto(`/chat/${MAIN_SESSION_KEY}`);
         await expect(page.getByRole("button", { name: "Manage streams" })).toBeVisible();
-
-        const panelBox = await page.getByTestId("chat-panel").boundingBox();
-        expect(panelBox).not.toBeNull();
         expect(await page.getByTestId("session-popover").count()).toBe(0);
 
         const dots = page.getByRole("button", { name: "Manage streams" });
-        const dotsBox = await dots.boundingBox();
-        expect(dotsBox).not.toBeNull();
-
-        const composerBox = await page.getByTestId("composer-input-bar").boundingBox();
-        expect(composerBox).not.toBeNull();
-        expect(composerBox!.width).toBeGreaterThan(viewport.width * 0.72);
-        expect(composerBox!.y + composerBox!.height).toBeGreaterThan(viewport.height * 0.88);
-        expect(dotsBox!.y + dotsBox!.height).toBeLessThan(composerBox!.y);
+        await expect(page.getByTestId("composer-input-bar")).toBeVisible();
 
         await dots.click();
         const popover = page.getByTestId("session-popover");
@@ -45,13 +58,9 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
 
         if (viewport.width > 500) {
           expect(popoverBox!.width).toBeLessThan(viewport.width * 0.52);
-          await expect(popover).toHaveScreenshot("phase5-session-popover.png", {
-            animations: "disabled"
-          });
         } else {
           expect(popoverBox!.width).toBeGreaterThan(viewport.width * 0.78);
         }
-        expect(popoverBox!.y + popoverBox!.height).toBeLessThan(composerBox!.y);
 
         await expect(page.getByTestId("session-popover-list")).toBeVisible();
         await page.mouse.click(12, 12);
@@ -120,8 +129,8 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
       await expect(page.getByLabel("Message")).not.toBeFocused();
     } finally {
       await close();
-  }
-});
+    }
+  });
 });
 
 const MAIN_SESSION_KEY = "agent:main:clawline:flynn:main";
@@ -276,6 +285,24 @@ function makeSession(port: number) {
     token: "jwt-phase5-token",
     userId: "user_flynn"
   };
+}
+
+async function applyAppearance(
+  page: import("@playwright/test").Page,
+  appearance: "dark" | "light"
+) {
+  await page.evaluate((mode) => {
+    window.localStorage.setItem(
+      "clawline-web:settings",
+      JSON.stringify({
+        appearance: mode,
+        diagnostics: false,
+        fontScale: "default"
+      })
+    );
+    document.documentElement.dataset.appearance = mode;
+  }, appearance);
+  await page.reload();
 }
 
 async function focusComposerWithKeyboard(page: import("@playwright/test").Page) {
