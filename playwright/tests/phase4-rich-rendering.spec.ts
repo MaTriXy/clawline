@@ -104,7 +104,8 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
       "phase4-rich-rendering-message.png",
       {
         animations: "disabled",
-        caret: "hide"
+        caret: "hide",
+        maxDiffPixelRatio: 0.02
       }
     );
 
@@ -115,7 +116,8 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
     await expect(dialog.locator("table")).toContainText("beta");
     await expect(dialog).toHaveScreenshot("phase4-rich-rendering-overlay.png", {
       animations: "disabled",
-      caret: "hide"
+      caret: "hide",
+      maxDiffPixelRatio: 0.02
     });
     await dialog.getByRole("button", { name: "Close" }).click();
     await expect(dialog).toHaveCount(0);

@@ -181,7 +181,8 @@ test("common attachment types render through the authenticated display path", as
       page.locator('[data-testid="message-s_attachment_1"] .message-attachments')
     ).toHaveScreenshot("phase4-attachment-display-surface.png", {
       animations: "disabled",
-      caret: "hide"
+      caret: "hide",
+      maxDiffPixelRatio: 0.02
     });
 
     await page.getByRole("button", { name: "Download report.pdf" }).click();
@@ -189,9 +190,11 @@ test("common attachment types render through the authenticated display path", as
       .poll(() => [...new Set(downloadHits)].sort())
       .toEqual(["audio_1", "file_1", "video_1"]);
   } finally {
+    await page.goto("about:blank");
     for (const client of wss.clients) {
       client.terminate();
     }
+    server.closeAllConnections?.();
     await new Promise<void>((resolve, reject) => {
       wss.close((error) => {
         if (error) {

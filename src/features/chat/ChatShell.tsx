@@ -1,4 +1,8 @@
-import type { ChatMessageRecord, StreamRecord } from "../../runtime/chat/chatDomainStore";
+import type {
+  ChatMessageRecord,
+  SessionScrollState,
+  StreamRecord
+} from "../../runtime/chat/chatDomainStore";
 import type { TransportPhase } from "../../runtime/transport/transportMachine";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
@@ -11,11 +15,16 @@ export function ChatShell({
   connectionLabel,
   onOpenStreamManager,
   onOpenSettings,
+  onRememberScrollState,
   onRetryConnection,
   onSelectSession,
+  onUnreadAnchorConsumed,
   provisionedSessionKeys,
   provisioningState,
+  rememberedScrollState,
   selectedMessages,
+  selectedSessionKey,
+  selectedUnreadAnchorMessageId,
   streams,
   transportPhase,
   unreadBySessionKey
@@ -25,11 +34,20 @@ export function ChatShell({
   connectionLabel: string;
   onOpenStreamManager: () => void;
   onOpenSettings: () => void;
+  onRememberScrollState: (input: {
+    offsetTop: number;
+    sessionKey: string;
+    stickToBottom: boolean;
+  }) => void;
   onRetryConnection: () => void;
   onSelectSession: (sessionKey: string) => void;
+  onUnreadAnchorConsumed: (messageId: string) => void;
   provisionedSessionKeys: string[];
   provisioningState: SessionProvisioningState;
+  rememberedScrollState?: SessionScrollState;
   selectedMessages: ChatMessageRecord[];
+  selectedSessionKey?: string;
+  selectedUnreadAnchorMessageId?: string | null;
   streams: StreamRecord[];
   transportPhase: TransportPhase;
   unreadBySessionKey: Record<string, number>;
@@ -79,7 +97,14 @@ export function ChatShell({
             This session is unavailable for sending. Switch streams and try again.
           </div>
         ) : null}
-        <MessageList messages={selectedMessages} />
+        <MessageList
+          messages={selectedMessages}
+          onRememberScrollState={onRememberScrollState}
+          onUnreadAnchorConsumed={onUnreadAnchorConsumed}
+          rememberedScrollState={rememberedScrollState}
+          sessionKey={selectedSessionKey}
+          unreadAnchorMessageId={selectedUnreadAnchorMessageId}
+        />
         <Composer
           provisioningState={provisioningState}
           sessionKey={activeSessionKey}

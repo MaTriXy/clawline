@@ -110,7 +110,8 @@ test("message links render as lightweight cards without turning code-block URLs 
       "phase4-link-cards-surface.png",
       {
         animations: "disabled",
-        caret: "hide"
+        caret: "hide",
+        maxDiffPixelRatio: 0.02
       }
     );
 

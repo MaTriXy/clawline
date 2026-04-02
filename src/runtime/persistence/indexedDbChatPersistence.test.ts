@@ -22,6 +22,12 @@ describe("indexedDbChatPersistence", () => {
           lastServerEventId: "s_101"
         }
       },
+      scrollStateBySessionKey: {
+        "agent:main:clawline:user_1:main": {
+          offsetTop: 420,
+          stickToBottom: false
+        }
+      },
       unreadBySessionKey: {
         "agent:main:clawline:user_1:side": 2
       }
@@ -42,6 +48,12 @@ describe("indexedDbChatPersistence", () => {
           lastServerEventId: "s_side_1"
         }
       },
+      scrollStateBySessionKey: {
+        "agent:main:clawline:user_1:side": {
+          offsetTop: 640,
+          stickToBottom: true
+        }
+      },
       unreadBySessionKey: {}
     });
 
@@ -54,6 +66,12 @@ describe("indexedDbChatPersistence", () => {
       replayCursorsBySessionKey: {
         "agent:main:clawline:user_1:main": {
           lastServerEventId: "s_101"
+        }
+      },
+      scrollStateBySessionKey: {
+        "agent:main:clawline:user_1:main": {
+          offsetTop: 420,
+          stickToBottom: false
         }
       },
       unreadBySessionKey: {
@@ -69,6 +87,12 @@ describe("indexedDbChatPersistence", () => {
       replayCursorsBySessionKey: {
         "agent:main:clawline:user_1:side": {
           lastServerEventId: "s_side_1"
+        }
+      },
+      scrollStateBySessionKey: {
+        "agent:main:clawline:user_1:side": {
+          offsetTop: 640,
+          stickToBottom: true
         }
       },
       unreadBySessionKey: {}

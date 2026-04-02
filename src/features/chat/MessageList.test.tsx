@@ -124,6 +124,36 @@ function renderMessageList(messages: ChatMessageRecord[]) {
   );
 }
 
+function renderMessageListWithProps(input: {
+  messages: ChatMessageRecord[];
+  rememberedScrollState?: {
+    offsetTop: number;
+    stickToBottom: boolean;
+  };
+  sessionKey?: string;
+  unreadAnchorMessageId?: string | null;
+}) {
+  const authStore = createAuthSessionStore();
+  authStore.storePairingSession({
+    claimedName: "Desk Browser",
+    deviceId: "browser-device-1",
+    serverUrl: "ws://127.0.0.1:18800/ws",
+    token: "jwt-token",
+    userId: "user_1"
+  });
+
+  return render(
+    <AuthSessionStoreProvider value={authStore}>
+      <MessageList
+        messages={input.messages}
+        rememberedScrollState={input.rememberedScrollState}
+        sessionKey={input.sessionKey}
+        unreadAnchorMessageId={input.unreadAnchorMessageId}
+      />
+    </AuthSessionStoreProvider>
+  );
+}
+
 const originalCreateObjectUrl = URL.createObjectURL;
 const originalRevokeObjectUrl = URL.revokeObjectURL;
 
@@ -236,5 +266,80 @@ describe("MessageList rich rendering", () => {
 
     expect(await screen.findByTestId("message-s_bulk_240")).toBeInTheDocument();
     expect(screen.queryByTestId("message-s_bulk_1")).not.toBeInTheDocument();
+  });
+
+  it("restores persisted scroll position for the selected session", async () => {
+    renderMessageListWithProps({
+      messages: Array.from({ length: 240 }, (_, index) => makeMessage(index + 1)),
+      rememberedScrollState: {
+        offsetTop: 100_000,
+        stickToBottom: false
+      },
+      sessionKey: "agent:main:clawline:flynn:main"
+    });
+
+    expect(await screen.findByTestId("message-s_bulk_240")).toBeInTheDocument();
+    expect(screen.queryByTestId("message-s_bulk_1")).not.toBeInTheDocument();
+  });
+
+  it("anchors to the first unread message before unread clears", async () => {
+    renderMessageListWithProps({
+      messages: Array.from({ length: 240 }, (_, index) => makeMessage(index + 1)),
+      sessionKey: "agent:main:clawline:flynn:main",
+      unreadAnchorMessageId: "s_bulk_200"
+    });
+
+    expect(await screen.findByTestId("message-s_bulk_200")).toBeInTheDocument();
+    expect(screen.queryByTestId("message-s_bulk_1")).not.toBeInTheDocument();
+  });
+
+  it("anchors when unread state arrives after initial session restoration", async () => {
+    const authStore = createAuthSessionStore();
+    authStore.storePairingSession({
+      claimedName: "Desk Browser",
+      deviceId: "browser-device-1",
+      serverUrl: "ws://127.0.0.1:18800/ws",
+      token: "jwt-token",
+      userId: "user_1"
+    });
+    const onUnreadAnchorConsumed = vi.fn();
+    const messages = Array.from({ length: 240 }, (_, index) => makeMessage(index + 1));
+
+    const view = render(
+      <AuthSessionStoreProvider value={authStore}>
+        <MessageList
+          messages={messages}
+          onUnreadAnchorConsumed={onUnreadAnchorConsumed}
+          sessionKey="agent:main:clawline:flynn:main"
+          unreadAnchorMessageId={null}
+        />
+      </AuthSessionStoreProvider>
+    );
+
+    view.rerender(
+      <AuthSessionStoreProvider value={authStore}>
+        <MessageList
+          messages={messages}
+          onUnreadAnchorConsumed={onUnreadAnchorConsumed}
+          sessionKey="agent:main:clawline:flynn:main"
+          unreadAnchorMessageId="s_bulk_200"
+        />
+      </AuthSessionStoreProvider>
+    );
+
+    expect(await screen.findByTestId("message-s_bulk_200")).toBeInTheDocument();
+    expect(onUnreadAnchorConsumed).toHaveBeenCalledWith("s_bulk_200");
+  });
+
+  it("shows a jump-to-latest affordance when scrolled away from bottom", async () => {
+    renderMessageListWithProps({
+      messages: Array.from({ length: 240 }, (_, index) => makeMessage(index + 1)),
+      sessionKey: "agent:main:clawline:flynn:main"
+    });
+
+    const list = screen.getByTestId("message-list");
+    fireEvent.scroll(list, { target: { scrollTop: 20_000 } });
+
+    expect(await screen.findByTestId("scroll-to-bottom-button")).toBeInTheDocument();
   });
 });

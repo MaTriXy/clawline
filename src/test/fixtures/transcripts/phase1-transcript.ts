@@ -31,6 +31,7 @@ export const phase1TranscriptFixture: ChatDomainSnapshot = {
   pendingMessages: {},
   provisionedSessionKeys: ["agent:main:clawline:user_1:main"],
   replayCursorsBySessionKey: {},
+  scrollStateBySessionKey: {},
   streams: [
     {
       sessionKey: "agent:main:clawline:user_1:main",

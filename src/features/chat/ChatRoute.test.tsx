@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatRoute } from "./ChatRoute";
@@ -257,7 +257,7 @@ describe("ChatRoute", () => {
     ).toBeDisabled();
   });
 
-  it("clears unread state when the URL-selected session becomes active", () => {
+  it("clears unread state when the URL-selected session becomes active", async () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:side", {
       sessionKeys: [
         "agent:main:clawline:user_1:main",
@@ -267,7 +267,10 @@ describe("ChatRoute", () => {
     });
 
     expect(screen.getByText("Side thread")).toBeInTheDocument();
-    expect(screen.queryByLabelText("1 unread messages")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("1 unread messages")).not.toBeInTheDocument();
+    });
   });
 
   it("shows unavailable provisioning state when the user explicitly switches to a non-provisioned session", () => {

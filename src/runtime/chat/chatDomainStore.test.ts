@@ -420,6 +420,38 @@ describe("chatDomainStore", () => {
     });
   });
 
+  it("does not rewrite replay cursors when a session is already read at the tail", () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+
+    store.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_main_1",
+        role: "assistant",
+        content: "Main",
+        timestamp: 100,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    });
+    store.markSessionRead("agent:main:clawline:user_1:main");
+
+    const firstCursor =
+      store.getState().replayCursorsBySessionKey["agent:main:clawline:user_1:main"];
+
+    store.markSessionRead("agent:main:clawline:user_1:main");
+
+    expect(
+      store.getState().replayCursorsBySessionKey["agent:main:clawline:user_1:main"]
+    ).toBe(firstCursor);
+  });
+
   it("tracks per-stream replay cursors independently and preserves them across hydrate", async () => {
     const store = createChatDomainStore({
       persistence: createMemoryChatPersistence()
@@ -480,6 +512,50 @@ describe("chatDomainStore", () => {
       "agent:main:clawline:user_1:side": {
         lastReadMessageId: null,
         lastServerEventId: "s_side_1"
+      }
+    });
+  });
+
+  it("persists per-session scroll state across hydrate", async () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+
+    store.rememberSessionScrollState({
+      offsetTop: 640.4,
+      sessionKey: "agent:main:clawline:user_1:main",
+      stickToBottom: false
+    });
+    store.rememberSessionScrollState({
+      offsetTop: 0,
+      sessionKey: "agent:main:clawline:user_1:side",
+      stickToBottom: true
+    });
+
+    expect(store.getState().scrollStateBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": {
+        offsetTop: 640,
+        stickToBottom: false
+      },
+      "agent:main:clawline:user_1:side": {
+        offsetTop: 0,
+        stickToBottom: true
+      }
+    });
+
+    const rehydratedStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence(store.getState())
+    });
+    await waitForHydration(rehydratedStore);
+
+    expect(rehydratedStore.getState().scrollStateBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": {
+        offsetTop: 640,
+        stickToBottom: false
+      },
+      "agent:main:clawline:user_1:side": {
+        offsetTop: 0,
+        stickToBottom: true
       }
     });
   });

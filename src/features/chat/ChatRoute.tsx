@@ -16,6 +16,9 @@ export function ChatRoute() {
   const { state: transportState, store: transportStore } = useTransportMachine();
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [isStreamManagerOpen, setStreamManagerOpen] = useState(false);
+  const [selectedUnreadAnchorMessageId, setSelectedUnreadAnchorMessageId] = useState<
+    string | null
+  >(null);
   const [bootRequestedSessionKey, setBootRequestedSessionKey] = useState(
     params.sessionKey ?? null
   );
@@ -45,8 +48,23 @@ export function ChatRoute() {
   );
 
   useEffect(() => {
-    chatStore.markSessionRead(selectedSessionKey);
-  }, [chatStore, selectedSessionKey]);
+    if (!selectedSessionKey) {
+      return;
+    }
+
+    const unreadAnchor =
+      chatState.firstUnreadMessageIdBySessionKey[selectedSessionKey] ?? null;
+
+    setSelectedUnreadAnchorMessageId(unreadAnchor);
+
+    if (!unreadAnchor) {
+      chatStore.markSessionRead(selectedSessionKey);
+    }
+  }, [
+    chatState.firstUnreadMessageIdBySessionKey,
+    chatStore,
+    selectedSessionKey
+  ]);
 
   useEffect(() => {
     if (!bootRequestedSessionKey) {
@@ -119,10 +137,26 @@ export function ChatRoute() {
         }
         onOpenStreamManager={() => setStreamManagerOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onRememberScrollState={(input) => chatStore.rememberSessionScrollState(input)}
         provisioningState={provisioningState}
         onRetryConnection={() => transportStore.retryNow()}
         onSelectSession={(sessionKey) => navigate(`/chat/${sessionKey}`)}
+        onUnreadAnchorConsumed={(messageId) => {
+          if (!selectedSessionKey || selectedUnreadAnchorMessageId !== messageId) {
+            return;
+          }
+
+          chatStore.markSessionRead(selectedSessionKey);
+          setSelectedUnreadAnchorMessageId(null);
+        }}
+        rememberedScrollState={
+          selectedSessionKey
+            ? chatState.scrollStateBySessionKey[selectedSessionKey]
+            : undefined
+        }
         selectedMessages={selectedMessages}
+        selectedSessionKey={selectedSessionKey}
+        selectedUnreadAnchorMessageId={selectedUnreadAnchorMessageId}
         provisionedSessionKeys={chatState.provisionedSessionKeys}
         streams={chatState.streams}
         transportPhase={transportState.phase}

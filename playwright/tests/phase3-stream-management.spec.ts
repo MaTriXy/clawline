@@ -404,9 +404,11 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
         .getByRole("button", { name: "Track" })
     ).toBeVisible();
   } finally {
+    await page.goto("about:blank");
     for (const client of wss.clients) {
       client.terminate();
     }
+    server.closeAllConnections?.();
     await new Promise<void>((resolve, reject) => {
       wss.close((error) => {
         if (error) {
