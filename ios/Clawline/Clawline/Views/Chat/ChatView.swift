@@ -1334,21 +1334,13 @@ struct ChatView: View {
         }
     }
 
-    private func inputBarMaxWidth(bottomSafeAreaInset: CGFloat) -> CGFloat? {
-        guard horizontalSizeClass != .compact else { return nil }
-        let themeMetrics = ChatFlowTheme.Metrics(isCompact: false)
-        let textWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: themeMetrics.bodyFontSize)
-        let metrics = MessageInputBarMetrics(
-            horizontalSizeClass: .regular,
+    private func inputFieldWidthCap(containerWidth: CGFloat, bottomSafeAreaInset: CGFloat) -> CGFloat {
+        MessageInputBar.renderedInputFieldWidthCap(
+            containerWidth: containerWidth,
+            isCompact: horizontalSizeClass == .compact,
             bottomSafeAreaInset: bottomSafeAreaInset,
-            deviceCornerRadius: 0,
             isFieldFocused: isInputFocused
         )
-        let chromeWidth = (themeMetrics.inputBarPaddingHorizontal * 2)
-            + metrics.inputBarHeight
-            + metrics.inputBarHeight
-            + (MessageInputBarMetrics.elementSpacing * 2)
-        return textWidth + chromeWidth
     }
 
     private func messageList(topInset: CGFloat,
@@ -1591,12 +1583,9 @@ struct ChatView: View {
         let userTailSessionKeys = Set(
             effectiveSessionKeys.filter { viewModel.lastMessageIsUser(for: $0) }
         )
-        let isCompact = horizontalSizeClass == .compact
-        let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-        let availableWidth = max(0, containerWidth - (metrics.inputBarPaddingHorizontal * 2))
-        let pageDotsMaxWidth = min(
-            availableWidth,
-            inputBarMaxWidth(bottomSafeAreaInset: bottomSafeAreaInset) ?? availableWidth
+        let pageDotsMaxWidth = inputFieldWidthCap(
+            containerWidth: containerWidth,
+            bottomSafeAreaInset: bottomSafeAreaInset
         )
         return StreamPageDotsView(
             sessionKeys: effectiveSessionKeys,
