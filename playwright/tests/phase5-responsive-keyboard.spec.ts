@@ -141,6 +141,111 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
       await close();
     }
   });
+
+  test("sending with a mobile keyboard inset keeps the newest bubbles above the keyboard", async ({ page }) => {
+    const { close, receivedClientMessages, port } = await startPhase5Server();
+
+    try {
+      await page.addInitScript(() => {
+        const listeners = new Map<string, Set<EventListener>>();
+        let height = window.innerHeight;
+        let offsetTop = 0;
+
+        const visualViewport = {
+          get width() {
+            return window.innerWidth;
+          },
+          get height() {
+            return height;
+          },
+          get offsetTop() {
+            return offsetTop;
+          },
+          addEventListener(type: string, listener: EventListener) {
+            const bucket = listeners.get(type) ?? new Set<EventListener>();
+            bucket.add(listener);
+            listeners.set(type, bucket);
+          },
+          removeEventListener(type: string, listener: EventListener) {
+            listeners.get(type)?.delete(listener);
+          }
+        };
+
+        const dispatch = (type: string) => {
+          const event = new Event(type);
+          for (const listener of listeners.get(type) ?? []) {
+            listener.call(visualViewport, event);
+          }
+        };
+
+        Object.defineProperty(window, "visualViewport", {
+          configurable: true,
+          get() {
+            return visualViewport;
+          }
+        });
+
+        Object.assign(window, {
+          __setVisualViewportInsetForTest(nextInset: number) {
+            height = Math.max(0, window.innerHeight - nextInset);
+            offsetTop = 0;
+            dispatch("resize");
+            dispatch("scroll");
+          }
+        });
+      });
+
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.setViewportSize({ height: 844, width: 390 });
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+      const composer = page.getByLabel("Message");
+      await composer.click();
+      await setVisualViewportInset(page, 280);
+
+      await expect
+        .poll(() => readKeyboardInset(page))
+        .toBe("280px");
+
+      await composer.fill("Latest bubble stays visible");
+      await page.keyboard.press("Enter");
+
+      await expect
+        .poll(() => receivedClientMessages.at(-1)?.content ?? null)
+        .toBe("Latest bubble stays visible");
+
+      await setVisualViewportInset(page, 0);
+      await setVisualViewportInset(page, 280);
+
+      await expect(composer).toBeFocused();
+      await expect(composer).toHaveValue("");
+      await expect
+        .poll(() => readKeyboardInset(page))
+        .toBe("280px");
+      await expect(page.getByText("Latest bubble stays visible")).toBeVisible();
+
+      await expect
+        .poll(async () => {
+          const messageBox = await page.locator(".message-bubble--user").last().boundingBox();
+          const composerBox = await page.getByTestId("composer-input-bar").boundingBox();
+
+          if (!messageBox || !composerBox) {
+            return null;
+          }
+
+          return Math.round(composerBox.y - (messageBox.y + messageBox.height));
+        })
+        .toBeGreaterThanOrEqual(8);
+    } finally {
+      await close();
+    }
+  });
 });
 
 const MAIN_SESSION_KEY = "agent:main:clawline:flynn:main";
@@ -351,6 +456,25 @@ async function swipeChatPanel(
     });
     element.dispatchEvent(end);
   }, input);
+}
+
+async function readKeyboardInset(page: import("@playwright/test").Page) {
+  return page.getByTestId("chat-layout").evaluate((element) => {
+    return window.getComputedStyle(element).getPropertyValue("--chat-keyboard-inset").trim();
+  });
+}
+
+async function setVisualViewportInset(
+  page: import("@playwright/test").Page,
+  inset: number
+) {
+  await page.evaluate((nextInset) => {
+    (
+      window as typeof window & {
+        __setVisualViewportInsetForTest?: (value: number) => void;
+      }
+    ).__setVisualViewportInsetForTest?.(nextInset);
+  }, inset);
 }
 
 async function captureFocusOrder(

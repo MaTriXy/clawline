@@ -26,7 +26,8 @@ export function MessageList({
   onUnreadAnchorConsumed,
   rememberedScrollState,
   sessionKey,
-  unreadAnchorMessageId
+  unreadAnchorMessageId,
+  viewportInsetBottom = 0
 }: {
   messages: ChatMessageRecord[];
   onRememberScrollState?: (input: {
@@ -38,6 +39,7 @@ export function MessageList({
   rememberedScrollState?: SessionScrollState;
   sessionKey?: string;
   unreadAnchorMessageId?: string | null;
+  viewportInsetBottom?: number;
 }) {
   const { state: authState } = useAuthSessionStore();
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
@@ -120,6 +122,29 @@ export function MessageList({
     consumedUnreadAnchorRef.current = unreadAnchorKey;
     onUnreadAnchorConsumed?.(unreadAnchorMessageId);
   }, [onUnreadAnchorConsumed, scrollToMessage, sessionKey, unreadAnchorMessageId]);
+
+  useEffect(() => {
+    if (viewportInsetBottom <= 0) {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+    const isComposerFocused =
+      activeElement instanceof HTMLTextAreaElement &&
+      activeElement.id === "composer-input";
+
+    if (!isComposerFocused && !isAtBottom) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollToBottom();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [isAtBottom, scrollToBottom, viewportInsetBottom]);
 
   if (messages.length === 0) {
     return (

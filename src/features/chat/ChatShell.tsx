@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type {
   ChatMessageRecord,
   SessionScrollState,
@@ -10,6 +10,7 @@ import { MessageList } from "./MessageList";
 import { SessionListSheet } from "./SessionListSheet";
 import { StreamPageDots } from "./StreamPageDots";
 import type { SessionProvisioningState } from "../streams/provisioning";
+import { computeKeyboardInset } from "./visualViewportInset";
 
 export function ChatShell({
   activeSessionKey,
@@ -58,6 +59,7 @@ export function ChatShell({
   transportPhase: TransportPhase;
   unreadBySessionKey: Record<string, number>;
 }) {
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const touchStartRef = useRef<{
     active: boolean;
     x: number;
@@ -67,6 +69,7 @@ export function ChatShell({
     x: 0,
     y: 0
   });
+  const baseViewportHeightRef = useRef(0);
   const unreadSessionKeys = new Set(
     Object.entries(unreadBySessionKey)
       .filter(([, unreadCount]) => unreadCount > 0)
@@ -74,8 +77,68 @@ export function ChatShell({
   );
   const orderedSessionKeys = streams.map((stream) => stream.sessionKey);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    function syncKeyboardInset() {
+      const visualViewport = window.visualViewport;
+      const viewportHeight = Math.max(
+        window.innerHeight,
+        document.documentElement.clientHeight,
+        visualViewport?.height ?? 0
+      );
+
+      baseViewportHeightRef.current = Math.max(
+        baseViewportHeightRef.current,
+        viewportHeight,
+        (visualViewport?.height ?? 0) + (visualViewport?.offsetTop ?? 0)
+      );
+
+      const activeElement = document.activeElement;
+      const isComposerFocused =
+        activeElement instanceof HTMLTextAreaElement &&
+        activeElement.id === "composer-input";
+
+      setKeyboardInset(
+        computeKeyboardInset({
+          baseViewportHeight: baseViewportHeightRef.current || viewportHeight,
+          isComposerFocused,
+          viewportHeight: visualViewport?.height ?? viewportHeight,
+          viewportOffsetTop: visualViewport?.offsetTop ?? 0
+        })
+      );
+    }
+
+    syncKeyboardInset();
+
+    const visualViewport = window.visualViewport;
+    visualViewport?.addEventListener("resize", syncKeyboardInset);
+    visualViewport?.addEventListener("scroll", syncKeyboardInset);
+    window.addEventListener("focusin", syncKeyboardInset);
+    window.addEventListener("focusout", syncKeyboardInset);
+    window.addEventListener("resize", syncKeyboardInset);
+
+    return () => {
+      visualViewport?.removeEventListener("resize", syncKeyboardInset);
+      visualViewport?.removeEventListener("scroll", syncKeyboardInset);
+      window.removeEventListener("focusin", syncKeyboardInset);
+      window.removeEventListener("focusout", syncKeyboardInset);
+      window.removeEventListener("resize", syncKeyboardInset);
+    };
+  }, []);
+
+  const layoutStyle = {
+    "--chat-keyboard-inset": `${keyboardInset}px`
+  } as CSSProperties;
+
   return (
-    <section className="chat-layout" data-testid="chat-layout">
+    <section
+      className="chat-layout"
+      data-testid="chat-layout"
+      style={layoutStyle}
+    >
       <main
         className="chat-panel"
         data-testid="chat-panel"
@@ -149,6 +212,7 @@ export function ChatShell({
           messages={selectedMessages}
           onRememberScrollState={onRememberScrollState}
           onUnreadAnchorConsumed={onUnreadAnchorConsumed}
+          viewportInsetBottom={keyboardInset}
           rememberedScrollState={rememberedScrollState}
           sessionKey={selectedSessionKey}
           unreadAnchorMessageId={selectedUnreadAnchorMessageId}
