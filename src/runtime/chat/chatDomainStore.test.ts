@@ -21,6 +21,17 @@ describe("chatDomainStore", () => {
     });
 
     store.enqueueOptimisticMessage({
+      attachments: [
+        {
+          type: "asset",
+          assetId: "a_upload_1",
+          metadata: {
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+            size: 7
+          }
+        }
+      ],
       content: "Hello",
       deviceId: "browser-device-1",
       id: "c_1",
@@ -40,7 +51,12 @@ describe("chatDomainStore", () => {
           streaming: false,
           deviceId: "browser-device-1",
           sessionKey: "agent:main:clawline:user_1:main",
-          attachments: []
+          attachments: [
+            {
+              type: "asset",
+              assetId: "a_upload_1"
+            }
+          ]
         },
         selectedSessionKey: "agent:main:clawline:user_1:main",
         source: "live"
@@ -53,6 +69,17 @@ describe("chatDomainStore", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].id).toBe("s_1");
     expect(messages[0].delivery).toBe("server");
+    expect(messages[0].attachments).toEqual([
+      {
+        type: "asset",
+        assetId: "a_upload_1",
+        metadata: {
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          size: 7
+        }
+      }
+    ]);
   });
 
   it("updates streaming assistant replies in place", () => {
@@ -393,6 +420,38 @@ describe("chatDomainStore", () => {
     });
   });
 
+  it("does not rewrite replay cursors when a session is already read at the tail", () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+
+    store.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_main_1",
+        role: "assistant",
+        content: "Main",
+        timestamp: 100,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    });
+    store.markSessionRead("agent:main:clawline:user_1:main");
+
+    const firstCursor =
+      store.getState().replayCursorsBySessionKey["agent:main:clawline:user_1:main"];
+
+    store.markSessionRead("agent:main:clawline:user_1:main");
+
+    expect(
+      store.getState().replayCursorsBySessionKey["agent:main:clawline:user_1:main"]
+    ).toBe(firstCursor);
+  });
+
   it("tracks per-stream replay cursors independently and preserves them across hydrate", async () => {
     const store = createChatDomainStore({
       persistence: createMemoryChatPersistence()
@@ -457,12 +516,57 @@ describe("chatDomainStore", () => {
     });
   });
 
+  it("persists per-session scroll state across hydrate", async () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+
+    store.rememberSessionScrollState({
+      offsetTop: 640.4,
+      sessionKey: "agent:main:clawline:user_1:main",
+      stickToBottom: false
+    });
+    store.rememberSessionScrollState({
+      offsetTop: 0,
+      sessionKey: "agent:main:clawline:user_1:side",
+      stickToBottom: true
+    });
+
+    expect(store.getState().scrollStateBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": {
+        offsetTop: 640,
+        stickToBottom: false
+      },
+      "agent:main:clawline:user_1:side": {
+        offsetTop: 0,
+        stickToBottom: true
+      }
+    });
+
+    const rehydratedStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence(store.getState())
+    });
+    await waitForHydration(rehydratedStore);
+
+    expect(rehydratedStore.getState().scrollStateBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": {
+        offsetTop: 640,
+        stickToBottom: false
+      },
+      "agent:main:clawline:user_1:side": {
+        offsetTop: 0,
+        stickToBottom: true
+      }
+    });
+  });
+
   it("drops persisted/local transcript state on authoritative replay reset", async () => {
     const store = createChatDomainStore({
       persistence: createMemoryChatPersistence({
         ...phase1TranscriptFixture,
         pendingMessages: {
           c_pending: {
+            attachments: [],
             content: "stale pending",
             createdAt: 1704672000100,
             sessionKey: "agent:main:clawline:user_1:main"

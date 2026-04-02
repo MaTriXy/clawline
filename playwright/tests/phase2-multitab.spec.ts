@@ -160,6 +160,7 @@ test("two tabs keep independent sockets, routing, and unread state", async ({
     await expect.poll(() => authCount).toBe(2);
     await expect.poll(() => sockets.size).toBe(2);
 
+    await secondPage.getByRole("button", { name: "Streams" }).click();
     await secondPage.getByRole("button", { name: /Side thread/ }).click();
     await expect(secondPage).toHaveURL(
       new RegExp(`/chat/${escapeForRegExp(sideSessionKey)}$`)
@@ -180,9 +181,9 @@ test("two tabs keep independent sockets, routing, and unread state", async ({
     });
 
     await expect(secondPage.getByText("Side channel ping")).toBeVisible();
-    await expect(
-      page.getByLabel("1 unread messages").locator("..")
-    ).toContainText("1");
+    await page.getByRole("button", { name: "Streams" }).click();
+    await expect(page.getByLabel("1 unread messages").locator("..")).toContainText("1");
+    await page.getByRole("button", { name: "Close" }).click();
 
     await page.getByRole("textbox", { name: "Message" }).fill("hello from tab one");
     await page.getByRole("button", { name: "Send" }).click();
@@ -373,9 +374,8 @@ test("reload resumes multi-session state with per-stream replay cursors", async 
       );
     }
 
-    await expect(
-      page.getByLabel("1 unread messages").locator("..")
-    ).toContainText("1");
+    await page.getByRole("button", { name: "Streams" }).click();
+    await expect(page.getByLabel("1 unread messages").locator("..")).toContainText("1");
     await page.getByRole("button", { name: /Side thread/ }).click();
     await expect(page).toHaveURL(
       new RegExp(`/chat/${escapeForRegExp(sideSessionKey)}$`)
@@ -387,6 +387,7 @@ test("reload resumes multi-session state with per-stream replay cursors", async 
     await expect(page).toHaveURL(
       new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`)
     );
+    await page.getByRole("button", { name: "Streams" }).click();
     await expect(page.getByRole("button", { name: /Main/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /Side thread/ })).toBeVisible();
 

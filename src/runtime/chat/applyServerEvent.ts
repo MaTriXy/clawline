@@ -34,7 +34,10 @@ export function applyServerMessage(
       streaming: message.streaming,
       timestamp: message.timestamp,
       sender: message.sender,
-      attachments: message.attachments,
+      attachments: mergeServerAttachments(
+        message.attachments,
+        currentMessages[existingIndex].attachments
+      ),
       deviceId: message.deviceId,
       delivery: "server" as const
     };
@@ -62,7 +65,8 @@ export function applyServerMessage(
       (entry) =>
         entry.delivery !== "server" &&
         entry.role === "user" &&
-        entry.content === message.content
+        entry.content === message.content &&
+        attachmentsMatch(entry.attachments, message.attachments)
     );
 
     if (optimisticIndex >= 0) {
@@ -73,7 +77,7 @@ export function applyServerMessage(
         timestamp: message.timestamp,
         streaming: message.streaming,
         sender: message.sender,
-        attachments: message.attachments,
+        attachments: mergeServerAttachments(message.attachments, optimistic.attachments),
         deviceId: message.deviceId,
         delivery: "server"
       };
@@ -160,6 +164,43 @@ function shouldMarkUnread(
     message.role === "assistant" &&
     sessionKey !== selectedSessionKey
   );
+}
+
+function attachmentsMatch(
+  current: ChatMessageRecord["attachments"],
+  incoming: ServerMessagePayload["attachments"]
+) {
+  if (current.length !== incoming.length) {
+    return false;
+  }
+
+  return current.every((attachment, index) => {
+    const next = incoming[index];
+    return (
+      attachment.type === next.type &&
+      attachment.assetId === next.assetId &&
+      attachment.data === next.data &&
+      attachment.mimeType === next.mimeType
+    );
+  });
+}
+
+function mergeServerAttachments(
+  incoming: ServerMessagePayload["attachments"],
+  existing: ChatMessageRecord["attachments"]
+) {
+  return incoming.map((attachment, index) => {
+    const prior = existing[index];
+    if (!prior) {
+      return attachment;
+    }
+
+    return {
+      ...attachment,
+      metadata: attachment.metadata ?? prior.metadata,
+      mimeType: attachment.mimeType ?? prior.mimeType
+    };
+  });
 }
 
 export function applyStreamSnapshot(

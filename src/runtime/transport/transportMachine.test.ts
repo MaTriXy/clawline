@@ -47,6 +47,24 @@ class FakeBrowserRuntime {
     this.pendingTimeouts.set(timeoutId, listener);
     return timeoutId;
   }
+
+  runNextTimeout() {
+    const next = this.pendingTimeouts.entries().next();
+    if (next.done) {
+      return false;
+    }
+
+    const [timeoutId, listener] = next.value;
+    this.pendingTimeouts.delete(timeoutId);
+    listener();
+    return true;
+  }
+
+  runAllTimeouts() {
+    while (this.runNextTimeout()) {
+      continue;
+    }
+  }
 }
 
 function seedSession() {
@@ -169,6 +187,66 @@ describe("transportMachine", () => {
     expect(transport.getState().phase).toBe("live");
   });
 
+  it("chunks large replay bursts through browser timeouts before entering live", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const browserRuntime = new FakeBrowserRuntime();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      browserRuntime,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        userId: "user_1",
+        replayCount: 30,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    for (let index = 0; index < 30; index += 1) {
+      factory.sockets[0].emitMessage(
+        JSON.stringify({
+          type: "message",
+          id: `s_${index}`,
+          role: "assistant",
+          content: `Replay ${index}`,
+          timestamp: index,
+          streaming: false,
+          sessionKey: "agent:main:clawline:user_1:main",
+          attachments: []
+        })
+      );
+    }
+
+    expect(chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"])
+      .toBeUndefined();
+    expect(transport.getState().phase).toBe("replaying");
+
+    browserRuntime.runNextTimeout();
+
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toHaveLength(24);
+    expect(transport.getState().phase).toBe("replaying");
+
+    browserRuntime.runAllTimeouts();
+
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toHaveLength(30);
+    expect(transport.getState().phase).toBe("live");
+  });
+
   it("waits for provisioning before entering live when auth result has no session inventory", async () => {
     const authStore = seedSession();
     const chatStore = createChatDomainStore({
@@ -212,6 +290,7 @@ describe("transportMachine", () => {
         ...phase1TranscriptFixture,
         pendingMessages: {
           c_stale: {
+            attachments: [],
             content: "stale pending",
             createdAt: 1704672000100,
             sessionKey: "agent:main:clawline:user_1:main"
@@ -518,6 +597,64 @@ describe("transportMachine", () => {
 
     expect(factory.sockets).toHaveLength(1);
     expect(transport.getState().phase).toBe("live");
+  });
+
+  it("serializes attachment payloads through the live socket send path", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    await transport.sendMessage({
+      attachments: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "aW1hZ2U="
+        },
+        {
+          type: "asset",
+          assetId: "a_upload_1"
+        }
+      ],
+      content: "hello",
+      id: "c_101",
+      sessionKey: "agent:main:clawline:user_1:main"
+    });
+
+    expect(JSON.parse(factory.sockets[0].sentTexts.at(-1) ?? "{}")).toEqual({
+      type: "message",
+      id: "c_101",
+      content: "hello",
+      attachments: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "aW1hZ2U="
+        },
+        {
+          type: "asset",
+          assetId: "a_upload_1"
+        }
+      ],
+      sessionKey: "agent:main:clawline:user_1:main"
+    });
   });
 
   it("transitions to failed and clears auth on auth failure", async () => {

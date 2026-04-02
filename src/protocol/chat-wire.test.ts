@@ -49,7 +49,17 @@ describe("chat-wire protocol fixtures", () => {
       type: "message" as const,
       id: "c_101",
       content: "hello",
-      attachments: [],
+      attachments: [
+        {
+          type: "image" as const,
+          mimeType: "image/png",
+          data: "aW1hZ2U="
+        },
+        {
+          type: "asset" as const,
+          assetId: "a_upload_1"
+        }
+      ],
       sessionKey: "agent:main:clawline:user_1:main"
     };
 
@@ -107,6 +117,62 @@ describe("chat-wire protocol fixtures", () => {
       streaming: true,
       sessionKey: "agent:main:clawline:flynn:main",
       attachments: []
+    });
+  });
+
+  it("parses typed server attachment payloads", () => {
+    expect(
+      parseServerPayload(
+        JSON.stringify({
+          type: "message",
+          id: "s_live_attachment",
+          role: "assistant",
+          content: "attachment message",
+          timestamp: 1774910000002,
+          streaming: false,
+          sessionKey: "agent:main:clawline:flynn:main",
+          attachments: [
+            {
+              type: "image",
+              mimeType: "image/png",
+              data: "aW1hZ2U="
+            },
+            {
+              type: "document",
+              assetId: "asset_1",
+              metadata: {
+                filename: "clip.mp4",
+                mimeType: "video/mp4",
+                size: 1200
+              }
+            }
+          ]
+        })
+      )
+    ).toEqual({
+      type: "message",
+      id: "s_live_attachment",
+      role: "assistant",
+      content: "attachment message",
+      timestamp: 1774910000002,
+      streaming: false,
+      sessionKey: "agent:main:clawline:flynn:main",
+      attachments: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          data: "aW1hZ2U="
+        },
+        {
+          type: "document",
+          assetId: "asset_1",
+          metadata: {
+            filename: "clip.mp4",
+            mimeType: "video/mp4",
+            size: 1200
+          }
+        }
+      ]
     });
   });
 

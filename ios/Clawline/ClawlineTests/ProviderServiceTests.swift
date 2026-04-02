@@ -662,6 +662,112 @@ struct ProviderServiceTests {
         #expect(stream.adopted)
     }
 
+    @Test("Adopt stream emits streamCreated service event")
+    func adoptStreamEmitsCreatedEvent() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        defer { HTTPStubURLProtocol.requestHandler = nil }
+        HTTPStubURLProtocol.requestHandler = { request in
+            let data = #"""
+            {
+              "stream": {
+                "sessionKey": "agent:main:openclaw:user:s_trackable",
+                "displayName": "Trackable Session",
+                "kind": "custom",
+                "orderIndex": 3,
+                "isBuiltIn": false,
+                "createdAt": 1700000000000,
+                "updatedAt": 1700000000000,
+                "adopted": true
+              }
+            }
+            """#.data(using: .utf8) ?? Data()
+            return (
+                HTTPURLResponse(
+                    url: request.url ?? baseURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPStubURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let streamAPIClient = StreamAPIClient(baseURLProvider: { baseURL }, session: urlSession)
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            authTokenProvider: { "jwt" },
+            streamAPIClient: streamAPIClient
+        )
+
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+        let stream = try await service.adoptStream(sessionKey: "agent:main:openclaw:user:s_trackable")
+        let event = await eventIterator.next()
+
+        guard case .streamCreated(let createdStream)? = event else {
+            Issue.record("Expected streamCreated event after adopt")
+            return
+        }
+
+        #expect(createdStream.sessionKey == stream.sessionKey)
+        #expect(createdStream.displayName == stream.displayName)
+        #expect(createdStream.adopted)
+    }
+
+    @Test("Delete stream emits streamDeleted service event")
+    func deleteStreamEmitsDeletedEvent() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        defer { HTTPStubURLProtocol.requestHandler = nil }
+        HTTPStubURLProtocol.requestHandler = { request in
+            let data = #"""
+            {
+              "sessionKey": "agent:main:openclaw:user:s_trackable"
+            }
+            """#.data(using: .utf8) ?? Data()
+            return (
+                HTTPURLResponse(
+                    url: request.url ?? baseURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPStubURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let streamAPIClient = StreamAPIClient(baseURLProvider: { baseURL }, session: urlSession)
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            authTokenProvider: { "jwt" },
+            streamAPIClient: streamAPIClient
+        )
+
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+        let deletedKey = try await service.deleteStream(
+            sessionKey: "agent:main:openclaw:user:s_trackable",
+            idempotencyKey: nil
+        )
+        let event = await eventIterator.next()
+
+        guard case .streamDeleted(let emittedKey)? = event else {
+            Issue.record("Expected streamDeleted event after delete")
+            return
+        }
+
+        #expect(emittedKey == deletedKey)
+    }
+
     @Test("Chat service emits incremental stream events")
     func chatIncrementalStreamEvents() async throws {
         let mockSocket = MockWebSocketClient()

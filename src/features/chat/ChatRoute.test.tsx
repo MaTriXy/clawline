@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatRoute } from "./ChatRoute";
@@ -228,10 +228,22 @@ describe("ChatRoute", () => {
     );
   });
 
-  it("opens stream management as an overlay without changing the route", () => {
+  it("opens session selection as an overlay without changing the route", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
     fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+
+    expect(screen.getByRole("heading", { name: "Sessions" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat/agent:main:clawline:user_1:main"
+    );
+  });
+
+  it("opens stream management from the session sheet without changing the route", () => {
+    renderChatRoute("/chat/agent:main:clawline:user_1:main");
+
+    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
 
     expect(screen.getByRole("heading", { name: "Manage sessions" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(
@@ -243,6 +255,7 @@ describe("ChatRoute", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
     fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
 
     const streamManager = await screen.findByLabelText("Manage streams");
     const globalCard = within(streamManager)
@@ -257,7 +270,7 @@ describe("ChatRoute", () => {
     ).toBeDisabled();
   });
 
-  it("clears unread state when the URL-selected session becomes active", () => {
+  it("clears unread state when the URL-selected session becomes active", async () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:side", {
       sessionKeys: [
         "agent:main:clawline:user_1:main",
@@ -267,12 +280,16 @@ describe("ChatRoute", () => {
     });
 
     expect(screen.getByText("Side thread")).toBeInTheDocument();
-    expect(screen.queryByLabelText("1 unread messages")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("1 unread messages")).not.toBeInTheDocument();
+    });
   });
 
   it("shows unavailable provisioning state when the user explicitly switches to a non-provisioned session", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
+    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
     fireEvent.click(screen.getByRole("button", { name: /Side Thread/i }));
 
     expect(screen.getByTestId("location")).toHaveTextContent(

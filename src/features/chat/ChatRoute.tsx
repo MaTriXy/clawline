@@ -15,7 +15,11 @@ export function ChatRoute() {
   const { state: chatState, store: chatStore } = useChatDomainStore();
   const { state: transportState, store: transportStore } = useTransportMachine();
   const [isSettingsOpen, setSettingsOpen] = useState(false);
+  const [isSessionListOpen, setSessionListOpen] = useState(false);
   const [isStreamManagerOpen, setStreamManagerOpen] = useState(false);
+  const [selectedUnreadAnchorMessageId, setSelectedUnreadAnchorMessageId] = useState<
+    string | null
+  >(null);
   const [bootRequestedSessionKey, setBootRequestedSessionKey] = useState(
     params.sessionKey ?? null
   );
@@ -45,8 +49,23 @@ export function ChatRoute() {
   );
 
   useEffect(() => {
-    chatStore.markSessionRead(selectedSessionKey);
-  }, [chatStore, selectedSessionKey]);
+    if (!selectedSessionKey) {
+      return;
+    }
+
+    const unreadAnchor =
+      chatState.firstUnreadMessageIdBySessionKey[selectedSessionKey] ?? null;
+
+    setSelectedUnreadAnchorMessageId(unreadAnchor);
+
+    if (!unreadAnchor) {
+      chatStore.markSessionRead(selectedSessionKey);
+    }
+  }, [
+    chatState.firstUnreadMessageIdBySessionKey,
+    chatStore,
+    selectedSessionKey
+  ]);
 
   useEffect(() => {
     if (!bootRequestedSessionKey) {
@@ -117,12 +136,37 @@ export function ChatRoute() {
                 ? "Connecting"
                 : "Disconnected"
         }
-        onOpenStreamManager={() => setStreamManagerOpen(true)}
+        isSessionListOpen={isSessionListOpen}
+        onCloseSessionList={() => setSessionListOpen(false)}
+        onOpenSessionList={() => setSessionListOpen(true)}
+        onOpenStreamManager={() => {
+          setSessionListOpen(false);
+          setStreamManagerOpen(true);
+        }}
         onOpenSettings={() => setSettingsOpen(true)}
+        onRememberScrollState={(input) => chatStore.rememberSessionScrollState(input)}
         provisioningState={provisioningState}
         onRetryConnection={() => transportStore.retryNow()}
-        onSelectSession={(sessionKey) => navigate(`/chat/${sessionKey}`)}
+        onSelectSession={(sessionKey) => {
+          setSessionListOpen(false);
+          navigate(`/chat/${sessionKey}`);
+        }}
+        onUnreadAnchorConsumed={(messageId) => {
+          if (!selectedSessionKey || selectedUnreadAnchorMessageId !== messageId) {
+            return;
+          }
+
+          chatStore.markSessionRead(selectedSessionKey);
+          setSelectedUnreadAnchorMessageId(null);
+        }}
+        rememberedScrollState={
+          selectedSessionKey
+            ? chatState.scrollStateBySessionKey[selectedSessionKey]
+            : undefined
+        }
         selectedMessages={selectedMessages}
+        selectedSessionKey={selectedSessionKey}
+        selectedUnreadAnchorMessageId={selectedUnreadAnchorMessageId}
         provisionedSessionKeys={chatState.provisionedSessionKeys}
         streams={chatState.streams}
         transportPhase={transportState.phase}

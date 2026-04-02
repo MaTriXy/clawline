@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { createContext, useContext } from "react";
 import type {
+  ServerAttachmentPayload,
   ServerMessagePayload,
   SessionInfoPayload,
   StreamSessionPayload
@@ -31,11 +32,12 @@ export interface ChatMessageRecord {
   deviceId?: string;
   sessionKey: string;
   sender?: string;
-  attachments: unknown[];
+  attachments: ServerAttachmentPayload[];
   delivery: DeliveryState;
 }
 
 export interface PendingMessageRecord {
+  attachments: ServerAttachmentPayload[];
   content: string;
   createdAt: number;
   sessionKey: string;
@@ -44,6 +46,11 @@ export interface PendingMessageRecord {
 export interface ReplayCursorRecord {
   lastServerEventId?: string | null;
   lastReadMessageId: string | null;
+}
+
+export interface SessionScrollState {
+  offsetTop: number;
+  stickToBottom: boolean;
 }
 
 export type IncomingMessageSource = "live" | "replay";
@@ -56,6 +63,7 @@ export interface ChatDomainState {
   pendingMessages: Record<string, PendingMessageRecord>;
   provisionedSessionKeys: string[];
   replayCursorsBySessionKey: Record<string, ReplayCursorRecord>;
+  scrollStateBySessionKey: Record<string, SessionScrollState>;
   streams: StreamRecord[];
   unreadBySessionKey: Record<string, number>;
 }
@@ -63,6 +71,7 @@ export interface ChatDomainState {
 export interface ChatDomainSnapshot extends ChatDomainState {}
 
 export interface EnqueueOptimisticMessageInput {
+  attachments: ServerAttachmentPayload[];
   content: string;
   deviceId: string;
   id: string;
@@ -87,6 +96,11 @@ export interface ChatDomainStore {
   }): void;
   applySessionInfo(info: SessionInfoPayload): void;
   applyStreamSnapshot(streams: StreamSessionPayload[]): void;
+  rememberSessionScrollState(input: {
+    offsetTop: number;
+    sessionKey: string;
+    stickToBottom: boolean;
+  }): void;
   markSessionRead(sessionKey?: string): void;
   reset(): void;
 }
@@ -101,6 +115,7 @@ const EMPTY_STATE: ChatDomainState = {
   pendingMessages: {},
   provisionedSessionKeys: [],
   replayCursorsBySessionKey: {},
+  scrollStateBySessionKey: {},
   streams: [],
   unreadBySessionKey: {}
 };
@@ -146,7 +161,7 @@ export function createChatDomainStore(options?: {
           streaming: false,
           deviceId: input.deviceId,
           sessionKey: input.sessionKey,
-          attachments: [],
+          attachments: input.attachments,
           delivery: "pending"
         };
         const nextState = {
@@ -161,6 +176,7 @@ export function createChatDomainStore(options?: {
           pendingMessages: {
             ...current.pendingMessages,
             [input.id]: {
+              attachments: input.attachments,
               content: input.content,
               createdAt: input.timestamp,
               sessionKey: input.sessionKey
@@ -274,6 +290,33 @@ export function createChatDomainStore(options?: {
         return nextState;
       });
     },
+    rememberSessionScrollState(input) {
+      baseStore.setState((current) => {
+        const currentScrollState = current.scrollStateBySessionKey[input.sessionKey];
+        const nextScrollState = {
+          offsetTop: Math.max(0, Math.round(input.offsetTop)),
+          stickToBottom: input.stickToBottom
+        };
+
+        if (
+          currentScrollState?.offsetTop === nextScrollState.offsetTop &&
+          currentScrollState?.stickToBottom === nextScrollState.stickToBottom
+        ) {
+          return current;
+        }
+
+        const nextState = {
+          ...current,
+          scrollStateBySessionKey: {
+            ...current.scrollStateBySessionKey,
+            [input.sessionKey]: nextScrollState
+          }
+        };
+
+        persist(nextState);
+        return nextState;
+      });
+    },
     markSessionRead(sessionKey) {
       if (!sessionKey) {
         return;
@@ -287,6 +330,12 @@ export function createChatDomainStore(options?: {
           current.messagesBySessionKey[sessionKey]?.at(-1)?.id ?? null;
 
         if (unreadCount === 0 && firstUnread == null) {
+          const currentCursor = current.replayCursorsBySessionKey[sessionKey];
+
+          if ((currentCursor?.lastReadMessageId ?? null) === latestMessageId) {
+            return current;
+          }
+
           const nextState = {
             ...current,
             replayCursorsBySessionKey: {
@@ -401,6 +450,10 @@ function mergeHydratedState(
     replayCursorsBySessionKey: {
       ...persistedState.replayCursorsBySessionKey,
       ...liveState.replayCursorsBySessionKey
+    },
+    scrollStateBySessionKey: {
+      ...persistedState.scrollStateBySessionKey,
+      ...liveState.scrollStateBySessionKey
     },
     provisionedSessionKeys:
       liveState.provisionedSessionKeys.length > 0
