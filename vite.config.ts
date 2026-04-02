@@ -5,10 +5,10 @@ export default defineConfig({
   base: "/",
   plugins: [react()],
   server: {
-    allowedHosts: [".ts.net"]
+    allowedHosts: true
   },
   preview: {
-    allowedHosts: [".ts.net"]
+    allowedHosts: true
   },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
