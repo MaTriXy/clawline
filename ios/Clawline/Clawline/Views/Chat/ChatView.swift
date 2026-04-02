@@ -1606,34 +1606,40 @@ struct ChatView: View {
             maxWidth: pageDotsMaxWidth,
             onTap: { isStreamManagerPopoverPresented = true }
         )
-        .popover(
-            isPresented: $isStreamManagerPopoverPresented,
-            attachmentAnchor: .rect(.bounds),
-            arrowEdge: .bottom
-        ) {
-            StreamManagerSheet(
-                viewModel: viewModel,
-                streams: effectiveStreams,
-                unreadSessionKeys: unreadSessionKeys,
-                userTailSessionKeys: userTailSessionKeys,
-                isPresented: $isStreamManagerPopoverPresented,
-                shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
-                searchFocusRequestID: streamPopupSearchFocusRequestID,
-                maxAvailableHeight: streamSelectorMaxHeight,
-                onSelectStream: { sessionKey in
-                    selectStream(sessionKey, source: .programmatic)
-                },
-                onPresentTrackPicker: {
-                    prepareForAttachmentPicker()
-                    isStreamManagerPopoverPresented = false
-                    Task { @MainActor in
-                        await Task.yield()
-                        isTrackPickerPresented = true
-                    }
+        .overlay(alignment: .top) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 1)
+                .allowsHitTesting(false)
+                .popover(
+                    isPresented: $isStreamManagerPopoverPresented,
+                    attachmentAnchor: .rect(.bounds),
+                    arrowEdge: .bottom
+                ) {
+                    StreamManagerSheet(
+                        viewModel: viewModel,
+                        streams: effectiveStreams,
+                        unreadSessionKeys: unreadSessionKeys,
+                        userTailSessionKeys: userTailSessionKeys,
+                        isPresented: $isStreamManagerPopoverPresented,
+                        shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
+                        searchFocusRequestID: streamPopupSearchFocusRequestID,
+                        maxAvailableHeight: streamSelectorMaxHeight,
+                        onSelectStream: { sessionKey in
+                            selectStream(sessionKey, source: .programmatic)
+                        },
+                        onPresentTrackPicker: {
+                            prepareForAttachmentPicker()
+                            isStreamManagerPopoverPresented = false
+                            Task { @MainActor in
+                                await Task.yield()
+                                isTrackPickerPresented = true
+                            }
+                        }
+                    )
+                    .presentationCompactAdaptation(.popover)
+                    .presentationBackground(.clear)
                 }
-            )
-            .presentationCompactAdaptation(.popover)
-            .presentationBackground(.clear)
         }
         .sheet(
             isPresented: $isTrackPickerPresented,
