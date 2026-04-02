@@ -27,7 +27,7 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
         expect(panelBox).not.toBeNull();
         expect(await page.getByTestId("session-sheet").count()).toBe(0);
 
-        await page.getByRole("button", { name: "Streams" }).click();
+        await page.getByRole("button", { name: "Open sessions" }).click();
         const sheet = page.getByTestId("session-sheet");
         await expect(sheet).toBeVisible();
         const sheetBox = await sheet.boundingBox();
@@ -81,7 +81,7 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
 
       const focusOrder = await captureFocusOrder(page, 5);
       expect(focusOrder).toEqual([
-        "Streams",
+        "Open sessions",
         "Retry",
         "Settings",
         "Message",

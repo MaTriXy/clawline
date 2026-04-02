@@ -245,7 +245,7 @@ test("scroll state restores on stream switch and reload, and unread stream selec
       .toContainEqual(expect.stringContaining("Live region target"));
 
     activeSocket?.send(JSON.stringify(unreadSideMessage));
-    await page.getByRole("button", { name: "Streams" }).click();
+    await page.getByRole("button", { name: "Open sessions" }).click();
     await expect(page.getByLabel("1 unread messages")).toHaveCount(1);
 
     await page.getByRole("button", {
@@ -253,7 +253,7 @@ test("scroll state restores on stream switch and reload, and unread stream selec
     }).click();
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sideSessionKey)}$`));
     await expect(page.getByText("Unread anchor target")).toBeVisible();
-    await page.getByRole("button", { name: "Streams" }).click();
+    await page.getByRole("button", { name: "Open sessions" }).click();
     await expect(page.getByLabel("1 unread messages")).toHaveCount(0);
 
     await page.getByRole("button", {

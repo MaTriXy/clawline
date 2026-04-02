@@ -251,7 +251,7 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
 
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
 
-    await page.getByRole("button", { name: "Streams" }).click();
+    await page.getByRole("button", { name: "Open sessions" }).click();
     await page.getByRole("button", { name: "Manage" }).click();
     await page.getByLabel("New stream name").fill("Research");
     await page.getByRole("button", { name: "Create" }).click();
@@ -262,7 +262,7 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
 
-    await page.getByRole("button", { name: "Streams" }).click();
+    await page.getByRole("button", { name: "Open sessions" }).click();
     await page.getByRole("button", { name: "Manage" }).click();
     const createdCard = page.locator(".stream-manager-card").filter({
       hasText: createdSessionKey
@@ -302,7 +302,7 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
     await expect(createdCard).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Streams" }).click();
+    await page.getByRole("button", { name: "Open sessions" }).click();
     await page.getByRole("button", { name: "Manage" }).click();
     const trackCard = page.locator(".stream-manager-card").filter({
       hasText: trackableSessionKey
@@ -315,14 +315,14 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
       page.getByText("This session is unavailable for sending. Switch streams and try again.")
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Streams" }).click();
+    await page.getByRole("button", { name: "Open sessions" }).click();
     await page.getByRole("button", { name: "Manage" }).click();
     const adoptedCard = page.locator(".stream-manager-card").filter({
       hasText: trackableSessionKey
     });
     await adoptedCard.getByRole("button", { name: "Untrack" }).click();
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
-    await page.getByRole("button", { name: "Streams" }).click();
+    await page.getByRole("button", { name: "Open sessions" }).click();
     await page.getByRole("button", { name: "Manage" }).click();
     await expect(trackCard.getByRole("button", { name: "Track" })).toBeVisible();
 
@@ -338,7 +338,7 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
     await page.reload();
 
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
-    await page.getByRole("button", { name: "Streams" }).click();
+    await page.getByRole("button", { name: "Open sessions" }).click();
     await expect(page.locator(".session-sheet-card").filter({ hasText: mainSessionKey })).toHaveCount(
       1
     );
@@ -369,7 +369,7 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
     await expect(page).toHaveURL(
       new RegExp(`/chat/${escapeForRegExp(trackableSessionKey)}$`)
     );
-    await page.getByRole("button", { name: "Streams" }).click();
+    await page.getByRole("button", { name: "Open sessions" }).click();
     await page.getByRole("button", { name: "Manage" }).click();
     await expect(
       page.locator(".stream-manager-card").filter({ hasText: trackableSessionKey })

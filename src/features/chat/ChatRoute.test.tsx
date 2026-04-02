@@ -231,7 +231,7 @@ describe("ChatRoute", () => {
   it("opens session selection as an overlay without changing the route", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
-    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
 
     expect(screen.getByRole("heading", { name: "Sessions" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(
@@ -242,7 +242,7 @@ describe("ChatRoute", () => {
   it("opens stream management from the session sheet without changing the route", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
-    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
 
     expect(screen.getByRole("heading", { name: "Manage sessions" })).toBeInTheDocument();
@@ -254,7 +254,7 @@ describe("ChatRoute", () => {
   it("disables untrack for built-in adopted sessions", async () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
-    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
 
     const streamManager = await screen.findByLabelText("Manage streams");
@@ -289,7 +289,7 @@ describe("ChatRoute", () => {
   it("shows unavailable provisioning state when the user explicitly switches to a non-provisioned session", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
-    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open sessions" }));
     fireEvent.click(screen.getByRole("button", { name: /Side Thread/i }));
 
     expect(screen.getByTestId("location")).toHaveTextContent(

@@ -62,20 +62,25 @@ export function ChatShell({
     <section className="chat-layout" data-testid="chat-layout">
       <main className="chat-panel" data-testid="chat-panel">
         <header className="chat-header">
-          <div className="chat-header-copy">
-            <p className="eyebrow">Conversation</p>
-            <h1>{activeStreamName ?? activeSessionKey ?? "Waiting for a session"}</h1>
-            {activeSessionKey ? <code className="chat-header-session">{activeSessionKey}</code> : null}
-          </div>
-          <div className="chat-header-actions">
-            <span className="status-pill">{connectionLabel}</span>
+          <div className="chat-header-main">
             <button
-              className="button-secondary"
+              aria-label="Open sessions"
+              className="session-sheet-trigger"
               onClick={onOpenSessionList}
               type="button"
             >
-              Streams
+              <span aria-hidden="true">···</span>
             </button>
+            <div className="chat-header-copy">
+              <p className="eyebrow">Conversation</p>
+              <h1>{activeStreamName ?? activeSessionKey ?? "Waiting for a session"}</h1>
+              {activeSessionKey ? (
+                <code className="chat-header-session">{activeSessionKey}</code>
+              ) : null}
+            </div>
+          </div>
+          <div className="chat-header-actions">
+            <span className="status-pill">{connectionLabel}</span>
             <button className="button-secondary" onClick={onRetryConnection} type="button">
               Retry
             </button>
