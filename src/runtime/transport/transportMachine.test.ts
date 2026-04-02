@@ -47,6 +47,24 @@ class FakeBrowserRuntime {
     this.pendingTimeouts.set(timeoutId, listener);
     return timeoutId;
   }
+
+  runNextTimeout() {
+    const next = this.pendingTimeouts.entries().next();
+    if (next.done) {
+      return false;
+    }
+
+    const [timeoutId, listener] = next.value;
+    this.pendingTimeouts.delete(timeoutId);
+    listener();
+    return true;
+  }
+
+  runAllTimeouts() {
+    while (this.runNextTimeout()) {
+      continue;
+    }
+  }
 }
 
 function seedSession() {
@@ -166,6 +184,66 @@ describe("transportMachine", () => {
       })
     );
 
+    expect(transport.getState().phase).toBe("live");
+  });
+
+  it("chunks large replay bursts through browser timeouts before entering live", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const browserRuntime = new FakeBrowserRuntime();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      browserRuntime,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        userId: "user_1",
+        replayCount: 30,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    for (let index = 0; index < 30; index += 1) {
+      factory.sockets[0].emitMessage(
+        JSON.stringify({
+          type: "message",
+          id: `s_${index}`,
+          role: "assistant",
+          content: `Replay ${index}`,
+          timestamp: index,
+          streaming: false,
+          sessionKey: "agent:main:clawline:user_1:main",
+          attachments: []
+        })
+      );
+    }
+
+    expect(chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"])
+      .toBeUndefined();
+    expect(transport.getState().phase).toBe("replaying");
+
+    browserRuntime.runNextTimeout();
+
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toHaveLength(24);
+    expect(transport.getState().phase).toBe("replaying");
+
+    browserRuntime.runAllTimeouts();
+
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toHaveLength(30);
     expect(transport.getState().phase).toBe("live");
   });
 

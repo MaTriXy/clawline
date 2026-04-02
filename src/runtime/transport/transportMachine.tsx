@@ -9,6 +9,7 @@ import {
 import type { ClientAttachmentPayload } from "../../protocol/chat-wire";
 import type { AuthSessionStore } from "../auth/authSessionStore";
 import type { ChatDomainStore } from "../chat/chatDomainStore";
+import type { IncomingMessageSource } from "../chat/chatDomainStore";
 import { createStore } from "../shared/store";
 import { useStoreValue } from "../shared/useStoreValue";
 import {
@@ -71,6 +72,9 @@ const INITIAL_STATE: TransportState = {
   retryAttempt: 0
 };
 
+const MAX_SYNC_REPLAY_MESSAGES = 24;
+const REPLAY_MESSAGE_BATCH_SIZE = 24;
+
 export function createTransportMachine({
   authSessionStore,
   chatDomainStore,
@@ -84,9 +88,14 @@ export function createTransportMachine({
   });
   let socket: SocketLike | null = null;
   let reconnectTimer: number | null = null;
+  let replayFlushTimer: number | null = null;
   let connectionGeneration = 0;
   let replayMessagesRemaining = 0;
   let hasInitialProvisioning = false;
+  let queuedReplayMessages: Array<{
+    generation: number;
+    payload: Parameters<ChatDomainStore["applyIncomingMessage"]>[0];
+  }> = [];
 
   chatDomainStore.subscribe(() => {
     if (!authSessionStore.getState().session) {
@@ -271,16 +280,29 @@ export function createTransportMachine({
       const payload = parseServerPayload(event.data);
       switch (payload.type) {
         case "message":
-          const source = replayMessagesRemaining > 0 ? "replay" : "live";
-          chatDomainStore.applyIncomingMessage(
-            {
-              localDeviceId: authSessionStore.getState().session?.deviceId ?? "",
-              message: payload,
-              selectedSessionKey: selectedSessionKeySource(),
-              source
-            }
-          );
-          if (replayMessagesRemaining > 0) {
+          const source: IncomingMessageSource =
+            replayMessagesRemaining > 0 ? "replay" : "live";
+          const messageInput = {
+            localDeviceId: authSessionStore.getState().session?.deviceId ?? "",
+            message: payload,
+            selectedSessionKey: selectedSessionKeySource(),
+            source
+          };
+          if (
+            source === "replay" &&
+            (queuedReplayMessages.length > 0 ||
+              replayMessagesRemaining > MAX_SYNC_REPLAY_MESSAGES)
+          ) {
+            queuedReplayMessages.push({
+              generation,
+              payload: messageInput
+            });
+            scheduleReplayFlush(trigger);
+            return;
+          }
+
+          chatDomainStore.applyIncomingMessage(messageInput);
+          if (source === "replay") {
             replayMessagesRemaining -= 1;
             syncReplayProgress(trigger);
           }
@@ -369,6 +391,38 @@ export function createTransportMachine({
     }));
   }
 
+  function scheduleReplayFlush(trigger: "auth-bootstrap" | "retry") {
+    if (replayFlushTimer != null) {
+      return;
+    }
+
+    replayFlushTimer = browserRuntime.setTimeout(() => {
+      replayFlushTimer = null;
+      flushQueuedReplayMessages(trigger);
+    }, 0);
+  }
+
+  function flushQueuedReplayMessages(trigger: "auth-bootstrap" | "retry") {
+    const batch = queuedReplayMessages.splice(0, REPLAY_MESSAGE_BATCH_SIZE);
+
+    for (const entry of batch) {
+      if (entry.generation !== connectionGeneration) {
+        continue;
+      }
+
+      chatDomainStore.applyIncomingMessage(entry.payload);
+      if (entry.payload.source === "replay" && replayMessagesRemaining > 0) {
+        replayMessagesRemaining -= 1;
+      }
+    }
+
+    syncReplayProgress(trigger);
+
+    if (queuedReplayMessages.length > 0) {
+      scheduleReplayFlush(trigger);
+    }
+  }
+
   function scheduleReconnect(retryAttempt: number) {
     const delayMs = Math.min(1000 * 2 ** Math.max(retryAttempt - 1, 0), 8000);
     reconnectTimer = browserRuntime.setTimeout(() => {
@@ -380,6 +434,12 @@ export function createTransportMachine({
   function teardown(incrementGeneration: boolean) {
     if (incrementGeneration) {
       connectionGeneration += 1;
+    }
+
+    queuedReplayMessages = [];
+    if (replayFlushTimer != null) {
+      browserRuntime.clearTimeout(replayFlushTimer);
+      replayFlushTimer = null;
     }
 
     if (socket) {
