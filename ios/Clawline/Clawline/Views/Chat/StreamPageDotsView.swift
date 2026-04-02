@@ -166,6 +166,7 @@ struct StreamPageDotsView: View {
                         .frame(width: 4, height: 4)
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, Self.verticalPadding)
