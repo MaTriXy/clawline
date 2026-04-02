@@ -86,6 +86,9 @@ export function SessionListSheet({
           ) : (
             filteredStreams.map((stream) => {
               const displayName = resolveStreamDisplayName(stream);
+              const unreadCount = unreadBySessionKey[stream.sessionKey] ?? 0;
+              const hasUnread = unreadCount > 0;
+              const isActive = stream.sessionKey === activeSessionKey;
               const provisioningState = getSessionProvisioningState({
                 hasStream: true,
                 provisionedSessionKeys,
@@ -95,12 +98,8 @@ export function SessionListSheet({
 
               return (
                 <button
-                  aria-current={stream.sessionKey === activeSessionKey ? "page" : undefined}
-                  className={
-                    stream.sessionKey === activeSessionKey
-                      ? "session-sheet-card active"
-                      : "session-sheet-card"
-                  }
+                  aria-current={isActive ? "page" : undefined}
+                  className={isActive ? "session-sheet-card active" : "session-sheet-card"}
                   key={stream.sessionKey}
                   onClick={() => {
                     onSelectSession(stream.sessionKey);
@@ -109,15 +108,28 @@ export function SessionListSheet({
                   type="button"
                 >
                   <span className="session-sheet-card-row">
-                    <span className="session-sheet-card-title">{displayName}</span>
+                    <span className="session-sheet-card-leading">
+                      <span
+                        aria-hidden="true"
+                        className={
+                          hasUnread
+                            ? isActive
+                              ? "session-sheet-card-indicator session-sheet-card-indicator--active"
+                              : "session-sheet-card-indicator session-sheet-card-indicator--unread"
+                            : isActive
+                              ? "session-sheet-card-indicator session-sheet-card-indicator--active"
+                              : "session-sheet-card-indicator"
+                        }
+                      />
+                      <span className="session-sheet-card-title">{displayName}</span>
+                    </span>
                     <span className="session-sheet-card-meta">
-                      {typeof unreadBySessionKey[stream.sessionKey] === "number" &&
-                      unreadBySessionKey[stream.sessionKey] > 0 ? (
+                      {hasUnread ? (
                         <span
-                          aria-label={`${unreadBySessionKey[stream.sessionKey]} unread messages`}
+                          aria-label={`${unreadCount} unread messages`}
                           className="stream-unread-badge"
                         >
-                          {unreadBySessionKey[stream.sessionKey]}
+                          {unreadCount}
                         </span>
                       ) : null}
                       <span
@@ -147,7 +159,7 @@ export function SessionListSheet({
           </label>
           <div className="session-popover-actions">
             <button
-              className="button-secondary"
+              className="button-secondary session-popover-action-button"
               onClick={() => {
                 onClose();
                 onRetryConnection();
@@ -157,7 +169,7 @@ export function SessionListSheet({
               Retry
             </button>
             <button
-              className="button-secondary"
+              className="button-secondary session-popover-action-button"
               onClick={() => {
                 onClose();
                 onOpenSettings();
@@ -167,7 +179,7 @@ export function SessionListSheet({
               Settings
             </button>
             <button
-              className="button-secondary"
+              className="button-secondary session-popover-action-button session-popover-action-button--primary"
               onClick={() => {
                 onClose();
                 onOpenStreamManager();

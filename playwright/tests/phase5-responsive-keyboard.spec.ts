@@ -45,6 +45,9 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
 
         if (viewport.width > 500) {
           expect(popoverBox!.width).toBeLessThan(viewport.width * 0.52);
+          await expect(popover).toHaveScreenshot("phase5-session-popover.png", {
+            animations: "disabled"
+          });
         } else {
           expect(popoverBox!.width).toBeGreaterThan(viewport.width * 0.78);
         }
