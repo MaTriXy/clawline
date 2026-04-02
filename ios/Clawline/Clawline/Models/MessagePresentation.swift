@@ -547,8 +547,14 @@ enum MessagePresentationBuilder {
         var urls: [URL] = []
         detector.enumerateMatches(in: text, options: [], range: range) { match, _, _ in
             guard let match,
-                  let matchRange = Range(match.range, in: text),
-                  let url = sanitizedDetectedURL(from: String(text[matchRange])) else { return }
+                  let matchRange = Range(match.range, in: text) else { return }
+            let rawMatch = String(text[matchRange])
+            let validatedURL = wrappedMarkTrimmedURL(
+                displayedText: rawMatch,
+                href: rawMatch,
+                previousRunText: wrappedMarkPrefix(in: text, matchRange: match.range)
+            ) ?? sanitizedDetectedURL(from: rawMatch)
+            guard let url = validatedURL else { return }
             urls.append(url)
         }
         return urls
@@ -562,11 +568,24 @@ enum MessagePresentationBuilder {
             return extractURLs(from: markdownPlainText(from: source))
         }
 
+        let runs = attributed.runs.map { run in
+            (
+                text: String(attributed[run.range].characters),
+                link: run.link
+            )
+        }
         var urls: [URL] = []
-        for run in attributed.runs {
-            guard let url = run.link else { continue }
-            let displayedText = String(attributed[run.range].characters)
-            let validatedURL = sanitizedDetectedURL(from: displayedText)
+        for index in runs.indices {
+            guard let url = runs[index].link else { continue }
+            let displayedText = runs[index].text
+            let previousRunText = index > 0 ? runs[index - 1].text : nil
+            let validatedURL = wrappedMarkTrimmedURL(
+                    displayedText: displayedText,
+                    href: url.absoluteString,
+                    previousRunText: previousRunText
+                )
+                ?? sanitizedDetectedURL(from: displayedText)
+                ?? sanitizedDetectedURL(from: url.absoluteString)
                 ?? validatedDetectedURL(from: url.absoluteString)
             guard let validatedURL else { continue }
             urls.append(validatedURL)
@@ -594,6 +613,27 @@ enum MessagePresentationBuilder {
         guard let url = MarkdownURLBoundarySanitizer.validatedHTTPURL(from: candidate) else { return nil }
         if url.absoluteString.count > 2048 { return nil }
         return url
+    }
+
+    private static func wrappedMarkTrimmedURL(
+        displayedText: String,
+        href: String,
+        previousRunText: String?
+    ) -> URL? {
+        guard previousRunText == "==" else { return nil }
+        for candidate in [displayedText, href] where candidate.hasSuffix("==") {
+            let trimmed = String(candidate.dropLast(2))
+            if let url = validatedDetectedURL(from: trimmed) {
+                return url
+            }
+        }
+        return nil
+    }
+
+    private static func wrappedMarkPrefix(in text: String, matchRange: NSRange) -> String? {
+        guard matchRange.location >= 2 else { return nil }
+        let nsText = text as NSString
+        return nsText.substring(with: NSRange(location: matchRange.location - 2, length: 2))
     }
 
     private static func markdownPlainText(from source: String) -> String {
