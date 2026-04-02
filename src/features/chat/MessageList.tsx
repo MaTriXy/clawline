@@ -10,6 +10,16 @@ import { MessageLinkCards } from "./MessageLinkCards";
 import { RichMessageBody, shouldOfferExpandedMessage } from "./RichMessageBody";
 import { useVirtualMessageWindow } from "./useVirtualMessageWindow";
 
+function getMessageSenderLabel(message: ChatMessageRecord) {
+  return message.role === "user" ? "You" : message.sender ?? "Assistant";
+}
+
+function getMessageSenderInitial(message: ChatMessageRecord) {
+  const label = getMessageSenderLabel(message).trim();
+  const initial = Array.from(label).find((character) => /\p{Letter}|\p{Number}/u.test(character));
+  return (initial ?? "?").toUpperCase();
+}
+
 export function MessageList({
   messages,
   onRememberScrollState,
@@ -239,40 +249,69 @@ function MessageBubble({
   token?: string;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const senderLabel = getMessageSenderLabel(message);
+  const senderInitial = getMessageSenderInitial(message);
+  const isUser = message.role === "user";
 
   return (
-    <article
+    <div
       className={
-        message.role === "user"
-          ? "message-bubble message-bubble--user"
-          : "message-bubble message-bubble--assistant"
+        isUser
+          ? "message-cluster message-cluster--user"
+          : "message-cluster message-cluster--assistant"
       }
-      data-testid={`message-${message.id}`}
     >
-      <header className="message-meta">
-        <span>{message.role === "user" ? "You" : message.sender ?? "Assistant"}</span>
-        <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
-      </header>
-      <RichMessageBody content={message.content} contentRef={contentRef} />
-      <MessageLinkCards content={message.content} contentRef={contentRef} />
-      <MessageAttachments
-        attachments={message.attachments}
-        serverUrl={serverUrl}
-        token={token}
-      />
-      {shouldOfferExpandedMessage(message.content) ? (
-        <div className="message-actions">
-          <button className="button-secondary" onClick={onExpand} type="button">
-            Expand
-          </button>
+      {!isUser ? (
+        <div
+          aria-hidden="true"
+          className="message-avatar message-avatar--assistant"
+          data-testid={`message-avatar-${message.id}`}
+        >
+          {senderInitial}
         </div>
       ) : null}
-      <footer className="message-status">
-        {message.delivery === "pending" ? "Sending..." : null}
-        {message.delivery === "acked" ? "Accepted by provider" : null}
-        {message.delivery === "failed" ? "Send failed" : null}
-        {message.streaming ? "Streaming..." : null}
-      </footer>
-    </article>
+      <article
+        className={
+          isUser
+            ? "message-bubble message-bubble--user"
+            : "message-bubble message-bubble--assistant"
+        }
+        data-testid={`message-${message.id}`}
+      >
+        <header className="message-meta">
+          <span>{senderLabel}</span>
+          <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
+        </header>
+        <RichMessageBody content={message.content} contentRef={contentRef} />
+        <MessageLinkCards content={message.content} contentRef={contentRef} />
+        <MessageAttachments
+          attachments={message.attachments}
+          serverUrl={serverUrl}
+          token={token}
+        />
+        {shouldOfferExpandedMessage(message.content) ? (
+          <div className="message-actions">
+            <button className="button-secondary" onClick={onExpand} type="button">
+              Expand
+            </button>
+          </div>
+        ) : null}
+        <footer className="message-status">
+          {message.delivery === "pending" ? "Sending..." : null}
+          {message.delivery === "acked" ? "Accepted by provider" : null}
+          {message.delivery === "failed" ? "Send failed" : null}
+          {message.streaming ? "Streaming..." : null}
+        </footer>
+      </article>
+      {isUser ? (
+        <div
+          aria-hidden="true"
+          className="message-avatar message-avatar--user"
+          data-testid={`message-avatar-${message.id}`}
+        >
+          {senderInitial}
+        </div>
+      ) : null}
+    </div>
   );
 }

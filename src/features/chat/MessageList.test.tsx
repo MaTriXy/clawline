@@ -198,6 +198,32 @@ afterEach(() => {
 });
 
 describe("MessageList rich rendering", () => {
+  it("renders sender avatar waypoints with paired initials and alignment", () => {
+    renderMessageList([
+      RICH_MESSAGE,
+      {
+        id: "s_user",
+        role: "user",
+        content: "On it.",
+        timestamp: 1_764_201_200_050,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server"
+      }
+    ]);
+
+    const assistantAvatar = screen.getByTestId("message-avatar-s_rich");
+    const assistantBubble = screen.getByTestId("message-s_rich");
+    expect(assistantAvatar).toHaveTextContent("A");
+    expect(assistantBubble.parentElement?.firstElementChild).toBe(assistantAvatar);
+
+    const userAvatar = screen.getByTestId("message-avatar-s_user");
+    const userBubble = screen.getByTestId("message-s_user");
+    expect(userAvatar).toHaveTextContent("Y");
+    expect(userBubble.parentElement?.lastElementChild).toBe(userAvatar);
+  });
+
   it("renders markdown blocks in source order", () => {
     renderMessageList([RICH_MESSAGE]);
 

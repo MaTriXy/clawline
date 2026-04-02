@@ -416,6 +416,51 @@ html[data-appearance="light"] body::before {
   right: 0;
 }
 
+.message-cluster {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.7rem;
+  width: 100%;
+}
+
+.message-cluster--user {
+  justify-content: flex-end;
+}
+
+.message-cluster--assistant {
+  justify-content: flex-start;
+}
+
+.message-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  align-self: flex-end;
+  margin-bottom: 0.35rem;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow:
+    0 10px 24px rgba(26, 20, 15, 0.14),
+    inset 0 -2px 4px rgba(28, 22, 17, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.message-avatar--user {
+  color: rgba(245, 249, 243, 0.95);
+  background:
+    radial-gradient(circle at 50% 25%, #6b9b6a 0%, #4a7a4e 58%, #2d5a32 100%);
+}
+
+.message-avatar--assistant {
+  color: rgba(255, 248, 241, 0.94);
+  background:
+    radial-gradient(circle at 50% 25%, #e8a89c 0%, #c4785c 58%, #a85a42 100%);
+}
+
 .message-list-affordance-bar {
   position: sticky;
   bottom: calc(8.4rem + env(safe-area-inset-bottom, 0px));
@@ -1191,6 +1236,17 @@ html[data-appearance="light"] .session-popover {
     max-width: 100%;
   }
 
+  .message-cluster {
+    gap: 0.55rem;
+  }
+
+  .message-avatar {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+    font-size: 13px;
+  }
+
   .composer-attachment-chip,
   .session-popover-footer,
   .session-popover-actions {
@@ -1350,5 +1406,9 @@ html[data-appearance="light"] .session-popover {
 
   .message-bubble {
     max-width: 100%;
+  }
+
+  .message-cluster {
+    gap: 0.5rem;
   }
 }
