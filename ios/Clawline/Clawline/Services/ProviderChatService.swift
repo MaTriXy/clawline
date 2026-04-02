@@ -301,10 +301,12 @@ final class ProviderChatService: ChatServicing {
             throw Error.notConnected
         }
         do {
-            return try await streamAPIClient.adoptStream(
+            let stream = try await streamAPIClient.adoptStream(
                 sessionKey: sessionKey,
                 token: token
             )
+            emitServiceEvent(.streamCreated(stream))
+            return stream
         } catch {
             throw mapStreamAPIError(error)
         }
@@ -330,11 +332,13 @@ final class ProviderChatService: ChatServicing {
             throw Error.notConnected
         }
         do {
-            return try await streamAPIClient.deleteStream(
+            let deletedKey = try await streamAPIClient.deleteStream(
                 sessionKey: sessionKey,
                 idempotencyKey: idempotencyKey,
                 token: token
             )
+            emitServiceEvent(.streamDeleted(sessionKey: deletedKey))
+            return deletedKey
         } catch {
             throw mapStreamAPIError(error)
         }
