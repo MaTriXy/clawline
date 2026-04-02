@@ -177,6 +177,12 @@ test("common attachment types render through the authenticated display path", as
     await expect
       .poll(() => [...new Set(downloadHits)].sort())
       .toEqual(["audio_1", "video_1"]);
+    await expect(
+      page.locator('[data-testid="message-s_attachment_1"] .message-attachments')
+    ).toHaveScreenshot("phase4-attachment-display-surface.png", {
+      animations: "disabled",
+      caret: "hide"
+    });
 
     await page.getByRole("button", { name: "Download report.pdf" }).click();
     await expect

@@ -100,12 +100,23 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sessionKey)}$`));
     await expect(page.locator(".message-markdown pre")).toContainText("console.log('phase4');");
     await expect(page.locator(".message-markdown table")).toContainText("alpha");
+    await expect(page.locator('[data-testid="message-s_rich_1"] .message-markdown')).toHaveScreenshot(
+      "phase4-rich-rendering-message.png",
+      {
+        animations: "disabled",
+        caret: "hide"
+      }
+    );
 
     await page.getByRole("button", { name: "Expand" }).click();
     const dialog = page.getByRole("dialog", { name: "Expanded message" });
     await expect(dialog).toContainText("Expanded view");
     await expect(dialog.locator("pre")).toContainText("console.log('phase4');");
     await expect(dialog.locator("table")).toContainText("beta");
+    await expect(dialog).toHaveScreenshot("phase4-rich-rendering-overlay.png", {
+      animations: "disabled",
+      caret: "hide"
+    });
     await dialog.getByRole("button", { name: "Close" }).click();
     await expect(dialog).toHaveCount(0);
   } finally {

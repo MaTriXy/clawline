@@ -106,6 +106,13 @@ test("message links render as lightweight cards without turning code-block URLs 
     const openAiCard = page.locator('.message-link-card[href="https://openai.com/research"]');
     await expect(openAiCard).toBeVisible();
     await expect(openAiCard).toHaveAttribute("href", "https://openai.com/research");
+    await expect(page.locator('[data-testid="message-s_links_1"] .message-link-cards')).toHaveScreenshot(
+      "phase4-link-cards-surface.png",
+      {
+        animations: "disabled",
+        caret: "hide"
+      }
+    );
 
     await expect(page.getByText("https://example.com/in-code")).toBeVisible();
     await expect(page.locator('.message-link-card[href*="in-code"]')).toHaveCount(0);
