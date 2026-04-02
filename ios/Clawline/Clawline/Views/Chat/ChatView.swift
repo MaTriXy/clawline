@@ -486,7 +486,8 @@ struct ChatView: View {
     private func floatingPageDotsView(
         viewModel: ChatViewModel,
         inputBarTopFromScreenBottom: CGFloat,
-        streamSelectorMaxHeight: CGFloat
+        streamSelectorMaxHeight: CGFloat,
+        containerWidth: CGFloat
     ) -> some View {
         let effectiveStreams = viewModel.orderedStreams
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
@@ -494,7 +495,8 @@ struct ChatView: View {
             streamPageDotsControl(
                 viewModel: viewModel,
                 effectiveStreams: effectiveStreams,
-                streamSelectorMaxHeight: streamSelectorMaxHeight
+                streamSelectorMaxHeight: streamSelectorMaxHeight,
+                containerWidth: containerWidth
             )
             .padding(.bottom, inputBarTopFromScreenBottom + floatingPageDotsBottomGap)
             .ignoresSafeArea(.container, edges: .bottom)
@@ -850,7 +852,8 @@ struct ChatView: View {
             floatingPageDotsView(
                 viewModel: viewModel,
                 inputBarTopFromScreenBottom: inputBarTopFromScreenBottom,
-                streamSelectorMaxHeight: streamSelectorMaxHeight
+                streamSelectorMaxHeight: streamSelectorMaxHeight,
+                containerWidth: geometry.size.width
             )
 #else
             EmptyView()
@@ -1202,7 +1205,8 @@ struct ChatView: View {
                 streamPageDotsControl(
                     viewModel: viewModel,
                     effectiveStreams: effectiveStreams,
-                    streamSelectorMaxHeight: streamSelectorMaxHeight
+                    streamSelectorMaxHeight: streamSelectorMaxHeight,
+                    containerWidth: geometry.size.width
                 )
             )
 
@@ -1570,7 +1574,8 @@ struct ChatView: View {
     private func streamPageDotsControl(
         viewModel: ChatViewModel,
         effectiveStreams: [StreamSession],
-        streamSelectorMaxHeight: CGFloat
+        streamSelectorMaxHeight: CGFloat,
+        containerWidth: CGFloat
     ) -> some View {
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
         let unreadSessionKeys = Set(
@@ -1581,12 +1586,15 @@ struct ChatView: View {
         let userTailSessionKeys = Set(
             effectiveSessionKeys.filter { viewModel.lastMessageIsUser(for: $0) }
         )
+        let isCompact = horizontalSizeClass == .compact
+        let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
+        let pageDotsMaxWidth = max(0, containerWidth - (metrics.inputBarPaddingHorizontal * 2))
         return StreamPageDotsView(
             sessionKeys: effectiveSessionKeys,
             activeSessionKey: viewModel.uiSelectedSessionKey,
             unreadSessionKeys: unreadSessionKeys,
             userTailSessionKeys: userTailSessionKeys,
-            maxWidth: nil,
+            maxWidth: pageDotsMaxWidth,
             onTap: { isStreamManagerPopoverPresented = true }
         )
         .popover(

@@ -24,13 +24,21 @@ struct StreamPageDotsViewTests {
 
     @Test("Expanded indicator fills the available width envelope when it can reveal more dots")
     func expandedIndicatorUsesAvailableWidthEnvelope() {
+        let visibleCount = StreamPageDotsView.fittingVisibleDotCount(
+            totalSessionCount: 40,
+            maxWidth: CGFloat(640)
+        )
         let targetWidth = StreamPageDotsView.targetControlWidth(
             totalSessionCount: 40,
             maxWidth: CGFloat(640)
         )
+        let expectedWidth = StreamPageDotsView.requiredControlWidth(
+            visibleDotCount: visibleCount,
+            includesOverflowIndicators: visibleCount < 40
+        )
 
         #expect(targetWidth != nil)
-        #expect(targetWidth == CGFloat(640))
+        #expect(targetWidth == expectedWidth)
     }
 
     @Test("Expanded indicator stays collapsed when the width budget cannot reveal more dots")
