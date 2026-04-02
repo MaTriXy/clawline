@@ -3,6 +3,27 @@ import type { StreamRecord } from "../../runtime/chat/chatDomainStore";
 import type { TransportPhase } from "../../runtime/transport/transportMachine";
 import { getSessionProvisioningState } from "../streams/provisioning";
 
+export function parseStreamName(sessionKey: string) {
+  const tail = sessionKey.split(":").filter(Boolean).at(-1) ?? sessionKey;
+  const normalized = tail.replaceAll("_", " ").trim();
+
+  if (normalized.length === 0) {
+    return sessionKey;
+  }
+
+  return normalized
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export function resolveStreamDisplayName(stream: Pick<StreamRecord, "displayName" | "sessionKey">) {
+  const displayName = stream.displayName?.trim();
+  return displayName && displayName.length > 0
+    ? displayName
+    : parseStreamName(stream.sessionKey);
+}
+
 export function SessionListSheet({
   activeSessionKey,
   connectionLabel,
@@ -38,7 +59,7 @@ export function SessionListSheet({
     }
 
     return streams.filter((stream) =>
-      stream.displayName.toLowerCase().includes(normalizedQuery)
+      resolveStreamDisplayName(stream).toLowerCase().includes(normalizedQuery)
     );
   }, [filterQuery, streams]);
 
@@ -64,6 +85,7 @@ export function SessionListSheet({
             </p>
           ) : (
             filteredStreams.map((stream) => {
+              const displayName = resolveStreamDisplayName(stream);
               const provisioningState = getSessionProvisioningState({
                 hasStream: true,
                 provisionedSessionKeys,
@@ -87,7 +109,7 @@ export function SessionListSheet({
                   type="button"
                 >
                   <span className="session-sheet-card-row">
-                    <span className="session-sheet-card-title">{stream.displayName}</span>
+                    <span className="session-sheet-card-title">{displayName}</span>
                     <span className="session-sheet-card-meta">
                       {typeof unreadBySessionKey[stream.sessionKey] === "number" &&
                       unreadBySessionKey[stream.sessionKey] > 0 ? (
