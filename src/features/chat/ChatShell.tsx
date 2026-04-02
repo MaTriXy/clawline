@@ -7,11 +7,11 @@ import type { TransportPhase } from "../../runtime/transport/transportMachine";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { SessionListSheet } from "./SessionListSheet";
+import { StreamPageDots } from "./StreamPageDots";
 import type { SessionProvisioningState } from "../streams/provisioning";
 
 export function ChatShell({
   activeSessionKey,
-  activeStreamName,
   connectionLabel,
   isSessionListOpen,
   onCloseSessionList,
@@ -33,7 +33,6 @@ export function ChatShell({
   unreadBySessionKey
 }: {
   activeSessionKey?: string;
-  activeStreamName?: string;
   connectionLabel: string;
   isSessionListOpen: boolean;
   onCloseSessionList: () => void;
@@ -58,47 +57,15 @@ export function ChatShell({
   transportPhase: TransportPhase;
   unreadBySessionKey: Record<string, number>;
 }) {
+  const unreadSessionKeys = new Set(
+    Object.entries(unreadBySessionKey)
+      .filter(([, unreadCount]) => unreadCount > 0)
+      .map(([sessionKey]) => sessionKey)
+  );
+
   return (
     <section className="chat-layout" data-testid="chat-layout">
       <main className="chat-panel" data-testid="chat-panel">
-        <header className="chat-header">
-          <div className="chat-header-main">
-            <button
-              aria-label="Open sessions"
-              className="session-sheet-trigger"
-              onClick={onOpenSessionList}
-              type="button"
-            >
-              <span aria-hidden="true">···</span>
-            </button>
-            <div className="chat-header-copy">
-              <p className="eyebrow">Conversation</p>
-              <h1>{activeStreamName ?? activeSessionKey ?? "Waiting for a session"}</h1>
-              {activeSessionKey ? (
-                <code className="chat-header-session">{activeSessionKey}</code>
-              ) : null}
-            </div>
-          </div>
-          <div className="chat-header-actions">
-            <span className="status-pill">{connectionLabel}</span>
-            <button className="button-secondary" onClick={onRetryConnection} type="button">
-              Retry
-            </button>
-            <button className="button-secondary" onClick={onOpenSettings} type="button">
-              Settings
-            </button>
-          </div>
-        </header>
-        {provisioningState === "waiting" ? (
-          <div className="provisioning-banner">
-            This session is waiting for provisioning before send becomes available.
-          </div>
-        ) : null}
-        {provisioningState === "unavailable" ? (
-          <div className="provisioning-banner provisioning-banner--warning">
-            This session is unavailable for sending. Switch streams and try again.
-          </div>
-        ) : null}
         <MessageList
           messages={selectedMessages}
           onRememberScrollState={onRememberScrollState}
@@ -107,16 +74,41 @@ export function ChatShell({
           sessionKey={selectedSessionKey}
           unreadAnchorMessageId={selectedUnreadAnchorMessageId}
         />
-        <Composer
-          provisioningState={provisioningState}
-          sessionKey={activeSessionKey}
-        />
+        <div className="chat-floating-stack">
+          {provisioningState === "waiting" ? (
+            <div className="provisioning-banner provisioning-banner--floating">
+              This session is waiting for provisioning before send becomes available.
+            </div>
+          ) : null}
+          {provisioningState === "unavailable" ? (
+            <div className="provisioning-banner provisioning-banner--warning provisioning-banner--floating">
+              This session is unavailable for sending. Switch streams and try again.
+            </div>
+          ) : null}
+          {streams.length > 0 ? (
+            <div className="chat-dots-dock">
+              <StreamPageDots
+                activeSessionKey={activeSessionKey}
+                onClick={onOpenSessionList}
+                sessionKeys={streams.map((stream) => stream.sessionKey)}
+                unreadSessionKeys={unreadSessionKeys}
+              />
+            </div>
+          ) : null}
+          <Composer
+            provisioningState={provisioningState}
+            sessionKey={activeSessionKey}
+          />
+        </div>
       </main>
       <SessionListSheet
         activeSessionKey={activeSessionKey}
+        connectionLabel={connectionLabel}
         isOpen={isSessionListOpen}
         onClose={onCloseSessionList}
+        onOpenSettings={onOpenSettings}
         onOpenStreamManager={onOpenStreamManager}
+        onRetryConnection={onRetryConnection}
         onSelectSession={onSelectSession}
         provisionedSessionKeys={provisionedSessionKeys}
         streams={streams}

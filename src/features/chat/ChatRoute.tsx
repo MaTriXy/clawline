@@ -124,7 +124,6 @@ export function ChatRoute() {
     <>
       <ChatShell
         activeSessionKey={selectedSessionKey}
-        activeStreamName={activeStream?.displayName}
         connectionLabel={
           transportState.phase === "live"
             ? "Connected"
