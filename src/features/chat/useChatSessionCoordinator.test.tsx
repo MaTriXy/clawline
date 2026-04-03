@@ -112,4 +112,35 @@ describe("useChatSessionCoordinator", () => {
 
     expect(result.current.engineActiveSessionKey).toBe("agent:main:clawline:user_1:side");
   });
+
+  it("owns popup and stream-manager visibility state directly", () => {
+    const { result } = renderHook(() =>
+      useChatSessionCoordinator({
+        provisionedSessionKeys: STREAMS.map((stream) => stream.sessionKey),
+        routeSessionKey: "agent:main:clawline:user_1:main",
+        streams: STREAMS,
+        transportPhase: "live"
+      })
+    );
+
+    act(() => {
+      result.current.openSessionList();
+    });
+    expect(result.current.isSessionListOpen).toBe(true);
+    expect(result.current.isStreamManagerOpen).toBe(false);
+
+    act(() => {
+      result.current.openStreamManager();
+    });
+    expect(result.current.isSessionListOpen).toBe(false);
+    expect(result.current.isStreamManagerOpen).toBe(true);
+
+    act(() => {
+      result.current.closeStreamManager();
+      result.current.openSessionList();
+      result.current.closeSessionList();
+    });
+    expect(result.current.isSessionListOpen).toBe(false);
+    expect(result.current.isStreamManagerOpen).toBe(false);
+  });
 });

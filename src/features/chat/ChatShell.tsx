@@ -27,6 +27,7 @@ export function ChatShell({
   rememberedScrollState,
   selectedMessages,
   selectedSessionKey,
+  uiSelectedSessionKey,
   selectedUnreadAnchorMessageId,
   streams,
   transportPhase,
@@ -49,6 +50,7 @@ export function ChatShell({
   rememberedScrollState?: SessionScrollState;
   selectedMessages: ChatMessageRecord[];
   selectedSessionKey?: string;
+  uiSelectedSessionKey?: string;
   selectedUnreadAnchorMessageId?: string | null;
   streams: StreamRecord[];
   transportPhase: TransportPhase;
@@ -230,7 +232,7 @@ export function ChatShell({
           {streams.length > 0 ? (
             <div className="chat-dots-dock">
               <StreamPageDots
-                activeSessionKey={activeSessionKey}
+                activeSessionKey={uiSelectedSessionKey}
                 onClick={onOpenSessionList}
                 sessionKeys={streams.map((stream) => stream.sessionKey)}
                 unreadSessionKeys={unreadSessionKeys}
@@ -245,7 +247,7 @@ export function ChatShell({
         </div>
       </main>
       <SessionListSheet
-        activeSessionKey={activeSessionKey}
+        activeSessionKey={uiSelectedSessionKey}
         isOpen={isSessionListOpen}
         onClose={onCloseSessionList}
         onOpenStreamManager={onOpenStreamManager}

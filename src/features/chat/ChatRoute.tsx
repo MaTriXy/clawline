@@ -24,6 +24,8 @@ export function ChatRoute() {
     transportPhase: transportState.phase
   });
   const selectedSessionKey = coordinator.engineActiveSessionKey;
+  const uiSelectedSessionKey =
+    coordinator.uiSelectedSessionKey ?? coordinator.engineActiveSessionKey;
   const activeStream = chatState.streams.find(
     (stream) => stream.sessionKey === selectedSessionKey
   );
@@ -120,6 +122,7 @@ export function ChatRoute() {
         }
         selectedMessages={selectedMessages}
         selectedSessionKey={selectedSessionKey}
+        uiSelectedSessionKey={uiSelectedSessionKey}
         selectedUnreadAnchorMessageId={selectedUnreadAnchorMessageId}
         provisionedSessionKeys={chatState.provisionedSessionKeys}
         streams={chatState.streams}
@@ -127,7 +130,7 @@ export function ChatRoute() {
         unreadBySessionKey={chatState.unreadBySessionKey}
       />
       <StreamManagerDrawer
-        activeSessionKey={selectedSessionKey}
+        activeSessionKey={uiSelectedSessionKey}
         isOpen={coordinator.isStreamManagerOpen}
         onClose={coordinator.closeStreamManager}
         onSelectSession={(sessionKey) => {
