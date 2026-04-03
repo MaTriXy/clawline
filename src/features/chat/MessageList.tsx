@@ -332,6 +332,9 @@ function MessageBubble({
       }
       data-message-size={presentation.sizeClass}
       data-testid={`message-${message.id}`}
+      onClick={presentation.isTruncated ? onExpand : undefined}
+      role={presentation.isTruncated ? "button" : undefined}
+      style={presentation.isTruncated ? { cursor: "pointer" } : undefined}
     >
       <header className="message-header">
         <div
@@ -362,13 +365,7 @@ function MessageBubble({
         serverUrl={serverUrl}
         token={token}
       />
-      {shouldOfferExpandedMessage(message.content) ? (
-        <div className="message-actions">
-          <button className="button-secondary" onClick={onExpand} type="button">
-            Expand
-          </button>
-        </div>
-      ) : null}
+      {/* Tap bubble to expand — no visible button, matches iOS behavior */}
       <footer className="message-status">
         {message.delivery === "pending" ? "Sending..." : null}
         {message.delivery === "acked" ? "Accepted by provider" : null}

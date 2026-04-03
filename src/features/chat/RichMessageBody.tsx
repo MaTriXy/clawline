@@ -41,10 +41,6 @@ export function RichMessageBody({
 }
 
 export function shouldOfferExpandedMessage(content: string) {
-  return (
-    content.length >= 280 ||
-    content.includes("```") ||
-    content.includes("|") ||
-    content.includes("\n\n")
-  );
+  // Only truncate genuinely long messages — matches iOS tap-to-expand behavior
+  return content.length >= 800;
 }
