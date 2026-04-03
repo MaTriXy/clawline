@@ -206,6 +206,9 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
         case "chat.callback":
             handleChatCallback(requestId: requestId, payload: payload, replyHandler: replyHandler)
 
+        case "stream.read":
+            handleStreamRead(requestId: requestId, payload: payload, replyHandler: replyHandler)
+
         case "streams.fetch":
             handleStreamsFetch(requestId: requestId, replyHandler: replyHandler)
 
@@ -276,6 +279,28 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
                 ])
             } catch {
                 replyError(for: error, fallbackCode: "callback_failed", replyHandler: replyHandler)
+            }
+        }
+    }
+
+
+    private func handleStreamRead(requestId: String, payload: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        guard let sessionKey = payload["sessionKey"] as? String,
+              let lastReadMessageId = payload["lastReadMessageId"] as? String else {
+            replyHandler(["error": ["code": "malformed", "message": "Missing sessionKey/lastReadMessageId"]])
+            return
+        }
+
+        Task {
+            do {
+                try await chatService.publishReadState(sessionKey: sessionKey, lastReadMessageId: lastReadMessageId)
+                replyHandler([
+                    "type": "stream.read.ack",
+                    "requestId": requestId,
+                    "payload": ["acked": true]
+                ])
+            } catch {
+                replyError(for: error, fallbackCode: "stream_read_failed", replyHandler: replyHandler)
             }
         }
     }
@@ -450,6 +475,13 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
         case .streamDeleted(let sessionKey):
             dict["kind"] = "streamDeleted"
             dict["sessionKey"] = sessionKey
+        case .streamReadStateSnapshot(let streamReadStates):
+            dict["kind"] = "streamReadStateSnapshot"
+            dict["streamReadStates"] = streamReadStates
+        case .streamReadStateUpdated(let sessionKey, let lastReadMessageId):
+            dict["kind"] = "streamReadStateUpdated"
+            dict["sessionKey"] = sessionKey
+            dict["lastReadMessageId"] = lastReadMessageId
         case .sessionProvisioningAvailable(let available):
             dict["kind"] = "sessionProvisioningAvailable"
             dict["available"] = available

@@ -134,6 +134,7 @@ final class ProviderChatService: ChatServicing {
         let replayCount: Int?
         let replayTruncated: Bool?
         let historyReset: Bool?
+        let streamReadStates: [String: String]?
         let reason: String?
     }
 
@@ -539,6 +540,24 @@ final class ProviderChatService: ChatServicing {
         try await socket.send(text: text)
     }
 
+    func publishReadState(sessionKey: String, lastReadMessageId: String) async throws {
+        guard let socket else {
+            throw Error.notConnected
+        }
+        let payload = ClientStreamReadPayload(sessionKey: sessionKey, lastReadMessageId: lastReadMessageId)
+        let encoded = try encoder.encode(payload)
+        guard let text = String(data: encoded, encoding: .utf8) else {
+            logger.error(
+                "Failed to encode stream read payload as UTF-8 sessionKey=\(sessionKey, privacy: .public) lastReadMessageId=\(lastReadMessageId, privacy: .public)"
+            )
+            throw Error.serverError(
+                code: "client_encode_failed",
+                message: "Failed to encode stream read payload."
+            )
+        }
+        try await socket.send(text: text)
+    }
+
     // MARK: - Internal helpers
 
     private func makeWebSocketURLs(from baseURL: URL) -> [URL] {
@@ -745,6 +764,8 @@ final class ProviderChatService: ChatServicing {
             handleStreamUpdated(data: data)
         case "stream_deleted":
             handleStreamDeleted(data: data)
+        case "stream_read_state":
+            handleStreamReadState(data: data)
         case "event":
             handleEvent(data: data)
         default:
@@ -781,6 +802,9 @@ final class ProviderChatService: ChatServicing {
             emitServiceEvent(.sessionProvisioningAvailable(supportsSessionProvisioning))
             if let info = sessionInfo(from: result) {
                 emitServiceEvent(.sessionInfo(info))
+            }
+            if let streamReadStates = result.streamReadStates {
+                emitServiceEvent(.streamReadStateSnapshot(streamReadStates))
             }
             if let isAdmin = result.isAdmin {
                 logger.info("Auth result received (userId: \(result.userId ?? "unknown", privacy: .public), isAdmin: \(isAdmin, privacy: .public))")
@@ -1047,6 +1071,19 @@ final class ProviderChatService: ChatServicing {
         knownSessionKeys.remove(payload.sessionKey)
         setReplayCursor(nil, for: payload.sessionKey)
         emitServiceEvent(.streamDeleted(sessionKey: payload.sessionKey))
+    }
+
+    private func handleStreamReadState(data: Data) {
+        guard let payload = try? decoder.decode(StreamReadStatePayload.self, from: data) else {
+            logger.warning("Failed to decode stream_read_state payload")
+            return
+        }
+        emitServiceEvent(
+            .streamReadStateUpdated(
+                sessionKey: payload.sessionKey,
+                lastReadMessageId: payload.lastReadMessageId
+            )
+        )
     }
 
     private func resolveSessionKey(from payload: TypingEventPayload) -> String? {
