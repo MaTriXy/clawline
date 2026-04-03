@@ -41,6 +41,11 @@ export function StreamPageDots({
       className="stream-page-dots"
       data-testid="stream-page-dots"
       onClick={onClick}
+      onPointerDown={(event) => {
+        // Keep the composer focused so iOS Safari doesn't dismiss the keyboard
+        // before the session popover tap completes.
+        event.preventDefault();
+      }}
       type="button"
     >
       <span className="sr-only">

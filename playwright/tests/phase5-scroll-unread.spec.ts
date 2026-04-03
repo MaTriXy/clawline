@@ -247,6 +247,11 @@ test("scroll state restores on stream switch and reload, and unread stream selec
     activeSocket?.send(JSON.stringify(unreadSideMessage));
     await page.getByRole("button", { name: "Manage streams" }).click();
     await expect(page.getByLabel("1 unread messages")).toHaveCount(1);
+    expect(
+      await page
+        .locator(".session-sheet-card-indicator--unread")
+        .evaluate((element) => window.getComputedStyle(element).backgroundColor)
+    ).toBe("rgb(224, 122, 95)");
 
     await page.getByRole("button", { name: "Side" }).click();
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sideSessionKey)}$`));

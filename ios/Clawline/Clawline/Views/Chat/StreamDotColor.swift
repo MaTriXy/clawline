@@ -8,24 +8,56 @@
 import SwiftUI
 
 enum StreamDotColor {
+    enum Kind: Equatable {
+        case unread
+        case active
+        case userTail
+        case inactive
+    }
+
     private static let avatarGreen = Color(red: 0.42, green: 0.61, blue: 0.42)
 
     static func inactive(colorScheme: ColorScheme) -> Color {
         ChatFlowTheme.stone(colorScheme).opacity(colorScheme == .dark ? 0.46 : 0.34)
     }
 
+    static func userTail(colorScheme: ColorScheme) -> Color {
+        ChatFlowTheme.connectionReconnecting(colorScheme)
+    }
+
+    static func kind(
+        isActive: Bool,
+        hasUnread: Bool,
+        hasUserTail: Bool
+    ) -> Kind {
+        if hasUnread {
+            return .unread
+        }
+        if isActive {
+            return .active
+        }
+        if hasUserTail {
+            return .userTail
+        }
+        return .inactive
+    }
+
     static func resolve(
         isActive: Bool,
         hasUnread: Bool,
+        hasUserTail: Bool,
         colorScheme: ColorScheme
     ) -> Color {
-        if hasUnread {
+        switch kind(isActive: isActive, hasUnread: hasUnread, hasUserTail: hasUserTail) {
+        case .unread:
             return ChatFlowTheme.unreadIndicator(colorScheme)
-        }
-        if isActive {
+        case .active:
             return avatarGreen
+        case .userTail:
+            return userTail(colorScheme: colorScheme)
+        case .inactive:
+            return inactive(colorScheme: colorScheme)
         }
-        return inactive(colorScheme: colorScheme)
     }
 
     static func activeGlow(colorScheme: ColorScheme) -> Color {

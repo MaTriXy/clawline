@@ -7,18 +7,18 @@ import type {
 import { ExpandedMessageOverlay } from "./ExpandedMessageOverlay";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageLinkCards } from "./MessageLinkCards";
+import {
+  analyzeMessagePresentation,
+  getMessageSenderInitial,
+  getMessageSenderLabel,
+  hasStreamingAssistantMessage
+} from "./messagePresentation";
 import { RichMessageBody, shouldOfferExpandedMessage } from "./RichMessageBody";
 import { useVirtualMessageWindow } from "./useVirtualMessageWindow";
 
-function getMessageSenderLabel(message: ChatMessageRecord) {
-  return message.role === "user" ? "You" : message.sender ?? "Assistant";
-}
-
-function getMessageSenderInitial(message: ChatMessageRecord) {
-  const label = getMessageSenderLabel(message).trim();
-  const initial = Array.from(label).find((character) => /\p{Letter}|\p{Number}/u.test(character));
-  return (initial ?? "?").toUpperCase();
-}
+const TYPING_INDICATOR_HEIGHT = 90;
+const TYPING_INDICATOR_GAP = 14;
+const TYPING_ACTIVITY_SETTLE_MS = 180;
 
 export function MessageList({
   messages,
@@ -47,7 +47,8 @@ export function MessageList({
     containerRef,
     handleScroll,
     isAtBottom,
-    registerMessageHeight,
+    isAtBottomRef,
+    registerMessageSize,
     renderedMessages,
     scrollTop,
     scrollToBottom,
@@ -55,9 +56,42 @@ export function MessageList({
     scrollToOffset,
     totalHeight
   } = useVirtualMessageWindow(messages);
+  const shouldShowTypingIndicator = hasStreamingAssistantMessage(messages);
+  const [isTypingIndicatorVisible, setIsTypingIndicatorVisible] = useState(
+    shouldShowTypingIndicator
+  );
   const restoredSessionKeyRef = useRef<string | null>(null);
   const consumedUnreadAnchorRef = useRef<string | null>(null);
+  const touchScrollActiveRef = useRef(false);
+  const touchScrollReleaseTimeoutRef = useRef<number | null>(null);
   const expandedMessage = messages.find((message) => message.id === expandedMessageId) ?? null;
+  const typingIndicatorOffsetTop = totalHeight + (messages.length > 0 ? TYPING_INDICATOR_GAP : 0);
+  const virtualSurfaceHeight =
+    totalHeight
+    + (isTypingIndicatorVisible ? TYPING_INDICATOR_HEIGHT + (messages.length > 0 ? TYPING_INDICATOR_GAP : 0) : 0);
+
+  useEffect(() => {
+    return () => {
+      if (touchScrollReleaseTimeoutRef.current !== null) {
+        window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (shouldShowTypingIndicator) {
+      setIsTypingIndicatorVisible(true);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsTypingIndicatorVisible(false);
+    }, TYPING_ACTIVITY_SETTLE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [shouldShowTypingIndicator]);
 
   useEffect(() => {
     if (!sessionKey || !onRememberScrollState) {
@@ -133,7 +167,7 @@ export function MessageList({
       activeElement instanceof HTMLTextAreaElement &&
       activeElement.id === "composer-input";
 
-    if (!isComposerFocused && !isAtBottom) {
+    if (!isComposerFocused || !isAtBottomRef.current || touchScrollActiveRef.current) {
       return;
     }
 
@@ -144,7 +178,21 @@ export function MessageList({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [isAtBottom, scrollToBottom, viewportInsetBottom]);
+  }, [isAtBottomRef, scrollToBottom, viewportInsetBottom]);
+
+  useEffect(() => {
+    if (!isTypingIndicatorVisible || !isAtBottom) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollToBottom();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [isAtBottom, isTypingIndicatorVisible, scrollToBottom]);
 
   if (messages.length === 0) {
     return (
@@ -163,18 +211,42 @@ export function MessageList({
         className="message-list"
         data-testid="message-list"
         onScroll={handleScroll}
+        onTouchCancel={() => {
+          if (touchScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+          }
+          touchScrollActiveRef.current = false;
+        }}
+        onTouchEnd={() => {
+          if (touchScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+          }
+          touchScrollReleaseTimeoutRef.current = window.setTimeout(() => {
+            touchScrollActiveRef.current = false;
+            touchScrollReleaseTimeoutRef.current = null;
+          }, 180);
+        }}
+        onTouchStart={() => {
+          if (touchScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+            touchScrollReleaseTimeoutRef.current = null;
+          }
+          touchScrollActiveRef.current = true;
+        }}
         ref={containerRef}
       >
         <div
           className="message-list-virtual-surface"
-          style={{ height: `${Math.max(totalHeight, 0)}px` }}
+          style={{ height: `${Math.max(virtualSurfaceHeight, 0)}px` }}
         >
-          {renderedMessages.map(({ message, offsetTop }) => (
+          {renderedMessages.map(({ message, offsetLeft, offsetTop, width }) => (
             <MeasuredMessageRow
               key={message.id}
               messageId={message.id}
+              offsetLeft={offsetLeft}
               offsetTop={offsetTop}
-              onHeightChange={registerMessageHeight}
+              onSizeChange={registerMessageSize}
+              width={width}
             >
               <MessageBubble
                 message={message}
@@ -184,6 +256,14 @@ export function MessageList({
               />
             </MeasuredMessageRow>
           ))}
+          {isTypingIndicatorVisible ? (
+            <div
+              className="message-list-row message-list-row--typing"
+              style={{ left: "0px", top: `${typingIndicatorOffsetTop}px` }}
+            >
+              <TypingIndicator />
+            </div>
+          ) : null}
         </div>
       </section>
       {!isAtBottom ? (
@@ -208,16 +288,33 @@ export function MessageList({
   );
 }
 
+function TypingIndicator() {
+  return (
+    <div className="message-typing-indicator" data-testid="typing-indicator">
+      <span className="sr-only">Assistant is typing</span>
+      <span aria-hidden="true" className="message-typing-indicator-dots">
+        <span className="message-typing-indicator-dot" />
+        <span className="message-typing-indicator-dot" />
+        <span className="message-typing-indicator-dot" />
+      </span>
+    </div>
+  );
+}
+
 function MeasuredMessageRow({
   children,
   messageId,
+  offsetLeft,
   offsetTop,
-  onHeightChange
+  onSizeChange,
+  width
 }: {
   children: ReactNode;
   messageId: string;
+  offsetLeft: number;
   offsetTop: number;
-  onHeightChange: (messageId: string, height: number) => void;
+  onSizeChange: (messageId: string, size: { height: number; width: number }) => void;
+  width: number;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
 
@@ -227,12 +324,16 @@ function MeasuredMessageRow({
       return;
     }
 
-    function measure() {
-      if (!rowRef.current) {
-        return;
-      }
+      function measure() {
+        if (!rowRef.current) {
+          return;
+        }
 
-      onHeightChange(messageId, rowRef.current.getBoundingClientRect().height);
+      const rect = rowRef.current.getBoundingClientRect();
+      onSizeChange(messageId, {
+        height: rect.height,
+        width: rect.width
+      });
     }
 
     measure();
@@ -249,13 +350,17 @@ function MeasuredMessageRow({
     return () => {
       resizeObserver?.disconnect();
     };
-  }, [messageId, onHeightChange]);
+  }, [messageId, onSizeChange]);
 
   return (
     <div
       className="message-list-row"
       ref={rowRef}
-      style={{ top: `${offsetTop}px` }}
+      style={{
+        left: `${offsetLeft}px`,
+        top: `${offsetTop}px`,
+        width: `${width}px`
+      }}
     >
       {children}
     </div>
@@ -277,15 +382,30 @@ function MessageBubble({
   const senderLabel = getMessageSenderLabel(message);
   const senderInitial = getMessageSenderInitial(message);
   const isUser = message.role === "user";
+  const presentation = analyzeMessagePresentation(message, shouldOfferExpandedMessage);
 
   return (
     <article
       className={
-        isUser
-          ? "message-bubble message-bubble--user"
-          : "message-bubble message-bubble--assistant"
+        [
+          "message-bubble",
+          isUser ? "message-bubble--user" : "message-bubble--assistant",
+          `message-bubble--${presentation.sizeClass}`,
+          presentation.chromeKind !== "default"
+            ? `message-bubble--${presentation.chromeKind}`
+            : null,
+          presentation.isWide ? "message-bubble--wide" : null,
+          presentation.isTruncated ? "message-bubble--truncated" : null
+        ]
+          .filter(Boolean)
+          .join(" ")
       }
+      data-message-chrome={presentation.chromeKind}
+      data-message-size={presentation.sizeClass}
       data-testid={`message-${message.id}`}
+      onClick={presentation.isTruncated ? onExpand : undefined}
+      role={presentation.isTruncated ? "button" : undefined}
+      style={presentation.isTruncated ? { cursor: "pointer" } : undefined}
     >
       <header className="message-header">
         <div
@@ -300,25 +420,28 @@ function MessageBubble({
           <span className="message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</span>
         </div>
       </header>
-      <RichMessageBody content={message.content} contentRef={contentRef} />
+      <RichMessageBody
+        className={[
+          `message-markdown--${presentation.sizeClass}`,
+          presentation.chromeKind === "chromeless-emoji" ? "message-markdown--emoji" : null,
+          presentation.isWide ? "message-markdown--wide" : null
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        content={message.content}
+        contentRef={contentRef}
+      />
       <MessageLinkCards content={message.content} contentRef={contentRef} />
       <MessageAttachments
         attachments={message.attachments}
         serverUrl={serverUrl}
         token={token}
       />
-      {shouldOfferExpandedMessage(message.content) ? (
-        <div className="message-actions">
-          <button className="button-secondary" onClick={onExpand} type="button">
-            Expand
-          </button>
-        </div>
-      ) : null}
+      {/* Tap bubble to expand — no visible button, matches iOS behavior */}
       <footer className="message-status">
         {message.delivery === "pending" ? "Sending..." : null}
         {message.delivery === "acked" ? "Accepted by provider" : null}
         {message.delivery === "failed" ? "Send failed" : null}
-        {message.streaming ? "Streaming..." : null}
       </footer>
     </article>
   );

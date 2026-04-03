@@ -486,7 +486,9 @@ struct ChatView: View {
     private func floatingPageDotsView(
         viewModel: ChatViewModel,
         inputBarTopFromScreenBottom: CGFloat,
-        streamSelectorMaxHeight: CGFloat
+        streamSelectorMaxHeight: CGFloat,
+        containerWidth: CGFloat,
+        bottomSafeAreaInset: CGFloat
     ) -> some View {
         let effectiveStreams = viewModel.orderedStreams
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
@@ -494,7 +496,9 @@ struct ChatView: View {
             streamPageDotsControl(
                 viewModel: viewModel,
                 effectiveStreams: effectiveStreams,
-                streamSelectorMaxHeight: streamSelectorMaxHeight
+                streamSelectorMaxHeight: streamSelectorMaxHeight,
+                containerWidth: containerWidth,
+                bottomSafeAreaInset: bottomSafeAreaInset
             )
             .padding(.bottom, inputBarTopFromScreenBottom + floatingPageDotsBottomGap)
             .ignoresSafeArea(.container, edges: .bottom)
@@ -850,7 +854,9 @@ struct ChatView: View {
             floatingPageDotsView(
                 viewModel: viewModel,
                 inputBarTopFromScreenBottom: inputBarTopFromScreenBottom,
-                streamSelectorMaxHeight: streamSelectorMaxHeight
+                streamSelectorMaxHeight: streamSelectorMaxHeight,
+                containerWidth: geometry.size.width,
+                bottomSafeAreaInset: geometry.safeAreaInsets.bottom
             )
 #else
             EmptyView()
@@ -1202,7 +1208,9 @@ struct ChatView: View {
                 streamPageDotsControl(
                     viewModel: viewModel,
                     effectiveStreams: effectiveStreams,
-                    streamSelectorMaxHeight: streamSelectorMaxHeight
+                    streamSelectorMaxHeight: streamSelectorMaxHeight,
+                    containerWidth: geometry.size.width,
+                    bottomSafeAreaInset: geometry.safeAreaInsets.bottom
                 )
             )
 
@@ -1326,21 +1334,13 @@ struct ChatView: View {
         }
     }
 
-    private func inputBarMaxWidth(bottomSafeAreaInset: CGFloat) -> CGFloat? {
-        guard horizontalSizeClass != .compact else { return nil }
-        let themeMetrics = ChatFlowTheme.Metrics(isCompact: false)
-        let textWidth = ChatFlowTheme.maxLineWidth(bodyFontSize: themeMetrics.bodyFontSize)
-        let metrics = MessageInputBarMetrics(
-            horizontalSizeClass: .regular,
+    private func inputFieldWidthCap(containerWidth: CGFloat, bottomSafeAreaInset: CGFloat) -> CGFloat {
+        MessageInputBar.renderedInputFieldWidthCap(
+            containerWidth: containerWidth,
+            isCompact: horizontalSizeClass == .compact,
             bottomSafeAreaInset: bottomSafeAreaInset,
-            deviceCornerRadius: 0,
             isFieldFocused: isInputFocused
         )
-        let chromeWidth = (themeMetrics.inputBarPaddingHorizontal * 2)
-            + metrics.inputBarHeight
-            + metrics.inputBarHeight
-            + (MessageInputBarMetrics.elementSpacing * 2)
-        return textWidth + chromeWidth
     }
 
     private func messageList(topInset: CGFloat,
@@ -1570,7 +1570,9 @@ struct ChatView: View {
     private func streamPageDotsControl(
         viewModel: ChatViewModel,
         effectiveStreams: [StreamSession],
-        streamSelectorMaxHeight: CGFloat
+        streamSelectorMaxHeight: CGFloat,
+        containerWidth: CGFloat,
+        bottomSafeAreaInset: CGFloat
     ) -> some View {
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
         let unreadSessionKeys = Set(
@@ -1578,39 +1580,55 @@ struct ChatView: View {
                 .filter { $0.value }
                 .map(\.key)
         )
+        let userTailSessionKeys = Set(
+            effectiveSessionKeys.filter { viewModel.lastMessageIsUser(for: $0) }
+        )
+        let pageDotsMaxWidth = inputFieldWidthCap(
+            containerWidth: containerWidth,
+            bottomSafeAreaInset: bottomSafeAreaInset
+        )
         return StreamPageDotsView(
             sessionKeys: effectiveSessionKeys,
             activeSessionKey: viewModel.uiSelectedSessionKey,
             unreadSessionKeys: unreadSessionKeys,
+            userTailSessionKeys: userTailSessionKeys,
+            maxWidth: pageDotsMaxWidth,
             onTap: { isStreamManagerPopoverPresented = true }
         )
-        .popover(
-            isPresented: $isStreamManagerPopoverPresented,
-            attachmentAnchor: .rect(.bounds),
-            arrowEdge: .bottom
-        ) {
-            StreamManagerSheet(
-                viewModel: viewModel,
-                streams: effectiveStreams,
-                unreadSessionKeys: unreadSessionKeys,
-                isPresented: $isStreamManagerPopoverPresented,
-                shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
-                searchFocusRequestID: streamPopupSearchFocusRequestID,
-                maxAvailableHeight: streamSelectorMaxHeight,
-                onSelectStream: { sessionKey in
-                    selectStream(sessionKey, source: .programmatic)
-                },
-                onPresentTrackPicker: {
-                    prepareForAttachmentPicker()
-                    isStreamManagerPopoverPresented = false
-                    Task { @MainActor in
-                        await Task.yield()
-                        isTrackPickerPresented = true
-                    }
+        .overlay(alignment: .top) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 1)
+                .allowsHitTesting(false)
+                .popover(
+                    isPresented: $isStreamManagerPopoverPresented,
+                    attachmentAnchor: .rect(.bounds),
+                    arrowEdge: .bottom
+                ) {
+                    StreamManagerSheet(
+                        viewModel: viewModel,
+                        streams: effectiveStreams,
+                        unreadSessionKeys: unreadSessionKeys,
+                        userTailSessionKeys: userTailSessionKeys,
+                        isPresented: $isStreamManagerPopoverPresented,
+                        shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
+                        searchFocusRequestID: streamPopupSearchFocusRequestID,
+                        maxAvailableHeight: streamSelectorMaxHeight,
+                        onSelectStream: { sessionKey in
+                            selectStream(sessionKey, source: .programmatic)
+                        },
+                        onPresentTrackPicker: {
+                            prepareForAttachmentPicker()
+                            isStreamManagerPopoverPresented = false
+                            Task { @MainActor in
+                                await Task.yield()
+                                isTrackPickerPresented = true
+                            }
+                        }
+                    )
+                    .presentationCompactAdaptation(.popover)
+                    .presentationBackground(.clear)
                 }
-            )
-            .presentationCompactAdaptation(.popover)
-            .presentationBackground(.clear)
         }
         .sheet(
             isPresented: $isTrackPickerPresented,

@@ -198,6 +198,67 @@ afterEach(() => {
 });
 
 describe("MessageList rich rendering", () => {
+  it("classifies message sizing and wide content from the design-system rules", () => {
+    renderMessageList([
+      {
+        id: "s_short",
+        role: "assistant",
+        content: "Absolutely yes",
+        timestamp: 1_764_201_200_025,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_medium",
+        role: "assistant",
+        content: "Found a better route through the market if you still want plants later.",
+        timestamp: 1_764_201_200_030,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_long",
+        role: "assistant",
+        content:
+          "This should settle into the long-form body treatment because it crosses the medium threshold and reads more like a full thought than a quick exchange.",
+        timestamp: 1_764_201_200_035,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_wide",
+        role: "assistant",
+        content: [
+          "Intro text.",
+          "",
+          "| Name | Value |",
+          "| --- | --- |",
+          "| alpha | beta |"
+        ].join("\n"),
+        timestamp: 1_764_201_200_040,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    expect(screen.getByTestId("message-s_short")).toHaveClass("message-bubble--short");
+    expect(screen.getByTestId("message-s_medium")).toHaveClass("message-bubble--medium");
+    expect(screen.getByTestId("message-s_long")).toHaveClass("message-bubble--long");
+    expect(screen.getByTestId("message-s_wide")).toHaveClass("message-bubble--wide");
+  });
+
   it("renders sender avatar waypoints with paired initials and alignment", () => {
     renderMessageList([
       RICH_MESSAGE,
@@ -216,12 +277,181 @@ describe("MessageList rich rendering", () => {
     const assistantAvatar = screen.getByTestId("message-avatar-s_rich");
     const assistantBubble = screen.getByTestId("message-s_rich");
     expect(assistantAvatar).toHaveTextContent("A");
-    expect(assistantBubble.parentElement?.firstElementChild).toBe(assistantAvatar);
+    expect(assistantBubble).toContainElement(assistantAvatar);
+    expect(assistantBubble.querySelector(".message-header")?.firstElementChild).toBe(assistantAvatar);
+    expect(assistantBubble).toHaveClass("message-bubble--assistant");
 
     const userAvatar = screen.getByTestId("message-avatar-s_user");
     const userBubble = screen.getByTestId("message-s_user");
     expect(userAvatar).toHaveTextContent("Y");
-    expect(userBubble.parentElement?.lastElementChild).toBe(userAvatar);
+    expect(userBubble).toContainElement(userAvatar);
+    expect(userBubble.querySelector(".message-header")?.firstElementChild).toBe(userAvatar);
+    expect(userBubble).toHaveClass("message-bubble--user");
+  });
+
+  it("applies chromeless bubble treatment only for the eligible content types", () => {
+    renderMessageList([
+      {
+        id: "s_image_only",
+        role: "assistant",
+        content: "",
+        timestamp: 1_764_201_200_051,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            data: "aW1hZ2U="
+          }
+        ],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_code_only",
+        role: "assistant",
+        content: ["```ts", "console.log('hi');", "```"].join("\n"),
+        timestamp: 1_764_201_200_052,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_emoji_only",
+        role: "user",
+        content: "🌿✨",
+        timestamp: 1_764_201_200_053,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server"
+      },
+      {
+        id: "s_regular_code",
+        role: "assistant",
+        content: ["Before", "", "```ts", "console.log('hi');", "```"].join("\n"),
+        timestamp: 1_764_201_200_054,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    expect(screen.getByTestId("message-s_image_only")).toHaveAttribute(
+      "data-message-chrome",
+      "chromeless-image"
+    );
+    expect(screen.getByTestId("message-s_code_only")).toHaveAttribute(
+      "data-message-chrome",
+      "chromeless-code"
+    );
+    expect(screen.getByTestId("message-s_emoji_only")).toHaveAttribute(
+      "data-message-chrome",
+      "chromeless-emoji"
+    );
+    expect(screen.getByTestId("message-s_regular_code")).toHaveAttribute(
+      "data-message-chrome",
+      "default"
+    );
+    expect(screen.getByTestId("message-s_emoji_only").querySelector(".message-markdown")).toHaveClass(
+      "message-markdown--emoji"
+    );
+  });
+
+  it("shows a typing indicator when the latest assistant reply is still streaming", () => {
+    renderMessageList([
+      {
+        id: "s_typing_seed",
+        role: "assistant",
+        content: "Let me think through that.",
+        timestamp: 1_764_201_200_055,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_typing_live",
+        role: "assistant",
+        content: "Working on it",
+        timestamp: 1_764_201_200_056,
+        streaming: true,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
+    expect(screen.getByTestId("typing-indicator")).toHaveTextContent("Assistant is typing");
+    expect(screen.queryByText("Streaming...")).not.toBeInTheDocument();
+  });
+
+  it("flows short messages side-by-side and wraps long content to a new row", () => {
+    renderMessageList([
+      {
+        id: "s_flow_short_assistant",
+        role: "assistant",
+        content: "Want tea?",
+        timestamp: 1_764_201_200_060,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_flow_short_user",
+        role: "user",
+        content: "Yes please!",
+        timestamp: 1_764_201_200_061,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server"
+      },
+      {
+        id: "s_flow_long",
+        role: "assistant",
+        content:
+          "This longer bubble should break onto its own row so the flow layout keeps the reading rhythm clear instead of trying to squeeze everything into one horizontal strip.",
+        timestamp: 1_764_201_200_062,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    const shortAssistantRow = screen
+      .getByTestId("message-s_flow_short_assistant")
+      .closest<HTMLElement>(".message-list-row");
+    const shortUserRow = screen
+      .getByTestId("message-s_flow_short_user")
+      .closest<HTMLElement>(".message-list-row");
+    const longRow = screen
+      .getByTestId("message-s_flow_long")
+      .closest<HTMLElement>(".message-list-row");
+
+    expect(shortAssistantRow).not.toBeNull();
+    expect(shortUserRow).not.toBeNull();
+    expect(longRow).not.toBeNull();
+    expect(shortAssistantRow!.style.top).toBe(shortUserRow!.style.top);
+    expect(Number.parseFloat(shortUserRow!.style.left)).toBeGreaterThan(
+      Number.parseFloat(shortAssistantRow!.style.left)
+    );
+    expect(Number.parseFloat(longRow!.style.top)).toBeGreaterThan(
+      Number.parseFloat(shortAssistantRow!.style.top)
+    );
+    expect(longRow!.style.left).toBe("0px");
   });
 
   it("renders markdown blocks in source order", () => {
@@ -240,9 +470,15 @@ describe("MessageList rich rendering", () => {
   });
 
   it("opens detailed messages in an expanded overlay", () => {
-    renderMessageList([RICH_MESSAGE]);
+    renderMessageList([
+      {
+        ...RICH_MESSAGE,
+        id: "s_rich_truncated",
+        content: `${RICH_MESSAGE.content}\n\n${"More detail. ".repeat(90)}`
+      }
+    ]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    fireEvent.click(screen.getByRole("button"));
 
     const dialog = screen.getByRole("dialog", { name: "Expanded message" });
     expect(within(dialog).getByText("Expanded view")).toBeInTheDocument();

@@ -217,13 +217,13 @@ describe("ChatRoute", () => {
     expect(screen.queryByText("Side thread")).not.toBeInTheDocument();
   });
 
-  it("opens settings as an overlay without changing the route", () => {
+  it("does not expose web-only footer controls in the session popup", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
     fireEvent.click(screen.getByRole("button", { name: "Manage streams" }));
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-    expect(screen.getByRole("heading", { name: "Appearance and diagnostics" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/chat/agent:main:clawline:user_1:main"
     );
@@ -244,7 +244,7 @@ describe("ChatRoute", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
     fireEvent.click(screen.getByRole("button", { name: "Manage streams" }));
-    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add stream" }));
 
     expect(screen.getByRole("heading", { name: "Manage sessions" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(
@@ -256,7 +256,7 @@ describe("ChatRoute", () => {
     renderChatRoute("/chat/agent:main:clawline:user_1:main");
 
     fireEvent.click(screen.getByRole("button", { name: "Manage streams" }));
-    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add stream" }));
 
     const streamManager = await screen.findByRole("heading", {
       name: "Manage sessions"

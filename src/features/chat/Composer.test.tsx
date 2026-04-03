@@ -124,4 +124,21 @@ describe("Composer", () => {
       chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
     ).toHaveLength(1);
   });
+
+  it("submits when the send button is tapped", async () => {
+    const { sendMessage } = renderComposer();
+    const textarea = screen.getByLabelText("Message");
+
+    fireEvent.change(textarea, { target: { value: "Hello from the send button" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        attachments: [],
+        content: "Hello from the send button",
+        id: expect.stringMatching(/^c_/),
+        sessionKey: "agent:main:clawline:user_1:main"
+      });
+    });
+  });
 });
