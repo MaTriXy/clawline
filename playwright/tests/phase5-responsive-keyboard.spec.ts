@@ -155,6 +155,34 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
     }
   });
 
+  test("manage streams tap opens the popup without dismissing the keyboard", async ({ page }) => {
+    const { close, port } = await startPhase5Server();
+
+    try {
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.setViewportSize({ height: 844, width: 390 });
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+      const composer = page.getByRole("textbox", { name: "Message" });
+      await composer.click();
+      await composer.fill("Keep keyboard open");
+      await expect(composer).toBeFocused();
+
+      await page.getByRole("button", { name: "Manage streams" }).click();
+
+      await expect(page.getByTestId("session-popover")).toBeVisible();
+      await expect(composer).toBeFocused();
+    } finally {
+      await close();
+    }
+  });
+
   test("sending with a mobile keyboard inset keeps the newest bubbles above the keyboard", async ({ page }) => {
     const { close, receivedClientMessages, port } = await startPhase5Server();
 
