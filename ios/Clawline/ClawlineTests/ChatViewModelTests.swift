@@ -1829,6 +1829,65 @@ struct ChatViewModelTests {
         #expect(viewModel.hasUnreadBySession[customKey] == false)
     }
 
+    @Test("Read-state snapshot clears stale local cursors missing from the server map")
+    @MainActor
+    func streamReadStateSnapshotClearsStaleLocalCursor() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let customKey = "agent:main:clawline:user:s_snapshot_clear"
+        UserDefaults.standard.set(
+            "s_remote_unread",
+            forKey: "clawline.lastReadMessageId.user.\(customKey)"
+        )
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: customKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        try await Task.sleep(for: .milliseconds(30))
+
+        chatService.emit(
+            Message(
+                id: "s_remote_unread",
+                role: .assistant,
+                content: "hello",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: customKey
+            )
+        )
+        try await Task.sleep(for: .milliseconds(30))
+
+        #expect(viewModel.lastReadMessageIdBySession[customKey] == "s_remote_unread")
+        #expect(viewModel.hasUnreadBySession[customKey] == false)
+
+        chatService.emitServiceEvent(.streamReadStateSnapshot([:]))
+        for _ in 0..<50 {
+            if viewModel.hasUnreadBySession[customKey] == true { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.lastReadMessageIdBySession[customKey] == nil)
+        #expect(UserDefaults.standard.string(forKey: "clawline.lastReadMessageId.user.\(customKey)") == nil)
+        #expect(viewModel.hasUnreadBySession[customKey] == true)
+    }
+
     @Test("Activating a stream publishes provider read-state for its latest server message")
     @MainActor
     func activatingStreamPublishesReadState() async throws {

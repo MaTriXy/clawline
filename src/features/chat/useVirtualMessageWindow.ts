@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { ChatMessageRecord } from "../../runtime/chat/chatDomainStore";
-import { analyzeMessagePresentation } from "./messagePresentation";
+import { analyzeMessagePresentation, getMessageSenderLabel } from "./messagePresentation";
 import { shouldOfferExpandedMessage } from "./RichMessageBody";
 
 const BOTTOM_THRESHOLD_PX = 32;
@@ -10,6 +10,8 @@ const DEFAULT_VIEWPORT_HEIGHT = 720;
 const OVERSCAN_PX = 1_000;
 const BUBBLE_MIN_WIDTH = 120;
 const BUBBLE_PADDING_HORIZONTAL = 40;
+const BUBBLE_HEADER_AVATAR_WIDTH = 32;
+const BUBBLE_HEADER_GAP = 10;
 const MAX_LINE_WIDTH_PX = 560;
 const MEDIUM_WIDTH_SAFETY_MARGIN_PX = 24;
 let textMeasureCanvas: HTMLCanvasElement | null = null;
@@ -197,6 +199,7 @@ function buildVirtualLayout(
   gapPx: number
 ) {
   const availableWidth = Math.max(BUBBLE_MIN_WIDTH, containerWidth);
+  const shouldStackMediumMessages = containerWidth <= 500;
   let offsetTop = 0;
   let offsetLeft = 0;
   let currentRowHeight = 0;
@@ -208,7 +211,10 @@ function buildVirtualLayout(
       estimateBubbleWidth(message, presentation, availableWidth);
     const height = measuredSize?.height ?? DEFAULT_MESSAGE_HEIGHT;
     const shouldForceOwnRow =
-      presentation.isWide || presentation.isTruncated || presentation.sizeClass === "long";
+      presentation.isWide
+      || presentation.isTruncated
+      || presentation.sizeClass === "long"
+      || (shouldStackMediumMessages && presentation.sizeClass === "medium");
 
     if (shouldForceOwnRow && offsetLeft > 0) {
       offsetTop += currentRowHeight + gapPx;
@@ -309,6 +315,10 @@ function estimateBubbleWidth(
   }
 
   const maxAllowedWidth = Math.min(containerWidth, MAX_LINE_WIDTH_PX + BUBBLE_PADDING_HORIZONTAL);
+  const minimumChromeWidth = Math.min(
+    maxAllowedWidth,
+    Math.max(BUBBLE_MIN_WIDTH, estimateBubbleChromeWidth(message))
+  );
   let width: number;
 
   if (presentation.isWide || presentation.isTruncated) {
@@ -317,20 +327,28 @@ function estimateBubbleWidth(
     width = maxAllowedWidth;
   } else if (presentation.sizeClass === "short") {
     width = clamp(
-      BUBBLE_MIN_WIDTH,
+      minimumChromeWidth,
       measureSingleLineWidth(message.content, 22, 600) + BUBBLE_PADDING_HORIZONTAL,
       maxAllowedWidth
     );
   } else {
-    width = estimateMediumWidth(message.content, containerWidth, maxAllowedWidth);
+    width = estimateMediumWidth(message.content, containerWidth, maxAllowedWidth, minimumChromeWidth);
   }
 
   bubbleWidthCache.set(cacheKey, width);
   return width;
 }
 
-function estimateMediumWidth(content: string, containerWidth: number, maxAllowedWidth: number) {
-  const minWidth = Math.max(200, Math.floor(containerWidth / 4));
+function estimateMediumWidth(
+  content: string,
+  containerWidth: number,
+  maxAllowedWidth: number,
+  minimumChromeWidth: number
+) {
+  const minWidth = Math.min(
+    maxAllowedWidth,
+    Math.max(200, Math.floor(containerWidth / 4), minimumChromeWidth)
+  );
 
   if (containerWidth <= 500) {
     const phoneWidth = clamp(minWidth, Math.floor(containerWidth * 0.67), maxAllowedWidth);
@@ -455,6 +473,17 @@ function normalizeForMeasurement(content: string) {
     .replace(/\[[^\]]+\]\((https?:\/\/[^)]+)\)/g, " link ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function estimateBubbleChromeWidth(message: ChatMessageRecord) {
+  const senderWidth = measureSingleLineWidth(getMessageSenderLabel(message), 12, 600);
+
+  return Math.ceil(
+    BUBBLE_PADDING_HORIZONTAL
+    + BUBBLE_HEADER_AVATAR_WIDTH
+    + BUBBLE_HEADER_GAP
+    + senderWidth
+  );
 }
 
 function clamp(min: number, value: number, max: number) {

@@ -2623,6 +2623,25 @@ final class ChatViewModel: ChatViewModelHosting {
         return components.joined(separator: ".")
     }
 
+    private func lastReadMessageDefaultsPrefix() -> String {
+        var components = ["clawline.lastReadMessageId"]
+        if let userId = auth.currentUserId, !userId.isEmpty {
+            components.append(userId)
+        }
+        return components.joined(separator: ".") + "."
+    }
+
+    private func persistedLastReadSessionKeys() -> Set<String> {
+        let prefix = lastReadMessageDefaultsPrefix()
+        return Set(
+            streamDefaults.dictionaryRepresentation().keys.compactMap { key in
+                guard key.hasPrefix(prefix) else { return nil }
+                let sessionKey = String(key.dropFirst(prefix.count))
+                return sessionKey.isEmpty ? nil : sessionKey
+            }
+        )
+    }
+
     private func persistLastReadMessageId(_ value: String?, for sessionKey: String) {
         let key = lastReadMessageDefaultsKey(for: sessionKey)
         if let value, !value.isEmpty {
@@ -3366,10 +3385,33 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func applyStreamReadStateSnapshot(_ snapshot: [String: String]) {
+        var normalizedSnapshot: [String: String] = [:]
         for (sessionKey, lastReadMessageId) in snapshot {
+            guard !sessionKey.isEmpty, !lastReadMessageId.isEmpty else { continue }
+            normalizedSnapshot[sessionKey] = lastReadMessageId
+        }
+        let snapshotSessionKeys = Set(normalizedSnapshot.keys)
+        let staleSessionKeys = lastReadMessageIdBySession.keys
+            .reduce(into: Set<String>()) { $0.insert($1) }
+            .union(persistedLastReadSessionKeys())
+            .subtracting(snapshotSessionKeys)
+
+        for sessionKey in staleSessionKeys {
+            lastReadMessageIdBySession.removeValue(forKey: sessionKey)
+            persistLastReadMessageId(nil, for: sessionKey)
+        }
+
+        for (sessionKey, lastReadMessageId) in normalizedSnapshot {
             guard !sessionKey.isEmpty, !lastReadMessageId.isEmpty else { continue }
             lastReadMessageIdBySession[sessionKey] = lastReadMessageId
             persistLastReadMessageId(lastReadMessageId, for: sessionKey)
+        }
+
+        let sessionsNeedingRefresh = Set(sessionMessages.keys)
+            .union(orderedSessionKeys)
+            .union(snapshotSessionKeys)
+            .union(staleSessionKeys)
+        for sessionKey in sessionsNeedingRefresh {
             refreshUnreadState(for: sessionKey)
         }
     }

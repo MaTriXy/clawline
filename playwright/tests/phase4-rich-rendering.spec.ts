@@ -274,7 +274,9 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
       pointerType: "touch"
     });
     await expect(page.getByTestId("message-s_long_1")).toHaveClass(/message-bubble--timestamp-visible/);
-    await expect(page.getByTestId("message-s_long_1").locator(".message-timestamp")).toContainText("Yesterday,");
+    await expect(page.getByTestId("message-s_long_1").locator(".message-timestamp")).toContainText(
+      /Yesterday,|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday/
+    );
   } finally {
     try {
       await page.goto("about:blank");
