@@ -1816,6 +1816,48 @@ struct ChatViewModelTests {
         #expect(viewModel.streamDotState(for: customKey) == .userTail)
     }
 
+    @Test("User-tail classification does not require a matching read cursor")
+    @MainActor
+    func streamTailStateWithoutReadCursorStillProducesUserTail() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let customKey = "agent:main:clawline:user:s_user_tail"
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: customKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        try await Task.sleep(for: .milliseconds(30))
+
+        chatService.emitServiceEvent(
+            .streamTailStateUpdated(
+                sessionKey: customKey,
+                tailState: StreamTailState(lastMessageId: "s_remote_tail", lastMessageRole: .user)
+            )
+        )
+
+        for _ in 0..<50 {
+            if viewModel.streamDotState(for: customKey) == .userTail { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.streamDotState(for: customKey) == .userTail)
+    }
+
     @Test("Tail snapshot clears yellow classification when the server removes that stream state")
     @MainActor
     func streamTailStateSnapshotClearsMissingStreams() async throws {

@@ -3463,10 +3463,10 @@ final class ChatViewModel: ChatViewModelHosting {
             return
         }
         let dotState: StreamDotState
-        if lastReadMessageIdBySession[sessionKey] != tailState.lastMessageId {
-            dotState = .unread
-        } else if tailState.lastMessageRole == .user {
+        if tailState.lastMessageRole == .user {
             dotState = .userTail
+        } else if lastReadMessageIdBySession[sessionKey] != tailState.lastMessageId {
+            dotState = .unread
         } else {
             dotState = .inactive
         }
