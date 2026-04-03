@@ -375,7 +375,6 @@ html[data-appearance="light"] body::before {
   color: var(--color-text-dim);
 }
 
-.session-sheet-card.active,
 .segment.active {
   border-color: var(--color-accent);
   box-shadow:
@@ -1024,6 +1023,7 @@ html[data-appearance="light"] body::before {
   color: var(--session-popup-text);
   font-family: "DM Sans", system-ui, -apple-system, sans-serif;
   display: grid;
+  grid-template-rows: 1fr auto;
   gap: 0;
   overflow: hidden;
 }

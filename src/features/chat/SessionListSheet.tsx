@@ -118,21 +118,14 @@ export function SessionListSheet({
                       />
                       <span className="session-sheet-card-title">{displayName}</span>
                     </span>
-                    <span className="session-sheet-card-meta">
-                      {hasUnread ? (
-                        <span
-                          aria-label={`${unreadCount} unread messages`}
-                          className="stream-unread-badge"
-                        >
-                          {unreadCount}
-                        </span>
-                      ) : null}
+                    {hasUnread ? (
                       <span
-                        className={`stream-status-pill stream-status-pill--${provisioningState}`}
+                        aria-label={`${unreadCount} unread messages`}
+                        className="stream-unread-badge"
                       >
-                        {provisioningState}
+                        {unreadCount}
                       </span>
-                    </span>
+                    ) : null}
                   </span>
                 </button>
               );
