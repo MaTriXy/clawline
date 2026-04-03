@@ -402,7 +402,8 @@ html[data-appearance="light"] body::before {
 .message-list {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   height: 100%;
   padding: 1.2rem clamp(0.9rem, 2.5vw, 2rem)
     calc(11.5rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
