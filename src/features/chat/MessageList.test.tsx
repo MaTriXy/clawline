@@ -289,6 +289,80 @@ describe("MessageList rich rendering", () => {
     expect(userBubble).toHaveClass("message-bubble--user");
   });
 
+  it("applies chromeless bubble treatment only for the eligible content types", () => {
+    renderMessageList([
+      {
+        id: "s_image_only",
+        role: "assistant",
+        content: "",
+        timestamp: 1_764_201_200_051,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            data: "aW1hZ2U="
+          }
+        ],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_code_only",
+        role: "assistant",
+        content: ["```ts", "console.log('hi');", "```"].join("\n"),
+        timestamp: 1_764_201_200_052,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_emoji_only",
+        role: "user",
+        content: "🌿✨",
+        timestamp: 1_764_201_200_053,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server"
+      },
+      {
+        id: "s_regular_code",
+        role: "assistant",
+        content: ["Before", "", "```ts", "console.log('hi');", "```"].join("\n"),
+        timestamp: 1_764_201_200_054,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    expect(screen.getByTestId("message-s_image_only")).toHaveAttribute(
+      "data-message-chrome",
+      "chromeless-image"
+    );
+    expect(screen.getByTestId("message-s_code_only")).toHaveAttribute(
+      "data-message-chrome",
+      "chromeless-code"
+    );
+    expect(screen.getByTestId("message-s_emoji_only")).toHaveAttribute(
+      "data-message-chrome",
+      "chromeless-emoji"
+    );
+    expect(screen.getByTestId("message-s_regular_code")).toHaveAttribute(
+      "data-message-chrome",
+      "default"
+    );
+    expect(screen.getByTestId("message-s_emoji_only").querySelector(".message-markdown")).toHaveClass(
+      "message-markdown--emoji"
+    );
+  });
+
   it("shows a typing indicator when the latest assistant reply is still streaming", () => {
     renderMessageList([
       {

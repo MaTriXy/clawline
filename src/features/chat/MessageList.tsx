@@ -391,12 +391,16 @@ function MessageBubble({
           "message-bubble",
           isUser ? "message-bubble--user" : "message-bubble--assistant",
           `message-bubble--${presentation.sizeClass}`,
+          presentation.chromeKind !== "default"
+            ? `message-bubble--${presentation.chromeKind}`
+            : null,
           presentation.isWide ? "message-bubble--wide" : null,
           presentation.isTruncated ? "message-bubble--truncated" : null
         ]
           .filter(Boolean)
           .join(" ")
       }
+      data-message-chrome={presentation.chromeKind}
       data-message-size={presentation.sizeClass}
       data-testid={`message-${message.id}`}
       onClick={presentation.isTruncated ? onExpand : undefined}
@@ -419,6 +423,7 @@ function MessageBubble({
       <RichMessageBody
         className={[
           `message-markdown--${presentation.sizeClass}`,
+          presentation.chromeKind === "chromeless-emoji" ? "message-markdown--emoji" : null,
           presentation.isWide ? "message-markdown--wide" : null
         ]
           .filter(Boolean)

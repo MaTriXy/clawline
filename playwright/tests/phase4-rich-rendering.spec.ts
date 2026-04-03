@@ -18,6 +18,7 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
   ].join("\n");
   const expandedRichContent = `${richContent}\n\n${"More detail. ".repeat(90)}`;
   const mediumContent = "Found a better route through the market if you still want plants later.";
+  const codeOnlyContent = ["```ts", "console.log('chromeless');", "```"].join("\n");
 
   const server = createServer();
   const wss = new WebSocketServer({ server, path: "/ws" });
@@ -88,6 +89,18 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
         socket.send(
           JSON.stringify({
             type: "message",
+            id: "s_code_only",
+            role: "assistant",
+            content: codeOnlyContent,
+            timestamp: 1_764_201_200_095,
+            streaming: false,
+            sessionKey,
+            attachments: []
+          })
+        );
+        socket.send(
+          JSON.stringify({
+            type: "message",
             id: "s_rich_1",
             role: "assistant",
             content: richContent,
@@ -131,6 +144,10 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
       await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sessionKey)}$`));
       await expect(page.getByTestId("message-s_rich_1").locator(".message-markdown pre")).toContainText(
         "console.log('phase4');"
+      );
+      await expect(page.getByTestId("message-s_code_only")).toHaveAttribute(
+        "data-message-chrome",
+        "chromeless-code"
       );
       await expect(page.getByTestId("message-s_rich_1").locator(".message-markdown table")).toContainText(
         "alpha"

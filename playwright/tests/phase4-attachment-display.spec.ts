@@ -113,6 +113,26 @@ test("common attachment types render through the authenticated display path", as
         socket.send(
           JSON.stringify({
             type: "message",
+            id: "s_image_only",
+            role: "assistant",
+            content: "",
+            timestamp: 1_764_202_100_090,
+            streaming: false,
+            sessionKey,
+            attachments: [
+              {
+                type: "image",
+                mimeType: "image/svg+xml",
+                data: Buffer.from(
+                  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><circle cx="12" cy="12" r="10" fill="#c4785c"/></svg>'
+                ).toString("base64")
+              }
+            ]
+          })
+        );
+        socket.send(
+          JSON.stringify({
+            type: "message",
             id: "s_attachment_1",
             role: "assistant",
             content: "Attachment surface",
@@ -174,7 +194,13 @@ test("common attachment types render through the authenticated display path", as
       await applyAppearance(page, appearance);
 
       await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sessionKey)}$`));
-      await expect(page.getByAltText("attachment")).toBeVisible();
+      await expect(
+        page.getByTestId("message-s_attachment_1").getByAltText("attachment")
+      ).toBeVisible();
+      await expect(page.getByTestId("message-s_image_only")).toHaveAttribute(
+        "data-message-chrome",
+        "chromeless-image"
+      );
       await expect(page.getByLabel("note.mp3")).toBeVisible();
       await expect(page.getByLabel("demo.mp4")).toBeVisible();
       await expect(page.getByRole("button", { name: "Download report.pdf" })).toBeVisible();
