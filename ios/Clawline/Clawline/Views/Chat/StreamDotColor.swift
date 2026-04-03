@@ -27,16 +27,15 @@ enum StreamDotColor {
 
     static func kind(
         isActive: Bool,
-        hasUnread: Bool,
-        hasUserTail: Bool
+        dotState: StreamDotState
     ) -> Kind {
-        if hasUnread {
+        if dotState == .unread {
             return .unread
         }
         if isActive {
             return .active
         }
-        if hasUserTail {
+        if dotState == .userTail {
             return .userTail
         }
         return .inactive
@@ -44,11 +43,10 @@ enum StreamDotColor {
 
     static func resolve(
         isActive: Bool,
-        hasUnread: Bool,
-        hasUserTail: Bool,
+        dotState: StreamDotState,
         colorScheme: ColorScheme
     ) -> Color {
-        switch kind(isActive: isActive, hasUnread: hasUnread, hasUserTail: hasUserTail) {
+        switch kind(isActive: isActive, dotState: dotState) {
         case .unread:
             return ChatFlowTheme.unreadIndicator(colorScheme)
         case .active:

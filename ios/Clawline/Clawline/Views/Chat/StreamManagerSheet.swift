@@ -14,8 +14,7 @@ struct StreamManagerSheet: View {
 
     @Bindable var viewModel: ChatViewModel
     let streams: [StreamSession]
-    let unreadSessionKeys: Set<String>
-    let userTailSessionKeys: Set<String>
+    let dotStatesBySession: [String: StreamDotState]
     @Binding var isPresented: Bool
     let shouldAutoFocusSearchOnAppear: Bool
     let searchFocusRequestID: Int
@@ -377,14 +376,12 @@ struct StreamManagerSheet: View {
             } label: {
                 HStack(spacing: 10) {
                     let isActive = stream.sessionKey == viewModel.uiSelectedSessionKey
-                    let hasUnread = unreadSessionKeys.contains(stream.sessionKey)
-                    let hasUserTail = userTailSessionKeys.contains(stream.sessionKey)
+                    let dotState = dotStatesBySession[stream.sessionKey] ?? .inactive
                     Circle()
                         .fill(
                             StreamDotColor.resolve(
                                 isActive: isActive,
-                                hasUnread: hasUnread,
-                                hasUserTail: hasUserTail,
+                                dotState: dotState,
                                 colorScheme: colorScheme
                             )
                         )
@@ -582,8 +579,7 @@ struct TrackPickerSheet: View {
     private var trackPickerMatchHighlightColor: Color {
         StreamDotColor.resolve(
             isActive: true,
-            hasUnread: false,
-            hasUserTail: false,
+            dotState: .inactive,
             colorScheme: colorScheme
         )
     }

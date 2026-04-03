@@ -1575,13 +1575,8 @@ struct ChatView: View {
         bottomSafeAreaInset: CGFloat
     ) -> some View {
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
-        let unreadSessionKeys = Set(
-            viewModel.hasUnreadBySession
-                .filter { $0.value }
-                .map(\.key)
-        )
-        let userTailSessionKeys = Set(
-            effectiveSessionKeys.filter { viewModel.lastMessageIsUser(for: $0) }
+        let dotStatesBySession = Dictionary(
+            uniqueKeysWithValues: effectiveSessionKeys.map { ($0, viewModel.streamDotState(for: $0)) }
         )
         let pageDotsMaxWidth = inputFieldWidthCap(
             containerWidth: containerWidth,
@@ -1590,8 +1585,7 @@ struct ChatView: View {
         return StreamPageDotsView(
             sessionKeys: effectiveSessionKeys,
             activeSessionKey: viewModel.uiSelectedSessionKey,
-            unreadSessionKeys: unreadSessionKeys,
-            userTailSessionKeys: userTailSessionKeys,
+            dotStatesBySession: dotStatesBySession,
             maxWidth: pageDotsMaxWidth,
             onTap: { isStreamManagerPopoverPresented = true }
         )
@@ -1608,8 +1602,7 @@ struct ChatView: View {
                     StreamManagerSheet(
                         viewModel: viewModel,
                         streams: effectiveStreams,
-                        unreadSessionKeys: unreadSessionKeys,
-                        userTailSessionKeys: userTailSessionKeys,
+                        dotStatesBySession: dotStatesBySession,
                         isPresented: $isStreamManagerPopoverPresented,
                         shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
                         searchFocusRequestID: streamPopupSearchFocusRequestID,

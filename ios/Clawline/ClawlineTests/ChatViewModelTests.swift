@@ -1772,9 +1772,9 @@ struct ChatViewModelTests {
         #expect(displayName == "Research v2")
     }
 
-    @Test("Provider read-state updates clear unread for matching stream")
+    @Test("Provider tail plus read state produce user-tail classification in one place")
     @MainActor
-    func streamReadStateUpdateClearsUnread() async throws {
+    func streamTailStateAndReadStateProduceUserTail() async throws {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
@@ -1799,48 +1799,31 @@ struct ChatViewModelTests {
         chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
         try await Task.sleep(for: .milliseconds(30))
 
-        chatService.emit(
-            Message(
-                id: "s_remote_read_target",
-                role: .assistant,
-                content: "hello",
-                timestamp: Date(),
-                streaming: false,
-                attachments: [],
-                deviceId: nil,
-                sessionKey: customKey
+        chatService.emitServiceEvent(
+            .streamTailStateUpdated(
+                sessionKey: customKey,
+                tailState: StreamTailState(lastMessageId: "s_remote_tail", lastMessageRole: .user)
             )
         )
-        for _ in 0..<50 {
-            if viewModel.hasUnreadBySession[customKey] == true { break }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(viewModel.hasUnreadBySession[customKey] == true)
-
         chatService.emitServiceEvent(
-            .streamReadStateUpdated(sessionKey: customKey, lastReadMessageId: "s_remote_read_target")
+            .streamReadStateUpdated(sessionKey: customKey, lastReadMessageId: "s_remote_tail")
         )
         for _ in 0..<50 {
-            if viewModel.hasUnreadBySession[customKey] == false { break }
+            if viewModel.streamDotState(for: customKey) == .userTail { break }
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(viewModel.lastReadMessageIdBySession[customKey] == "s_remote_read_target")
-        #expect(viewModel.hasUnreadBySession[customKey] == false)
+        #expect(viewModel.streamDotState(for: customKey) == .userTail)
     }
 
-    @Test("Read-state snapshot clears stale local cursors missing from the server map")
+    @Test("Tail snapshot clears yellow classification when the server removes that stream state")
     @MainActor
-    func streamReadStateSnapshotClearsStaleLocalCursor() async throws {
+    func streamTailStateSnapshotClearsMissingStreams() async throws {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
         let customKey = "agent:main:clawline:user:s_snapshot_clear"
-        UserDefaults.standard.set(
-            "s_remote_unread",
-            forKey: "clawline.lastReadMessageId.user.\(customKey)"
-        )
         chatService.streams = [
             makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
             makeStreamSession(sessionKey: customKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
@@ -1860,32 +1843,27 @@ struct ChatViewModelTests {
         chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
         try await Task.sleep(for: .milliseconds(30))
 
-        chatService.emit(
-            Message(
-                id: "s_remote_unread",
-                role: .assistant,
-                content: "hello",
-                timestamp: Date(),
-                streaming: false,
-                attachments: [],
-                deviceId: nil,
-                sessionKey: customKey
+        chatService.emitServiceEvent(
+            .streamTailStateUpdated(
+                sessionKey: customKey,
+                tailState: StreamTailState(lastMessageId: "s_remote_tail", lastMessageRole: .user)
             )
         )
-        try await Task.sleep(for: .milliseconds(30))
-
-        #expect(viewModel.lastReadMessageIdBySession[customKey] == "s_remote_unread")
-        #expect(viewModel.hasUnreadBySession[customKey] == false)
-
-        chatService.emitServiceEvent(.streamReadStateSnapshot([:]))
+        chatService.emitServiceEvent(.streamReadStateUpdated(sessionKey: customKey, lastReadMessageId: "s_remote_tail"))
         for _ in 0..<50 {
-            if viewModel.hasUnreadBySession[customKey] == true { break }
+            if viewModel.streamDotState(for: customKey) == .userTail { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(viewModel.streamDotState(for: customKey) == .userTail)
+
+        chatService.emitServiceEvent(.streamTailStateSnapshot([:]))
+        for _ in 0..<50 {
+            if viewModel.streamDotStateBySession[customKey] == nil { break }
             try await Task.sleep(for: .milliseconds(20))
         }
 
-        #expect(viewModel.lastReadMessageIdBySession[customKey] == nil)
-        #expect(UserDefaults.standard.string(forKey: "clawline.lastReadMessageId.user.\(customKey)") == nil)
-        #expect(viewModel.hasUnreadBySession[customKey] == true)
+        #expect(viewModel.streamDotStateBySession[customKey] == nil)
+        #expect(viewModel.streamDotState(for: customKey) == .inactive)
     }
 
     @Test("Activating a stream publishes provider read-state for its latest server message")

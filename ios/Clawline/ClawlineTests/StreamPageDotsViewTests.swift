@@ -69,8 +69,7 @@ struct StreamPageDotsViewTests {
     func unreadKindWinsPrecedence() {
         let kind = StreamDotColor.kind(
             isActive: true,
-            hasUnread: true,
-            hasUserTail: true
+            dotState: .unread
         )
 
         #expect(kind == .unread)
@@ -80,8 +79,7 @@ struct StreamPageDotsViewTests {
     func userTailKindIsDistinct() {
         let kind = StreamDotColor.kind(
             isActive: false,
-            hasUnread: false,
-            hasUserTail: true
+            dotState: .userTail
         )
 
         #expect(kind == .userTail)

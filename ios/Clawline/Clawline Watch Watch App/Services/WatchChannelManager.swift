@@ -6,11 +6,12 @@ import Observation
 final class WatchChannelManager {
     private(set) var streams: [StreamSession] = []
     private(set) var currentSessionKey: String?
-    private(set) var unreadSessionKeys: Set<String> = []
+    private(set) var streamDotStateBySession: [String: StreamDotState] = [:]
 
     private(set) var engineSessionKey: String?
     private var lastServerMessageIdBySession: [String: String] = [:]
     private var lastReadMessageIdBySession: [String: String] = [:]
+    private var streamTailStateBySession: [String: StreamTailState] = [:]
     private weak var transport: WatchProviderTransport?
     private var debounceTask: Task<Void, Never>?
 
@@ -31,11 +32,6 @@ final class WatchChannelManager {
                 await MainActor.run {
                     if message.id.hasPrefix("s_") {
                         self.lastServerMessageIdBySession[message.sessionKey] = message.id
-                    }
-                    if message.role == .assistant,
-                       message.sessionKey != self.engineSessionKey,
-                       self.lastReadMessageIdBySession[message.sessionKey] != message.id {
-                        self.unreadSessionKeys.insert(message.sessionKey)
                     }
                 }
             }
@@ -112,19 +108,17 @@ final class WatchChannelManager {
             updated.removeAll { $0.sessionKey == sessionKey }
             lastServerMessageIdBySession.removeValue(forKey: sessionKey)
             lastReadMessageIdBySession.removeValue(forKey: sessionKey)
+            streamTailStateBySession.removeValue(forKey: sessionKey)
+            streamDotStateBySession.removeValue(forKey: sessionKey)
             applyStreamSnapshot(updated)
         case .streamReadStateSnapshot(let snapshot):
-            for (sessionKey, lastReadMessageId) in snapshot {
-                lastReadMessageIdBySession[sessionKey] = lastReadMessageId
-                if lastServerMessageIdBySession[sessionKey] == lastReadMessageId {
-                    unreadSessionKeys.remove(sessionKey)
-                }
-            }
+            applyStreamReadStateSnapshot(snapshot)
         case .streamReadStateUpdated(let sessionKey, let lastReadMessageId):
-            lastReadMessageIdBySession[sessionKey] = lastReadMessageId
-            if engineSessionKey == sessionKey || lastServerMessageIdBySession[sessionKey] == lastReadMessageId {
-                unreadSessionKeys.remove(sessionKey)
-            }
+            applyStreamReadStateUpdate(sessionKey: sessionKey, lastReadMessageId: lastReadMessageId)
+        case .streamTailStateSnapshot(let snapshot):
+            applyStreamTailStateSnapshot(snapshot)
+        case .streamTailStateUpdated(let sessionKey, let tailState):
+            applyStreamTailStateUpdate(sessionKey: sessionKey, tailState: tailState)
         default:
             break
         }
@@ -141,9 +135,10 @@ final class WatchChannelManager {
         guard !streams.isEmpty else {
             currentSessionKey = nil
             engineSessionKey = nil
-            unreadSessionKeys.removeAll()
+            streamDotStateBySession.removeAll()
             lastServerMessageIdBySession.removeAll()
             lastReadMessageIdBySession.removeAll()
+            streamTailStateBySession.removeAll()
             return
         }
 
@@ -155,15 +150,58 @@ final class WatchChannelManager {
         let firstKey = streams[0].sessionKey
         currentSessionKey = firstKey
         engineSessionKey = firstKey
-        unreadSessionKeys.remove(firstKey)
     }
 
     private func markSessionRead(_ sessionKey: String) {
-        unreadSessionKeys.remove(sessionKey)
         guard let lastReadMessageId = lastServerMessageIdBySession[sessionKey] else { return }
-        lastReadMessageIdBySession[sessionKey] = lastReadMessageId
         Task { [weak transport] in
             try? await transport?.publishReadState(sessionKey: sessionKey, lastReadMessageId: lastReadMessageId)
         }
+    }
+
+    private func applyStreamReadStateSnapshot(_ snapshot: [String: String]) {
+        lastReadMessageIdBySession = snapshot
+        for sessionKey in Set(snapshot.keys).union(streamTailStateBySession.keys) {
+            recomputeStreamDotState(for: sessionKey)
+        }
+        for sessionKey in Set(streamDotStateBySession.keys).subtracting(snapshot.keys).subtracting(streamTailStateBySession.keys) {
+            streamDotStateBySession.removeValue(forKey: sessionKey)
+        }
+    }
+
+    private func applyStreamReadStateUpdate(sessionKey: String, lastReadMessageId: String) {
+        lastReadMessageIdBySession[sessionKey] = lastReadMessageId
+        recomputeStreamDotState(for: sessionKey)
+    }
+
+    private func applyStreamTailStateSnapshot(_ snapshot: [String: StreamTailState]) {
+        streamTailStateBySession = snapshot
+        for sessionKey in Set(snapshot.keys).union(lastReadMessageIdBySession.keys) {
+            recomputeStreamDotState(for: sessionKey)
+        }
+        for sessionKey in Set(streamDotStateBySession.keys).subtracting(snapshot.keys).subtracting(lastReadMessageIdBySession.keys) {
+            streamDotStateBySession.removeValue(forKey: sessionKey)
+        }
+    }
+
+    private func applyStreamTailStateUpdate(sessionKey: String, tailState: StreamTailState) {
+        streamTailStateBySession[sessionKey] = tailState
+        recomputeStreamDotState(for: sessionKey)
+    }
+
+    private func recomputeStreamDotState(for sessionKey: String) {
+        guard let tailState = streamTailStateBySession[sessionKey] else {
+            streamDotStateBySession.removeValue(forKey: sessionKey)
+            return
+        }
+        let dotState: StreamDotState
+        if lastReadMessageIdBySession[sessionKey] != tailState.lastMessageId {
+            dotState = .unread
+        } else if tailState.lastMessageRole == .user {
+            dotState = .userTail
+        } else {
+            dotState = .inactive
+        }
+        streamDotStateBySession[sessionKey] = dotState
     }
 }

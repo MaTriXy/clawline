@@ -34,6 +34,8 @@ struct RelayEventEnvelope: Codable, Equatable {
         case streamDeleted
         case streamReadStateSnapshot
         case streamReadStateUpdated
+        case streamTailStateSnapshot
+        case streamTailStateUpdated
         case sessionProvisioningAvailable
         case sessionInfo
     }
@@ -53,6 +55,8 @@ struct RelayEventEnvelope: Codable, Equatable {
     let sessionInfo: SessionInfo?
     let streamReadStates: [String: String]?
     let lastReadMessageId: String?
+    let streamTailStates: [String: StreamTailState]?
+    let tailState: StreamTailState?
 
     init(kind: Kind,
          messageId: String? = nil,
@@ -68,7 +72,9 @@ struct RelayEventEnvelope: Codable, Equatable {
          available: Bool? = nil,
          sessionInfo: SessionInfo? = nil,
          streamReadStates: [String: String]? = nil,
-         lastReadMessageId: String? = nil) {
+         lastReadMessageId: String? = nil,
+         streamTailStates: [String: StreamTailState]? = nil,
+         tailState: StreamTailState? = nil) {
         self.kind = kind
         self.messageId = messageId
         self.code = code
@@ -84,6 +90,8 @@ struct RelayEventEnvelope: Codable, Equatable {
         self.sessionInfo = sessionInfo
         self.streamReadStates = streamReadStates
         self.lastReadMessageId = lastReadMessageId
+        self.streamTailStates = streamTailStates
+        self.tailState = tailState
     }
 
     func toEvent() -> ChatServiceEvent? {
@@ -117,6 +125,11 @@ struct RelayEventEnvelope: Codable, Equatable {
         case .streamReadStateUpdated:
             guard let sessionKey, let lastReadMessageId else { return nil }
             return .streamReadStateUpdated(sessionKey: sessionKey, lastReadMessageId: lastReadMessageId)
+        case .streamTailStateSnapshot:
+            return .streamTailStateSnapshot(streamTailStates ?? [:])
+        case .streamTailStateUpdated:
+            guard let sessionKey, let tailState else { return nil }
+            return .streamTailStateUpdated(sessionKey: sessionKey, tailState: tailState)
         case .sessionProvisioningAvailable:
             return .sessionProvisioningAvailable(available ?? false)
         case .sessionInfo:
@@ -149,6 +162,10 @@ struct RelayEventEnvelope: Codable, Equatable {
             return RelayEventEnvelope(kind: .streamReadStateSnapshot, streamReadStates: streamReadStates)
         case .streamReadStateUpdated(let sessionKey, let lastReadMessageId):
             return RelayEventEnvelope(kind: .streamReadStateUpdated, sessionKey: sessionKey, lastReadMessageId: lastReadMessageId)
+        case .streamTailStateSnapshot(let streamTailStates):
+            return RelayEventEnvelope(kind: .streamTailStateSnapshot, streamTailStates: streamTailStates)
+        case .streamTailStateUpdated(let sessionKey, let tailState):
+            return RelayEventEnvelope(kind: .streamTailStateUpdated, sessionKey: sessionKey, tailState: tailState)
         case .sessionProvisioningAvailable(let available):
             return RelayEventEnvelope(kind: .sessionProvisioningAvailable, available: available)
         case .sessionInfo(let sessionInfo):

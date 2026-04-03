@@ -482,6 +482,13 @@ final class WatchConnectivityService: NSObject, WatchConnectivityServicing {
             dict["kind"] = "streamReadStateUpdated"
             dict["sessionKey"] = sessionKey
             dict["lastReadMessageId"] = lastReadMessageId
+        case .streamTailStateSnapshot(let streamTailStates):
+            dict["kind"] = "streamTailStateSnapshot"
+            if let any = encodeToAny(streamTailStates) { dict["streamTailStates"] = any }
+        case .streamTailStateUpdated(let sessionKey, let tailState):
+            dict["kind"] = "streamTailStateUpdated"
+            dict["sessionKey"] = sessionKey
+            if let any = encodeToAny(tailState) { dict["tailState"] = any }
         case .sessionProvisioningAvailable(let available):
             dict["kind"] = "sessionProvisioningAvailable"
             dict["available"] = available
