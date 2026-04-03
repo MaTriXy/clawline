@@ -320,6 +320,66 @@ describe("MessageList rich rendering", () => {
     expect(screen.queryByText("Streaming...")).not.toBeInTheDocument();
   });
 
+  it("flows short messages side-by-side and wraps long content to a new row", () => {
+    renderMessageList([
+      {
+        id: "s_flow_short_assistant",
+        role: "assistant",
+        content: "Want tea?",
+        timestamp: 1_764_201_200_060,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_flow_short_user",
+        role: "user",
+        content: "Yes please!",
+        timestamp: 1_764_201_200_061,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server"
+      },
+      {
+        id: "s_flow_long",
+        role: "assistant",
+        content:
+          "This longer bubble should break onto its own row so the flow layout keeps the reading rhythm clear instead of trying to squeeze everything into one horizontal strip.",
+        timestamp: 1_764_201_200_062,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    const shortAssistantRow = screen
+      .getByTestId("message-s_flow_short_assistant")
+      .closest<HTMLElement>(".message-list-row");
+    const shortUserRow = screen
+      .getByTestId("message-s_flow_short_user")
+      .closest<HTMLElement>(".message-list-row");
+    const longRow = screen
+      .getByTestId("message-s_flow_long")
+      .closest<HTMLElement>(".message-list-row");
+
+    expect(shortAssistantRow).not.toBeNull();
+    expect(shortUserRow).not.toBeNull();
+    expect(longRow).not.toBeNull();
+    expect(shortAssistantRow!.style.top).toBe(shortUserRow!.style.top);
+    expect(Number.parseFloat(shortUserRow!.style.left)).toBeGreaterThan(
+      Number.parseFloat(shortAssistantRow!.style.left)
+    );
+    expect(Number.parseFloat(longRow!.style.top)).toBeGreaterThan(
+      Number.parseFloat(shortAssistantRow!.style.top)
+    );
+    expect(longRow!.style.left).toBe("0px");
+  });
+
   it("renders markdown blocks in source order", () => {
     renderMessageList([RICH_MESSAGE]);
 

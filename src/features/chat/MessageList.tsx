@@ -7,64 +7,18 @@ import type {
 import { ExpandedMessageOverlay } from "./ExpandedMessageOverlay";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageLinkCards } from "./MessageLinkCards";
+import {
+  analyzeMessagePresentation,
+  getMessageSenderInitial,
+  getMessageSenderLabel,
+  hasStreamingAssistantMessage
+} from "./messagePresentation";
 import { RichMessageBody, shouldOfferExpandedMessage } from "./RichMessageBody";
 import { useVirtualMessageWindow } from "./useVirtualMessageWindow";
 
-type MessageSizeClass = "short" | "medium" | "long";
 const TYPING_INDICATOR_HEIGHT = 90;
 const TYPING_INDICATOR_GAP = 14;
 const TYPING_ACTIVITY_SETTLE_MS = 180;
-
-function getMessageSenderLabel(message: ChatMessageRecord) {
-  return message.role === "user" ? "You" : message.sender ?? "Assistant";
-}
-
-function getMessageSenderInitial(message: ChatMessageRecord) {
-  const label = getMessageSenderLabel(message).trim();
-  const initial = Array.from(label).find((character) => /\p{Letter}|\p{Number}/u.test(character));
-  return (initial ?? "?").toUpperCase();
-}
-
-function analyzeMessagePresentation(message: ChatMessageRecord) {
-  const normalizedContent = message.content.trim();
-  const wordCount = countWords(normalizedContent);
-  const hasMarkdownTable = /\n\|(?:\s*:?-+:?\s*\|)+\s*(?:\n|$)/m.test(normalizedContent);
-  const hasBlockContent =
-    message.attachments.length > 0 ||
-    hasMarkdownTable ||
-    normalizedContent.includes("```") ||
-    normalizedContent.includes("\n\n");
-  const hasLinkPreviewCandidate = /https?:\/\/\S+|\[[^\]]+\]\((https?:\/\/[^)]+)\)/.test(
-    normalizedContent
-  );
-  const sizeClass: MessageSizeClass = hasBlockContent
-    ? "long"
-    : wordCount <= 3
-      ? "short"
-      : wordCount <= 20
-        ? "medium"
-        : "long";
-
-  return {
-    isTruncated: shouldOfferExpandedMessage(message.content),
-    isWide: message.attachments.length > 0 || hasMarkdownTable || hasLinkPreviewCandidate,
-    sizeClass
-  };
-}
-
-function countWords(content: string) {
-  return content
-    .replace(/```[\s\S]*?```/g, " code ")
-    .replace(/\[[^\]]+\]\((https?:\/\/[^)]+)\)/g, " link ")
-    .replace(/[|*_`>#-]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean).length;
-}
-
-function hasStreamingAssistantMessage(messages: ChatMessageRecord[]) {
-  const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
-  return lastAssistantMessage?.streaming === true;
-}
 
 export function MessageList({
   messages,
@@ -93,7 +47,7 @@ export function MessageList({
     containerRef,
     handleScroll,
     isAtBottom,
-    registerMessageHeight,
+    registerMessageSize,
     renderedMessages,
     scrollTop,
     scrollToBottom,
@@ -252,12 +206,14 @@ export function MessageList({
           className="message-list-virtual-surface"
           style={{ height: `${Math.max(virtualSurfaceHeight, 0)}px` }}
         >
-          {renderedMessages.map(({ message, offsetTop }) => (
+          {renderedMessages.map(({ message, offsetLeft, offsetTop, width }) => (
             <MeasuredMessageRow
               key={message.id}
               messageId={message.id}
+              offsetLeft={offsetLeft}
               offsetTop={offsetTop}
-              onHeightChange={registerMessageHeight}
+              onSizeChange={registerMessageSize}
+              width={width}
             >
               <MessageBubble
                 message={message}
@@ -270,7 +226,7 @@ export function MessageList({
           {isTypingIndicatorVisible ? (
             <div
               className="message-list-row message-list-row--typing"
-              style={{ top: `${typingIndicatorOffsetTop}px` }}
+              style={{ left: "0px", top: `${typingIndicatorOffsetTop}px` }}
             >
               <TypingIndicator />
             </div>
@@ -315,13 +271,17 @@ function TypingIndicator() {
 function MeasuredMessageRow({
   children,
   messageId,
+  offsetLeft,
   offsetTop,
-  onHeightChange
+  onSizeChange,
+  width
 }: {
   children: ReactNode;
   messageId: string;
+  offsetLeft: number;
   offsetTop: number;
-  onHeightChange: (messageId: string, height: number) => void;
+  onSizeChange: (messageId: string, size: { height: number; width: number }) => void;
+  width: number;
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null);
 
@@ -331,12 +291,16 @@ function MeasuredMessageRow({
       return;
     }
 
-    function measure() {
-      if (!rowRef.current) {
-        return;
-      }
+      function measure() {
+        if (!rowRef.current) {
+          return;
+        }
 
-      onHeightChange(messageId, rowRef.current.getBoundingClientRect().height);
+      const rect = rowRef.current.getBoundingClientRect();
+      onSizeChange(messageId, {
+        height: rect.height,
+        width: rect.width
+      });
     }
 
     measure();
@@ -353,13 +317,17 @@ function MeasuredMessageRow({
     return () => {
       resizeObserver?.disconnect();
     };
-  }, [messageId, onHeightChange]);
+  }, [messageId, onSizeChange]);
 
   return (
     <div
       className="message-list-row"
       ref={rowRef}
-      style={{ top: `${offsetTop}px` }}
+      style={{
+        left: `${offsetLeft}px`,
+        top: `${offsetTop}px`,
+        width: `${width}px`
+      }}
     >
       {children}
     </div>
@@ -381,7 +349,7 @@ function MessageBubble({
   const senderLabel = getMessageSenderLabel(message);
   const senderInitial = getMessageSenderInitial(message);
   const isUser = message.role === "user";
-  const presentation = analyzeMessagePresentation(message);
+  const presentation = analyzeMessagePresentation(message, shouldOfferExpandedMessage);
 
   return (
     <article

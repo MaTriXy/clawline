@@ -1,20 +1,31 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { ChatMessageRecord } from "../../runtime/chat/chatDomainStore";
+import { analyzeMessagePresentation } from "./messagePresentation";
+import { shouldOfferExpandedMessage } from "./RichMessageBody";
 
 const BOTTOM_THRESHOLD_PX = 32;
-const DEFAULT_MESSAGE_HEIGHT = 320;
+const DEFAULT_CONTAINER_WIDTH = 820;
+const DEFAULT_MESSAGE_HEIGHT = 220;
 const DEFAULT_VIEWPORT_HEIGHT = 720;
-const MESSAGE_GAP_REM = 0.9;
 const OVERSCAN_PX = 1_000;
+const BUBBLE_MIN_WIDTH = 120;
+const BUBBLE_PADDING_HORIZONTAL = 40;
+const MAX_LINE_WIDTH_PX = 560;
+const MEDIUM_WIDTH_SAFETY_MARGIN_PX = 24;
+let textMeasureCanvas: HTMLCanvasElement | null = null;
+const textMeasureCache = new Map<string, number>();
+const bubbleWidthCache = new Map<string, number>();
 
 export interface VirtualMessageWindow {
   containerRef: RefObject<HTMLElement | null>;
   isAtBottom: boolean;
   handleScroll: () => void;
-  registerMessageHeight: (messageId: string, height: number) => void;
+  registerMessageSize: (messageId: string, size: { height: number; width: number }) => void;
   renderedMessages: Array<{
     message: ChatMessageRecord;
+    offsetLeft: number;
     offsetTop: number;
+    width: number;
   }>;
   scrollTop: number;
   scrollToBottom: () => void;
@@ -27,9 +38,9 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
   const containerRef = useRef<HTMLElement | null>(null);
   const shouldStickToBottomRef = useRef(false);
   const [scrollTop, setScrollTop] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(DEFAULT_CONTAINER_WIDTH);
   const [viewportHeight, setViewportHeight] = useState(DEFAULT_VIEWPORT_HEIGHT);
-  const [gapPx, setGapPx] = useState(14);
-  const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
+  const [measuredSizes, setMeasuredSizes] = useState<Record<string, { height: number; width: number }>>({});
 
   useEffect(() => {
     const container = containerRef.current;
@@ -39,9 +50,8 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
     const target = container;
 
     function syncContainerMetrics(target: HTMLElement) {
+      setContainerWidth(target.clientWidth || DEFAULT_CONTAINER_WIDTH);
       setViewportHeight(target.clientHeight || DEFAULT_VIEWPORT_HEIGHT);
-      const fontSize = Number.parseFloat(window.getComputedStyle(target).fontSize);
-      setGapPx(Number.isFinite(fontSize) ? fontSize * MESSAGE_GAP_REM : 14);
     }
 
     syncContainerMetrics(target);
@@ -66,9 +76,11 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
     };
   }, []);
 
+  const gapPx = containerWidth <= 500 ? 12 : 16;
   const layout = useMemo(
-    () => buildVirtualLayout(messages, measuredHeights, scrollTop, viewportHeight, gapPx),
-    [gapPx, measuredHeights, messages, scrollTop, viewportHeight]
+    () =>
+      buildVirtualLayout(messages, measuredSizes, scrollTop, viewportHeight, containerWidth, gapPx),
+    [containerWidth, gapPx, measuredSizes, messages, scrollTop, viewportHeight]
   );
 
   function handleScroll() {
@@ -100,17 +112,17 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
     handleScroll,
     isAtBottom:
       Math.max(0, layout.totalHeight - viewportHeight - scrollTop) <= BOTTOM_THRESHOLD_PX,
-    registerMessageHeight(messageId, height) {
-      if (height <= 0) {
+    registerMessageSize(messageId, size) {
+      if (size.height <= 0 || size.width <= 0) {
         return;
       }
 
-      setMeasuredHeights((current) =>
-        current[messageId] === height
+      setMeasuredSizes((current) =>
+        current[messageId]?.height === size.height && current[messageId]?.width === size.width
           ? current
           : {
               ...current,
-              [messageId]: height
+              [messageId]: size
             }
       );
     },
@@ -165,29 +177,84 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
 
 function buildVirtualLayout(
   messages: ChatMessageRecord[],
-  measuredHeights: Record<string, number>,
+  measuredSizes: Record<string, { height: number; width: number }>,
   scrollTop: number,
   viewportHeight: number,
+  containerWidth: number,
   gapPx: number
 ) {
+  const availableWidth = Math.max(BUBBLE_MIN_WIDTH, containerWidth);
   let offsetTop = 0;
+  let offsetLeft = 0;
+  let currentRowHeight = 0;
   const messageLayouts = messages.map((message, index) => {
-    const height = measuredHeights[message.id] ?? DEFAULT_MESSAGE_HEIGHT;
+    const measuredSize = measuredSizes[message.id];
+    const presentation = analyzeMessagePresentation(message, shouldOfferExpandedMessage);
+    const width =
+      measuredSize?.width ??
+      estimateBubbleWidth(message, presentation, availableWidth);
+    const height = measuredSize?.height ?? DEFAULT_MESSAGE_HEIGHT;
+    const shouldForceOwnRow =
+      presentation.isWide || presentation.isTruncated || presentation.sizeClass === "long";
+
+    if (shouldForceOwnRow && offsetLeft > 0) {
+      offsetTop += currentRowHeight + gapPx;
+      offsetLeft = 0;
+      currentRowHeight = 0;
+    }
+
+    const clampedWidth = Math.max(BUBBLE_MIN_WIDTH, Math.min(width, availableWidth));
+    if (!shouldForceOwnRow && offsetLeft > 0 && offsetLeft + clampedWidth > availableWidth) {
+      offsetTop += currentRowHeight + gapPx;
+      offsetLeft = 0;
+      currentRowHeight = 0;
+    }
+
+    let messageOffsetLeft = offsetLeft;
+    if (message.role === "user") {
+      const rightAlignedLeft = Math.max(0, availableWidth - clampedWidth);
+      if (!shouldForceOwnRow && offsetLeft > 0 && rightAlignedLeft < offsetLeft) {
+        offsetTop += currentRowHeight + gapPx;
+        offsetLeft = 0;
+        currentRowHeight = 0;
+      }
+      messageOffsetLeft = shouldForceOwnRow
+        ? rightAlignedLeft
+        : Math.max(offsetLeft, Math.max(0, availableWidth - clampedWidth));
+    }
+
     const layout = {
       height,
       message,
-      offsetTop
+      offsetLeft: messageOffsetLeft,
+      offsetTop,
+      width: clampedWidth
     };
-    offsetTop += height + (index < messages.length - 1 ? gapPx : 0);
+
+    if (shouldForceOwnRow) {
+      offsetTop += height + (index < messages.length - 1 ? gapPx : 0);
+      offsetLeft = 0;
+      currentRowHeight = 0;
+      return layout;
+    }
+
+    offsetLeft = messageOffsetLeft + clampedWidth + gapPx;
+    currentRowHeight = Math.max(currentRowHeight, height);
     return layout;
   });
 
-  const clampedScrollTop = Math.min(scrollTop, Math.max(0, offsetTop - viewportHeight));
+  const totalHeight =
+    currentRowHeight > 0
+      ? offsetTop + currentRowHeight
+      : offsetTop;
+  const clampedScrollTop = Math.min(scrollTop, Math.max(0, totalHeight - viewportHeight));
   const visibleTop = Math.max(0, clampedScrollTop - OVERSCAN_PX);
   const visibleBottom = clampedScrollTop + viewportHeight + OVERSCAN_PX;
   const renderedMessages: Array<{
     message: ChatMessageRecord;
+    offsetLeft: number;
     offsetTop: number;
+    width: number;
   }> = [];
 
   for (const layout of messageLayouts) {
@@ -196,7 +263,9 @@ function buildVirtualLayout(
     if (messageBottom >= visibleTop && layout.offsetTop <= visibleBottom) {
       renderedMessages.push({
         message: layout.message,
-        offsetTop: layout.offsetTop
+        offsetLeft: layout.offsetLeft,
+        offsetTop: layout.offsetTop,
+        width: layout.width
       });
     }
   }
@@ -204,6 +273,177 @@ function buildVirtualLayout(
   return {
     messageLayouts,
     renderedMessages,
-    totalHeight: offsetTop
+    totalHeight
   };
+}
+
+function estimateBubbleWidth(
+  message: ChatMessageRecord,
+  presentation: ReturnType<typeof analyzeMessagePresentation>,
+  containerWidth: number
+) {
+  const cacheKey = [
+    message.id,
+    message.content,
+    presentation.sizeClass,
+    presentation.isWide ? "wide" : "plain",
+    presentation.isTruncated ? "truncated" : "full",
+    containerWidth
+  ].join(":");
+  const cachedWidth = bubbleWidthCache.get(cacheKey);
+  if (cachedWidth !== undefined) {
+    return cachedWidth;
+  }
+
+  const maxAllowedWidth = Math.min(containerWidth, MAX_LINE_WIDTH_PX + BUBBLE_PADDING_HORIZONTAL);
+  let width: number;
+
+  if (presentation.isWide || presentation.isTruncated) {
+    width = containerWidth;
+  } else if (presentation.sizeClass === "long") {
+    width = maxAllowedWidth;
+  } else if (presentation.sizeClass === "short") {
+    width = clamp(
+      BUBBLE_MIN_WIDTH,
+      measureSingleLineWidth(message.content, 22, 600) + BUBBLE_PADDING_HORIZONTAL,
+      maxAllowedWidth
+    );
+  } else {
+    width = estimateMediumWidth(message.content, containerWidth, maxAllowedWidth);
+  }
+
+  bubbleWidthCache.set(cacheKey, width);
+  return width;
+}
+
+function estimateMediumWidth(content: string, containerWidth: number, maxAllowedWidth: number) {
+  const minWidth = Math.max(200, Math.floor(containerWidth / 4));
+
+  if (containerWidth <= 500) {
+    const phoneWidth = clamp(minWidth, Math.floor(containerWidth * 0.67), maxAllowedWidth);
+    return estimateLineCount(content, 17, 500, phoneWidth) <= 3 ? phoneWidth : maxAllowedWidth;
+  }
+
+  for (const targetLines of [3, 2, 1]) {
+    const bestWidth = findMinimumWidthForLines(content, targetLines, minWidth, maxAllowedWidth);
+    if (bestWidth !== null && bestWidth >= minWidth) {
+      return clamp(
+        minWidth,
+        bestWidth + MEDIUM_WIDTH_SAFETY_MARGIN_PX,
+        maxAllowedWidth
+      );
+    }
+  }
+
+  return maxAllowedWidth;
+}
+
+function findMinimumWidthForLines(
+  content: string,
+  targetLines: number,
+  minWidth: number,
+  maxWidth: number
+) {
+  if (estimateLineCount(content, 17, 500, maxWidth) > targetLines) {
+    return null;
+  }
+
+  let low = minWidth;
+  let high = maxWidth;
+  let bestWidth = maxWidth;
+
+  while (high - low > 4) {
+    const mid = Math.floor((low + high) / 2);
+    if (estimateLineCount(content, 17, 500, mid) <= targetLines) {
+      bestWidth = mid;
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+
+  return bestWidth;
+}
+
+function estimateLineCount(
+  content: string,
+  fontSizePx: number,
+  fontWeight: number,
+  bubbleWidth: number
+) {
+  const availableTextWidth = Math.max(1, bubbleWidth - BUBBLE_PADDING_HORIZONTAL);
+  const words = normalizeForMeasurement(content).split(/\s+/).filter(Boolean);
+
+  if (words.length === 0) {
+    return 1;
+  }
+
+  const spaceWidth = measureSingleLineWidth(" ", fontSizePx, fontWeight);
+  let lines = 1;
+  let lineWidth = 0;
+
+  for (const word of words) {
+    const wordWidth = measureSingleLineWidth(word, fontSizePx, fontWeight);
+
+    if (lineWidth === 0) {
+      lineWidth = wordWidth;
+      continue;
+    }
+
+    if (lineWidth + spaceWidth + wordWidth <= availableTextWidth) {
+      lineWidth += spaceWidth + wordWidth;
+      continue;
+    }
+
+    lines += 1;
+    lineWidth = wordWidth;
+  }
+
+  return lines;
+}
+
+function measureSingleLineWidth(content: string, fontSizePx: number, fontWeight: number) {
+  const measurementKey = `${fontWeight}:${fontSizePx}:${content}`;
+  const cachedWidth = textMeasureCache.get(measurementKey);
+  if (cachedWidth !== undefined) {
+    return cachedWidth;
+  }
+
+  const isJsdom =
+    typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent);
+
+  if (typeof document === "undefined" || isJsdom) {
+    const width = fallbackTextWidth(content, fontSizePx);
+    textMeasureCache.set(measurementKey, width);
+    return width;
+  }
+
+  textMeasureCanvas ??= document.createElement("canvas");
+  const context = textMeasureCanvas.getContext("2d");
+  if (!context) {
+    const width = fallbackTextWidth(content, fontSizePx);
+    textMeasureCache.set(measurementKey, width);
+    return width;
+  }
+
+  context.font = `${fontWeight} ${fontSizePx}px "DM Sans", system-ui, sans-serif`;
+  const width = Math.ceil(context.measureText(normalizeForMeasurement(content)).width);
+  textMeasureCache.set(measurementKey, width);
+  return width;
+}
+
+function fallbackTextWidth(content: string, fontSizePx: number) {
+  return normalizeForMeasurement(content).length * fontSizePx * 0.58;
+}
+
+function normalizeForMeasurement(content: string) {
+  return content
+    .replace(/```[\s\S]*?```/g, " code ")
+    .replace(/\[[^\]]+\]\((https?:\/\/[^)]+)\)/g, " link ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function clamp(min: number, value: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }

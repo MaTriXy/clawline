@@ -135,6 +135,7 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
       await expect(page.getByTestId("message-s_rich_1").locator(".message-markdown table")).toContainText(
         "alpha"
       );
+      await waitForStableLayout(page, "message-s_rich_1");
       await expect(page.getByTestId("message-s_medium_1")).toHaveAttribute("data-message-size", "medium");
       const mediumMetrics = await page.getByTestId("message-s_medium_1").evaluate((element) => {
         const markdown = element.querySelector<HTMLElement>(".message-markdown");
@@ -219,6 +220,40 @@ async function applyAppearance(
     document.documentElement.dataset.appearance = mode;
   }, appearance);
   await page.reload();
+}
+
+async function waitForStableLayout(
+  page: import("@playwright/test").Page,
+  testId: string
+) {
+  await page.getByTestId(testId).evaluate(async (element) => {
+    function snapshot() {
+      const rect = element.getBoundingClientRect();
+      return [
+        Math.round(rect.left),
+        Math.round(rect.top),
+        Math.round(rect.width),
+        Math.round(rect.height)
+      ].join(":");
+    }
+
+    const start = performance.now();
+    let previous = snapshot();
+
+    while (performance.now() - start < 3000) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const current = snapshot();
+
+      if (current === previous) {
+        return;
+      }
+
+      previous = current;
+    }
+
+    throw new Error(`Layout for ${testId} did not stabilize`);
+  });
 }
 
 function escapeForRegExp(value: string) {

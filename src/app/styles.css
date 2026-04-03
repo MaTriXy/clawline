@@ -420,8 +420,6 @@ html[data-appearance="light"] body::before {
 
 .message-list-row {
   position: absolute;
-  left: 0;
-  right: 0;
 }
 
 .message-cluster {
@@ -529,7 +527,7 @@ html[data-appearance="light"] body::before {
 }
 
 .message-bubble {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
   display: grid;
@@ -544,7 +542,6 @@ html[data-appearance="light"] body::before {
 }
 
 .message-bubble--user {
-  margin-left: auto;
   border-radius: 24px 24px 4px 24px;
   background: var(--color-bubble-user);
   border-color: color-mix(in srgb, var(--color-accent) 22%, var(--color-border));
@@ -555,16 +552,16 @@ html[data-appearance="light"] body::before {
 }
 
 .message-bubble--short {
-  inline-size: fit-content;
-  max-inline-size: min(100%, calc(var(--message-otw) + (var(--message-bubble-padding-horizontal) * 2)));
+  inline-size: 100%;
+  max-inline-size: 100%;
 }
 
 .message-bubble--medium {
-  inline-size: clamp(12.5rem, 45%, calc(var(--message-otw) + (var(--message-bubble-padding-horizontal) * 2)));
+  inline-size: 100%;
 }
 
 .message-bubble--long {
-  inline-size: min(100%, calc(var(--message-otw) + (var(--message-bubble-padding-horizontal) * 2)));
+  inline-size: 100%;
 }
 
 .message-bubble--wide {
