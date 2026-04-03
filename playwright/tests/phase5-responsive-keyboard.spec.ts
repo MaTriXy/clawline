@@ -155,8 +155,58 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
     }
   });
 
-  test("send button tap still sends while the composer is focused", async ({ page }) => {
+  test("send button tap still sends while the composer is focused", async ({ browser }) => {
     const { close, port, receivedClientMessages } = await startPhase5Server();
+    const context = await browser.newContext({
+      hasTouch: true,
+      isMobile: true,
+      viewport: { height: 844, width: 390 }
+    });
+    const page = await context.newPage();
+
+    try {
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+      const composer = page.getByRole("textbox", { name: "Message" });
+      await composer.click();
+      await composer.fill("Tap send");
+
+      const sendButton = page.getByRole("button", { name: "Send" });
+      await expect(sendButton).toBeEnabled();
+      await sendButton.tap();
+
+      await expect
+        .poll(() => receivedClientMessages.at(-1)?.content ?? null)
+        .toBe("Tap send");
+      await expect(page.getByText("Tap send")).toBeVisible();
+    } finally {
+      await context.close();
+      await close();
+    }
+  });
+
+  test("message bubbles stay within the mobile viewport width", async ({ page }) => {
+    const transcript = Array.from({ length: 6 }, (_, index) => ({
+      type: "message" as const,
+      id: `s_width_${index + 1}`,
+      role: index % 2 === 0 ? "assistant" as const : "user" as const,
+      content:
+        index === 0
+          ? "Medium messages should balance instead of stretching wide across the screen."
+          : `Bubble width check ${index + 1}`,
+      timestamp: 1_764_401_000_000 + index,
+      streaming: false,
+      sessionKey: MAIN_SESSION_KEY,
+      attachments: []
+    }));
+    const { close, port } = await startPhase5Server({ mainTranscript: transcript });
 
     try {
       await page.addInitScript((session) => {
@@ -169,16 +219,14 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
 
       await page.setViewportSize({ height: 844, width: 390 });
       await page.goto(`/chat/${MAIN_SESSION_KEY}`);
-      const composer = page.getByRole("textbox", { name: "Message" });
-      await composer.click();
-      await composer.fill("Tap send");
 
-      await page.getByRole("button", { name: "Send" }).click();
-
+      const messageList = page.getByTestId("message-list");
+      await expect(messageList).toBeVisible();
       await expect
-        .poll(() => receivedClientMessages.at(-1)?.content ?? null)
-        .toBe("Tap send");
-      await expect(page.getByText("Tap send")).toBeVisible();
+        .poll(() =>
+          messageList.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
+        )
+        .toBe(true);
     } finally {
       await close();
     }

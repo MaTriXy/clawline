@@ -198,6 +198,47 @@ afterEach(() => {
 });
 
 describe("MessageList rich rendering", () => {
+  it("formats timestamps per the bubble timestamp rules and reveals them on tap", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-02T18:00:00.000Z"));
+
+    renderMessageList([
+      {
+        id: "s_recent",
+        role: "assistant",
+        content: "Fresh reply",
+        timestamp: new Date("2026-04-02T17:58:00.000Z").getTime(),
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_yesterday",
+        role: "assistant",
+        content: "From yesterday",
+        timestamp: new Date("2026-04-01T17:12:00.000Z").getTime(),
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    const recentBubble = screen.getByTestId("message-s_recent");
+    const yesterdayBubble = screen.getByTestId("message-s_yesterday");
+
+    expect(within(recentBubble).getByText("2m ago")).toBeInTheDocument();
+    expect(within(yesterdayBubble).getByText(/Yesterday,/)).toBeInTheDocument();
+
+    fireEvent.pointerUp(recentBubble, { pointerType: "touch" });
+    expect(recentBubble).toHaveClass("message-bubble--timestamp-visible");
+
+    vi.useRealTimers();
+  });
+
   it("classifies message sizing and wide content from the design-system rules", () => {
     renderMessageList([
       {

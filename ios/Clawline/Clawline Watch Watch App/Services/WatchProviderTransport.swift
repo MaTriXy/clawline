@@ -52,6 +52,7 @@ final class WatchProviderTransport: ChatServicing {
         let dmScope: String?
         let features: [String]?
         let sessionKeys: [String]?
+        let streamReadStates: [String: String]?
         let reason: String?
     }
 
@@ -252,6 +253,31 @@ final class WatchProviderTransport: ChatServicing {
                     "sourceMessageId": sourceMessageId,
                     "action": action,
                     "data": data?.anyValue as Any
+                ]
+            )
+        case .probing, .disconnected:
+            throw TransportError.notConnected
+        }
+    }
+
+
+    func publishReadState(sessionKey: String, lastReadMessageId: String) async throws {
+        switch transportState {
+        case .direct:
+            guard let websocketTask else { throw TransportError.notConnected }
+            let payload: [String: Any] = [
+                "type": "stream_read",
+                "sessionKey": sessionKey,
+                "lastReadMessageId": lastReadMessageId
+            ]
+            let text = try payload.toJSONString()
+            try await websocketTask.send(.string(text))
+        case .relay:
+            _ = try await sendRelayRequest(
+                type: RelayMessageType.streamRead,
+                payload: [
+                    "sessionKey": sessionKey,
+                    "lastReadMessageId": lastReadMessageId
                 ]
             )
         case .probing, .disconnected:
@@ -723,6 +749,15 @@ final class WatchProviderTransport: ChatServicing {
             if let payload = try? JSONDecoder().decode(StreamDeletedPayload.self, from: data) {
                 eventBroadcaster.send(.streamDeleted(sessionKey: payload.sessionKey))
             }
+        case "stream_read_state":
+            if let payload = try? JSONDecoder().decode(StreamReadStatePayload.self, from: data) {
+                eventBroadcaster.send(
+                    .streamReadStateUpdated(
+                        sessionKey: payload.sessionKey,
+                        lastReadMessageId: payload.lastReadMessageId
+                    )
+                )
+            }
         case "event":
             if let payload = try? JSONDecoder().decode(EventEnvelope.self, from: data), payload.event == "activity",
                let activity = try? JSONDecoder().decode(ActivityEventPayload.self, from: data),
@@ -753,6 +788,9 @@ final class WatchProviderTransport: ChatServicing {
                         )
                     )
                 )
+            }
+            if let streamReadStates = result.streamReadStates {
+                eventBroadcaster.send(.streamReadStateSnapshot(streamReadStates))
             }
             if let userId = result.userId, let isAdmin = result.isAdmin {
                 eventBroadcaster.send(.userInfo(ChatUserInfo(userId: userId, isAdmin: isAdmin)))

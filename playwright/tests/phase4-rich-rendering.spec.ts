@@ -17,7 +17,10 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
     "| alpha | beta |"
   ].join("\n");
   const expandedRichContent = `${richContent}\n\n${"More detail. ".repeat(90)}`;
+  const shortContent = "Hey there";
   const mediumContent = "Found a better route through the market if you still want plants later.";
+  const longContent =
+    "This should settle into the long-form body treatment because it crosses the medium threshold and reads more like a full thought than a quick exchange.";
   const codeOnlyContent = ["```ts", "console.log('chromeless');", "```"].join("\n");
 
   const server = createServer();
@@ -77,10 +80,34 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
         socket.send(
           JSON.stringify({
             type: "message",
+            id: "s_short_1",
+            role: "assistant",
+            content: shortContent,
+            timestamp: Date.now() - 15_000,
+            streaming: false,
+            sessionKey,
+            attachments: []
+          })
+        );
+        socket.send(
+          JSON.stringify({
+            type: "message",
             id: "s_medium_1",
             role: "assistant",
             content: mediumContent,
             timestamp: 1_764_201_200_090,
+            streaming: false,
+            sessionKey,
+            attachments: []
+          })
+        );
+        socket.send(
+          JSON.stringify({
+            type: "message",
+            id: "s_long_1",
+            role: "assistant",
+            content: longContent,
+            timestamp: new Date("2026-04-01T17:12:00.000Z").getTime(),
             streaming: false,
             sessionKey,
             attachments: []
@@ -145,13 +172,59 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
       await expect(page.getByTestId("message-s_rich_1").locator(".message-markdown pre")).toContainText(
         "console.log('phase4');"
       );
+      const shortTypography = await page.getByTestId("message-s_short_1").locator(".message-markdown").evaluate((element) => {
+        const style = window.getComputedStyle(element);
+        return {
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          lineHeight: style.lineHeight
+        };
+      });
+      expect(shortTypography).toEqual({
+        fontSize: "22px",
+        fontWeight: "600",
+        lineHeight: "28.6px"
+      });
+
       await expect(page.getByTestId("message-s_code_only")).toHaveAttribute(
         "data-message-chrome",
         "chromeless-code"
       );
+      const mediumTypography = await page.getByTestId("message-s_medium_1").locator(".message-markdown").evaluate((element) => {
+        const style = window.getComputedStyle(element);
+        return {
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          lineHeight: style.lineHeight
+        };
+      });
+      expect(mediumTypography).toEqual({
+        fontSize: "17px",
+        fontWeight: "500",
+        lineHeight: "25.5px"
+      });
+      const longTypography = await page.getByTestId("message-s_long_1").locator(".message-markdown").evaluate((element) => {
+        const style = window.getComputedStyle(element);
+        return {
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          lineHeight: style.lineHeight
+        };
+      });
+      expect(longTypography).toEqual({
+        fontSize: "15px",
+        fontWeight: "400",
+        lineHeight: "22.5px"
+      });
       await expect(page.getByTestId("message-s_rich_1").locator(".message-markdown table")).toContainText(
         "alpha"
       );
+      const recentTimestamp = page.getByTestId("message-s_short_1").locator(".message-timestamp");
+      await expect(recentTimestamp).toHaveText("just now");
+      await expect(recentTimestamp).toHaveCSS("opacity", "0");
+      await page.getByTestId("message-s_short_1").hover();
+      await expect(recentTimestamp).toHaveCSS("opacity", "0.7");
+
       await waitForStableLayout(page, "message-s_rich_1");
       await expect(page.getByTestId("message-s_medium_1")).toHaveAttribute("data-message-size", "medium");
       const mediumMetrics = await page.getByTestId("message-s_medium_1").evaluate((element) => {
@@ -194,6 +267,14 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
       await dialog.getByRole("button", { name: "Close" }).click();
       await expect(dialog).toHaveCount(0);
     }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByTestId("message-s_long_1").dispatchEvent("pointerup", {
+      bubbles: true,
+      pointerType: "touch"
+    });
+    await expect(page.getByTestId("message-s_long_1")).toHaveClass(/message-bubble--timestamp-visible/);
+    await expect(page.getByTestId("message-s_long_1").locator(".message-timestamp")).toContainText("Yesterday,");
   } finally {
     try {
       await page.goto("about:blank");

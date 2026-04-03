@@ -1772,6 +1772,115 @@ struct ChatViewModelTests {
         #expect(displayName == "Research v2")
     }
 
+    @Test("Provider read-state updates clear unread for matching stream")
+    @MainActor
+    func streamReadStateUpdateClearsUnread() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let customKey = "agent:main:clawline:user:s_deadbeef"
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: customKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        try await Task.sleep(for: .milliseconds(30))
+
+        chatService.emit(
+            Message(
+                id: "s_remote_read_target",
+                role: .assistant,
+                content: "hello",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: customKey
+            )
+        )
+        for _ in 0..<50 {
+            if viewModel.hasUnreadBySession[customKey] == true { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(viewModel.hasUnreadBySession[customKey] == true)
+
+        chatService.emitServiceEvent(
+            .streamReadStateUpdated(sessionKey: customKey, lastReadMessageId: "s_remote_read_target")
+        )
+        for _ in 0..<50 {
+            if viewModel.hasUnreadBySession[customKey] == false { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.lastReadMessageIdBySession[customKey] == "s_remote_read_target")
+        #expect(viewModel.hasUnreadBySession[customKey] == false)
+    }
+
+    @Test("Activating a stream publishes provider read-state for its latest server message")
+    @MainActor
+    func activatingStreamPublishesReadState() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let customKey = "agent:main:clawline:user:s_c0ffee"
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: customKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        try await Task.sleep(for: .milliseconds(30))
+
+        chatService.emit(
+            Message(
+                id: "s_publish_read_target",
+                role: .assistant,
+                content: "hello",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: customKey
+            )
+        )
+        try await Task.sleep(for: .milliseconds(30))
+
+        viewModel.setActiveSessionKeyForTesting(customKey)
+        for _ in 0..<50 {
+            if chatService.lastPublishedReadState?.lastReadMessageId == "s_publish_read_target" { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(chatService.lastPublishedReadState?.sessionKey == customKey)
+        #expect(chatService.lastPublishedReadState?.lastReadMessageId == "s_publish_read_target")
+        #expect(viewModel.lastReadMessageIdBySession[customKey] == "s_publish_read_target")
+    }
+
     @Test("Track adopts untracked session and preserves it across snapshots")
     @MainActor
     func trackAdoptsUntrackedSessionAcrossSnapshots() async throws {
@@ -2790,6 +2899,7 @@ private final class TestChatService: ChatServicing {
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
     private(set) var lastSessionKey: String?
+    private(set) var lastPublishedReadState: (sessionKey: String, lastReadMessageId: String)?
     private(set) var connectCallCount: Int = 0
     var isTransportReadyForSend: Bool = false
     var sendError: Swift.Error?
@@ -2898,6 +3008,10 @@ private final class TestChatService: ChatServicing {
 
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {
         // No-op for tests.
+    }
+
+    func publishReadState(sessionKey: String, lastReadMessageId: String) async throws {
+        lastPublishedReadState = (sessionKey, lastReadMessageId)
     }
 
     func emit(_ message: Message) {
@@ -3047,6 +3161,7 @@ private func resetChatPersistence() {
     let defaults = UserDefaults.standard
     for key in defaults.dictionaryRepresentation().keys {
         if key.hasPrefix("clawline.lastServerMessageId.")
+            || key.hasPrefix("clawline.lastReadMessageId.")
             || key.hasPrefix("clawline.lastStream")
             || key.hasPrefix("clawline.lastSessionKey")
             || key.hasPrefix("clawline.scrollState.v1.") {

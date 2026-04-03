@@ -79,16 +79,15 @@ export function ChatShell({
 
     function syncKeyboardInset() {
       const visualViewport = window.visualViewport;
-      const viewportHeight = Math.max(
-        window.innerHeight,
-        document.documentElement.clientHeight,
-        visualViewport?.height ?? 0
-      );
+      const viewportHeight = visualViewport?.height ?? window.innerHeight;
+      const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
+      const baseViewportHeight = visualViewport
+        ? viewportHeight + viewportOffsetTop
+        : window.innerHeight;
 
       baseViewportHeightRef.current = Math.max(
         baseViewportHeightRef.current,
-        viewportHeight,
-        (visualViewport?.height ?? 0) + (visualViewport?.offsetTop ?? 0)
+        baseViewportHeight
       );
 
       const activeElement = document.activeElement;
@@ -98,10 +97,10 @@ export function ChatShell({
 
       setKeyboardInset(
         computeKeyboardInset({
-          baseViewportHeight: baseViewportHeightRef.current || viewportHeight,
+          baseViewportHeight: baseViewportHeightRef.current || baseViewportHeight,
           isComposerFocused,
-          viewportHeight: visualViewport?.height ?? viewportHeight,
-          viewportOffsetTop: visualViewport?.offsetTop ?? 0
+          viewportHeight,
+          viewportOffsetTop
         })
       );
     }
