@@ -5,7 +5,7 @@ import { shouldOfferExpandedMessage } from "./RichMessageBody";
 
 const BOTTOM_THRESHOLD_PX = 32;
 const DEFAULT_CONTAINER_WIDTH = 820;
-const DEFAULT_MESSAGE_HEIGHT = 220;
+const DEFAULT_MESSAGE_HEIGHT = 96;
 const DEFAULT_VIEWPORT_HEIGHT = 720;
 const OVERSCAN_PX = 1_000;
 const BUBBLE_MIN_WIDTH = 120;
@@ -228,18 +228,10 @@ function buildVirtualLayout(
       currentRowHeight = 0;
     }
 
-    let messageOffsetLeft = offsetLeft;
-    if (message.role === "user") {
-      const rightAlignedLeft = Math.max(0, availableWidth - clampedWidth);
-      if (!shouldForceOwnRow && offsetLeft > 0 && rightAlignedLeft < offsetLeft) {
-        offsetTop += currentRowHeight + gapPx;
-        offsetLeft = 0;
-        currentRowHeight = 0;
-      }
-      messageOffsetLeft = shouldForceOwnRow
-        ? rightAlignedLeft
-        : Math.max(offsetLeft, Math.max(0, availableWidth - clampedWidth));
-    }
+    const messageOffsetLeft =
+      message.role === "user" && shouldForceOwnRow
+        ? Math.max(0, availableWidth - clampedWidth)
+        : offsetLeft;
 
     const layout = {
       height,
