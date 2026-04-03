@@ -65,14 +65,14 @@ struct StreamPageDotsViewTests {
         #expect(visibleCount == 11)
     }
 
-    @Test("Unread dots keep highest precedence over user-tail and active styling")
-    func unreadKindWinsPrecedence() {
+    @Test("Active dots override unread styling")
+    func activeKindWinsPrecedence() {
         let kind = StreamDotColor.kind(
             isActive: true,
             dotState: .unread
         )
 
-        #expect(kind == .unread)
+        #expect(kind == .active)
     }
 
     @Test("User-tail dots use the dedicated gold state when not active or unread")

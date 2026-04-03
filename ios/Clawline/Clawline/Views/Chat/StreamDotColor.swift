@@ -29,11 +29,11 @@ enum StreamDotColor {
         isActive: Bool,
         dotState: StreamDotState
     ) -> Kind {
-        if dotState == .unread {
-            return .unread
-        }
         if isActive {
             return .active
+        }
+        if dotState == .unread {
+            return .unread
         }
         if dotState == .userTail {
             return .userTail
