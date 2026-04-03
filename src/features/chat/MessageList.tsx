@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import type {
   ChatMessageRecord,
@@ -379,10 +379,22 @@ function MessageBubble({
   token?: string;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const [isTimestampVisible, setTimestampVisible] = useState(false);
   const senderLabel = getMessageSenderLabel(message);
   const senderInitial = getMessageSenderInitial(message);
   const isUser = message.role === "user";
   const presentation = analyzeMessagePresentation(message, shouldOfferExpandedMessage);
+  const timestampLabel = formatMessageTimestamp(message.timestamp);
+
+  function handlePointerUp(event: PointerEvent<HTMLElement>) {
+    if (presentation.isTruncated) {
+      return;
+    }
+
+    if (event.pointerType === "touch" || event.pointerType === "pen") {
+      setTimestampVisible((current) => !current);
+    }
+  }
 
   return (
     <article
@@ -391,6 +403,7 @@ function MessageBubble({
           "message-bubble",
           isUser ? "message-bubble--user" : "message-bubble--assistant",
           `message-bubble--${presentation.sizeClass}`,
+          isTimestampVisible ? "message-bubble--timestamp-visible" : null,
           presentation.chromeKind !== "default"
             ? `message-bubble--${presentation.chromeKind}`
             : null,
@@ -404,6 +417,7 @@ function MessageBubble({
       data-message-size={presentation.sizeClass}
       data-testid={`message-${message.id}`}
       onClick={presentation.isTruncated ? onExpand : undefined}
+      onPointerUp={handlePointerUp}
       role={presentation.isTruncated ? "button" : undefined}
       style={presentation.isTruncated ? { cursor: "pointer" } : undefined}
     >
@@ -417,7 +431,7 @@ function MessageBubble({
         </div>
         <div className="message-header-text">
           <span className="message-sender-name">{senderLabel}</span>
-          <span className="message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</span>
+          <span className="message-timestamp">{timestampLabel}</span>
         </div>
       </header>
       <RichMessageBody
@@ -444,5 +458,69 @@ function MessageBubble({
         {message.delivery === "failed" ? "Send failed" : null}
       </footer>
     </article>
+  );
+}
+
+function formatMessageTimestamp(timestamp: number, now = Date.now()) {
+  const messageDate = new Date(timestamp);
+  const nowDate = new Date(now);
+  const diffMs = Math.max(0, now - timestamp);
+  const diffMinutes = Math.floor(diffMs / 60_000);
+
+  if (diffMs < 60_000) {
+    return "just now";
+  }
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m ago`;
+  }
+
+  if (isSameDay(messageDate, nowDate)) {
+    return messageDate.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  }
+
+  const yesterday = new Date(nowDate);
+  yesterday.setDate(nowDate.getDate() - 1);
+
+  if (isSameDay(messageDate, yesterday)) {
+    return `Yesterday, ${messageDate.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    })}`;
+  }
+
+  const diffDays = Math.floor(diffMs / 86_400_000);
+  if (diffDays < 7) {
+    return messageDate.toLocaleDateString([], {
+      weekday: "long",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  }
+
+  if (messageDate.getFullYear() === nowDate.getFullYear()) {
+    return messageDate.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  }
+
+  return messageDate.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
+function isSameDay(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
   );
 }
