@@ -16,9 +16,11 @@ interface ComposerAttachmentDraft {
 }
 
 export function Composer({
+  activeStreamDisplayName,
   provisioningState,
   sessionKey
 }: {
+  activeStreamDisplayName?: string;
   provisioningState: SessionProvisioningState;
   sessionKey?: string;
 }) {
@@ -241,7 +243,9 @@ export function Composer({
             placeholder={
               sessionKey
                 ? transportState.phase === "live" && provisioningState === "ready"
-                  ? "Send a plain text message"
+                  ? activeStreamDisplayName
+                    ? `${activeStreamDisplayName} — ${sessionKey}`
+                    : sessionKey
                   : provisioningState === "unavailable"
                     ? "This stream is unavailable for sending"
                     : provisioningState === "waiting"

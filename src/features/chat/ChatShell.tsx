@@ -233,6 +233,7 @@ export function ChatShell({
             </div>
           ) : null}
           <Composer
+            activeStreamDisplayName={streams.find((s) => s.sessionKey === activeSessionKey)?.displayName}
             provisioningState={provisioningState}
             sessionKey={activeSessionKey}
           />
