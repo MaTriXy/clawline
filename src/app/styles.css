@@ -1059,12 +1059,12 @@ html[data-appearance="light"] body::before {
   --session-popup-inactive-dot: rgb(139 128 120 / 0.46);
   position: absolute;
   left: 50%;
-  bottom: calc(8.8rem + env(safe-area-inset-bottom, 0px));
+  bottom: calc(8.8rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
   transform: translateX(-50%);
   width: min(20rem, calc(100vw - 1.5rem));
   min-width: min(17.5rem, calc(100vw - 1.5rem));
   max-width: 22.5rem;
-  max-height: min(56vh, 32rem);
+  max-height: min(32rem, calc(100dvh - 11rem - env(safe-area-inset-bottom, 0px) - var(--chat-keyboard-inset)));
   padding: 0;
   border-radius: 20px;
   background:
@@ -1398,7 +1398,8 @@ html[data-appearance="light"] .session-popover {
   
   .session-popover {
     width: min(100vw - 1rem, 20rem);
-    bottom: calc(8.2rem + env(safe-area-inset-bottom, 0px));
+    bottom: calc(8.2rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
+    max-height: min(30rem, calc(100dvh - 9.8rem - env(safe-area-inset-bottom, 0px) - var(--chat-keyboard-inset)));
   }
 }
 

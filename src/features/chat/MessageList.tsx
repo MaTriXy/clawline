@@ -62,11 +62,21 @@ export function MessageList({
   );
   const restoredSessionKeyRef = useRef<string | null>(null);
   const consumedUnreadAnchorRef = useRef<string | null>(null);
+  const touchScrollActiveRef = useRef(false);
+  const touchScrollReleaseTimeoutRef = useRef<number | null>(null);
   const expandedMessage = messages.find((message) => message.id === expandedMessageId) ?? null;
   const typingIndicatorOffsetTop = totalHeight + (messages.length > 0 ? TYPING_INDICATOR_GAP : 0);
   const virtualSurfaceHeight =
     totalHeight
     + (isTypingIndicatorVisible ? TYPING_INDICATOR_HEIGHT + (messages.length > 0 ? TYPING_INDICATOR_GAP : 0) : 0);
+
+  useEffect(() => {
+    return () => {
+      if (touchScrollReleaseTimeoutRef.current !== null) {
+        window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (shouldShowTypingIndicator) {
@@ -157,7 +167,7 @@ export function MessageList({
       activeElement instanceof HTMLTextAreaElement &&
       activeElement.id === "composer-input";
 
-    if (!isComposerFocused || !isAtBottomRef.current) {
+    if (!isComposerFocused || !isAtBottomRef.current || touchScrollActiveRef.current) {
       return;
     }
 
@@ -201,6 +211,28 @@ export function MessageList({
         className="message-list"
         data-testid="message-list"
         onScroll={handleScroll}
+        onTouchCancel={() => {
+          if (touchScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+          }
+          touchScrollActiveRef.current = false;
+        }}
+        onTouchEnd={() => {
+          if (touchScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+          }
+          touchScrollReleaseTimeoutRef.current = window.setTimeout(() => {
+            touchScrollActiveRef.current = false;
+            touchScrollReleaseTimeoutRef.current = null;
+          }, 180);
+        }}
+        onTouchStart={() => {
+          if (touchScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+            touchScrollReleaseTimeoutRef.current = null;
+          }
+          touchScrollActiveRef.current = true;
+        }}
         ref={containerRef}
       >
         <div
