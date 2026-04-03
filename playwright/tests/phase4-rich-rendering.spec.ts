@@ -17,6 +17,7 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
     "| alpha | beta |"
   ].join("\n");
   const expandedRichContent = `${richContent}\n\n${"More detail. ".repeat(90)}`;
+  const mediumContent = "Found a better route through the market if you still want plants later.";
 
   const server = createServer();
   const wss = new WebSocketServer({ server, path: "/ws" });
@@ -75,6 +76,18 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
         socket.send(
           JSON.stringify({
             type: "message",
+            id: "s_medium_1",
+            role: "assistant",
+            content: mediumContent,
+            timestamp: 1_764_201_200_090,
+            streaming: false,
+            sessionKey,
+            attachments: []
+          })
+        );
+        socket.send(
+          JSON.stringify({
+            type: "message",
             id: "s_rich_1",
             role: "assistant",
             content: richContent,
@@ -122,6 +135,25 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
       await expect(page.getByTestId("message-s_rich_1").locator(".message-markdown table")).toContainText(
         "alpha"
       );
+      await expect(page.getByTestId("message-s_medium_1")).toHaveAttribute("data-message-size", "medium");
+      const mediumMetrics = await page.getByTestId("message-s_medium_1").evaluate((element) => {
+        const markdown = element.querySelector<HTMLElement>(".message-markdown");
+        if (!markdown) {
+          return null;
+        }
+
+        const markdownBox = markdown.getBoundingClientRect();
+        const bubbleBox = element.getBoundingClientRect();
+        const lineHeight = Number.parseFloat(window.getComputedStyle(markdown).lineHeight);
+        return {
+          bubbleWidth: Math.round(bubbleBox.width),
+          lineCount: Math.round(markdownBox.height / lineHeight)
+        };
+      });
+      expect(mediumMetrics).not.toBeNull();
+      expect(mediumMetrics!.lineCount).toBeGreaterThanOrEqual(2);
+      expect(mediumMetrics!.lineCount).toBeLessThanOrEqual(3);
+      expect(mediumMetrics!.bubbleWidth).toBeLessThan(460);
       await expect(page.getByTestId("message-s_rich_1")).toHaveScreenshot(
         `phase4-rich-rendering-message-${appearance}.png`,
         {

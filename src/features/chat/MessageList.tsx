@@ -11,6 +11,9 @@ import { RichMessageBody, shouldOfferExpandedMessage } from "./RichMessageBody";
 import { useVirtualMessageWindow } from "./useVirtualMessageWindow";
 
 type MessageSizeClass = "short" | "medium" | "long";
+const TYPING_INDICATOR_HEIGHT = 90;
+const TYPING_INDICATOR_GAP = 14;
+const TYPING_ACTIVITY_SETTLE_MS = 180;
 
 function getMessageSenderLabel(message: ChatMessageRecord) {
   return message.role === "user" ? "You" : message.sender ?? "Assistant";
@@ -58,6 +61,11 @@ function countWords(content: string) {
     .filter(Boolean).length;
 }
 
+function hasStreamingAssistantMessage(messages: ChatMessageRecord[]) {
+  const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
+  return lastAssistantMessage?.streaming === true;
+}
+
 export function MessageList({
   messages,
   onRememberScrollState,
@@ -93,9 +101,32 @@ export function MessageList({
     scrollToOffset,
     totalHeight
   } = useVirtualMessageWindow(messages);
+  const shouldShowTypingIndicator = hasStreamingAssistantMessage(messages);
+  const [isTypingIndicatorVisible, setIsTypingIndicatorVisible] = useState(
+    shouldShowTypingIndicator
+  );
   const restoredSessionKeyRef = useRef<string | null>(null);
   const consumedUnreadAnchorRef = useRef<string | null>(null);
   const expandedMessage = messages.find((message) => message.id === expandedMessageId) ?? null;
+  const typingIndicatorOffsetTop = totalHeight + (messages.length > 0 ? TYPING_INDICATOR_GAP : 0);
+  const virtualSurfaceHeight =
+    totalHeight
+    + (isTypingIndicatorVisible ? TYPING_INDICATOR_HEIGHT + (messages.length > 0 ? TYPING_INDICATOR_GAP : 0) : 0);
+
+  useEffect(() => {
+    if (shouldShowTypingIndicator) {
+      setIsTypingIndicatorVisible(true);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsTypingIndicatorVisible(false);
+    }, TYPING_ACTIVITY_SETTLE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [shouldShowTypingIndicator]);
 
   useEffect(() => {
     if (!sessionKey || !onRememberScrollState) {
@@ -184,6 +215,20 @@ export function MessageList({
     };
   }, [isAtBottom, scrollToBottom, viewportInsetBottom]);
 
+  useEffect(() => {
+    if (!isTypingIndicatorVisible || !isAtBottom) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollToBottom();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [isAtBottom, isTypingIndicatorVisible, scrollToBottom]);
+
   if (messages.length === 0) {
     return (
       <section className="message-list empty-state">
@@ -205,7 +250,7 @@ export function MessageList({
       >
         <div
           className="message-list-virtual-surface"
-          style={{ height: `${Math.max(totalHeight, 0)}px` }}
+          style={{ height: `${Math.max(virtualSurfaceHeight, 0)}px` }}
         >
           {renderedMessages.map(({ message, offsetTop }) => (
             <MeasuredMessageRow
@@ -222,6 +267,14 @@ export function MessageList({
               />
             </MeasuredMessageRow>
           ))}
+          {isTypingIndicatorVisible ? (
+            <div
+              className="message-list-row message-list-row--typing"
+              style={{ top: `${typingIndicatorOffsetTop}px` }}
+            >
+              <TypingIndicator />
+            </div>
+          ) : null}
         </div>
       </section>
       {!isAtBottom ? (
@@ -243,6 +296,19 @@ export function MessageList({
         />
       ) : null}
     </>
+  );
+}
+
+function TypingIndicator() {
+  return (
+    <div className="message-typing-indicator" data-testid="typing-indicator">
+      <span className="sr-only">Assistant is typing</span>
+      <span aria-hidden="true" className="message-typing-indicator-dots">
+        <span className="message-typing-indicator-dot" />
+        <span className="message-typing-indicator-dot" />
+        <span className="message-typing-indicator-dot" />
+      </span>
+    </div>
   );
 }
 
@@ -370,7 +436,6 @@ function MessageBubble({
         {message.delivery === "pending" ? "Sending..." : null}
         {message.delivery === "acked" ? "Accepted by provider" : null}
         {message.delivery === "failed" ? "Send failed" : null}
-        {message.streaming ? "Streaming..." : null}
       </footer>
     </article>
   );

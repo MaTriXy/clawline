@@ -294,7 +294,7 @@ test("stream manager handles create, rename, delete, track, untrack, provisionin
 
     await expect(page.locator("#composer-input")).toHaveAttribute(
       "placeholder",
-      "Send a plain text message"
+      `Research v2 — ${createdSessionKey}`
     );
     await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
 

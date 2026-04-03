@@ -289,6 +289,37 @@ describe("MessageList rich rendering", () => {
     expect(userBubble).toHaveClass("message-bubble--user");
   });
 
+  it("shows a typing indicator when the latest assistant reply is still streaming", () => {
+    renderMessageList([
+      {
+        id: "s_typing_seed",
+        role: "assistant",
+        content: "Let me think through that.",
+        timestamp: 1_764_201_200_055,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_typing_live",
+        role: "assistant",
+        content: "Working on it",
+        timestamp: 1_764_201_200_056,
+        streaming: true,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    expect(screen.getByTestId("typing-indicator")).toBeInTheDocument();
+    expect(screen.getByTestId("typing-indicator")).toHaveTextContent("Assistant is typing");
+    expect(screen.queryByText("Streaming...")).not.toBeInTheDocument();
+  });
+
   it("renders markdown blocks in source order", () => {
     renderMessageList([RICH_MESSAGE]);
 
