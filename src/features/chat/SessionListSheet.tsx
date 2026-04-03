@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { LayoutList, RefreshCw, Search, Settings2 } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import type { StreamRecord } from "../../runtime/chat/chatDomainStore";
 import type { TransportPhase } from "../../runtime/transport/transportMachine";
 import { getSessionProvisioningState } from "../streams/provisioning";
@@ -27,12 +27,9 @@ export function resolveStreamDisplayName(stream: Pick<StreamRecord, "displayName
 
 export function SessionListSheet({
   activeSessionKey,
-  connectionLabel,
   isOpen,
   onClose,
-  onOpenSettings,
   onOpenStreamManager,
-  onRetryConnection,
   onSelectSession,
   provisionedSessionKeys,
   streams,
@@ -40,12 +37,9 @@ export function SessionListSheet({
   unreadBySessionKey
 }: {
   activeSessionKey?: string;
-  connectionLabel: string;
   isOpen: boolean;
   onClose: () => void;
-  onOpenSettings: () => void;
   onOpenStreamManager: () => void;
-  onRetryConnection: () => void;
   onSelectSession: (sessionKey: string) => void;
   provisionedSessionKeys: string[];
   streams: StreamRecord[];
@@ -160,44 +154,19 @@ export function SessionListSheet({
           </label>
           <div className="session-popover-actions">
             <button
-              aria-label="Retry"
+              aria-label="Add stream"
               className="button-secondary button-icon session-popover-action-button"
-              onClick={() => {
-                onClose();
-                onRetryConnection();
-              }}
-              title="Retry"
-              type="button"
-            >
-              <RefreshCw size={18} strokeWidth={2} />
-            </button>
-            <button
-              aria-label="Settings"
-              className="button-secondary button-icon session-popover-action-button"
-              onClick={() => {
-                onClose();
-                onOpenSettings();
-              }}
-              title="Settings"
-              type="button"
-            >
-              <Settings2 size={18} strokeWidth={2} />
-            </button>
-            <button
-              aria-label="Manage"
-              className="button-secondary button-icon session-popover-action-button session-popover-action-button--primary"
               onClick={() => {
                 onClose();
                 onOpenStreamManager();
               }}
-              title="Manage"
+              title="Add stream"
               type="button"
             >
-              <LayoutList size={18} strokeWidth={2} />
+              <Plus size={18} strokeWidth={2} />
             </button>
           </div>
         </div>
-        <span className="status-pill session-popover-status">{connectionLabel}</span>
       </aside>
     </div>
   );

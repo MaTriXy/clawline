@@ -216,12 +216,14 @@ describe("MessageList rich rendering", () => {
     const assistantAvatar = screen.getByTestId("message-avatar-s_rich");
     const assistantBubble = screen.getByTestId("message-s_rich");
     expect(assistantAvatar).toHaveTextContent("A");
-    expect(assistantBubble.parentElement?.firstElementChild).toBe(assistantAvatar);
+    expect(assistantBubble.querySelector(".message-header")?.firstElementChild).toBe(
+      assistantAvatar
+    );
 
     const userAvatar = screen.getByTestId("message-avatar-s_user");
     const userBubble = screen.getByTestId("message-s_user");
     expect(userAvatar).toHaveTextContent("Y");
-    expect(userBubble.parentElement?.lastElementChild).toBe(userAvatar);
+    expect(userBubble.querySelector(".message-header")?.firstElementChild).toBe(userAvatar);
   });
 
   it("renders markdown blocks in source order", () => {

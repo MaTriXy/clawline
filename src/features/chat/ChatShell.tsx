@@ -14,14 +14,11 @@ import { computeKeyboardInset } from "./visualViewportInset";
 
 export function ChatShell({
   activeSessionKey,
-  connectionLabel,
   isSessionListOpen,
   onCloseSessionList,
   onOpenSessionList,
   onOpenStreamManager,
-  onOpenSettings,
   onRememberScrollState,
-  onRetryConnection,
   onSelectSession,
   onUnreadAnchorConsumed,
   provisionedSessionKeys,
@@ -35,18 +32,15 @@ export function ChatShell({
   unreadBySessionKey
 }: {
   activeSessionKey?: string;
-  connectionLabel: string;
   isSessionListOpen: boolean;
   onCloseSessionList: () => void;
   onOpenSessionList: () => void;
   onOpenStreamManager: () => void;
-  onOpenSettings: () => void;
   onRememberScrollState: (input: {
     offsetTop: number;
     sessionKey: string;
     stickToBottom: boolean;
   }) => void;
-  onRetryConnection: () => void;
   onSelectSession: (sessionKey: string) => void;
   onUnreadAnchorConsumed: (messageId: string) => void;
   provisionedSessionKeys: string[];
@@ -246,12 +240,9 @@ export function ChatShell({
       </main>
       <SessionListSheet
         activeSessionKey={activeSessionKey}
-        connectionLabel={connectionLabel}
         isOpen={isSessionListOpen}
         onClose={onCloseSessionList}
-        onOpenSettings={onOpenSettings}
         onOpenStreamManager={onOpenStreamManager}
-        onRetryConnection={onRetryConnection}
         onSelectSession={onSelectSession}
         provisionedSessionKeys={provisionedSessionKeys}
         streams={streams}

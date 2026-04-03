@@ -31,9 +31,22 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
         await dots.click();
         const popover = page.getByTestId("session-popover");
         await expect(popover).toBeVisible();
+        await expect(popover.getByRole("button", { name: "Add stream" })).toBeVisible();
+        await expect(popover.getByRole("button", { name: "Settings" })).toHaveCount(0);
+        await expect(popover.getByRole("button", { name: "Retry" })).toHaveCount(0);
         const popoverBox = await popover.boundingBox();
         expect(popoverBox).not.toBeNull();
         expect(popoverBox!.width).toBeLessThan(820 * 0.52);
+        expect(
+          await popover.locator(".session-sheet-card-title").first().evaluate((element) => {
+            return window.getComputedStyle(element).textAlign;
+          })
+        ).toBe("left");
+        expect(
+          await popover
+            .locator(".session-sheet-card.active .session-sheet-card-indicator")
+            .evaluate((element) => window.getComputedStyle(element).backgroundColor)
+        ).toBe("rgb(107, 156, 107)");
         await expect(popover).toHaveScreenshot(`phase5-session-popover-${appearance}.png`, {
           animations: "disabled"
         });
@@ -270,7 +283,7 @@ async function startPhase5Server() {
             type: "auth_result",
             success: true,
             userId: "user_flynn",
-            replayCount: 2,
+            replayCount: 1,
             sessionKeys: [MAIN_SESSION_KEY, SIDE_SESSION_KEY]
           })
         );
@@ -321,18 +334,23 @@ async function startPhase5Server() {
             attachments: []
           })
         );
-        socket.send(
-          JSON.stringify({
-            type: "message",
-            id: "s_phase5_2",
-            role: "assistant",
-            content: "Responsive shell check",
-            timestamp: 1_764_400_000_300,
-            streaming: false,
-            sessionKey: SIDE_SESSION_KEY,
-            attachments: []
-          })
-        );
+        setTimeout(() => {
+          if (socket.readyState !== socket.OPEN) {
+            return;
+          }
+          socket.send(
+            JSON.stringify({
+              type: "message",
+              id: "s_phase5_2",
+              role: "assistant",
+              content: "Responsive shell check",
+              timestamp: 1_764_400_000_300,
+              streaming: false,
+              sessionKey: SIDE_SESSION_KEY,
+              attachments: []
+            })
+          );
+        }, 20);
         return;
       }
 

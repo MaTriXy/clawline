@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { SettingsDrawer } from "../settings/SettingsDrawer";
 import { StreamManagerDrawer } from "../streams/StreamManagerDrawer";
 import { getSessionProvisioningState } from "../streams/provisioning";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
@@ -13,8 +12,7 @@ export function ChatRoute() {
   const params = useParams();
   const { state: authState } = useAuthSessionStore();
   const { state: chatState, store: chatStore } = useChatDomainStore();
-  const { state: transportState, store: transportStore } = useTransportMachine();
-  const [isSettingsOpen, setSettingsOpen] = useState(false);
+  const { state: transportState } = useTransportMachine();
   const [isSessionListOpen, setSessionListOpen] = useState(false);
   const [isStreamManagerOpen, setStreamManagerOpen] = useState(false);
   const [selectedUnreadAnchorMessageId, setSelectedUnreadAnchorMessageId] = useState<
@@ -124,17 +122,6 @@ export function ChatRoute() {
     <>
       <ChatShell
         activeSessionKey={selectedSessionKey}
-        connectionLabel={
-          transportState.phase === "live"
-            ? "Connected"
-            : transportState.phase === "recovering"
-              ? "Reconnecting"
-              : transportState.phase === "connecting" ||
-                  transportState.phase === "authenticating" ||
-                  transportState.phase === "replaying"
-                ? "Connecting"
-                : "Disconnected"
-        }
         isSessionListOpen={isSessionListOpen}
         onCloseSessionList={() => setSessionListOpen(false)}
         onOpenSessionList={() => setSessionListOpen(true)}
@@ -142,10 +129,8 @@ export function ChatRoute() {
           setSessionListOpen(false);
           setStreamManagerOpen(true);
         }}
-        onOpenSettings={() => setSettingsOpen(true)}
         onRememberScrollState={(input) => chatStore.rememberSessionScrollState(input)}
         provisioningState={provisioningState}
-        onRetryConnection={() => transportStore.retryNow()}
         onSelectSession={(sessionKey) => {
           setSessionListOpen(false);
           navigate(`/chat/${sessionKey}`);
@@ -170,10 +155,6 @@ export function ChatRoute() {
         streams={chatState.streams}
         transportPhase={transportState.phase}
         unreadBySessionKey={chatState.unreadBySessionKey}
-      />
-      <SettingsDrawer
-        isOpen={isSettingsOpen}
-        onClose={() => setSettingsOpen(false)}
       />
       <StreamManagerDrawer
         activeSessionKey={selectedSessionKey}
