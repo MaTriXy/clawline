@@ -320,6 +320,89 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
     }
   });
 
+  test("switching chats from the popup keeps the keyboard focused", async ({ page }) => {
+    const { close, port } = await startPhase5Server();
+
+    try {
+      await page.addInitScript(() => {
+        const listeners = new Map<string, Set<EventListener>>();
+        let height = window.innerHeight;
+        let offsetTop = 0;
+
+        const visualViewport = {
+          get width() {
+            return window.innerWidth;
+          },
+          get height() {
+            return height;
+          },
+          get offsetTop() {
+            return offsetTop;
+          },
+          addEventListener(type: string, listener: EventListener) {
+            const bucket = listeners.get(type) ?? new Set<EventListener>();
+            bucket.add(listener);
+            listeners.set(type, bucket);
+          },
+          removeEventListener(type: string, listener: EventListener) {
+            listeners.get(type)?.delete(listener);
+          }
+        };
+
+        const dispatch = (type: string) => {
+          const event = new Event(type);
+          for (const listener of listeners.get(type) ?? []) {
+            listener.call(visualViewport, event);
+          }
+        };
+
+        Object.defineProperty(window, "visualViewport", {
+          configurable: true,
+          get() {
+            return visualViewport;
+          }
+        });
+
+        Object.assign(window, {
+          __setVisualViewportInsetForTest(nextInset: number) {
+            height = Math.max(0, window.innerHeight - nextInset);
+            offsetTop = 0;
+            dispatch("resize");
+            dispatch("scroll");
+          }
+        });
+      });
+
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.setViewportSize({ height: 844, width: 390 });
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+      const composer = page.getByRole("textbox", { name: "Message" });
+      await composer.click();
+      await composer.fill("Keep keyboard during chat switch");
+      await setVisualViewportInset(page, 280);
+      await expect(composer).toBeFocused();
+
+      await page.getByRole("button", { name: "Manage streams" }).click();
+      await expect(page.getByTestId("session-popover")).toBeVisible();
+      await expect(composer).toBeFocused();
+
+      await page.getByRole("button", { name: "Side" }).click();
+
+      await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(SIDE_SESSION_KEY)}$`));
+      await expect(page.getByTestId("session-popover")).toHaveCount(0);
+      await expect(composer).toBeFocused();
+    } finally {
+      await close();
+    }
+  });
+
   test("sending with a mobile keyboard inset keeps the newest bubbles above the keyboard", async ({ page }) => {
     const { close, receivedClientMessages, port } = await startPhase5Server();
 
@@ -810,4 +893,8 @@ async function captureFocusOrder(
   }
 
   return labels.map((label) => label.replace(/(?<=\w)(ready)(?=\w)/g, " ready "));
+}
+
+function escapeForRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

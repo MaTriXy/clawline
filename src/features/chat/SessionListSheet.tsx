@@ -100,6 +100,11 @@ export function SessionListSheet({
                     onSelectSession(stream.sessionKey);
                     onClose();
                   }}
+                  onPointerDown={(event) => {
+                    // Keep the composer focused so selecting a chat doesn't dismiss
+                    // the software keyboard before the route switch completes.
+                    event.preventDefault();
+                  }}
                   type="button"
                 >
                   <span className="session-sheet-card-row">
