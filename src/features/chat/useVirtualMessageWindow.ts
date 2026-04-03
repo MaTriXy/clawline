@@ -52,7 +52,13 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
     const target = container;
 
     function syncContainerMetrics(target: HTMLElement) {
-      setContainerWidth(target.clientWidth || DEFAULT_CONTAINER_WIDTH);
+      const computedStyle = window.getComputedStyle(target);
+      const paddingInline =
+        Number.parseFloat(computedStyle.paddingLeft || "0")
+        + Number.parseFloat(computedStyle.paddingRight || "0");
+      const contentWidth = Math.max(0, target.clientWidth - paddingInline);
+
+      setContainerWidth(contentWidth || DEFAULT_CONTAINER_WIDTH);
       setViewportHeight(target.clientHeight || DEFAULT_VIEWPORT_HEIGHT);
     }
 

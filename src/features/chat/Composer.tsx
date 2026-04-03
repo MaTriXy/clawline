@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Paperclip, SendHorizontal } from "lucide-react";
 import type { SessionProvisioningState } from "../streams/provisioning";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
@@ -144,6 +144,11 @@ export function Composer({
     );
   }
 
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void submit();
+  }
+
   return (
     <section
       className={
@@ -205,7 +210,11 @@ export function Composer({
         </div>
       ) : null}
       {submitError ? <p className="field-error">{submitError}</p> : null}
-      <div className="composer-input-bar" data-testid="composer-input-bar">
+      <form
+        className="composer-input-bar"
+        data-testid="composer-input-bar"
+        onSubmit={handleSubmit}
+      >
         <button
           aria-label="Add attachment"
           className="composer-circle-button composer-circle-button--attach"
@@ -262,10 +271,7 @@ export function Composer({
           aria-label={isSubmitting ? "Uploading…" : "Send"}
           className="composer-circle-button composer-circle-button--send"
           disabled={!canSend}
-          onClick={() => {
-            void submit();
-          }}
-          type="button"
+          type="submit"
         >
           {isSubmitting ? (
             <span aria-hidden="true">…</span>
@@ -273,7 +279,7 @@ export function Composer({
             <SendHorizontal aria-hidden="true" size={18} strokeWidth={2.1} />
           )}
         </button>
-      </div>
+      </form>
     </section>
   );
 }
