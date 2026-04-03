@@ -135,6 +135,7 @@ final class ProviderChatService: ChatServicing {
         let replayTruncated: Bool?
         let historyReset: Bool?
         let streamReadStates: [String: String]?
+        let streamTailStates: [String: StreamTailState]?
         let reason: String?
     }
 
@@ -766,6 +767,8 @@ final class ProviderChatService: ChatServicing {
             handleStreamDeleted(data: data)
         case "stream_read_state":
             handleStreamReadState(data: data)
+        case "stream_tail_state":
+            handleStreamTailState(data: data)
         case "event":
             handleEvent(data: data)
         default:
@@ -805,6 +808,9 @@ final class ProviderChatService: ChatServicing {
             }
             if let streamReadStates = result.streamReadStates {
                 emitServiceEvent(.streamReadStateSnapshot(streamReadStates))
+            }
+            if let streamTailStates = result.streamTailStates {
+                emitServiceEvent(.streamTailStateSnapshot(streamTailStates))
             }
             if let isAdmin = result.isAdmin {
                 logger.info("Auth result received (userId: \(result.userId ?? "unknown", privacy: .public), isAdmin: \(isAdmin, privacy: .public))")
@@ -1082,6 +1088,19 @@ final class ProviderChatService: ChatServicing {
             .streamReadStateUpdated(
                 sessionKey: payload.sessionKey,
                 lastReadMessageId: payload.lastReadMessageId
+            )
+        )
+    }
+
+    private func handleStreamTailState(data: Data) {
+        guard let payload = try? decoder.decode(StreamTailStatePayload.self, from: data) else {
+            logger.warning("Failed to decode stream_tail_state payload")
+            return
+        }
+        emitServiceEvent(
+            .streamTailStateUpdated(
+                sessionKey: payload.sessionKey,
+                tailState: payload.tailState
             )
         )
     }

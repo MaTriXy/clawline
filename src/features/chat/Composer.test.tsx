@@ -9,13 +9,18 @@ import {
   createChatDomainStore
 } from "../../runtime/chat/chatDomainStore";
 import { createMemoryChatPersistence } from "../../runtime/persistence/indexedDbChatPersistence";
-import type { TransportMachine } from "../../runtime/transport/transportMachine";
+import type {
+  TransportMachine,
+  TransportPhase
+} from "../../runtime/transport/transportMachine";
 import { TransportMachineProvider } from "../../runtime/transport/transportMachine";
 import { Composer } from "./Composer";
 
 function renderComposer({
+  phase = "live" as const,
   sendMessage = vi.fn().mockResolvedValue(undefined)
 }: {
+  phase?: TransportPhase;
   sendMessage?: TransportMachine["sendMessage"];
 } = {}) {
   const authStore = createAuthSessionStore();
@@ -25,7 +30,7 @@ function renderComposer({
   const transportState = {
     failureReason: null,
     isBrowserOnline: true,
-    phase: "live" as const,
+    phase,
     retryAttempt: 0
   };
   const transportStore: TransportMachine = {
@@ -47,7 +52,7 @@ function renderComposer({
     userId: "user_1"
   });
 
-  render(
+  const renderResult = render(
     <AuthSessionStoreProvider value={authStore}>
       <ChatDomainStoreProvider value={chatStore}>
         <TransportMachineProvider value={transportStore}>
@@ -62,6 +67,7 @@ function renderComposer({
 
   return {
     chatStore,
+    renderResult,
     sendMessage
   };
 }
@@ -140,5 +146,16 @@ describe("Composer", () => {
         sessionKey: "agent:main:clawline:user_1:main"
       });
     });
+  });
+
+  it("shows reconnecting and disconnected send button states", () => {
+    const reconnecting = renderComposer({ phase: "recovering" });
+    expect(screen.getByRole("button", { name: "Send unavailable while reconnecting" }))
+      .toHaveAttribute("data-connection-state", "reconnecting");
+    reconnecting.renderResult.unmount();
+
+    renderComposer({ phase: "failed" });
+    expect(screen.getByRole("button", { name: "Send unavailable while disconnected" }))
+      .toHaveAttribute("data-connection-state", "disconnected");
   });
 });

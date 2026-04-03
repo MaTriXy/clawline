@@ -53,6 +53,7 @@ final class WatchProviderTransport: ChatServicing {
         let features: [String]?
         let sessionKeys: [String]?
         let streamReadStates: [String: String]?
+        let streamTailStates: [String: StreamTailState]?
         let reason: String?
     }
 
@@ -758,6 +759,15 @@ final class WatchProviderTransport: ChatServicing {
                     )
                 )
             }
+        case "stream_tail_state":
+            if let payload = try? JSONDecoder().decode(StreamTailStatePayload.self, from: data) {
+                eventBroadcaster.send(
+                    .streamTailStateUpdated(
+                        sessionKey: payload.sessionKey,
+                        tailState: payload.tailState
+                    )
+                )
+            }
         case "event":
             if let payload = try? JSONDecoder().decode(EventEnvelope.self, from: data), payload.event == "activity",
                let activity = try? JSONDecoder().decode(ActivityEventPayload.self, from: data),
@@ -791,6 +801,9 @@ final class WatchProviderTransport: ChatServicing {
             }
             if let streamReadStates = result.streamReadStates {
                 eventBroadcaster.send(.streamReadStateSnapshot(streamReadStates))
+            }
+            if let streamTailStates = result.streamTailStates {
+                eventBroadcaster.send(.streamTailStateSnapshot(streamTailStates))
             }
             if let userId = result.userId, let isAdmin = result.isAdmin {
                 eventBroadcaster.send(.userInfo(ChatUserInfo(userId: userId, isAdmin: isAdmin)))

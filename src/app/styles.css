@@ -663,7 +663,36 @@ html[data-appearance="light"] body::before {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
+  align-items: center;
   color: var(--color-text-dim);
+}
+
+.message-status-action {
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  padding: 0;
+}
+
+.message-status-action:hover {
+  color: color-mix(in srgb, var(--color-accent) 82%, var(--color-text));
+}
+
+@keyframes composer-send-reconnecting-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--color-accent-warm) 22%, transparent),
+      inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 8px color-mix(in srgb, var(--color-accent-warm) 0%, transparent),
+      0 0 24px color-mix(in srgb, var(--color-accent-warm) 28%, transparent),
+      inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  }
 }
 
 .message-markdown {
@@ -1054,6 +1083,27 @@ html[data-appearance="light"] body::before {
 .composer-circle-button--send {
   background: var(--color-accent-soft);
   color: var(--color-text);
+}
+
+.composer-circle-button--live {
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+.composer-circle-button--reconnecting {
+  background: color-mix(in srgb, var(--color-accent-warm) 26%, var(--color-panel-glass));
+  border-color: color-mix(in srgb, var(--color-accent-warm) 42%, var(--color-border-strong));
+  color: color-mix(in srgb, var(--color-accent-warm) 72%, var(--color-text));
+  animation: composer-send-reconnecting-pulse 1.8s ease-in-out infinite;
+}
+
+.composer-circle-button--disconnected {
+  background: color-mix(in srgb, var(--color-danger) 22%, var(--color-panel-glass));
+  border-color: color-mix(in srgb, var(--color-danger) 42%, var(--color-border-strong));
+  color: color-mix(in srgb, var(--color-danger) 78%, white);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--color-danger) 24%, transparent),
+    inset 0 1px 1px rgba(255, 255, 255, 0.08);
 }
 
 .composer-input-field {

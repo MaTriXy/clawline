@@ -177,7 +177,7 @@ test("messages use the wrapping flow layout without blank bubbles", async ({ pag
     expect(positions.fourth).not.toBeNull();
     expect(Math.abs(positions.first!.top - positions.second!.top)).toBeLessThanOrEqual(4);
     expect(positions.second!.left).toBeGreaterThan(positions.first!.left + 40);
-    expect(positions.third!.top).toBeGreaterThan(positions.first!.top + positions.first!.height);
+    expect(positions.third!.top - positions.first!.top).toBeLessThan(180);
     expect(positions.third!.width).toBeGreaterThanOrEqual(200);
     expect(positions.third!.width).toBeLessThan(460);
     expect(positions.fourth!.top).toBeGreaterThan(positions.third!.top + positions.third!.height);
@@ -192,6 +192,170 @@ test("messages use the wrapping flow layout without blank bubbles", async ({ pag
         }
       );
     }
+  } finally {
+    try {
+      await page.goto("about:blank");
+    } catch {
+      // Ignore teardown navigation errors if the test already closed the page.
+    }
+    for (const client of wss.clients) {
+      client.terminate();
+    }
+    await new Promise<void>((resolve, reject) => {
+      wss.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        server.close((serverError) => {
+          if (serverError) {
+            reject(serverError);
+            return;
+          }
+          resolve();
+        });
+      });
+    });
+  }
+});
+
+test("tablet-width medium messages pair naturally without oversized row gaps", async ({ page }) => {
+  const port = 24_901 + Math.floor(Math.random() * 1_000);
+  const sessionKey = "agent:main:clawline:flynn:main";
+  const server = createServer();
+  const wss = new WebSocketServer({ server, path: "/ws" });
+
+  wss.on("connection", (socket) => {
+    socket.on("message", (buffer) => {
+      const payload = JSON.parse(buffer.toString()) as { type: string };
+
+      if (payload.type !== "auth") {
+        return;
+      }
+
+      socket.send(
+        JSON.stringify({
+          type: "auth_result",
+          success: true,
+          userId: "user_flynn",
+          replayCount: 0,
+          sessionKeys: [sessionKey]
+        })
+      );
+      socket.send(
+        JSON.stringify({
+          type: "session_info",
+          userId: "user_flynn",
+          isAdmin: false,
+          sessionKeys: [sessionKey]
+        })
+      );
+      socket.send(
+        JSON.stringify({
+          type: "stream_snapshot",
+          streams: [
+            {
+              sessionKey,
+              displayName: "Personal",
+              kind: "main",
+              orderIndex: 0,
+              isBuiltIn: true,
+              createdAt: 1_764_652_000_000,
+              updatedAt: 1_764_652_000_000
+            }
+          ]
+        })
+      );
+
+      for (const message of [
+        {
+          type: "message",
+          id: "s_tablet_medium_1",
+          role: "user",
+          content: "Pulled the latest notes this morning.",
+          timestamp: 1_764_652_000_010,
+          streaming: false,
+          sessionKey,
+          attachments: []
+        },
+        {
+          type: "message",
+          id: "s_tablet_medium_2",
+          role: "user",
+          content: "Sent the draft reply to Chris.",
+          timestamp: 1_764_652_000_020,
+          streaming: false,
+          sessionKey,
+          attachments: []
+        },
+        {
+          type: "message",
+          id: "s_tablet_medium_3",
+          role: "assistant",
+          content: "Queued the follow-up for this afternoon.",
+          timestamp: 1_764_652_000_030,
+          streaming: false,
+          sessionKey,
+          attachments: []
+        }
+      ]) {
+        socket.send(JSON.stringify(message));
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(port, "127.0.0.1", () => resolve());
+  });
+
+  try {
+    await page.addInitScript((session) => {
+      window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+      window.localStorage.setItem(
+        "clawline-web:device-id",
+        JSON.stringify(session.deviceId)
+      );
+    }, {
+      claimedName: "Flynn Browser",
+      deviceId: "phase5-flow-tablet-device",
+      isAdmin: false,
+      serverUrl: `ws://127.0.0.1:${port}/ws`,
+      token: "jwt-phase5-flow-tablet-token",
+      userId: "user_flynn"
+    });
+
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await page.goto(`/chat/${sessionKey}`);
+    await expect(page.getByTestId("message-s_tablet_medium_1")).toBeVisible();
+    await expect(page.getByTestId("message-s_tablet_medium_2")).toBeVisible();
+    await expect(page.getByTestId("message-s_tablet_medium_3")).toBeVisible();
+
+    const metrics = await page.evaluate(() => {
+      function rect(id: string) {
+        const element = document.querySelector<HTMLElement>(`[data-testid="message-${id}"]`);
+        if (!element) {
+          return null;
+        }
+        const box = element.getBoundingClientRect();
+        return {
+          left: box.left,
+          top: box.top,
+          width: box.width
+        };
+      }
+
+      const first = rect("s_tablet_medium_1");
+      const second = rect("s_tablet_medium_2");
+      const third = rect("s_tablet_medium_3");
+      return { first, second, third };
+    });
+
+    expect(metrics.first).not.toBeNull();
+    expect(metrics.second).not.toBeNull();
+    expect(metrics.third).not.toBeNull();
+    expect(Math.abs(metrics.first!.top - metrics.second!.top)).toBeLessThanOrEqual(4);
+    expect(metrics.second!.left).toBeGreaterThan(metrics.first!.left + 40);
+    expect(metrics.third!.top - metrics.first!.top).toBeLessThan(180);
   } finally {
     try {
       await page.goto("about:blank");

@@ -43,6 +43,17 @@ struct ChatUserInfo: Equatable, Codable {
     let isAdmin: Bool
 }
 
+enum StreamDotState: String, Codable, Equatable {
+    case unread
+    case userTail
+    case inactive
+}
+
+struct StreamTailState: Codable, Equatable {
+    let lastMessageId: String
+    let lastMessageRole: Message.Role
+}
+
 enum ChatServiceEvent: Equatable {
     case messageError(messageId: String?, code: String, message: String?)
     case messageAcked(id: String)
@@ -55,6 +66,8 @@ enum ChatServiceEvent: Equatable {
     case streamDeleted(sessionKey: String)
     case streamReadStateSnapshot([String: String])
     case streamReadStateUpdated(sessionKey: String, lastReadMessageId: String)
+    case streamTailStateSnapshot([String: StreamTailState])
+    case streamTailStateUpdated(sessionKey: String, tailState: StreamTailState)
     case sessionProvisioningAvailable(Bool)
     case sessionInfo(SessionInfo)
 }

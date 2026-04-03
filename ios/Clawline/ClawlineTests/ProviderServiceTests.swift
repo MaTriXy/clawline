@@ -509,6 +509,39 @@ struct ProviderServiceTests {
         #expect(snapshot["agent:main:clawline:user:main"] == "s_read_1")
     }
 
+    @Test("Chat service emits tail-state snapshot from auth result")
+    func chatTailStateSnapshotEvent() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(
+                text: #"{ "type": "auth_result", "success": true, "streamTailStates": { "agent:main:clawline:user:main": { "lastMessageId": "s_tail_1", "lastMessageRole": "user" } } }"#
+            )
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+
+        var snapshot: [String: StreamTailState] = [:]
+        for _ in 0..<20 {
+            guard let event = await eventIterator.next() else { continue }
+            if case .streamTailStateSnapshot(let states) = event {
+                snapshot = states
+                break
+            }
+        }
+
+        #expect(snapshot["agent:main:clawline:user:main"] == StreamTailState(lastMessageId: "s_tail_1", lastMessageRole: .user))
+    }
+
     @Test("Chat service emits stream snapshot events")
     func chatStreamSnapshotEvent() async throws {
         let mockSocket = MockWebSocketClient()
@@ -864,6 +897,42 @@ struct ProviderServiceTests {
 
         #expect(emitted?.0 == "agent:main:clawline:user:s_abcd1234")
         #expect(emitted?.1 == "s_read_2")
+    }
+
+    @Test("Chat service emits incremental tail-state updates")
+    func chatIncrementalTailStateEvents() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(
+                text: #"{ "type": "stream_tail_state", "sessionKey": "agent:main:clawline:user:s_abcd1234", "lastMessageId": "s_tail_2", "lastMessageRole": "user" }"#
+            )
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+
+        var emitted: (String, StreamTailState)?
+        for _ in 0..<20 {
+            guard let event = await eventIterator.next() else { continue }
+            if case .streamTailStateUpdated(let sessionKey, let tailState) = event {
+                emitted = (sessionKey, tailState)
+                break
+            }
+        }
+
+        #expect(emitted?.0 == "agent:main:clawline:user:s_abcd1234")
+        #expect(emitted?.1 == StreamTailState(lastMessageId: "s_tail_2", lastMessageRole: .user))
     }
 
     @Test("Chat service emits incremental stream events")

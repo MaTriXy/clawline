@@ -12,8 +12,7 @@ struct StreamPageDotsView: View {
 
     let sessionKeys: [String]
     let activeSessionKey: String
-    let unreadSessionKeys: Set<String>
-    let userTailSessionKeys: Set<String>
+    let dotStatesBySession: [String: StreamDotState]
     let maxWidth: CGFloat?
     let onTap: () -> Void
 
@@ -69,14 +68,14 @@ struct StreamPageDotsView: View {
         guard let firstVisibleIndex = visibleDotIndices.first, firstVisibleIndex > 0 else {
             return false
         }
-        return sessionKeys[..<firstVisibleIndex].contains { unreadSessionKeys.contains($0) }
+        return sessionKeys[..<firstVisibleIndex].contains { dotStatesBySession[$0] == .unread }
     }
 
     private var hasHiddenUnreadTrailing: Bool {
         guard let lastVisibleIndex = visibleDotIndices.last, lastVisibleIndex < sessionKeys.count - 1 else {
             return false
         }
-        return sessionKeys[(lastVisibleIndex + 1)...].contains { unreadSessionKeys.contains($0) }
+        return sessionKeys[(lastVisibleIndex + 1)...].contains { dotStatesBySession[$0] == .unread }
     }
 
     private var warningBloomColor: Color {
@@ -143,14 +142,12 @@ struct StreamPageDotsView: View {
                 ForEach(visibleDotIndices, id: \.self) { index in
                     let sessionKey = sessionKeys[index]
                     let isActive = index == activeIndex
-                    let hasUnread = unreadSessionKeys.contains(sessionKey)
-                    let hasUserTail = userTailSessionKeys.contains(sessionKey)
+                    let dotState = dotStatesBySession[sessionKey] ?? .inactive
                     Circle()
                         .fill(
                             StreamDotColor.resolve(
                                 isActive: isActive,
-                                hasUnread: hasUnread,
-                                hasUserTail: hasUserTail,
+                                dotState: dotState,
                                 colorScheme: colorScheme
                             )
                         )

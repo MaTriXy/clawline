@@ -98,8 +98,9 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var messages: [Message] = []
     private(set) var streamsBySessionKey: [String: StreamSession] = [:]
     private(set) var orderedSessionKeys: [String] = []
+    private(set) var streamDotStateBySession: [String: StreamDotState] = [:]
     private(set) var lastReadMessageIdBySession: [String: String] = [:]
-    private(set) var hasUnreadBySession: [String: Bool] = [:]
+    private(set) var streamTailStateBySession: [String: StreamTailState] = [:]
     private var syntheticSessionKeys: Set<String> = []
     private var didRestoreActiveSessionKey = false
 
@@ -152,8 +153,8 @@ final class ChatViewModel: ChatViewModelHosting {
         sessionMessages[sessionKey] ?? []
     }
 
-    func lastMessageIsUser(for sessionKey: String) -> Bool {
-        sessionMessages[sessionKey]?.last?.role == .user
+    func streamDotState(for sessionKey: String) -> StreamDotState {
+        streamDotStateBySession[sessionKey] ?? .inactive
     }
 
     func stream(for sessionKey: String) -> StreamSession? {
@@ -1312,7 +1313,8 @@ final class ChatViewModel: ChatViewModelHosting {
             persistLastReadMessageId(nil, for: key)
         }
         lastReadMessageIdBySession.removeAll()
-        hasUnreadBySession.removeAll()
+        streamTailStateBySession.removeAll()
+        streamDotStateBySession.removeAll()
         auth.clearCredentials()
         messageFailures.removeAll()
         clearInput()
@@ -1562,7 +1564,6 @@ final class ChatViewModel: ChatViewModelHosting {
 
         if replacePendingMessageIfNeeded(with: resolvedMessage) {
             logger.info("incoming replacePending id=\(resolvedMessage.id, privacy: .public)")
-            markUnreadIfNeeded(for: resolvedMessage)
             resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
             return
         }
@@ -1581,7 +1582,6 @@ final class ChatViewModel: ChatViewModelHosting {
         setMessages(messageList, for: resolvedMessage.sessionKey)
         maybeTriggerAssistantIncomingHaptic(for: resolvedMessage, didAppendNewMessage: didAppendNewMessage)
 
-        markUnreadIfNeeded(for: resolvedMessage)
         resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
     }
 
@@ -1819,7 +1819,6 @@ final class ChatViewModel: ChatViewModelHosting {
             StreamSwitchTiming.log("stream_messages_reloaded oldCount=0 newCount=\(newCount)", sessionKey: sessionKey)
         }
         persistMessages(newMessages, for: sessionKey)
-        refreshUnreadState(for: sessionKey)
         if sessionKey == engineActiveSessionKey {
             messages = newMessages
             let total = newMessages.count
@@ -2421,6 +2420,10 @@ final class ChatViewModel: ChatViewModelHosting {
             applyStreamReadStateSnapshot(snapshot)
         case .streamReadStateUpdated(let sessionKey, let lastReadMessageId):
             applyStreamReadStateUpdate(sessionKey: sessionKey, lastReadMessageId: lastReadMessageId)
+        case .streamTailStateSnapshot(let snapshot):
+            applyStreamTailStateSnapshot(snapshot)
+        case .streamTailStateUpdated(let sessionKey, let tailState):
+            applyStreamTailStateUpdate(sessionKey: sessionKey, tailState: tailState)
         case .sessionProvisioningAvailable(let supported):
             hasResolvedProvisioningCapability = true
             supportsSessionProvisioning = supported
@@ -2750,7 +2753,6 @@ final class ChatViewModel: ChatViewModelHosting {
         self.chatService.setReplayCursor(nil, for: sessionKey)
         Task { await lifecycleCoordinator.updateCanonicalCursor(nil) }
         self.armForceReRead(for: sessionKey)
-        self.refreshUnreadState(for: sessionKey)
     }
 
     private func persistMessages(_ messages: [Message], for sessionKey: String) {
@@ -2910,7 +2912,8 @@ final class ChatViewModel: ChatViewModelHosting {
         for sessionKey in removedSessionKeys {
             sessionMessages.removeValue(forKey: sessionKey)
             lastReadMessageIdBySession.removeValue(forKey: sessionKey)
-            hasUnreadBySession.removeValue(forKey: sessionKey)
+            streamTailStateBySession.removeValue(forKey: sessionKey)
+            streamDotStateBySession.removeValue(forKey: sessionKey)
             let removedIDs = Set(pendingLocalMessages.filter { $0.sessionKey == sessionKey }.map(\.id))
             pendingLocalMessages.removeAll { $0.sessionKey == sessionKey }
             ackedPendingLocalMessageIDs.subtract(removedIDs)
@@ -2923,7 +2926,6 @@ final class ChatViewModel: ChatViewModelHosting {
             ensureSessionStorage(for: sessionKey)
             restoreLastReadMessageIdIfNeeded(for: sessionKey)
             restoreCachedMessagesIfNeeded(for: sessionKey)
-            refreshUnreadState(for: sessionKey)
         }
         restoreActiveSessionKeyIfNeeded()
         ensureDefaultActiveSessionIfNeeded()
@@ -2943,7 +2945,6 @@ final class ChatViewModel: ChatViewModelHosting {
         ensureSessionStorage(for: stream.sessionKey)
         restoreLastReadMessageIdIfNeeded(for: stream.sessionKey)
         restoreCachedMessagesIfNeeded(for: stream.sessionKey)
-        refreshUnreadState(for: stream.sessionKey)
         ensureDefaultActiveSessionIfNeeded()
         SessionRegistry.shared.upsert(stream)
         persistStreamMetadata()
@@ -2955,7 +2956,8 @@ final class ChatViewModel: ChatViewModelHosting {
         recalculateOrderedSessionKeys()
         sessionMessages.removeValue(forKey: sessionKey)
         lastReadMessageIdBySession.removeValue(forKey: sessionKey)
-        hasUnreadBySession.removeValue(forKey: sessionKey)
+        streamTailStateBySession.removeValue(forKey: sessionKey)
+        streamDotStateBySession.removeValue(forKey: sessionKey)
         chatService.setReplayCursor(nil, for: sessionKey)
         persistLastReadMessageId(nil, for: sessionKey)
         persistMessages([], for: sessionKey)
@@ -3368,12 +3370,6 @@ final class ChatViewModel: ChatViewModelHosting {
         (auth.token, chatService.replayCursorSnapshot().values.max())
     }
 
-    private func markUnreadIfNeeded(for message: Message) {
-        guard message.role == .assistant else { return }
-        guard message.sessionKey != engineActiveSessionKey else { return }
-        hasUnreadBySession[message.sessionKey] = true
-    }
-
     private func markSessionRead(_ sessionKey: String) {
         let tailMessageId = lastServerMessageId(from: sessionMessages[sessionKey] ?? [])
         if let tailMessageId {
@@ -3381,7 +3377,6 @@ final class ChatViewModel: ChatViewModelHosting {
             persistLastReadMessageId(tailMessageId, for: sessionKey)
             publishReadStateIfPossible(sessionKey: sessionKey, lastReadMessageId: tailMessageId)
         }
-        hasUnreadBySession[sessionKey] = false
     }
 
     private func applyStreamReadStateSnapshot(_ snapshot: [String: String]) {
@@ -3399,20 +3394,13 @@ final class ChatViewModel: ChatViewModelHosting {
         for sessionKey in staleSessionKeys {
             lastReadMessageIdBySession.removeValue(forKey: sessionKey)
             persistLastReadMessageId(nil, for: sessionKey)
+            recomputeStreamDotState(for: sessionKey)
         }
 
         for (sessionKey, lastReadMessageId) in normalizedSnapshot {
-            guard !sessionKey.isEmpty, !lastReadMessageId.isEmpty else { continue }
             lastReadMessageIdBySession[sessionKey] = lastReadMessageId
             persistLastReadMessageId(lastReadMessageId, for: sessionKey)
-        }
-
-        let sessionsNeedingRefresh = Set(sessionMessages.keys)
-            .union(orderedSessionKeys)
-            .union(snapshotSessionKeys)
-            .union(staleSessionKeys)
-        for sessionKey in sessionsNeedingRefresh {
-            refreshUnreadState(for: sessionKey)
+            recomputeStreamDotState(for: sessionKey)
         }
     }
 
@@ -3422,7 +3410,34 @@ final class ChatViewModel: ChatViewModelHosting {
         if current == lastReadMessageId { return }
         lastReadMessageIdBySession[sessionKey] = lastReadMessageId
         persistLastReadMessageId(lastReadMessageId, for: sessionKey)
-        refreshUnreadState(for: sessionKey)
+        recomputeStreamDotState(for: sessionKey)
+    }
+
+    private func applyStreamTailStateSnapshot(_ snapshot: [String: StreamTailState]) {
+        var normalizedSnapshot: [String: StreamTailState] = [:]
+        for (sessionKey, tailState) in snapshot {
+            guard !sessionKey.isEmpty else { continue }
+            normalizedSnapshot[sessionKey] = tailState
+        }
+
+        let snapshotSessionKeys = Set(normalizedSnapshot.keys)
+        let staleSessionKeys = Set(streamTailStateBySession.keys).subtracting(snapshotSessionKeys)
+        for sessionKey in staleSessionKeys {
+            streamTailStateBySession.removeValue(forKey: sessionKey)
+            recomputeStreamDotState(for: sessionKey)
+        }
+
+        for (sessionKey, tailState) in normalizedSnapshot {
+            streamTailStateBySession[sessionKey] = tailState
+            recomputeStreamDotState(for: sessionKey)
+        }
+    }
+
+    private func applyStreamTailStateUpdate(sessionKey: String, tailState: StreamTailState) {
+        guard !sessionKey.isEmpty else { return }
+        if streamTailStateBySession[sessionKey] == tailState { return }
+        streamTailStateBySession[sessionKey] = tailState
+        recomputeStreamDotState(for: sessionKey)
     }
 
     private func publishReadStateIfPossible(sessionKey: String, lastReadMessageId: String) {
@@ -3441,18 +3456,21 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    private func refreshUnreadState(for sessionKey: String) {
-        if sessionKey == engineActiveSessionKey {
-            hasUnreadBySession[sessionKey] = false
+    private func recomputeStreamDotState(for sessionKey: String) {
+        guard !sessionKey.isEmpty else { return }
+        guard let tailState = streamTailStateBySession[sessionKey] else {
+            streamDotStateBySession.removeValue(forKey: sessionKey)
             return
         }
-        restoreLastReadMessageIdIfNeeded(for: sessionKey)
-        guard let tailMessageId = sessionMessages[sessionKey]?.last?.id else {
-            hasUnreadBySession[sessionKey] = false
-            return
+        let dotState: StreamDotState
+        if lastReadMessageIdBySession[sessionKey] != tailState.lastMessageId {
+            dotState = .unread
+        } else if tailState.lastMessageRole == .user {
+            dotState = .userTail
+        } else {
+            dotState = .inactive
         }
-        let lastReadMessageId = lastReadMessageIdBySession[sessionKey]
-        hasUnreadBySession[sessionKey] = (lastReadMessageId != tailMessageId)
+        streamDotStateBySession[sessionKey] = dotState
     }
 
 #if DEBUG

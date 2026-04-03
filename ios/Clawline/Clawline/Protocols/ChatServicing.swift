@@ -41,6 +41,8 @@ enum ChatServiceEvent: Equatable {
     case streamDeleted(sessionKey: String)
     case streamReadStateSnapshot([String: String])
     case streamReadStateUpdated(sessionKey: String, lastReadMessageId: String)
+    case streamTailStateSnapshot([String: StreamTailState])
+    case streamTailStateUpdated(sessionKey: String, tailState: StreamTailState)
     case sessionProvisioningAvailable(Bool)
     /// Server-authoritative session provisioning manifest.
     /// Session keys are the only routing identifiers on the wire (Clawline invariants N3/N7).

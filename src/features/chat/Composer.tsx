@@ -42,6 +42,14 @@ export function Composer({
     provisioningState === "ready" &&
     !isSubmitting &&
     (draft.trim().length > 0 || stagedAttachments.length > 0);
+  const sendConnectionState =
+    !sessionKey || provisioningState !== "ready"
+      ? "idle"
+      : transportState.phase === "live"
+        ? "live"
+        : transportState.phase === "failed"
+          ? "disconnected"
+          : "reconnecting";
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -97,7 +105,8 @@ export function Composer({
       deviceId: authState.session.deviceId,
       id,
       sessionKey,
-      timestamp
+      timestamp,
+      wireAttachments: preparedAttachments.wireAttachments
     });
 
     setDraft("");
@@ -268,8 +277,21 @@ export function Composer({
           />
         </div>
         <button
-          aria-label={isSubmitting ? "Uploading…" : "Send"}
-          className="composer-circle-button composer-circle-button--send"
+          aria-label={
+            isSubmitting
+              ? "Uploading…"
+              : sendConnectionState === "reconnecting"
+                ? "Send unavailable while reconnecting"
+                : sendConnectionState === "disconnected"
+                  ? "Send unavailable while disconnected"
+                  : "Send"
+          }
+          className={[
+            "composer-circle-button",
+            "composer-circle-button--send",
+            `composer-circle-button--${sendConnectionState}`
+          ].join(" ")}
+          data-connection-state={sendConnectionState}
           disabled={!canSend}
           type="submit"
         >

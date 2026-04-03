@@ -29,6 +29,17 @@ struct StreamReadStatePayload: Codable, Equatable {
     let lastReadMessageId: String
 }
 
+struct StreamTailStatePayload: Codable, Equatable {
+    let type: String
+    let sessionKey: String
+    let lastMessageId: String
+    let lastMessageRole: Message.Role
+
+    var tailState: StreamTailState {
+        StreamTailState(lastMessageId: lastMessageId, lastMessageRole: lastMessageRole)
+    }
+}
+
 struct ClientStreamReadPayload: Codable, Equatable {
     let type: String
     let sessionKey: String

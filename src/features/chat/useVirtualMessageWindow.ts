@@ -5,7 +5,7 @@ import { shouldOfferExpandedMessage } from "./RichMessageBody";
 
 const BOTTOM_THRESHOLD_PX = 32;
 const DEFAULT_CONTAINER_WIDTH = 820;
-const DEFAULT_MESSAGE_HEIGHT = 220;
+const DEFAULT_MESSAGE_HEIGHT = 96;
 const DEFAULT_VIEWPORT_HEIGHT = 720;
 const OVERSCAN_PX = 1_000;
 const BUBBLE_MIN_WIDTH = 120;
@@ -14,6 +14,7 @@ const BUBBLE_HEADER_AVATAR_WIDTH = 32;
 const BUBBLE_HEADER_GAP = 10;
 const MAX_LINE_WIDTH_PX = 560;
 const MEDIUM_WIDTH_SAFETY_MARGIN_PX = 24;
+const PHONE_MEDIUM_WIDTH_SAFETY_MARGIN_PX = 8;
 let textMeasureCanvas: HTMLCanvasElement | null = null;
 const textMeasureCache = new Map<string, number>();
 const bubbleWidthCache = new Map<string, number>();
@@ -199,7 +200,6 @@ function buildVirtualLayout(
   gapPx: number
 ) {
   const availableWidth = Math.max(BUBBLE_MIN_WIDTH, containerWidth);
-  const shouldStackMediumMessages = containerWidth <= 500;
   let offsetTop = 0;
   let offsetLeft = 0;
   let currentRowHeight = 0;
@@ -213,8 +213,7 @@ function buildVirtualLayout(
     const shouldForceOwnRow =
       presentation.isWide
       || presentation.isTruncated
-      || presentation.sizeClass === "long"
-      || (shouldStackMediumMessages && presentation.sizeClass === "medium");
+      || presentation.sizeClass === "long";
 
     if (shouldForceOwnRow && offsetLeft > 0) {
       offsetTop += currentRowHeight + gapPx;
@@ -229,18 +228,10 @@ function buildVirtualLayout(
       currentRowHeight = 0;
     }
 
-    let messageOffsetLeft = offsetLeft;
-    if (message.role === "user") {
-      const rightAlignedLeft = Math.max(0, availableWidth - clampedWidth);
-      if (!shouldForceOwnRow && offsetLeft > 0 && rightAlignedLeft < offsetLeft) {
-        offsetTop += currentRowHeight + gapPx;
-        offsetLeft = 0;
-        currentRowHeight = 0;
-      }
-      messageOffsetLeft = shouldForceOwnRow
-        ? rightAlignedLeft
-        : Math.max(offsetLeft, Math.max(0, availableWidth - clampedWidth));
-    }
+    const messageOffsetLeft =
+      message.role === "user" && shouldForceOwnRow
+        ? Math.max(0, availableWidth - clampedWidth)
+        : offsetLeft;
 
     const layout = {
       height,
@@ -347,12 +338,24 @@ function estimateMediumWidth(
 ) {
   const minWidth = Math.min(
     maxAllowedWidth,
-    Math.max(200, Math.floor(containerWidth / 4), minimumChromeWidth)
+    Math.max(Math.floor(containerWidth / 4), minimumChromeWidth)
   );
 
   if (containerWidth <= 500) {
-    const phoneWidth = clamp(minWidth, Math.floor(containerWidth * 0.67), maxAllowedWidth);
-    return estimateLineCount(content, 17, 500, phoneWidth) <= 3 ? phoneWidth : maxAllowedWidth;
+    const phoneMaxWidth = clamp(minWidth, Math.floor(containerWidth * 0.67), maxAllowedWidth);
+
+    for (const targetLines of [3, 2, 1]) {
+      const bestWidth = findMinimumWidthForLines(content, targetLines, minWidth, phoneMaxWidth);
+      if (bestWidth !== null && bestWidth >= minWidth) {
+        return clamp(
+          minWidth,
+          bestWidth + PHONE_MEDIUM_WIDTH_SAFETY_MARGIN_PX,
+          phoneMaxWidth
+        );
+      }
+    }
+
+    return maxAllowedWidth;
   }
 
   for (const targetLines of [3, 2, 1]) {

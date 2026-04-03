@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { createContext, useContext } from "react";
 import type {
+  ClientAttachmentPayload,
   ServerAttachmentPayload,
   ServerMessagePayload,
   SessionInfoPayload,
@@ -41,6 +42,7 @@ export interface PendingMessageRecord {
   content: string;
   createdAt: number;
   sessionKey: string;
+  wireAttachments: ClientAttachmentPayload[];
 }
 
 export interface ReplayCursorRecord {
@@ -77,6 +79,7 @@ export interface EnqueueOptimisticMessageInput {
   id: string;
   sessionKey: string;
   timestamp: number;
+  wireAttachments: ClientAttachmentPayload[];
 }
 
 export interface ChatDomainStore {
@@ -85,6 +88,7 @@ export interface ChatDomainStore {
   enqueueOptimisticMessage(input: EnqueueOptimisticMessageInput): void;
   markMessageAcked(messageId: string): void;
   markMessageFailed(messageId: string): void;
+  markMessagePending(messageId: string): void;
   resetForAuthoritativeReplay(): void;
   upsertStream(stream: StreamSessionPayload): void;
   removeStream(sessionKey: string): void;
@@ -179,7 +183,8 @@ export function createChatDomainStore(options?: {
               attachments: input.attachments,
               content: input.content,
               createdAt: input.timestamp,
-              sessionKey: input.sessionKey
+              sessionKey: input.sessionKey,
+              wireAttachments: input.wireAttachments
             }
           }
         };
@@ -221,6 +226,29 @@ export function createChatDomainStore(options?: {
         const sessionMessages = current.messagesBySessionKey[pendingRecord.sessionKey] ?? [];
         const nextMessages = sessionMessages.map((message) =>
           message.id === messageId ? { ...message, delivery: "failed" as const } : message
+        );
+        const nextState = {
+          ...current,
+          messagesBySessionKey: {
+            ...current.messagesBySessionKey,
+            [pendingRecord.sessionKey]: nextMessages
+          }
+        };
+
+        persist(nextState);
+        return nextState;
+      });
+    },
+    markMessagePending(messageId) {
+      baseStore.setState((current) => {
+        const pendingRecord = current.pendingMessages[messageId];
+        if (!pendingRecord) {
+          return current;
+        }
+
+        const sessionMessages = current.messagesBySessionKey[pendingRecord.sessionKey] ?? [];
+        const nextMessages = sessionMessages.map((message) =>
+          message.id === messageId ? { ...message, delivery: "pending" as const } : message
         );
         const nextState = {
           ...current,
