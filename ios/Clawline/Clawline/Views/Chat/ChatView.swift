@@ -2097,7 +2097,7 @@ private struct KeyboardLayoutGuideReader: UIViewRepresentable {
 
     func updateUIView(_ uiView: KeyboardLayoutGuideObserverView, context: Context) {
         uiView.onChange = onChange
-        uiView.refreshIfNeeded(refreshToken)
+        uiView.refreshIfNeededAsync(refreshToken)
     }
 }
 
@@ -2142,10 +2142,12 @@ private final class KeyboardLayoutGuideObserverView: UIView {
         NotificationCenter.default.removeObserver(self)
     }
 
-    func refreshIfNeeded(_ token: Int) {
+    func refreshIfNeededAsync(_ token: Int) {
         guard token != lastRefreshToken else { return }
         lastRefreshToken = token
-        refreshFromLayoutGuide()
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshFromLayoutGuide()
+        }
     }
 
     private func refreshFromLayoutGuide() {
