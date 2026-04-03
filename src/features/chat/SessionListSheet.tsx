@@ -152,20 +152,18 @@ export function SessionListSheet({
               value={filterQuery}
             />
           </label>
-          <div className="session-popover-actions">
-            <button
-              aria-label="Add stream"
-              className="button-secondary button-icon session-popover-action-button"
-              onClick={() => {
-                onClose();
-                onOpenStreamManager();
-              }}
-              title="Add stream"
-              type="button"
-            >
-              <Plus size={18} strokeWidth={2} />
-            </button>
-          </div>
+          <button
+            aria-label="Add stream"
+            className="button-icon session-popover-action-button"
+            onClick={() => {
+              onClose();
+              onOpenStreamManager();
+            }}
+            title="Add stream"
+            type="button"
+          >
+            <Plus size={18} strokeWidth={2} />
+          </button>
         </div>
       </aside>
     </div>

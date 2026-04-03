@@ -295,6 +295,10 @@ html[data-appearance="light"] body::before {
 
 .chat-layout {
   --chat-keyboard-inset: 0px;
+  --message-otw: 65ch;
+  --message-bubble-padding-horizontal: 20px;
+  --message-bubble-padding-vertical: 16px;
+  --message-truncation-height: calc(100dvh - 10rem - var(--chat-keyboard-inset));
   width: 100%;
   max-width: none;
   padding: 0;
@@ -313,6 +317,7 @@ html[data-appearance="light"] body::before {
   border: 0;
   box-shadow: none;
   backdrop-filter: none;
+  touch-action: pan-y;
 }
 
 .session-sheet-card-meta,
@@ -523,9 +528,13 @@ html[data-appearance="light"] body::before {
 }
 
 .message-bubble {
-  max-width: min(42rem, 88%);
-  padding: 1rem 1.05rem;
-  border-radius: 1.75rem 1.75rem 1.75rem 0.25rem;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 0.75rem;
+  padding: var(--message-bubble-padding-vertical) var(--message-bubble-padding-horizontal);
+  border-radius: 24px 24px 24px 4px;
   border: 1px solid var(--color-border);
   background: var(--color-bubble-assistant);
   box-shadow:
@@ -535,13 +544,37 @@ html[data-appearance="light"] body::before {
 
 .message-bubble--user {
   margin-left: auto;
-  border-radius: 1.75rem 1.75rem 0.25rem 1.75rem;
+  border-radius: 24px 24px 4px 24px;
   background: var(--color-bubble-user);
   border-color: color-mix(in srgb, var(--color-accent) 22%, var(--color-border));
 }
 
 .message-bubble--assistant {
   background: var(--color-bubble-assistant);
+}
+
+.message-bubble--short {
+  inline-size: fit-content;
+  max-inline-size: min(100%, calc(var(--message-otw) + (var(--message-bubble-padding-horizontal) * 2)));
+}
+
+.message-bubble--medium {
+  inline-size: clamp(12.5rem, 45%, calc(var(--message-otw) + (var(--message-bubble-padding-horizontal) * 2)));
+}
+
+.message-bubble--long {
+  inline-size: min(100%, calc(var(--message-otw) + (var(--message-bubble-padding-horizontal) * 2)));
+}
+
+.message-bubble--wide {
+  inline-size: 100%;
+}
+
+.message-bubble--truncated .message-markdown {
+  max-height: var(--message-truncation-height);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.2rem;
 }
 
 .message-meta,
@@ -555,6 +588,39 @@ html[data-appearance="light"] body::before {
 .message-markdown {
   display: grid;
   gap: 0.75rem;
+  color: var(--color-text);
+  min-width: 0;
+}
+
+.message-markdown--short {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.message-markdown--medium {
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.message-markdown--long {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.message-markdown--wide p,
+.message-markdown--wide ul,
+.message-markdown--wide ol,
+.message-markdown--wide blockquote,
+.message-markdown--wide h1,
+.message-markdown--wide h2,
+.message-markdown--wide h3,
+.message-markdown--wide h4,
+.message-markdown--wide h5,
+.message-markdown--wide h6 {
+  max-width: var(--message-otw);
 }
 
 .message-markdown > :first-child {
@@ -571,6 +637,11 @@ html[data-appearance="light"] body::before {
 .message-markdown blockquote {
   margin: 0;
   white-space: pre-wrap;
+}
+
+.message-markdown p,
+.message-markdown li {
+  overflow-wrap: anywhere;
 }
 
 .message-markdown a {
@@ -1230,6 +1301,12 @@ html[data-appearance="light"] .session-popover {
       1rem
       0.85rem
       calc(11.75rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
+  }
+
+  .chat-layout {
+    --message-bubble-padding-horizontal: 12px;
+    --message-bubble-padding-vertical: 14px;
+    --message-truncation-height: calc(100dvh - 8.75rem - var(--chat-keyboard-inset));
   }
 
   .message-bubble {

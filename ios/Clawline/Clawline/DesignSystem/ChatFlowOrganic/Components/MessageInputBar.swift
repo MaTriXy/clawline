@@ -106,20 +106,69 @@ struct MessageInputBar: View {
         ChatFlowTheme.Metrics(isCompact: isCompact).inputBarPaddingHorizontal
     }
 
-    private func refreshMaxBarWidth() {
-        guard !isCompact else {
-            cachedMaxBarWidth = nil
-            return
-        }
-
+    static func chromeWidth(
+        isCompact: Bool,
+        bottomSafeAreaInset: CGFloat,
+        isFieldFocused: Bool
+    ) -> CGFloat {
         let themeMetrics = ChatFlowTheme.Metrics(isCompact: isCompact)
-        let bodyFont = UIFont.clawline(.bodyText)
-        let textWidth = ChatFlowTheme.maxLineWidth(bodyFont: bodyFont)
-        let chromeWidth = (themeMetrics.inputBarPaddingHorizontal * 2)
+        let metrics = MessageInputBarMetrics(
+            horizontalSizeClass: isCompact ? .compact : .regular,
+            bottomSafeAreaInset: bottomSafeAreaInset,
+            deviceCornerRadius: 0,
+            isFieldFocused: isFieldFocused
+        )
+        return (themeMetrics.inputBarPaddingHorizontal * 2)
             + metrics.inputBarHeight
             + metrics.inputBarHeight
             + (MessageInputBarMetrics.elementSpacing * 2)
-        cachedMaxBarWidth = textWidth + chromeWidth
+    }
+
+    static func maxBarWidth(
+        isCompact: Bool,
+        bottomSafeAreaInset: CGFloat,
+        isFieldFocused: Bool
+    ) -> CGFloat? {
+        guard !isCompact else { return nil }
+        let bodyFont = UIFont.clawline(.bodyText)
+        let textWidth = ChatFlowTheme.maxLineWidth(bodyFont: bodyFont)
+        return textWidth + chromeWidth(
+            isCompact: isCompact,
+            bottomSafeAreaInset: bottomSafeAreaInset,
+            isFieldFocused: isFieldFocused
+        )
+    }
+
+    static func renderedInputFieldWidthCap(
+        containerWidth: CGFloat,
+        isCompact: Bool,
+        bottomSafeAreaInset: CGFloat,
+        isFieldFocused: Bool
+    ) -> CGFloat {
+        let resolvedBarWidth = min(
+            containerWidth,
+            maxBarWidth(
+                isCompact: isCompact,
+                bottomSafeAreaInset: bottomSafeAreaInset,
+                isFieldFocused: isFieldFocused
+            ) ?? containerWidth
+        )
+        return max(
+            0,
+            resolvedBarWidth - chromeWidth(
+                isCompact: isCompact,
+                bottomSafeAreaInset: bottomSafeAreaInset,
+                isFieldFocused: isFieldFocused
+            )
+        )
+    }
+
+    private func refreshMaxBarWidth() {
+        cachedMaxBarWidth = Self.maxBarWidth(
+            isCompact: isCompact,
+            bottomSafeAreaInset: bottomSafeAreaInset,
+            isFieldFocused: isKeyboardVisible
+        )
     }
 
     // #61: On visionOS, keep the input bar in dark mode regardless of the global theme toggle.
