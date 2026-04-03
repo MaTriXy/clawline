@@ -6,6 +6,7 @@ import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
 import { useTransportMachine } from "../../runtime/transport/transportMachine";
 import { ChatShell } from "./ChatShell";
+import { useChatSessionCoordinator } from "./useChatSessionCoordinator";
 
 export function ChatRoute() {
   const navigate = useNavigate();
@@ -13,21 +14,16 @@ export function ChatRoute() {
   const { state: authState } = useAuthSessionStore();
   const { state: chatState, store: chatStore } = useChatDomainStore();
   const { state: transportState } = useTransportMachine();
-  const [isSessionListOpen, setSessionListOpen] = useState(false);
-  const [isStreamManagerOpen, setStreamManagerOpen] = useState(false);
   const [selectedUnreadAnchorMessageId, setSelectedUnreadAnchorMessageId] = useState<
     string | null
   >(null);
-  const [bootRequestedSessionKey, setBootRequestedSessionKey] = useState(
-    params.sessionKey ?? null
-  );
-
-  const firstProviderValidSessionKey =
-    chatState.streams.find((stream) =>
-      chatState.provisionedSessionKeys.includes(stream.sessionKey)
-    )?.sessionKey ?? chatState.streams[0]?.sessionKey;
-
-  const selectedSessionKey = params.sessionKey ?? firstProviderValidSessionKey;
+  const coordinator = useChatSessionCoordinator({
+    provisionedSessionKeys: chatState.provisionedSessionKeys,
+    routeSessionKey: params.sessionKey,
+    streams: chatState.streams,
+    transportPhase: transportState.phase
+  });
+  const selectedSessionKey = coordinator.engineActiveSessionKey;
   const activeStream = chatState.streams.find(
     (stream) => stream.sessionKey === selectedSessionKey
   );
@@ -65,54 +61,31 @@ export function ChatRoute() {
     selectedSessionKey
   ]);
 
-  useEffect(() => {
-    if (!bootRequestedSessionKey) {
-      return;
-    }
-
-    if (params.sessionKey !== bootRequestedSessionKey) {
-      setBootRequestedSessionKey(null);
-      return;
-    }
-
-    if (
-      transportState.phase === "live" &&
-      chatState.provisionedSessionKeys.includes(bootRequestedSessionKey)
-    ) {
-      setBootRequestedSessionKey(null);
-    }
-  }, [
-    bootRequestedSessionKey,
-    chatState.provisionedSessionKeys,
-    params.sessionKey,
-    transportState.phase
-  ]);
-
   if (!authState.session?.token) {
     return <Navigate to="/pair" replace />;
   }
 
-  if (!params.sessionKey && firstProviderValidSessionKey) {
-    return <Navigate replace to={`/chat/${firstProviderValidSessionKey}`} />;
+  if (!params.sessionKey && coordinator.firstProviderValidSessionKey) {
+    return <Navigate replace to={`/chat/${coordinator.firstProviderValidSessionKey}`} />;
   }
 
   if (
-    bootRequestedSessionKey &&
-    params.sessionKey === bootRequestedSessionKey &&
+    coordinator.transition.bootRequestedSessionKey &&
+    params.sessionKey === coordinator.transition.bootRequestedSessionKey &&
     transportState.phase === "live" &&
     chatState.provisionedSessionKeys.length > 0 &&
-    !chatState.provisionedSessionKeys.includes(bootRequestedSessionKey)
+    !chatState.provisionedSessionKeys.includes(coordinator.transition.bootRequestedSessionKey)
   ) {
-    return firstProviderValidSessionKey ? (
-      <Navigate replace to={`/chat/${firstProviderValidSessionKey}`} />
+    return coordinator.firstProviderValidSessionKey ? (
+      <Navigate replace to={`/chat/${coordinator.firstProviderValidSessionKey}`} />
     ) : (
       <Navigate replace to="/chat" />
     );
   }
 
   if (params.sessionKey && !activeStream) {
-    return firstProviderValidSessionKey ? (
-      <Navigate replace to={`/chat/${firstProviderValidSessionKey}`} />
+    return coordinator.firstProviderValidSessionKey ? (
+      <Navigate replace to={`/chat/${coordinator.firstProviderValidSessionKey}`} />
     ) : (
       <Navigate replace to="/chat" />
     );
@@ -122,17 +95,14 @@ export function ChatRoute() {
     <>
       <ChatShell
         activeSessionKey={selectedSessionKey}
-        isSessionListOpen={isSessionListOpen}
-        onCloseSessionList={() => setSessionListOpen(false)}
-        onOpenSessionList={() => setSessionListOpen(true)}
-        onOpenStreamManager={() => {
-          setSessionListOpen(false);
-          setStreamManagerOpen(true);
-        }}
+        isSessionListOpen={coordinator.isSessionListOpen}
+        onCloseSessionList={coordinator.closeSessionList}
+        onOpenSessionList={coordinator.openSessionList}
+        onOpenStreamManager={coordinator.openStreamManager}
         onRememberScrollState={(input) => chatStore.rememberSessionScrollState(input)}
         provisioningState={provisioningState}
-        onSelectSession={(sessionKey) => {
-          setSessionListOpen(false);
+        onSelectSession={(sessionKey, source) => {
+          coordinator.requestSessionSwitch(sessionKey, source);
           navigate(`/chat/${sessionKey}`);
         }}
         onUnreadAnchorConsumed={(messageId) => {
@@ -158,10 +128,14 @@ export function ChatRoute() {
       />
       <StreamManagerDrawer
         activeSessionKey={selectedSessionKey}
-        isOpen={isStreamManagerOpen}
-        onClose={() => setStreamManagerOpen(false)}
+        isOpen={coordinator.isStreamManagerOpen}
+        onClose={coordinator.closeStreamManager}
         onSelectSession={(sessionKey) => {
-          setStreamManagerOpen(false);
+          if (sessionKey) {
+            coordinator.requestSessionSwitch(sessionKey, "stream-manager");
+          } else {
+            coordinator.closeStreamManager();
+          }
           navigate(sessionKey ? `/chat/${sessionKey}` : "/chat");
         }}
       />

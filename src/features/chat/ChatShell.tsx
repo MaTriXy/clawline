@@ -11,6 +11,7 @@ import { SessionListSheet } from "./SessionListSheet";
 import { StreamPageDots } from "./StreamPageDots";
 import type { SessionProvisioningState } from "../streams/provisioning";
 import { computeKeyboardInset } from "./visualViewportInset";
+import type { ChatSessionSwitchSource } from "./useChatSessionCoordinator";
 
 export function ChatShell({
   activeSessionKey,
@@ -41,7 +42,7 @@ export function ChatShell({
     sessionKey: string;
     stickToBottom: boolean;
   }) => void;
-  onSelectSession: (sessionKey: string) => void;
+  onSelectSession: (sessionKey: string, source: ChatSessionSwitchSource) => void;
   onUnreadAnchorConsumed: (messageId: string) => void;
   provisionedSessionKeys: string[];
   provisioningState: SessionProvisioningState;
@@ -161,7 +162,7 @@ export function ChatShell({
       return;
     }
 
-    onSelectSession(nextSessionKey);
+    onSelectSession(nextSessionKey, "swipe");
   }
 
   function handleTouchStart(event: TouchEvent<HTMLElement>) {
@@ -248,7 +249,7 @@ export function ChatShell({
         isOpen={isSessionListOpen}
         onClose={onCloseSessionList}
         onOpenStreamManager={onOpenStreamManager}
-        onSelectSession={onSelectSession}
+        onSelectSession={(sessionKey) => onSelectSession(sessionKey, "popup")}
         provisionedSessionKeys={provisionedSessionKeys}
         streams={streams}
         transportPhase={transportPhase}
