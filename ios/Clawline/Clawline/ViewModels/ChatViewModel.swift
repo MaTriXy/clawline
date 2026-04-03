@@ -1580,6 +1580,10 @@ final class ChatViewModel: ChatViewModelHosting {
             didAppendNewMessage = true
         }
         setMessages(messageList, for: resolvedMessage.sessionKey)
+        if resolvedMessage.sessionKey == engineActiveSessionKey,
+           resolvedMessage.id.hasPrefix("s_") {
+            markSessionRead(resolvedMessage.sessionKey)
+        }
         maybeTriggerAssistantIncomingHaptic(for: resolvedMessage, didAppendNewMessage: didAppendNewMessage)
 
         resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
@@ -3463,10 +3467,10 @@ final class ChatViewModel: ChatViewModelHosting {
             return
         }
         let dotState: StreamDotState
-        if lastReadMessageIdBySession[sessionKey] != tailState.lastMessageId {
-            dotState = .unread
-        } else if tailState.lastMessageRole == .user {
+        if tailState.lastMessageRole == .user {
             dotState = .userTail
+        } else if lastReadMessageIdBySession[sessionKey] != tailState.lastMessageId {
+            dotState = .unread
         } else {
             dotState = .inactive
         }
