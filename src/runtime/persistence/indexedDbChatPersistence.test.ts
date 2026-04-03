@@ -13,7 +13,8 @@ describe("indexedDbChatPersistence", () => {
           attachments: [],
           content: "hello from tab a",
           createdAt: 111,
-          sessionKey: "agent:main:clawline:user_1:main"
+          sessionKey: "agent:main:clawline:user_1:main",
+          wireAttachments: []
         }
       },
       replayCursorsBySessionKey: {
@@ -39,7 +40,8 @@ describe("indexedDbChatPersistence", () => {
           attachments: [],
           content: "hello from tab b",
           createdAt: 222,
-          sessionKey: "agent:main:clawline:user_1:side"
+          sessionKey: "agent:main:clawline:user_1:side",
+          wireAttachments: []
         }
       },
       replayCursorsBySessionKey: {

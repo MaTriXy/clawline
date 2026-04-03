@@ -293,7 +293,8 @@ describe("transportMachine", () => {
             attachments: [],
             content: "stale pending",
             createdAt: 1704672000100,
-            sessionKey: "agent:main:clawline:user_1:main"
+            sessionKey: "agent:main:clawline:user_1:main",
+            wireAttachments: []
           }
         },
         replayCursorsBySessionKey: {

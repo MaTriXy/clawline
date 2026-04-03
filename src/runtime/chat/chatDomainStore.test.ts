@@ -36,7 +36,13 @@ describe("chatDomainStore", () => {
       deviceId: "browser-device-1",
       id: "c_1",
       sessionKey: "agent:main:clawline:user_1:main",
-      timestamp: 100
+      timestamp: 100,
+      wireAttachments: [
+        {
+          type: "asset",
+          assetId: "a_upload_1"
+        }
+      ]
     });
     store.markMessageAcked("c_1");
     store.applyIncomingMessage(
@@ -643,7 +649,8 @@ describe("chatDomainStore", () => {
             attachments: [],
             content: "stale pending",
             createdAt: 1704672000100,
-            sessionKey: "agent:main:clawline:user_1:main"
+            sessionKey: "agent:main:clawline:user_1:main",
+            wireAttachments: []
           }
         },
         replayCursorsBySessionKey: {

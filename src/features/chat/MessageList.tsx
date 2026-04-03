@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
+import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
 import type {
   ChatMessageRecord,
   SessionScrollState
 } from "../../runtime/chat/chatDomainStore";
+import { useTransportMachine } from "../../runtime/transport/transportMachine";
 import { ExpandedMessageOverlay } from "./ExpandedMessageOverlay";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageLinkCards } from "./MessageLinkCards";
@@ -42,6 +44,8 @@ export function MessageList({
   viewportInsetBottom?: number;
 }) {
   const { state: authState } = useAuthSessionStore();
+  const { store: chatStore } = useChatDomainStore();
+  const { store: transportStore } = useTransportMachine();
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const {
     containerRef,
@@ -194,6 +198,31 @@ export function MessageList({
     };
   }, [isAtBottom, isTypingIndicatorVisible, scrollToBottom]);
 
+  async function handleRetryMessage(messageId: string) {
+    const pendingMessage = chatStore.getState().pendingMessages[messageId];
+    if (!pendingMessage) {
+      return;
+    }
+
+    if (transportStore.getState().phase !== "live") {
+      transportStore.retryNow();
+      return;
+    }
+
+    chatStore.markMessagePending(messageId);
+
+    try {
+      await transportStore.sendMessage({
+        attachments: pendingMessage.wireAttachments,
+        content: pendingMessage.content,
+        id: messageId,
+        sessionKey: pendingMessage.sessionKey
+      });
+    } catch {
+      chatStore.markMessageFailed(messageId);
+    }
+  }
+
   if (messages.length === 0) {
     return (
       <section className="message-list empty-state">
@@ -251,6 +280,7 @@ export function MessageList({
               <MessageBubble
                 message={message}
                 onExpand={() => setExpandedMessageId(message.id)}
+                onRetry={() => void handleRetryMessage(message.id)}
                 serverUrl={authState.session?.serverUrl}
                 token={authState.session?.token}
               />
@@ -370,11 +400,13 @@ function MeasuredMessageRow({
 function MessageBubble({
   message,
   onExpand,
+  onRetry,
   serverUrl,
   token
 }: {
   message: ChatMessageRecord;
   onExpand: () => void;
+  onRetry: () => void;
   serverUrl?: string;
   token?: string;
 }) {
@@ -455,7 +487,21 @@ function MessageBubble({
       <footer className="message-status">
         {message.delivery === "pending" ? "Sending..." : null}
         {message.delivery === "acked" ? "Accepted by provider" : null}
-        {message.delivery === "failed" ? "Send failed" : null}
+        {message.delivery === "failed" ? (
+          <>
+            <span>Send failed</span>
+            <button
+              className="message-status-action"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRetry();
+              }}
+              type="button"
+            >
+              Retry
+            </button>
+          </>
+        ) : null}
       </footer>
     </article>
   );

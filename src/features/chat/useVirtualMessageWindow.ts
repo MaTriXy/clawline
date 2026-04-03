@@ -14,6 +14,7 @@ const BUBBLE_HEADER_AVATAR_WIDTH = 32;
 const BUBBLE_HEADER_GAP = 10;
 const MAX_LINE_WIDTH_PX = 560;
 const MEDIUM_WIDTH_SAFETY_MARGIN_PX = 24;
+const PHONE_MEDIUM_WIDTH_SAFETY_MARGIN_PX = 8;
 let textMeasureCanvas: HTMLCanvasElement | null = null;
 const textMeasureCache = new Map<string, number>();
 const bubbleWidthCache = new Map<string, number>();
@@ -199,7 +200,6 @@ function buildVirtualLayout(
   gapPx: number
 ) {
   const availableWidth = Math.max(BUBBLE_MIN_WIDTH, containerWidth);
-  const shouldStackMediumMessages = containerWidth <= 500;
   let offsetTop = 0;
   let offsetLeft = 0;
   let currentRowHeight = 0;
@@ -213,8 +213,7 @@ function buildVirtualLayout(
     const shouldForceOwnRow =
       presentation.isWide
       || presentation.isTruncated
-      || presentation.sizeClass === "long"
-      || (shouldStackMediumMessages && presentation.sizeClass === "medium");
+      || presentation.sizeClass === "long";
 
     if (shouldForceOwnRow && offsetLeft > 0) {
       offsetTop += currentRowHeight + gapPx;
@@ -347,12 +346,24 @@ function estimateMediumWidth(
 ) {
   const minWidth = Math.min(
     maxAllowedWidth,
-    Math.max(200, Math.floor(containerWidth / 4), minimumChromeWidth)
+    Math.max(Math.floor(containerWidth / 4), minimumChromeWidth)
   );
 
   if (containerWidth <= 500) {
-    const phoneWidth = clamp(minWidth, Math.floor(containerWidth * 0.67), maxAllowedWidth);
-    return estimateLineCount(content, 17, 500, phoneWidth) <= 3 ? phoneWidth : maxAllowedWidth;
+    const phoneMaxWidth = clamp(minWidth, Math.floor(containerWidth * 0.67), maxAllowedWidth);
+
+    for (const targetLines of [3, 2, 1]) {
+      const bestWidth = findMinimumWidthForLines(content, targetLines, minWidth, phoneMaxWidth);
+      if (bestWidth !== null && bestWidth >= minWidth) {
+        return clamp(
+          minWidth,
+          bestWidth + PHONE_MEDIUM_WIDTH_SAFETY_MARGIN_PX,
+          phoneMaxWidth
+        );
+      }
+    }
+
+    return maxAllowedWidth;
   }
 
   for (const targetLines of [3, 2, 1]) {

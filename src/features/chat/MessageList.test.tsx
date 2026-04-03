@@ -6,6 +6,13 @@ import {
   AuthSessionStoreProvider,
   createAuthSessionStore
 } from "../../runtime/auth/authSessionStore";
+import {
+  ChatDomainStoreProvider,
+  createChatDomainStore
+} from "../../runtime/chat/chatDomainStore";
+import { createMemoryChatPersistence } from "../../runtime/persistence/indexedDbChatPersistence";
+import type { TransportMachine } from "../../runtime/transport/transportMachine";
+import { TransportMachineProvider } from "../../runtime/transport/transportMachine";
 
 const RICH_MESSAGE: ChatMessageRecord = {
   id: "s_rich",
@@ -109,6 +116,25 @@ function makeMessage(index: number): ChatMessageRecord {
 
 function renderMessageList(messages: ChatMessageRecord[]) {
   const authStore = createAuthSessionStore();
+  const chatStore = createChatDomainStore({
+    persistence: createMemoryChatPersistence()
+  });
+  const transportState = {
+    failureReason: null,
+    isBrowserOnline: true,
+    phase: "live" as const,
+    retryAttempt: 0
+  };
+  const transportStore: TransportMachine = {
+    getState() {
+      return transportState;
+    },
+    retryNow() {},
+    async sendMessage() {},
+    subscribe() {
+      return () => {};
+    }
+  };
   authStore.storePairingSession({
     claimedName: "Desk Browser",
     deviceId: "browser-device-1",
@@ -117,11 +143,21 @@ function renderMessageList(messages: ChatMessageRecord[]) {
     userId: "user_1"
   });
 
-  return render(
+  const renderResult = render(
     <AuthSessionStoreProvider value={authStore}>
-      <MessageList messages={messages} />
+      <ChatDomainStoreProvider value={chatStore}>
+        <TransportMachineProvider value={transportStore}>
+          <MessageList messages={messages} />
+        </TransportMachineProvider>
+      </ChatDomainStoreProvider>
     </AuthSessionStoreProvider>
   );
+
+  return {
+    chatStore,
+    renderResult,
+    transportStore
+  };
 }
 
 function renderMessageListWithProps(input: {
@@ -134,6 +170,25 @@ function renderMessageListWithProps(input: {
   unreadAnchorMessageId?: string | null;
 }) {
   const authStore = createAuthSessionStore();
+  const chatStore = createChatDomainStore({
+    persistence: createMemoryChatPersistence()
+  });
+  const transportState = {
+    failureReason: null,
+    isBrowserOnline: true,
+    phase: "live" as const,
+    retryAttempt: 0
+  };
+  const transportStore: TransportMachine = {
+    getState() {
+      return transportState;
+    },
+    retryNow() {},
+    async sendMessage() {},
+    subscribe() {
+      return () => {};
+    }
+  };
   authStore.storePairingSession({
     claimedName: "Desk Browser",
     deviceId: "browser-device-1",
@@ -142,16 +197,26 @@ function renderMessageListWithProps(input: {
     userId: "user_1"
   });
 
-  return render(
+  const renderResult = render(
     <AuthSessionStoreProvider value={authStore}>
-      <MessageList
-        messages={input.messages}
-        rememberedScrollState={input.rememberedScrollState}
-        sessionKey={input.sessionKey}
-        unreadAnchorMessageId={input.unreadAnchorMessageId}
-      />
+      <ChatDomainStoreProvider value={chatStore}>
+        <TransportMachineProvider value={transportStore}>
+          <MessageList
+            messages={input.messages}
+            rememberedScrollState={input.rememberedScrollState}
+            sessionKey={input.sessionKey}
+            unreadAnchorMessageId={input.unreadAnchorMessageId}
+          />
+        </TransportMachineProvider>
+      </ChatDomainStoreProvider>
     </AuthSessionStoreProvider>
   );
+
+  return {
+    chatStore,
+    renderResult,
+    transportStore
+  };
 }
 
 const originalCreateObjectUrl = URL.createObjectURL;
@@ -435,6 +500,75 @@ describe("MessageList rich rendering", () => {
     expect(screen.queryByText("Streaming...")).not.toBeInTheDocument();
   });
 
+  it("offers retry for failed optimistic sends and resubmits through the transport", async () => {
+    const authStore = createAuthSessionStore();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const retryNow = vi.fn();
+    const transportState = {
+      failureReason: null,
+      isBrowserOnline: true,
+      phase: "live" as const,
+      retryAttempt: 0
+    };
+    const transportStore: TransportMachine = {
+      getState() {
+        return transportState;
+      },
+      retryNow,
+      sendMessage,
+      subscribe() {
+        return () => {};
+      }
+    };
+
+    authStore.storePairingSession({
+      claimedName: "Desk Browser",
+      deviceId: "browser-device-1",
+      serverUrl: "ws://127.0.0.1:18800/ws",
+      token: "jwt-token",
+      userId: "user_1"
+    });
+
+    chatStore.enqueueOptimisticMessage({
+      attachments: [],
+      content: "Retry me",
+      deviceId: "browser-device-1",
+      id: "c_failed",
+      sessionKey: "agent:main:clawline:flynn:main",
+      timestamp: 1_764_201_200_070,
+      wireAttachments: []
+    });
+    chatStore.markMessageFailed("c_failed");
+
+    render(
+      <AuthSessionStoreProvider value={authStore}>
+        <ChatDomainStoreProvider value={chatStore}>
+          <TransportMachineProvider value={transportStore}>
+            <MessageList
+              messages={chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:main"]}
+            />
+          </TransportMachineProvider>
+        </ChatDomainStoreProvider>
+      </AuthSessionStoreProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(retryNow).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith({
+      attachments: [],
+      content: "Retry me",
+      id: "c_failed",
+      sessionKey: "agent:main:clawline:flynn:main"
+    });
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:main"][0].delivery
+    ).toBe("pending");
+  });
+
   it("flows short messages side-by-side and wraps long content to a new row", () => {
     renderMessageList([
       {
@@ -598,6 +732,25 @@ describe("MessageList rich rendering", () => {
 
   it("anchors when unread state arrives after initial session restoration", async () => {
     const authStore = createAuthSessionStore();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const transportState = {
+      failureReason: null,
+      isBrowserOnline: true,
+      phase: "live" as const,
+      retryAttempt: 0
+    };
+    const transportStore: TransportMachine = {
+      getState() {
+        return transportState;
+      },
+      retryNow() {},
+      async sendMessage() {},
+      subscribe() {
+        return () => {};
+      }
+    };
     authStore.storePairingSession({
       claimedName: "Desk Browser",
       deviceId: "browser-device-1",
@@ -610,23 +763,31 @@ describe("MessageList rich rendering", () => {
 
     const view = render(
       <AuthSessionStoreProvider value={authStore}>
-        <MessageList
-          messages={messages}
-          onUnreadAnchorConsumed={onUnreadAnchorConsumed}
-          sessionKey="agent:main:clawline:flynn:main"
-          unreadAnchorMessageId={null}
-        />
+        <ChatDomainStoreProvider value={chatStore}>
+          <TransportMachineProvider value={transportStore}>
+            <MessageList
+              messages={messages}
+              onUnreadAnchorConsumed={onUnreadAnchorConsumed}
+              sessionKey="agent:main:clawline:flynn:main"
+              unreadAnchorMessageId={null}
+            />
+          </TransportMachineProvider>
+        </ChatDomainStoreProvider>
       </AuthSessionStoreProvider>
     );
 
     view.rerender(
       <AuthSessionStoreProvider value={authStore}>
-        <MessageList
-          messages={messages}
-          onUnreadAnchorConsumed={onUnreadAnchorConsumed}
-          sessionKey="agent:main:clawline:flynn:main"
-          unreadAnchorMessageId="s_bulk_200"
-        />
+        <ChatDomainStoreProvider value={chatStore}>
+          <TransportMachineProvider value={transportStore}>
+            <MessageList
+              messages={messages}
+              onUnreadAnchorConsumed={onUnreadAnchorConsumed}
+              sessionKey="agent:main:clawline:flynn:main"
+              unreadAnchorMessageId="s_bulk_200"
+            />
+          </TransportMachineProvider>
+        </ChatDomainStoreProvider>
       </AuthSessionStoreProvider>
     );
 
