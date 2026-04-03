@@ -317,8 +317,8 @@ html[data-appearance="light"] body::before {
   border: 0;
   box-shadow: none;
   backdrop-filter: none;
-  touch-action: pan-y;
 }
+
 
 .session-sheet-card-meta,
 .stream-manager-actions,
@@ -410,6 +410,8 @@ html[data-appearance="light"] body::before {
   scroll-padding-bottom:
     calc(10rem + env(safe-area-inset-bottom, 0px) + var(--chat-keyboard-inset));
 }
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 
 .message-list-virtual-surface {
   position: relative;
