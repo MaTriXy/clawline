@@ -47,6 +47,7 @@ export function MessageList({
     containerRef,
     handleScroll,
     isAtBottom,
+    isAtBottomRef,
     registerMessageSize,
     renderedMessages,
     scrollTop,
@@ -156,7 +157,7 @@ export function MessageList({
       activeElement instanceof HTMLTextAreaElement &&
       activeElement.id === "composer-input";
 
-    if (!isComposerFocused && !isAtBottom) {
+    if (!isComposerFocused || !isAtBottomRef.current) {
       return;
     }
 
@@ -167,7 +168,7 @@ export function MessageList({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [isAtBottom, scrollToBottom, viewportInsetBottom]);
+  }, [isAtBottomRef, scrollToBottom, viewportInsetBottom]);
 
   useEffect(() => {
     if (!isTypingIndicatorVisible || !isAtBottom) {
