@@ -629,6 +629,62 @@ describe("MessageList rich rendering", () => {
     expect(longRow!.style.left).toBe("0px");
   });
 
+  it("flows medium messages side-by-side when they fit on the row", () => {
+    renderMessageList([
+      {
+        id: "s_flow_medium_1",
+        role: "user",
+        content: "Pulled the latest notes this morning.",
+        timestamp: 1_764_201_200_063,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server"
+      },
+      {
+        id: "s_flow_medium_2",
+        role: "user",
+        content: "Sent the draft reply to Chris.",
+        timestamp: 1_764_201_200_064,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server"
+      },
+      {
+        id: "s_flow_medium_3",
+        role: "assistant",
+        content: "Queued the follow-up for this afternoon.",
+        timestamp: 1_764_201_200_065,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    const firstRow = screen
+      .getByTestId("message-s_flow_medium_1")
+      .closest<HTMLElement>(".message-list-row");
+    const secondRow = screen
+      .getByTestId("message-s_flow_medium_2")
+      .closest<HTMLElement>(".message-list-row");
+    const thirdRow = screen
+      .getByTestId("message-s_flow_medium_3")
+      .closest<HTMLElement>(".message-list-row");
+
+    expect(firstRow).not.toBeNull();
+    expect(secondRow).not.toBeNull();
+    expect(thirdRow).not.toBeNull();
+    expect(firstRow!.style.top).toBe(secondRow!.style.top);
+    expect(Number.parseFloat(secondRow!.style.left)).toBeGreaterThan(
+      Number.parseFloat(firstRow!.style.left)
+    );
+    expect(Number.parseFloat(thirdRow!.style.top) - Number.parseFloat(firstRow!.style.top))
+      .toBeLessThanOrEqual(120);
+  });
+
   it("renders markdown blocks in source order", () => {
     renderMessageList([RICH_MESSAGE]);
 
