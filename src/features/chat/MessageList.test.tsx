@@ -198,6 +198,47 @@ afterEach(() => {
 });
 
 describe("MessageList rich rendering", () => {
+  it("formats timestamps per the bubble timestamp rules and reveals them on tap", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-02T18:00:00.000Z"));
+
+    renderMessageList([
+      {
+        id: "s_recent",
+        role: "assistant",
+        content: "Fresh reply",
+        timestamp: new Date("2026-04-02T17:58:00.000Z").getTime(),
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_yesterday",
+        role: "assistant",
+        content: "From yesterday",
+        timestamp: new Date("2026-04-01T17:12:00.000Z").getTime(),
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    const recentBubble = screen.getByTestId("message-s_recent");
+    const yesterdayBubble = screen.getByTestId("message-s_yesterday");
+
+    expect(within(recentBubble).getByText("2m ago")).toBeInTheDocument();
+    expect(within(yesterdayBubble).getByText(/Yesterday,/)).toBeInTheDocument();
+
+    fireEvent.pointerUp(recentBubble, { pointerType: "touch" });
+    expect(recentBubble).toHaveClass("message-bubble--timestamp-visible");
+
+    vi.useRealTimers();
+  });
+
   it("classifies message sizing and wide content from the design-system rules", () => {
     renderMessageList([
       {
@@ -287,6 +328,80 @@ describe("MessageList rich rendering", () => {
     expect(userBubble).toContainElement(userAvatar);
     expect(userBubble.querySelector(".message-header")?.firstElementChild).toBe(userAvatar);
     expect(userBubble).toHaveClass("message-bubble--user");
+  });
+
+  it("applies chromeless bubble treatment only for the eligible content types", () => {
+    renderMessageList([
+      {
+        id: "s_image_only",
+        role: "assistant",
+        content: "",
+        timestamp: 1_764_201_200_051,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            data: "aW1hZ2U="
+          }
+        ],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_code_only",
+        role: "assistant",
+        content: ["```ts", "console.log('hi');", "```"].join("\n"),
+        timestamp: 1_764_201_200_052,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_emoji_only",
+        role: "user",
+        content: "🌿✨",
+        timestamp: 1_764_201_200_053,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server"
+      },
+      {
+        id: "s_regular_code",
+        role: "assistant",
+        content: ["Before", "", "```ts", "console.log('hi');", "```"].join("\n"),
+        timestamp: 1_764_201_200_054,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    expect(screen.getByTestId("message-s_image_only")).toHaveAttribute(
+      "data-message-chrome",
+      "chromeless-image"
+    );
+    expect(screen.getByTestId("message-s_code_only")).toHaveAttribute(
+      "data-message-chrome",
+      "chromeless-code"
+    );
+    expect(screen.getByTestId("message-s_emoji_only")).toHaveAttribute(
+      "data-message-chrome",
+      "chromeless-emoji"
+    );
+    expect(screen.getByTestId("message-s_regular_code")).toHaveAttribute(
+      "data-message-chrome",
+      "default"
+    );
+    expect(screen.getByTestId("message-s_emoji_only").querySelector(".message-markdown")).toHaveClass(
+      "message-markdown--emoji"
+    );
   });
 
   it("shows a typing indicator when the latest assistant reply is still streaming", () => {

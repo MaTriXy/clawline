@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import type {
   ChatMessageRecord,
@@ -47,6 +47,7 @@ export function MessageList({
     containerRef,
     handleScroll,
     isAtBottom,
+    isAtBottomRef,
     registerMessageSize,
     renderedMessages,
     scrollTop,
@@ -61,11 +62,21 @@ export function MessageList({
   );
   const restoredSessionKeyRef = useRef<string | null>(null);
   const consumedUnreadAnchorRef = useRef<string | null>(null);
+  const touchScrollActiveRef = useRef(false);
+  const touchScrollReleaseTimeoutRef = useRef<number | null>(null);
   const expandedMessage = messages.find((message) => message.id === expandedMessageId) ?? null;
   const typingIndicatorOffsetTop = totalHeight + (messages.length > 0 ? TYPING_INDICATOR_GAP : 0);
   const virtualSurfaceHeight =
     totalHeight
     + (isTypingIndicatorVisible ? TYPING_INDICATOR_HEIGHT + (messages.length > 0 ? TYPING_INDICATOR_GAP : 0) : 0);
+
+  useEffect(() => {
+    return () => {
+      if (touchScrollReleaseTimeoutRef.current !== null) {
+        window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (shouldShowTypingIndicator) {
@@ -156,7 +167,7 @@ export function MessageList({
       activeElement instanceof HTMLTextAreaElement &&
       activeElement.id === "composer-input";
 
-    if (!isComposerFocused && !isAtBottom) {
+    if (!isComposerFocused || !isAtBottomRef.current || touchScrollActiveRef.current) {
       return;
     }
 
@@ -167,7 +178,7 @@ export function MessageList({
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [isAtBottom, scrollToBottom, viewportInsetBottom]);
+  }, [isAtBottomRef, scrollToBottom, viewportInsetBottom]);
 
   useEffect(() => {
     if (!isTypingIndicatorVisible || !isAtBottom) {
@@ -200,6 +211,28 @@ export function MessageList({
         className="message-list"
         data-testid="message-list"
         onScroll={handleScroll}
+        onTouchCancel={() => {
+          if (touchScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+          }
+          touchScrollActiveRef.current = false;
+        }}
+        onTouchEnd={() => {
+          if (touchScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+          }
+          touchScrollReleaseTimeoutRef.current = window.setTimeout(() => {
+            touchScrollActiveRef.current = false;
+            touchScrollReleaseTimeoutRef.current = null;
+          }, 180);
+        }}
+        onTouchStart={() => {
+          if (touchScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+            touchScrollReleaseTimeoutRef.current = null;
+          }
+          touchScrollActiveRef.current = true;
+        }}
         ref={containerRef}
       >
         <div
@@ -346,10 +379,22 @@ function MessageBubble({
   token?: string;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const [isTimestampVisible, setTimestampVisible] = useState(false);
   const senderLabel = getMessageSenderLabel(message);
   const senderInitial = getMessageSenderInitial(message);
   const isUser = message.role === "user";
   const presentation = analyzeMessagePresentation(message, shouldOfferExpandedMessage);
+  const timestampLabel = formatMessageTimestamp(message.timestamp);
+
+  function handlePointerUp(event: PointerEvent<HTMLElement>) {
+    if (presentation.isTruncated) {
+      return;
+    }
+
+    if (event.pointerType === "touch" || event.pointerType === "pen") {
+      setTimestampVisible((current) => !current);
+    }
+  }
 
   return (
     <article
@@ -358,15 +403,21 @@ function MessageBubble({
           "message-bubble",
           isUser ? "message-bubble--user" : "message-bubble--assistant",
           `message-bubble--${presentation.sizeClass}`,
+          isTimestampVisible ? "message-bubble--timestamp-visible" : null,
+          presentation.chromeKind !== "default"
+            ? `message-bubble--${presentation.chromeKind}`
+            : null,
           presentation.isWide ? "message-bubble--wide" : null,
           presentation.isTruncated ? "message-bubble--truncated" : null
         ]
           .filter(Boolean)
           .join(" ")
       }
+      data-message-chrome={presentation.chromeKind}
       data-message-size={presentation.sizeClass}
       data-testid={`message-${message.id}`}
       onClick={presentation.isTruncated ? onExpand : undefined}
+      onPointerUp={handlePointerUp}
       role={presentation.isTruncated ? "button" : undefined}
       style={presentation.isTruncated ? { cursor: "pointer" } : undefined}
     >
@@ -380,12 +431,13 @@ function MessageBubble({
         </div>
         <div className="message-header-text">
           <span className="message-sender-name">{senderLabel}</span>
-          <span className="message-timestamp">{new Date(message.timestamp).toLocaleTimeString()}</span>
+          <span className="message-timestamp">{timestampLabel}</span>
         </div>
       </header>
       <RichMessageBody
         className={[
           `message-markdown--${presentation.sizeClass}`,
+          presentation.chromeKind === "chromeless-emoji" ? "message-markdown--emoji" : null,
           presentation.isWide ? "message-markdown--wide" : null
         ]
           .filter(Boolean)
@@ -406,5 +458,69 @@ function MessageBubble({
         {message.delivery === "failed" ? "Send failed" : null}
       </footer>
     </article>
+  );
+}
+
+function formatMessageTimestamp(timestamp: number, now = Date.now()) {
+  const messageDate = new Date(timestamp);
+  const nowDate = new Date(now);
+  const diffMs = Math.max(0, now - timestamp);
+  const diffMinutes = Math.floor(diffMs / 60_000);
+
+  if (diffMs < 60_000) {
+    return "just now";
+  }
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m ago`;
+  }
+
+  if (isSameDay(messageDate, nowDate)) {
+    return messageDate.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  }
+
+  const yesterday = new Date(nowDate);
+  yesterday.setDate(nowDate.getDate() - 1);
+
+  if (isSameDay(messageDate, yesterday)) {
+    return `Yesterday, ${messageDate.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit"
+    })}`;
+  }
+
+  const diffDays = Math.floor(diffMs / 86_400_000);
+  if (diffDays < 7) {
+    return messageDate.toLocaleDateString([], {
+      weekday: "long",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  }
+
+  if (messageDate.getFullYear() === nowDate.getFullYear()) {
+    return messageDate.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+  }
+
+  return messageDate.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
+function isSameDay(left: Date, right: Date) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
   );
 }

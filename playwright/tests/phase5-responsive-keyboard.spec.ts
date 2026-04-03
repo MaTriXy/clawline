@@ -155,6 +155,171 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
     }
   });
 
+  test("send button tap still sends while the composer is focused", async ({ browser }) => {
+    const { close, port, receivedClientMessages } = await startPhase5Server();
+    const context = await browser.newContext({
+      hasTouch: true,
+      isMobile: true,
+      viewport: { height: 844, width: 390 }
+    });
+    const page = await context.newPage();
+
+    try {
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+      const composer = page.getByRole("textbox", { name: "Message" });
+      await composer.click();
+      await composer.fill("Tap send");
+
+      const sendButton = page.getByRole("button", { name: "Send" });
+      await expect(sendButton).toBeEnabled();
+      await sendButton.tap();
+
+      await expect
+        .poll(() => receivedClientMessages.at(-1)?.content ?? null)
+        .toBe("Tap send");
+      await expect(page.getByText("Tap send")).toBeVisible();
+    } finally {
+      await context.close();
+      await close();
+    }
+  });
+
+  test("message bubbles stay within the mobile viewport width", async ({ page }) => {
+    const transcript = Array.from({ length: 6 }, (_, index) => ({
+      type: "message" as const,
+      id: `s_width_${index + 1}`,
+      role: index % 2 === 0 ? "assistant" as const : "user" as const,
+      content:
+        index === 0
+          ? "Medium messages should balance instead of stretching wide across the screen."
+          : `Bubble width check ${index + 1}`,
+      timestamp: 1_764_401_000_000 + index,
+      streaming: false,
+      sessionKey: MAIN_SESSION_KEY,
+      attachments: []
+    }));
+    const { close, port } = await startPhase5Server({ mainTranscript: transcript });
+
+    try {
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.setViewportSize({ height: 844, width: 390 });
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+
+      const messageList = page.getByTestId("message-list");
+      await expect(messageList).toBeVisible();
+      await expect
+        .poll(() =>
+          messageList.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
+        )
+        .toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  test("manage streams tap opens the popup without dismissing the keyboard", async ({ page }) => {
+    const { close, port } = await startPhase5Server();
+
+    try {
+      await page.addInitScript(() => {
+        const listeners = new Map<string, Set<EventListener>>();
+        let height = window.innerHeight;
+        let offsetTop = 0;
+
+        const visualViewport = {
+          get width() {
+            return window.innerWidth;
+          },
+          get height() {
+            return height;
+          },
+          get offsetTop() {
+            return offsetTop;
+          },
+          addEventListener(type: string, listener: EventListener) {
+            const bucket = listeners.get(type) ?? new Set<EventListener>();
+            bucket.add(listener);
+            listeners.set(type, bucket);
+          },
+          removeEventListener(type: string, listener: EventListener) {
+            listeners.get(type)?.delete(listener);
+          }
+        };
+
+        const dispatch = (type: string) => {
+          const event = new Event(type);
+          for (const listener of listeners.get(type) ?? []) {
+            listener.call(visualViewport, event);
+          }
+        };
+
+        Object.defineProperty(window, "visualViewport", {
+          configurable: true,
+          get() {
+            return visualViewport;
+          }
+        });
+
+        Object.assign(window, {
+          __setVisualViewportInsetForTest(nextInset: number) {
+            height = Math.max(0, window.innerHeight - nextInset);
+            offsetTop = 0;
+            dispatch("resize");
+            dispatch("scroll");
+          }
+        });
+      });
+
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.setViewportSize({ height: 844, width: 390 });
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+      const composer = page.getByRole("textbox", { name: "Message" });
+      await composer.click();
+      await composer.fill("Keep keyboard open");
+      await setVisualViewportInset(page, 280);
+      await expect(composer).toBeFocused();
+
+      await page.getByRole("button", { name: "Manage streams" }).click();
+
+      const popover = page.getByTestId("session-popover");
+      await expect(popover).toBeVisible();
+      await expect(composer).toBeFocused();
+      await expect
+        .poll(async () => {
+          const popoverBox = await popover.boundingBox();
+          if (!popoverBox) {
+            return null;
+          }
+          return Math.round(popoverBox.y + popoverBox.height);
+        })
+        .toBeLessThanOrEqual(844 - 280 - 12);
+    } finally {
+      await close();
+    }
+  });
+
   test("sending with a mobile keyboard inset keeps the newest bubbles above the keyboard", async ({ page }) => {
     const { close, receivedClientMessages, port } = await startPhase5Server();
 
@@ -259,17 +424,146 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
       await close();
     }
   });
+
+  test("keyboard-up viewport changes do not block manual transcript scrolling", async ({ page }) => {
+    const transcript = Array.from({ length: 18 }, (_, index) => ({
+      type: "message" as const,
+      id: `s_scroll_${index + 1}`,
+      role: index % 4 === 0 ? "user" as const : "assistant" as const,
+      content: `Scrollable message ${index + 1}\n\n${"detail ".repeat(28)}`,
+      timestamp: 1_764_400_100_000 + index,
+      streaming: false,
+      sessionKey: MAIN_SESSION_KEY,
+      attachments: []
+    }));
+    const { close, port } = await startPhase5Server({ mainTranscript: transcript });
+
+    try {
+      await page.addInitScript(() => {
+        const listeners = new Map<string, Set<EventListener>>();
+        let height = window.innerHeight;
+        let offsetTop = 0;
+
+        const visualViewport = {
+          get width() {
+            return window.innerWidth;
+          },
+          get height() {
+            return height;
+          },
+          get offsetTop() {
+            return offsetTop;
+          },
+          addEventListener(type: string, listener: EventListener) {
+            const bucket = listeners.get(type) ?? new Set<EventListener>();
+            bucket.add(listener);
+            listeners.set(type, bucket);
+          },
+          removeEventListener(type: string, listener: EventListener) {
+            listeners.get(type)?.delete(listener);
+          }
+        };
+
+        const dispatch = (type: string) => {
+          const event = new Event(type);
+          for (const listener of listeners.get(type) ?? []) {
+            listener.call(visualViewport, event);
+          }
+        };
+
+        Object.defineProperty(window, "visualViewport", {
+          configurable: true,
+          get() {
+            return visualViewport;
+          }
+        });
+
+        Object.assign(window, {
+          __setVisualViewportInsetForTest(nextInset: number) {
+            height = Math.max(0, window.innerHeight - nextInset);
+            offsetTop = 0;
+            dispatch("resize");
+            dispatch("scroll");
+          }
+        });
+      });
+
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.setViewportSize({ height: 844, width: 390 });
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+      await expect(page.getByTestId("message-list")).toBeVisible();
+      await expect(page.getByText("Scrollable message 1")).toBeVisible();
+
+      const composer = page.getByLabel("Message");
+      await composer.click();
+      await setVisualViewportInset(page, 280);
+      await expect.poll(() => readKeyboardInset(page)).toBe("280px");
+
+      await page.getByTestId("message-list").dispatchEvent("touchstart", {
+        touches: [{ clientX: 180, clientY: 320, identifier: 1 }]
+      });
+
+      const scrollTopBefore = await page.getByTestId("message-list").evaluate((element) => {
+        element.scrollTop = Math.max(0, element.scrollHeight - element.clientHeight - 320);
+        element.dispatchEvent(new Event("scroll", { bubbles: true }));
+        return Math.round(element.scrollTop);
+      });
+
+      await setVisualViewportInset(page, 280);
+      await page.getByTestId("message-list").dispatchEvent("touchend", {
+        changedTouches: [{ clientX: 180, clientY: 200, identifier: 1 }]
+      });
+
+      await expect
+        .poll(() =>
+          page.getByTestId("message-list").evaluate((element) => Math.round(element.scrollTop))
+        )
+        .toBe(scrollTopBefore);
+    } finally {
+      await close();
+    }
+  });
 });
 
 const MAIN_SESSION_KEY = "agent:main:clawline:flynn:main";
 const SIDE_SESSION_KEY = "agent:main:clawline:flynn:side";
 
-async function startPhase5Server() {
+async function startPhase5Server(options?: {
+  mainTranscript?: Array<{
+    attachments: [];
+    content: string;
+    id: string;
+    role: "assistant" | "user";
+    sessionKey: string;
+    streaming: boolean;
+    timestamp: number;
+    type: "message";
+  }>;
+}) {
   const port = 24_501 + Math.floor(Math.random() * 1_000);
   const server = createServer();
   const wss = new WebSocketServer({ server, path: "/ws" });
   const sockets = new Set<import("ws").WebSocket>();
   const receivedClientMessages: Array<{ content: string; id: string; sessionKey?: string }> = [];
+  const mainTranscript = options?.mainTranscript ?? [
+    {
+      type: "message" as const,
+      id: "s_phase5_1",
+      role: "assistant" as const,
+      content: "Keyboard flow check",
+      timestamp: 1_764_400_000_200,
+      streaming: false,
+      sessionKey: MAIN_SESSION_KEY,
+      attachments: []
+    }
+  ];
 
   wss.on("connection", (socket) => {
     sockets.add(socket);
@@ -283,7 +577,7 @@ async function startPhase5Server() {
             type: "auth_result",
             success: true,
             userId: "user_flynn",
-            replayCount: 1,
+            replayCount: mainTranscript.length,
             sessionKeys: [MAIN_SESSION_KEY, SIDE_SESSION_KEY]
           })
         );
@@ -322,18 +616,9 @@ async function startPhase5Server() {
             ]
           })
         );
-        socket.send(
-          JSON.stringify({
-            type: "message",
-            id: "s_phase5_1",
-            role: "assistant",
-            content: "Keyboard flow check",
-            timestamp: 1_764_400_000_200,
-            streaming: false,
-            sessionKey: MAIN_SESSION_KEY,
-            attachments: []
-          })
-        );
+        for (const message of mainTranscript) {
+          socket.send(JSON.stringify(message));
+        }
         setTimeout(() => {
           if (socket.readyState !== socket.OPEN) {
             return;

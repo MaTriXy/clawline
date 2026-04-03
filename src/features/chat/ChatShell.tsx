@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type TouchEvent } from "react";
 import type {
   ChatMessageRecord,
   SessionScrollState,
@@ -70,6 +70,7 @@ export function ChatShell({
       .map(([sessionKey]) => sessionKey)
   );
   const orderedSessionKeys = streams.map((stream) => stream.sessionKey);
+  const shouldEnableSwipeNavigation = keyboardInset <= 0;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -78,16 +79,15 @@ export function ChatShell({
 
     function syncKeyboardInset() {
       const visualViewport = window.visualViewport;
-      const viewportHeight = Math.max(
-        window.innerHeight,
-        document.documentElement.clientHeight,
-        visualViewport?.height ?? 0
-      );
+      const viewportHeight = visualViewport?.height ?? window.innerHeight;
+      const viewportOffsetTop = visualViewport?.offsetTop ?? 0;
+      const baseViewportHeight = visualViewport
+        ? viewportHeight + viewportOffsetTop
+        : window.innerHeight;
 
       baseViewportHeightRef.current = Math.max(
         baseViewportHeightRef.current,
-        viewportHeight,
-        (visualViewport?.height ?? 0) + (visualViewport?.offsetTop ?? 0)
+        baseViewportHeight
       );
 
       const activeElement = document.activeElement;
@@ -97,10 +97,10 @@ export function ChatShell({
 
       setKeyboardInset(
         computeKeyboardInset({
-          baseViewportHeight: baseViewportHeightRef.current || viewportHeight,
+          baseViewportHeight: baseViewportHeightRef.current || baseViewportHeight,
           isComposerFocused,
-          viewportHeight: visualViewport?.height ?? viewportHeight,
-          viewportOffsetTop: visualViewport?.offsetTop ?? 0
+          viewportHeight,
+          viewportOffsetTop
         })
       );
     }
@@ -127,6 +127,70 @@ export function ChatShell({
     "--chat-keyboard-inset": `${keyboardInset}px`
   } as CSSProperties;
 
+  function handleTouchEnd(event: TouchEvent<HTMLElement>) {
+    if (!touchStartRef.current.active || orderedSessionKeys.length < 2) {
+      return;
+    }
+
+    touchStartRef.current.active = false;
+    const touch = event.changedTouches[0];
+
+    if (!touch) {
+      return;
+    }
+
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+
+    if (Math.abs(deltaX) < 56 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.25) {
+      return;
+    }
+
+    const currentIndex = activeSessionKey
+      ? orderedSessionKeys.indexOf(activeSessionKey)
+      : -1;
+
+    if (currentIndex < 0) {
+      return;
+    }
+
+    const nextIndex = deltaX < 0 ? currentIndex + 1 : currentIndex - 1;
+    const nextSessionKey = orderedSessionKeys[nextIndex];
+
+    if (!nextSessionKey || nextSessionKey === activeSessionKey) {
+      return;
+    }
+
+    onSelectSession(nextSessionKey);
+  }
+
+  function handleTouchStart(event: TouchEvent<HTMLElement>) {
+    const target = event.target;
+
+    if (
+      !(target instanceof Element) ||
+      target.closest(
+        "button, input, textarea, select, a, label, audio, video, .chat-floating-stack"
+      )
+    ) {
+      touchStartRef.current.active = false;
+      return;
+    }
+
+    const touch = event.touches[0];
+
+    if (!touch) {
+      touchStartRef.current.active = false;
+      return;
+    }
+
+    touchStartRef.current = {
+      active: true,
+      x: touch.clientX,
+      y: touch.clientY
+    };
+  }
+
   return (
     <section
       className="chat-layout"
@@ -136,71 +200,11 @@ export function ChatShell({
       <main
         className="chat-panel"
         data-testid="chat-panel"
-        onTouchEnd={(event) => {
-          if (!touchStartRef.current.active || orderedSessionKeys.length < 2) {
-            return;
-          }
-
+        onTouchCancel={shouldEnableSwipeNavigation ? () => {
           touchStartRef.current.active = false;
-          const touch = event.changedTouches[0];
-
-          if (!touch) {
-            return;
-          }
-
-          const deltaX = touch.clientX - touchStartRef.current.x;
-          const deltaY = touch.clientY - touchStartRef.current.y;
-
-          if (Math.abs(deltaX) < 56 || Math.abs(deltaX) <= Math.abs(deltaY) * 1.25) {
-            return;
-          }
-
-          const currentIndex = activeSessionKey
-            ? orderedSessionKeys.indexOf(activeSessionKey)
-            : -1;
-
-          if (currentIndex < 0) {
-            return;
-          }
-
-          const nextIndex = deltaX < 0 ? currentIndex + 1 : currentIndex - 1;
-          const nextSessionKey = orderedSessionKeys[nextIndex];
-
-          if (!nextSessionKey || nextSessionKey === activeSessionKey) {
-            return;
-          }
-
-          onSelectSession(nextSessionKey);
-        }}
-        onTouchCancel={() => {
-          touchStartRef.current.active = false;
-        }}
-        onTouchStart={(event) => {
-          const target = event.target;
-
-          if (
-            !(target instanceof Element) ||
-            target.closest(
-              "button, input, textarea, select, a, label, audio, video, .chat-floating-stack"
-            )
-          ) {
-            touchStartRef.current.active = false;
-            return;
-          }
-
-          const touch = event.touches[0];
-
-          if (!touch) {
-            touchStartRef.current.active = false;
-            return;
-          }
-
-          touchStartRef.current = {
-            active: true,
-            x: touch.clientX,
-            y: touch.clientY
-          };
-        }}
+        } : undefined}
+        onTouchEnd={shouldEnableSwipeNavigation ? handleTouchEnd : undefined}
+        onTouchStart={shouldEnableSwipeNavigation ? handleTouchStart : undefined}
       >
         <MessageList
           messages={selectedMessages}
