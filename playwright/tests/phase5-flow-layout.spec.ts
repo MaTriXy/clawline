@@ -376,6 +376,159 @@ test("medium bubbles wrap on 375px viewports instead of overflowing", async ({ p
   }
 });
 
+test("short bubbles still share a row on 375px viewports when they fit", async ({ page }) => {
+  const port = 24_401 + Math.floor(Math.random() * 1_000);
+  const sessionKey = "agent:main:clawline:flynn:main";
+  const server = createServer();
+  const wss = new WebSocketServer({ server, path: "/ws" });
+
+  wss.on("connection", (socket) => {
+    socket.on("message", (buffer) => {
+      const payload = JSON.parse(buffer.toString()) as { type: string };
+
+      if (payload.type !== "auth") {
+        return;
+      }
+
+      socket.send(
+        JSON.stringify({
+          type: "auth_result",
+          success: true,
+          userId: "user_flynn",
+          replayCount: 0,
+          sessionKeys: [sessionKey]
+        })
+      );
+      socket.send(
+        JSON.stringify({
+          type: "session_info",
+          userId: "user_flynn",
+          isAdmin: false,
+          sessionKeys: [sessionKey]
+        })
+      );
+      socket.send(
+        JSON.stringify({
+          type: "stream_snapshot",
+          streams: [
+            {
+              sessionKey,
+              displayName: "Main",
+              kind: "main",
+              orderIndex: 0,
+              isBuiltIn: true,
+              createdAt: 1_764_650_000_000,
+              updatedAt: 1_764_650_000_000
+            }
+          ]
+        })
+      );
+
+      for (const message of [
+        {
+          type: "message",
+          id: "s_short_1",
+          role: "assistant",
+          content: "Tea?",
+          timestamp: 1_764_650_000_010,
+          streaming: false,
+          sessionKey,
+          attachments: []
+        },
+        {
+          type: "message",
+          id: "s_short_2",
+          role: "user",
+          content: "Yes.",
+          timestamp: 1_764_650_000_020,
+          streaming: false,
+          sessionKey,
+          attachments: []
+        }
+      ]) {
+        socket.send(JSON.stringify(message));
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(port, "127.0.0.1", () => resolve());
+  });
+
+  try {
+    await page.addInitScript((session) => {
+      window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+      window.localStorage.setItem(
+        "clawline-web:device-id",
+        JSON.stringify(session.deviceId)
+      );
+    }, {
+      claimedName: "Flynn Browser",
+      deviceId: "phase5-flow-device",
+      isAdmin: false,
+      serverUrl: `ws://127.0.0.1:${port}/ws`,
+      token: "jwt-phase5-flow-token",
+      userId: "user_flynn"
+    });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/chat/${sessionKey}`);
+    await expect(page.getByTestId("message-s_short_1")).toBeVisible();
+    await expect(page.getByTestId("message-s_short_2")).toBeVisible();
+
+    const positions = await page.evaluate(() => {
+      function metrics(id: string) {
+        const bubble = document.querySelector<HTMLElement>(`[data-testid="message-${id}"]`);
+        if (!bubble) {
+          return null;
+        }
+        const rect = bubble.getBoundingClientRect();
+        return {
+          height: rect.height,
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          width: rect.width
+        };
+      }
+
+      return {
+        first: metrics("s_short_1"),
+        second: metrics("s_short_2"),
+      };
+    });
+
+    expect(positions.first).not.toBeNull();
+    expect(positions.second).not.toBeNull();
+    expect(Math.abs(positions.first!.top - positions.second!.top)).toBeLessThanOrEqual(4);
+    expect(positions.first!.right).toBeLessThanOrEqual(375);
+    expect(positions.second!.right).toBeLessThanOrEqual(375);
+  } finally {
+    try {
+      await page.goto("about:blank");
+    } catch {
+      // Ignore teardown navigation errors if the test already closed the page.
+    }
+    for (const client of wss.clients) {
+      client.terminate();
+    }
+    await new Promise<void>((resolve, reject) => {
+      wss.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        server.close((serverError) => {
+          if (serverError) {
+            reject(serverError);
+            return;
+          }
+          resolve();
+        });
+      });
+    });
+  }
+});
+
 async function applyAppearance(
   page: import("@playwright/test").Page,
   appearance: "dark" | "light"
