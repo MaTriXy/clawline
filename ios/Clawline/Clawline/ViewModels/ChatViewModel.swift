@@ -1580,6 +1580,10 @@ final class ChatViewModel: ChatViewModelHosting {
             didAppendNewMessage = true
         }
         setMessages(messageList, for: resolvedMessage.sessionKey)
+        if resolvedMessage.sessionKey == engineActiveSessionKey,
+           resolvedMessage.id.hasPrefix("s_") {
+            markSessionRead(resolvedMessage.sessionKey)
+        }
         maybeTriggerAssistantIncomingHaptic(for: resolvedMessage, didAppendNewMessage: didAppendNewMessage)
 
         resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
