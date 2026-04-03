@@ -24,6 +24,7 @@ export interface ChatSessionCoordinator {
   isStreamManagerOpen: boolean;
   openSessionList: () => void;
   openStreamManager: () => void;
+  routeSessionExists: boolean;
   requestSessionSwitch: (sessionKey: string, source: ChatSessionSwitchSource) => void;
   transition: ChatSessionTransition;
   uiSelectedSessionKey?: string;
@@ -56,6 +57,14 @@ export function useChatSessionCoordinator({
       streams.find((stream) => provisionedSessionKeys.includes(stream.sessionKey))
         ?.sessionKey ?? streams[0]?.sessionKey,
     [provisionedSessionKeys, streams]
+  );
+
+  const routeSessionExists = useMemo(
+    () =>
+      routeSessionKey
+        ? streams.some((stream) => stream.sessionKey === routeSessionKey)
+        : false,
+    [routeSessionKey, streams]
   );
 
   const engineActiveSessionKey = routeSessionKey ?? firstProviderValidSessionKey;
@@ -133,6 +142,7 @@ export function useChatSessionCoordinator({
         source
       }));
     },
+    routeSessionExists,
     transition,
     uiSelectedSessionKey
   };

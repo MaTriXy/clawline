@@ -51,6 +51,24 @@ describe("useChatSessionCoordinator", () => {
     expect(result.current.transition.bootRequestedSessionKey).toBeNull();
   });
 
+  it("keeps the route-selected session engine-active until stream inventory proves otherwise", async () => {
+    const { result } = renderHook(() =>
+      useChatSessionCoordinator({
+        provisionedSessionKeys: [],
+        routeSessionKey: "agent:main:clawline:user_1:side",
+        streams: [],
+        transportPhase: "replaying"
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.uiSelectedSessionKey).toBe("agent:main:clawline:user_1:side");
+    });
+
+    expect(result.current.engineActiveSessionKey).toBe("agent:main:clawline:user_1:side");
+    expect(result.current.routeSessionExists).toBe(false);
+  });
+
   it("falls back to the first provider-valid session when no route selection exists", async () => {
     const { result } = renderHook(() =>
       useChatSessionCoordinator({
@@ -67,6 +85,24 @@ describe("useChatSessionCoordinator", () => {
 
     expect(result.current.engineActiveSessionKey).toBe("agent:main:clawline:user_1:main");
     expect(result.current.transition.bootRequestedSessionKey).toBeNull();
+  });
+
+  it("keeps the requested route engine-active until route reconciliation handles an unavailable session", async () => {
+    const { result } = renderHook(() =>
+      useChatSessionCoordinator({
+        provisionedSessionKeys: ["agent:main:clawline:user_1:main"],
+        routeSessionKey: "agent:main:clawline:user_1:missing",
+        streams: STREAMS,
+        transportPhase: "live"
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.uiSelectedSessionKey).toBe("agent:main:clawline:user_1:missing");
+    });
+
+    expect(result.current.engineActiveSessionKey).toBe("agent:main:clawline:user_1:missing");
+    expect(result.current.routeSessionExists).toBe(false);
   });
 
   it("tracks pending chat-switch metadata while keeping the current engine-active session", async () => {
