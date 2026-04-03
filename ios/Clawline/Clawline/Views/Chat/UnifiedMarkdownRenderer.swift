@@ -129,14 +129,25 @@ enum UnifiedMarkdownRenderer {
     @MainActor
     static func handleReleaseTriggeredLinkActivation(
         _ url: URL,
-        interaction: UITextItemInteraction = .invokeDefaultAction,
         openURL: (URL) -> Void
     ) -> Bool {
-        guard interaction == .invokeDefaultAction else {
-            return true
-        }
         openURL(url)
         return false
+    }
+
+    @available(iOS 17.0, macCatalyst 17.0, visionOS 1.0, *)
+    @MainActor
+    static func primaryActionForTextItem(
+        _ textItem: UITextItem,
+        defaultAction: UIAction,
+        openURL: @escaping (URL) -> Void
+    ) -> UIAction? {
+        guard case .link(let url) = textItem.content else {
+            return defaultAction
+        }
+        return UIAction { _ in
+            openURL(url)
+        }
     }
 
     static func render(

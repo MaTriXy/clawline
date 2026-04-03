@@ -145,6 +145,10 @@ final class StubChatService: ChatServicing {
         // No-op for stub.
     }
 
+    func publishReadState(sessionKey: String, lastReadMessageId: String) async throws {
+        // No-op for stub.
+    }
+
     func fetchStreams() async throws -> [StreamSession] {
         streams
     }

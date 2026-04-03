@@ -39,6 +39,8 @@ enum ChatServiceEvent: Equatable {
     case streamCreated(StreamSession)
     case streamUpdated(StreamSession)
     case streamDeleted(sessionKey: String)
+    case streamReadStateSnapshot([String: String])
+    case streamReadStateUpdated(sessionKey: String, lastReadMessageId: String)
     case sessionProvisioningAvailable(Bool)
     /// Server-authoritative session provisioning manifest.
     /// Session keys are the only routing identifiers on the wire (Clawline invariants N3/N7).
@@ -78,6 +80,7 @@ protocol ChatServicing: AnyObject {
         action: String,
         data: JSONValue?
     ) async throws
+    func publishReadState(sessionKey: String, lastReadMessageId: String) async throws
 
     func fetchStreams() async throws -> [StreamSession]
     func fetchTrackableSessions() async throws -> [TrackableSession]

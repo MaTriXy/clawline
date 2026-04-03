@@ -1469,15 +1469,13 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         }
     }
 
+    @available(iOS 17.0, macCatalyst 17.0, visionOS 1.0, *)
     func textView(
         _ textView: UITextView,
-        shouldInteractWith url: URL,
-        in characterRange: NSRange,
-        interaction: UITextItemInteraction
-    ) -> Bool {
-        // Use the URL interaction delegate instead of `primaryActionFor` so activation happens
-        // on completed link interaction, not on initial press-down.
-        UnifiedMarkdownRenderer.handleReleaseTriggeredLinkActivation(url, interaction: interaction) { tappedURL in
+        primaryActionFor textItem: UITextItem,
+        defaultAction: UIAction
+    ) -> UIAction? {
+        UnifiedMarkdownRenderer.primaryActionForTextItem(textItem, defaultAction: defaultAction) { tappedURL in
             UIApplication.shared.open(tappedURL)
         }
     }

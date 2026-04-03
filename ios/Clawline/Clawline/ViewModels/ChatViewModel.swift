@@ -2417,6 +2417,10 @@ final class ChatViewModel: ChatViewModelHosting {
             refreshStreamsFromProvider(reason: "streamDeleted")
             refreshTrackableSessions(reason: "streamDeleted")
             attemptPendingProvisionedSendIfPossible()
+        case .streamReadStateSnapshot(let snapshot):
+            applyStreamReadStateSnapshot(snapshot)
+        case .streamReadStateUpdated(let sessionKey, let lastReadMessageId):
+            applyStreamReadStateUpdate(sessionKey: sessionKey, lastReadMessageId: lastReadMessageId)
         case .sessionProvisioningAvailable(let supported):
             hasResolvedProvisioningCapability = true
             supportsSessionProvisioning = supported
@@ -3352,12 +3356,47 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func markSessionRead(_ sessionKey: String) {
-        let tailMessageId = sessionMessages[sessionKey]?.last?.id
+        let tailMessageId = lastServerMessageId(from: sessionMessages[sessionKey] ?? [])
         if let tailMessageId {
             lastReadMessageIdBySession[sessionKey] = tailMessageId
             persistLastReadMessageId(tailMessageId, for: sessionKey)
+            publishReadStateIfPossible(sessionKey: sessionKey, lastReadMessageId: tailMessageId)
         }
         hasUnreadBySession[sessionKey] = false
+    }
+
+    private func applyStreamReadStateSnapshot(_ snapshot: [String: String]) {
+        for (sessionKey, lastReadMessageId) in snapshot {
+            guard !sessionKey.isEmpty, !lastReadMessageId.isEmpty else { continue }
+            lastReadMessageIdBySession[sessionKey] = lastReadMessageId
+            persistLastReadMessageId(lastReadMessageId, for: sessionKey)
+            refreshUnreadState(for: sessionKey)
+        }
+    }
+
+    private func applyStreamReadStateUpdate(sessionKey: String, lastReadMessageId: String) {
+        guard !sessionKey.isEmpty, !lastReadMessageId.isEmpty else { return }
+        let current = lastReadMessageIdBySession[sessionKey]
+        if current == lastReadMessageId { return }
+        lastReadMessageIdBySession[sessionKey] = lastReadMessageId
+        persistLastReadMessageId(lastReadMessageId, for: sessionKey)
+        refreshUnreadState(for: sessionKey)
+    }
+
+    private func publishReadStateIfPossible(sessionKey: String, lastReadMessageId: String) {
+        guard lastReadMessageId.hasPrefix("s_") else { return }
+        Task { [chatService, logger] in
+            do {
+                try await chatService.publishReadState(
+                    sessionKey: sessionKey,
+                    lastReadMessageId: lastReadMessageId
+                )
+            } catch {
+                logger.error(
+                    "stream_read_publish_failed sessionKey=\(sessionKey, privacy: .public) lastReadMessageId=\(lastReadMessageId, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
     }
 
     private func refreshUnreadState(for sessionKey: String) {
