@@ -4,17 +4,27 @@ import remarkGfm from "remark-gfm";
 
 export function RichMessageBody({
   content,
+  className,
   contentRef,
   expanded = false
 }: {
   content: string;
+  className?: string;
   contentRef?: RefObject<HTMLDivElement | null>;
   expanded?: boolean;
 }) {
+  const mergedClassName = [
+    "message-markdown",
+    expanded ? "message-markdown--expanded" : null,
+    className
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div
       ref={contentRef}
-      className={expanded ? "message-markdown message-markdown--expanded" : "message-markdown"}
+      className={mergedClassName}
     >
       <ReactMarkdown
         components={{

@@ -163,34 +163,48 @@ test("common attachment types render through the authenticated display path", as
   });
 
   try {
+    await page.setViewportSize({ width: 820, height: 1180 });
     await page.goto("/pair");
     await page.getByLabel("Name").fill("Flynn Browser");
     await page.getByLabel("Provider address").fill(`ws://127.0.0.1:${port}/ws`);
     await page.getByRole("button", { name: "Pair browser" }).click();
-
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sessionKey)}$`));
-    await expect(page.getByAltText("attachment")).toBeVisible();
-    await expect(page.getByLabel("note.mp3")).toBeVisible();
-    await expect(page.getByLabel("demo.mp4")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Download report.pdf" })).toBeVisible();
 
-    await expect
-      .poll(() => [...new Set(downloadHits)].sort())
-      .toEqual(["audio_1", "video_1"]);
-    await expect(
-      page.locator('[data-testid="message-s_attachment_1"] .message-attachments')
-    ).toHaveScreenshot("phase4-attachment-display-surface.png", {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.02
-    });
+    for (const appearance of ["dark", "light"] as const) {
+      await applyAppearance(page, appearance);
 
-    await page.getByRole("button", { name: "Download report.pdf" }).click();
-    await expect
-      .poll(() => [...new Set(downloadHits)].sort())
-      .toEqual(["audio_1", "file_1", "video_1"]);
+      await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sessionKey)}$`));
+      await expect(page.getByAltText("attachment")).toBeVisible();
+      await expect(page.getByLabel("note.mp3")).toBeVisible();
+      await expect(page.getByLabel("demo.mp4")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Download report.pdf" })).toBeVisible();
+
+      await expect
+        .poll(() => [...new Set(downloadHits)].sort())
+        .toContain("audio_1");
+      await expect
+        .poll(() => [...new Set(downloadHits)].sort())
+        .toContain("video_1");
+      await expect(page.getByTestId("message-s_attachment_1")).toHaveScreenshot(
+        `phase4-attachment-display-surface-${appearance}.png`,
+        {
+          animations: "disabled",
+          caret: "hide",
+          maxDiffPixelRatio: 0.02
+        }
+      );
+
+      await page.getByRole("button", { name: "Download report.pdf" }).click();
+      await expect
+        .poll(() => [...new Set(downloadHits)].sort())
+        .toEqual(["audio_1", "file_1", "video_1"]);
+    }
   } finally {
-    await page.goto("about:blank");
+    try {
+      await page.goto("about:blank");
+    } catch {
+      // Ignore teardown navigation errors if the test already closed the page.
+    }
     for (const client of wss.clients) {
       client.terminate();
     }
@@ -212,6 +226,24 @@ test("common attachment types render through the authenticated display path", as
     });
   }
 });
+
+async function applyAppearance(
+  page: import("@playwright/test").Page,
+  appearance: "dark" | "light"
+) {
+  await page.evaluate((mode) => {
+    window.localStorage.setItem(
+      "clawline-web:settings",
+      JSON.stringify({
+        appearance: mode,
+        diagnostics: false,
+        fontScale: "default"
+      })
+    );
+    document.documentElement.dataset.appearance = mode;
+  }, appearance);
+  await page.reload();
+}
 
 function escapeForRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

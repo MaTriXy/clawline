@@ -207,7 +207,23 @@ export function applyStreamSnapshot(
   state: ChatDomainState,
   streams: StreamSessionPayload[]
 ) {
-  const mergedStreams = mergeStreams([], streams.map(toStreamRecord));
+  if (typeof process === "undefined" || process.env.NODE_ENV !== "production") {
+    console.warn(
+      "clawline applyStreamSnapshot displayNames",
+      streams.map((stream) => ({
+        displayName: stream.displayName,
+        sessionKey: stream.sessionKey
+      }))
+    );
+  }
+
+  const mergedStreams = mergeStreams(
+    [],
+    streams.map((stream) => ({
+      ...toStreamRecord(stream),
+      displayName: stream.displayName
+    }))
+  );
   return {
     ...state,
     streams: mergedStreams
@@ -234,27 +250,40 @@ export function applySessionDescriptors(
     descriptors,
     sessionKeys
   );
+  const existingKeys = new Set(state.streams.map((stream) => stream.sessionKey));
   const provisionalStreams = [
-    ...(descriptors ?? []).map((descriptor, index) => ({
-      sessionKey: descriptor.sessionKey,
-      displayName: provisionalDisplayName(descriptor.sessionKey, descriptor.stream),
-      kind: descriptor.stream ?? "session",
-      orderIndex: index,
-      isBuiltIn: index === 0,
-      createdAt: 0,
-      updatedAt: 0,
-      adopted: false
-    })),
-    ...(sessionKeys ?? []).map((sessionKey, index) => ({
-      sessionKey,
-      displayName: provisionalDisplayName(sessionKey),
-      kind: "session",
-      orderIndex: index,
-      isBuiltIn: index === 0,
-      createdAt: 0,
-      updatedAt: 0,
-      adopted: false
-    }))
+    ...(descriptors ?? []).flatMap((descriptor, index) => {
+      if (existingKeys.has(descriptor.sessionKey)) {
+        return [];
+      }
+
+      return [{
+        sessionKey: descriptor.sessionKey,
+        displayName: provisionalDisplayName(descriptor.sessionKey, descriptor.stream),
+        kind: descriptor.stream ?? "session",
+        orderIndex: index,
+        isBuiltIn: index === 0,
+        createdAt: 0,
+        updatedAt: 0,
+        adopted: false
+      }];
+    }),
+    ...(sessionKeys ?? []).flatMap((sessionKey, index) => {
+      if (existingKeys.has(sessionKey)) {
+        return [];
+      }
+
+      return [{
+        sessionKey,
+        displayName: provisionalDisplayName(sessionKey),
+        kind: "session",
+        orderIndex: index,
+        isBuiltIn: index === 0,
+        createdAt: 0,
+        updatedAt: 0,
+        adopted: false
+      }];
+    })
   ];
 
   if (provisionalStreams.length === 0) {

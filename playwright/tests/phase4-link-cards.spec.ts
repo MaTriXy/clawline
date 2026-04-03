@@ -92,33 +92,43 @@ test("message links render as lightweight cards without turning code-block URLs 
   });
 
   try {
+    await page.setViewportSize({ width: 820, height: 1180 });
     await page.goto("/pair");
     await page.getByLabel("Name").fill("Flynn Browser");
     await page.getByLabel("Provider address").fill(`ws://127.0.0.1:${port}/ws`);
     await page.getByRole("button", { name: "Pair browser" }).click();
-
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sessionKey)}$`));
 
-    const docsCard = page.locator('.message-link-card[href="https://example.com/docs"]');
-    await expect(docsCard).toBeVisible();
-    await expect(docsCard).toHaveAttribute("href", "https://example.com/docs");
+    for (const appearance of ["dark", "light"] as const) {
+      await applyAppearance(page, appearance);
 
-    const openAiCard = page.locator('.message-link-card[href="https://openai.com/research"]');
-    await expect(openAiCard).toBeVisible();
-    await expect(openAiCard).toHaveAttribute("href", "https://openai.com/research");
-    await expect(page.locator('[data-testid="message-s_links_1"] .message-link-cards')).toHaveScreenshot(
-      "phase4-link-cards-surface.png",
-      {
-        animations: "disabled",
-        caret: "hide",
-        maxDiffPixelRatio: 0.02
-      }
-    );
+      await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sessionKey)}$`));
 
-    await expect(page.getByText("https://example.com/in-code")).toBeVisible();
-    await expect(page.locator('.message-link-card[href*="in-code"]')).toHaveCount(0);
+      const docsCard = page.locator('.message-link-card[href="https://example.com/docs"]');
+      await expect(docsCard).toBeVisible();
+      await expect(docsCard).toHaveAttribute("href", "https://example.com/docs");
+
+      const openAiCard = page.locator('.message-link-card[href="https://openai.com/research"]');
+      await expect(openAiCard).toBeVisible();
+      await expect(openAiCard).toHaveAttribute("href", "https://openai.com/research");
+      await expect(page.getByTestId("message-s_links_1")).toHaveScreenshot(
+        `phase4-link-cards-surface-${appearance}.png`,
+        {
+          animations: "disabled",
+          caret: "hide",
+          maxDiffPixelRatio: 0.02
+        }
+      );
+
+      await expect(page.getByText("https://example.com/in-code")).toBeVisible();
+      await expect(page.locator('.message-link-card[href*="in-code"]')).toHaveCount(0);
+    }
   } finally {
-    await page.goto("about:blank");
+    try {
+      await page.goto("about:blank");
+    } catch {
+      // Ignore teardown navigation errors if the test already closed the page.
+    }
     for (const client of wss.clients) {
       client.terminate();
     }
@@ -143,6 +153,24 @@ test("message links render as lightweight cards without turning code-block URLs 
     });
   }
 });
+
+async function applyAppearance(
+  page: import("@playwright/test").Page,
+  appearance: "dark" | "light"
+) {
+  await page.evaluate((mode) => {
+    window.localStorage.setItem(
+      "clawline-web:settings",
+      JSON.stringify({
+        appearance: mode,
+        diagnostics: false,
+        fontScale: "default"
+      })
+    );
+    document.documentElement.dataset.appearance = mode;
+  }, appearance);
+  await page.reload();
+}
 
 function escapeForRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

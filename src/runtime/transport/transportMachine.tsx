@@ -74,6 +74,8 @@ const INITIAL_STATE: TransportState = {
 
 const MAX_SYNC_REPLAY_MESSAGES = 24;
 const REPLAY_MESSAGE_BATCH_SIZE = 24;
+const SHOULD_WARN_ON_STREAM_SNAPSHOT =
+  typeof process === "undefined" || process.env.NODE_ENV !== "production";
 
 export function createTransportMachine({
   authSessionStore,
@@ -311,6 +313,9 @@ export function createTransportMachine({
           chatDomainStore.markMessageAcked(payload.id);
           return;
         case "stream_snapshot":
+          if (SHOULD_WARN_ON_STREAM_SNAPSHOT) {
+            console.warn("clawline stream_snapshot", payload.streams);
+          }
           chatDomainStore.applyStreamSnapshot(payload.streams);
           hasInitialProvisioning = true;
           syncReplayProgress(trigger);

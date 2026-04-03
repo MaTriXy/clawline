@@ -92,36 +92,47 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
   });
 
   try {
+    await page.setViewportSize({ width: 820, height: 1180 });
     await page.goto("/pair");
     await page.getByLabel("Name").fill("Flynn Browser");
     await page.getByLabel("Provider address").fill(`ws://127.0.0.1:${port}/ws`);
     await page.getByRole("button", { name: "Pair browser" }).click();
-
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sessionKey)}$`));
-    await expect(page.locator(".message-markdown pre")).toContainText("console.log('phase4');");
-    await expect(page.locator(".message-markdown table")).toContainText("alpha");
-    await expect(page.locator('[data-testid="message-s_rich_1"] .message-markdown')).toHaveScreenshot(
-      "phase4-rich-rendering-message.png",
-      {
+
+    for (const appearance of ["dark", "light"] as const) {
+      await applyAppearance(page, appearance);
+
+      await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sessionKey)}$`));
+      await expect(page.locator(".message-markdown pre")).toContainText("console.log('phase4');");
+      await expect(page.locator(".message-markdown table")).toContainText("alpha");
+      await expect(page.getByTestId("message-s_rich_1")).toHaveScreenshot(
+        `phase4-rich-rendering-message-${appearance}.png`,
+        {
+          animations: "disabled",
+          caret: "hide",
+          maxDiffPixelRatio: 0.02
+        }
+      );
+
+      await page.getByRole("button", { name: "Expand" }).click();
+      const dialog = page.getByRole("dialog", { name: "Expanded message" });
+      await expect(dialog).toContainText("Expanded view");
+      await expect(dialog.locator("pre")).toContainText("console.log('phase4');");
+      await expect(dialog.locator("table")).toContainText("beta");
+      await expect(dialog).toHaveScreenshot(`phase4-rich-rendering-overlay-${appearance}.png`, {
         animations: "disabled",
         caret: "hide",
         maxDiffPixelRatio: 0.02
-      }
-    );
-
-    await page.getByRole("button", { name: "Expand" }).click();
-    const dialog = page.getByRole("dialog", { name: "Expanded message" });
-    await expect(dialog).toContainText("Expanded view");
-    await expect(dialog.locator("pre")).toContainText("console.log('phase4');");
-    await expect(dialog.locator("table")).toContainText("beta");
-    await expect(dialog).toHaveScreenshot("phase4-rich-rendering-overlay.png", {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.02
-    });
-    await dialog.getByRole("button", { name: "Close" }).click();
-    await expect(dialog).toHaveCount(0);
+      });
+      await dialog.getByRole("button", { name: "Close" }).click();
+      await expect(dialog).toHaveCount(0);
+    }
   } finally {
+    try {
+      await page.goto("about:blank");
+    } catch {
+      // Ignore teardown navigation errors if the test already closed the page.
+    }
     for (const client of wss.clients) {
       client.terminate();
     }
@@ -142,6 +153,24 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
     });
   }
 });
+
+async function applyAppearance(
+  page: import("@playwright/test").Page,
+  appearance: "dark" | "light"
+) {
+  await page.evaluate((mode) => {
+    window.localStorage.setItem(
+      "clawline-web:settings",
+      JSON.stringify({
+        appearance: mode,
+        diagnostics: false,
+        fontScale: "default"
+      })
+    );
+    document.documentElement.dataset.appearance = mode;
+  }, appearance);
+  await page.reload();
+}
 
 function escapeForRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

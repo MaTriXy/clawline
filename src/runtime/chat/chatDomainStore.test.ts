@@ -217,6 +217,80 @@ describe("chatDomainStore", () => {
     ]);
   });
 
+  it("treats snapshot display names as authoritative over persisted names for the same session", async () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence({
+        ...phase1TranscriptFixture,
+        streams: [
+          {
+            sessionKey: "agent:main:clawline:user_1:main",
+            displayName: "Main",
+            kind: "main",
+            orderIndex: 0,
+            isBuiltIn: true,
+            createdAt: 10,
+            updatedAt: 10,
+            adopted: false
+          }
+        ]
+      })
+    });
+    await waitForHydration(store);
+
+    store.applyStreamSnapshot([
+      {
+        sessionKey: "agent:main:clawline:user_1:main",
+        displayName: "Personal",
+        kind: "main",
+        orderIndex: 0,
+        isBuiltIn: true,
+        createdAt: 10,
+        updatedAt: 11,
+        adopted: false
+      }
+    ]);
+
+    expect(store.getState().streams).toEqual([
+      {
+        sessionKey: "agent:main:clawline:user_1:main",
+        displayName: "Personal",
+        kind: "main",
+        orderIndex: 0,
+        isBuiltIn: true,
+        createdAt: 10,
+        updatedAt: 11,
+        adopted: false
+      }
+    ]);
+  });
+
+  it("warns with snapshot display names while applying authoritative stream snapshots", () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    store.applyStreamSnapshot([
+      {
+        sessionKey: "agent:main:clawline:user_1:main",
+        displayName: "Personal",
+        kind: "main",
+        orderIndex: 0,
+        isBuiltIn: true,
+        createdAt: 10,
+        updatedAt: 11,
+        adopted: false
+      }
+    ]);
+
+    expect(warnSpy).toHaveBeenCalledWith("clawline applyStreamSnapshot displayNames", [
+      {
+        displayName: "Personal",
+        sessionKey: "agent:main:clawline:user_1:main"
+      }
+    ]);
+  });
+
   it("keeps transcript history when a stream is untracked or deleted locally", async () => {
     const store = createChatDomainStore({
       persistence: createMemoryChatPersistence(phase1TranscriptFixture)

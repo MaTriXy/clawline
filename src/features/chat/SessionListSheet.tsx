@@ -1,6 +1,29 @@
+import { useMemo, useState } from "react";
+import { Plus, Search } from "lucide-react";
 import type { StreamRecord } from "../../runtime/chat/chatDomainStore";
 import type { TransportPhase } from "../../runtime/transport/transportMachine";
 import { getSessionProvisioningState } from "../streams/provisioning";
+
+export function parseStreamName(sessionKey: string) {
+  const tail = sessionKey.split(":").filter(Boolean).at(-1) ?? sessionKey;
+  const normalized = tail.replaceAll("_", " ").trim();
+
+  if (normalized.length === 0) {
+    return sessionKey;
+  }
+
+  return normalized
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export function resolveStreamDisplayName(stream: Pick<StreamRecord, "displayName" | "sessionKey">) {
+  const displayName = stream.displayName?.trim();
+  return displayName && displayName.length > 0
+    ? displayName
+    : parseStreamName(stream.sessionKey);
+}
 
 export function SessionListSheet({
   activeSessionKey,
@@ -29,6 +52,18 @@ export function SessionListSheet({
   transportPhase: TransportPhase;
   unreadBySessionKey: Record<string, number>;
 }) {
+  const [filterQuery, setFilterQuery] = useState("");
+  const filteredStreams = useMemo(() => {
+    const normalizedQuery = filterQuery.trim().toLowerCase();
+    if (normalizedQuery.length === 0) {
+      return streams;
+    }
+
+    return streams.filter((stream) =>
+      resolveStreamDisplayName(stream).toLowerCase().includes(normalizedQuery)
+    );
+  }, [filterQuery, streams]);
+
   if (!isOpen) {
     return null;
   }
@@ -42,18 +77,19 @@ export function SessionListSheet({
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
-        <div className="session-popover-header">
-          <div>
-            <p className="eyebrow">Streams</p>
-            <h2>Chats</h2>
-            <p className="session-popover-copy">Swipe between conversations or pick one here.</p>
-          </div>
-        </div>
         <div className="session-popover-list" data-testid="session-popover-list">
-          {streams.length === 0 ? (
-            <p className="stream-empty">Waiting for provisioned sessions...</p>
+          {filteredStreams.length === 0 ? (
+            <p className="stream-empty">
+              {streams.length === 0
+                ? "Waiting for provisioned sessions..."
+                : "No chats match the filter."}
+            </p>
           ) : (
-            streams.map((stream) => {
+            filteredStreams.map((stream) => {
+              const displayName = resolveStreamDisplayName(stream);
+              const unreadCount = unreadBySessionKey[stream.sessionKey] ?? 0;
+              const hasUnread = unreadCount > 0;
+              const isActive = stream.sessionKey === activeSessionKey;
               const provisioningState = getSessionProvisioningState({
                 hasStream: true,
                 provisionedSessionKeys,
@@ -63,12 +99,8 @@ export function SessionListSheet({
 
               return (
                 <button
-                  aria-current={stream.sessionKey === activeSessionKey ? "page" : undefined}
-                  className={
-                    stream.sessionKey === activeSessionKey
-                      ? "session-sheet-card active"
-                      : "session-sheet-card"
-                  }
+                  aria-current={isActive ? "page" : undefined}
+                  className={isActive ? "session-sheet-card active" : "session-sheet-card"}
                   key={stream.sessionKey}
                   onClick={() => {
                     onSelectSession(stream.sessionKey);
@@ -77,15 +109,28 @@ export function SessionListSheet({
                   type="button"
                 >
                   <span className="session-sheet-card-row">
-                    <span className="session-sheet-card-title">{stream.displayName}</span>
+                    <span className="session-sheet-card-leading">
+                      <span
+                        aria-hidden="true"
+                        className={
+                          hasUnread
+                            ? isActive
+                              ? "session-sheet-card-indicator session-sheet-card-indicator--active"
+                              : "session-sheet-card-indicator session-sheet-card-indicator--unread"
+                            : isActive
+                              ? "session-sheet-card-indicator session-sheet-card-indicator--active"
+                              : "session-sheet-card-indicator"
+                        }
+                      />
+                      <span className="session-sheet-card-title">{displayName}</span>
+                    </span>
                     <span className="session-sheet-card-meta">
-                      {typeof unreadBySessionKey[stream.sessionKey] === "number" &&
-                      unreadBySessionKey[stream.sessionKey] > 0 ? (
+                      {hasUnread ? (
                         <span
-                          aria-label={`${unreadBySessionKey[stream.sessionKey]} unread messages`}
+                          aria-label={`${unreadCount} unread messages`}
                           className="stream-unread-badge"
                         >
-                          {unreadBySessionKey[stream.sessionKey]}
+                          {unreadCount}
                         </span>
                       ) : null}
                       <span
@@ -95,46 +140,36 @@ export function SessionListSheet({
                       </span>
                     </span>
                   </span>
-                  <code>{stream.sessionKey}</code>
                 </button>
               );
             })
           )}
         </div>
         <div className="session-popover-footer">
-          <span className="status-pill session-popover-status">{connectionLabel}</span>
-          <div className="session-popover-actions">
-            <button
-              className="button-secondary"
-              onClick={() => {
-                onClose();
-                onRetryConnection();
-              }}
-              type="button"
-            >
-              Retry
-            </button>
-            <button
-              className="button-secondary"
-              onClick={() => {
-                onClose();
-                onOpenSettings();
-              }}
-              type="button"
-            >
-              Settings
-            </button>
-            <button
-              className="button-secondary"
-              onClick={() => {
-                onClose();
-                onOpenStreamManager();
-              }}
-              type="button"
-            >
-              Manage
-            </button>
-          </div>
+          <label className="session-popover-filter">
+            <span aria-hidden="true" className="session-popover-filter-icon">
+              <Search size={16} strokeWidth={2.15} />
+            </span>
+            <input
+              aria-label="Filter chats"
+              onChange={(event) => setFilterQuery(event.target.value)}
+              placeholder="Filter…"
+              type="text"
+              value={filterQuery}
+            />
+          </label>
+          <button
+            aria-label="Add stream"
+            className="button-icon session-popover-action-button"
+            onClick={() => {
+              onClose();
+              onOpenStreamManager();
+            }}
+            title="Add stream"
+            type="button"
+          >
+            <Plus size={18} strokeWidth={2} />
+          </button>
         </div>
       </aside>
     </div>

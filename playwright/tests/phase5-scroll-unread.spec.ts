@@ -248,17 +248,13 @@ test("scroll state restores on stream switch and reload, and unread stream selec
     await page.getByRole("button", { name: "Manage streams" }).click();
     await expect(page.getByLabel("1 unread messages")).toHaveCount(1);
 
-    await page.getByRole("button", {
-      name: new RegExp(escapeForRegExp(sideSessionKey))
-    }).click();
+    await page.getByRole("button", { name: "Side" }).click();
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sideSessionKey)}$`));
     await expect(page.getByText("Unread anchor target")).toBeVisible();
     await page.getByRole("button", { name: "Manage streams" }).click();
     await expect(page.getByLabel("1 unread messages")).toHaveCount(0);
 
-    await page.getByRole("button", {
-      name: new RegExp(escapeForRegExp(mainSessionKey))
-    }).click();
+    await page.getByRole("button", { name: "Main" }).click();
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
     await expect(page.getByText("Main message 90")).toBeVisible();
     await expect(page.getByTestId("scroll-to-bottom-button")).toHaveCount(0);

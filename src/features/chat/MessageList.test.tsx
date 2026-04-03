@@ -198,6 +198,97 @@ afterEach(() => {
 });
 
 describe("MessageList rich rendering", () => {
+  it("classifies message sizing and wide content from the design-system rules", () => {
+    renderMessageList([
+      {
+        id: "s_short",
+        role: "assistant",
+        content: "Absolutely yes",
+        timestamp: 1_764_201_200_025,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_medium",
+        role: "assistant",
+        content: "Found a better route through the market if you still want plants later.",
+        timestamp: 1_764_201_200_030,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_long",
+        role: "assistant",
+        content:
+          "This should settle into the long-form body treatment because it crosses the medium threshold and reads more like a full thought than a quick exchange.",
+        timestamp: 1_764_201_200_035,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      },
+      {
+        id: "s_wide",
+        role: "assistant",
+        content: [
+          "Intro text.",
+          "",
+          "| Name | Value |",
+          "| --- | --- |",
+          "| alpha | beta |"
+        ].join("\n"),
+        timestamp: 1_764_201_200_040,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server",
+        sender: "Assistant"
+      }
+    ]);
+
+    expect(screen.getByTestId("message-s_short")).toHaveClass("message-bubble--short");
+    expect(screen.getByTestId("message-s_medium")).toHaveClass("message-bubble--medium");
+    expect(screen.getByTestId("message-s_long")).toHaveClass("message-bubble--long");
+    expect(screen.getByTestId("message-s_wide")).toHaveClass("message-bubble--wide");
+  });
+
+  it("renders sender avatar waypoints with paired initials and alignment", () => {
+    renderMessageList([
+      RICH_MESSAGE,
+      {
+        id: "s_user",
+        role: "user",
+        content: "On it.",
+        timestamp: 1_764_201_200_050,
+        streaming: false,
+        sessionKey: "agent:main:clawline:flynn:main",
+        attachments: [],
+        delivery: "server"
+      }
+    ]);
+
+    const assistantAvatar = screen.getByTestId("message-avatar-s_rich");
+    const assistantBubble = screen.getByTestId("message-s_rich");
+    expect(assistantAvatar).toHaveTextContent("A");
+    expect(assistantBubble).toContainElement(assistantAvatar);
+    expect(assistantBubble.querySelector(".message-header")?.firstElementChild).toBe(assistantAvatar);
+    expect(assistantBubble).toHaveClass("message-bubble--assistant");
+
+    const userAvatar = screen.getByTestId("message-avatar-s_user");
+    const userBubble = screen.getByTestId("message-s_user");
+    expect(userAvatar).toHaveTextContent("Y");
+    expect(userBubble).toContainElement(userAvatar);
+    expect(userBubble.querySelector(".message-header")?.firstElementChild).toBe(userAvatar);
+    expect(userBubble).toHaveClass("message-bubble--user");
+  });
+
   it("renders markdown blocks in source order", () => {
     renderMessageList([RICH_MESSAGE]);
 
@@ -223,7 +314,7 @@ describe("MessageList rich rendering", () => {
     expect(within(dialog).getByText("console.log('hi');")).toBeInTheDocument();
     expect(within(dialog).getByRole("table")).toBeInTheDocument();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close expanded message" }));
     expect(screen.queryByRole("dialog", { name: "Expanded message" })).not.toBeInTheDocument();
   });
 

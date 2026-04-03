@@ -599,6 +599,52 @@ describe("transportMachine", () => {
     expect(transport.getState().phase).toBe("live");
   });
 
+  it("warns with the raw stream snapshot payload outside production", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    const streams = [
+      {
+        sessionKey: "agent:main:clawline:user_1:main",
+        displayName: "Personal",
+        kind: "main",
+        orderIndex: 0,
+        isBuiltIn: true,
+        createdAt: 10,
+        updatedAt: 11,
+        adopted: false
+      }
+    ];
+
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "stream_snapshot",
+        streams
+      })
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith("clawline stream_snapshot", streams);
+  });
+
   it("serializes attachment payloads through the live socket send path", async () => {
     const authStore = seedSession();
     const chatStore = createChatDomainStore({

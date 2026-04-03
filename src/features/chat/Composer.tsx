@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { Paperclip, SendHorizontal } from "lucide-react";
 import type { SessionProvisioningState } from "../streams/provisioning";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
@@ -210,7 +211,7 @@ export function Composer({
           onClick={() => fileInputRef.current?.click()}
           type="button"
         >
-          <span aria-hidden="true">+</span>
+          <Paperclip aria-hidden="true" size={18} strokeWidth={2.1} />
         </button>
         <div className="composer-input-field">
           <textarea
@@ -260,9 +261,17 @@ export function Composer({
           onClick={() => {
             void submit();
           }}
+          onPointerDown={(event) => {
+            // Prevent the button tap from blurring the textarea / dropping the keyboard on iOS
+            event.preventDefault();
+          }}
           type="button"
         >
-          <span aria-hidden="true">{isSubmitting ? "…" : "↑"}</span>
+          {isSubmitting ? (
+            <span aria-hidden="true">…</span>
+          ) : (
+            <SendHorizontal aria-hidden="true" size={18} strokeWidth={2.1} />
+          )}
         </button>
       </div>
     </section>

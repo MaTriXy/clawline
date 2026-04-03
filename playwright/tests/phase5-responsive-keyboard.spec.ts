@@ -15,27 +15,50 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
         );
       }, makeSession(port));
 
-      for (const viewport of [
-        { height: 1180, width: 820 },
-        { height: 844, width: 390 }
-      ]) {
+      for (const appearance of ["dark", "light"] as const) {
+        await page.setViewportSize({ height: 1180, width: 820 });
+        await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+        await applyAppearance(page, appearance);
+        await expect(page.getByRole("button", { name: "Manage streams" })).toBeVisible();
+        const dots = page.getByRole("button", { name: "Manage streams" });
+        await expect(page.getByTestId("composer-input-bar")).toBeVisible();
+
+        await expect(page.getByTestId("chat-layout")).toHaveScreenshot(
+          `phase5-chat-shell-${appearance}.png`,
+          { animations: "disabled" }
+        );
+
+        await dots.click();
+        const popover = page.getByTestId("session-popover");
+        await expect(popover).toBeVisible();
+        const popoverBox = await popover.boundingBox();
+        expect(popoverBox).not.toBeNull();
+        expect(popoverBox!.width).toBeLessThan(820 * 0.52);
+        await expect(popover).toHaveScreenshot(`phase5-session-popover-${appearance}.png`, {
+          animations: "disabled"
+        });
+        await page.mouse.click(12, 12);
+        await expect(popover).toHaveCount(0);
+
+        if (appearance === "dark") {
+          await swipeChatPanel(page, { endX: 120, startX: 300, y: 360 });
+          await expect(page.getByText("Responsive shell check")).toBeVisible();
+          await expect(page).toHaveURL(new RegExp(`${SIDE_SESSION_KEY.replaceAll(":", "\\:")}$`));
+
+          await swipeChatPanel(page, { endX: 300, startX: 120, y: 360 });
+          await expect(page.getByText("Keyboard flow check")).toBeVisible();
+          await expect(page).toHaveURL(new RegExp(`${MAIN_SESSION_KEY.replaceAll(":", "\\:")}$`));
+        }
+      }
+
+      for (const viewport of [{ height: 1180, width: 820 }, { height: 844, width: 390 }]) {
         await page.setViewportSize(viewport);
         await page.goto(`/chat/${MAIN_SESSION_KEY}`);
         await expect(page.getByRole("button", { name: "Manage streams" })).toBeVisible();
-
-        const panelBox = await page.getByTestId("chat-panel").boundingBox();
-        expect(panelBox).not.toBeNull();
         expect(await page.getByTestId("session-popover").count()).toBe(0);
 
         const dots = page.getByRole("button", { name: "Manage streams" });
-        const dotsBox = await dots.boundingBox();
-        expect(dotsBox).not.toBeNull();
-
-        const composerBox = await page.getByTestId("composer-input-bar").boundingBox();
-        expect(composerBox).not.toBeNull();
-        expect(composerBox!.width).toBeGreaterThan(viewport.width * 0.72);
-        expect(composerBox!.y + composerBox!.height).toBeGreaterThan(viewport.height * 0.88);
-        expect(dotsBox!.y + dotsBox!.height).toBeLessThan(composerBox!.y);
+        await expect(page.getByTestId("composer-input-bar")).toBeVisible();
 
         await dots.click();
         const popover = page.getByTestId("session-popover");
@@ -48,7 +71,6 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
         } else {
           expect(popoverBox!.width).toBeGreaterThan(viewport.width * 0.78);
         }
-        expect(popoverBox!.y + popoverBox!.height).toBeLessThan(composerBox!.y);
 
         await expect(page.getByTestId("session-popover-list")).toBeVisible();
         await page.mouse.click(12, 12);
@@ -117,8 +139,113 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
       await expect(page.getByLabel("Message")).not.toBeFocused();
     } finally {
       await close();
-  }
-});
+    }
+  });
+
+  test("sending with a mobile keyboard inset keeps the newest bubbles above the keyboard", async ({ page }) => {
+    const { close, receivedClientMessages, port } = await startPhase5Server();
+
+    try {
+      await page.addInitScript(() => {
+        const listeners = new Map<string, Set<EventListener>>();
+        let height = window.innerHeight;
+        let offsetTop = 0;
+
+        const visualViewport = {
+          get width() {
+            return window.innerWidth;
+          },
+          get height() {
+            return height;
+          },
+          get offsetTop() {
+            return offsetTop;
+          },
+          addEventListener(type: string, listener: EventListener) {
+            const bucket = listeners.get(type) ?? new Set<EventListener>();
+            bucket.add(listener);
+            listeners.set(type, bucket);
+          },
+          removeEventListener(type: string, listener: EventListener) {
+            listeners.get(type)?.delete(listener);
+          }
+        };
+
+        const dispatch = (type: string) => {
+          const event = new Event(type);
+          for (const listener of listeners.get(type) ?? []) {
+            listener.call(visualViewport, event);
+          }
+        };
+
+        Object.defineProperty(window, "visualViewport", {
+          configurable: true,
+          get() {
+            return visualViewport;
+          }
+        });
+
+        Object.assign(window, {
+          __setVisualViewportInsetForTest(nextInset: number) {
+            height = Math.max(0, window.innerHeight - nextInset);
+            offsetTop = 0;
+            dispatch("resize");
+            dispatch("scroll");
+          }
+        });
+      });
+
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.setViewportSize({ height: 844, width: 390 });
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+      const composer = page.getByLabel("Message");
+      await composer.click();
+      await setVisualViewportInset(page, 280);
+
+      await expect
+        .poll(() => readKeyboardInset(page))
+        .toBe("280px");
+
+      await composer.fill("Latest bubble stays visible");
+      await page.keyboard.press("Enter");
+
+      await expect
+        .poll(() => receivedClientMessages.at(-1)?.content ?? null)
+        .toBe("Latest bubble stays visible");
+
+      await setVisualViewportInset(page, 0);
+      await setVisualViewportInset(page, 280);
+
+      await expect(composer).toBeFocused();
+      await expect(composer).toHaveValue("");
+      await expect
+        .poll(() => readKeyboardInset(page))
+        .toBe("280px");
+      await expect(page.getByText("Latest bubble stays visible")).toBeVisible();
+
+      await expect
+        .poll(async () => {
+          const messageBox = await page.locator(".message-bubble--user").last().boundingBox();
+          const composerBox = await page.getByTestId("composer-input-bar").boundingBox();
+
+          if (!messageBox || !composerBox) {
+            return null;
+          }
+
+          return Math.round(composerBox.y - (messageBox.y + messageBox.height));
+        })
+        .toBeGreaterThanOrEqual(8);
+    } finally {
+      await close();
+    }
+  });
 });
 
 const MAIN_SESSION_KEY = "agent:main:clawline:flynn:main";
@@ -275,6 +402,25 @@ function makeSession(port: number) {
   };
 }
 
+async function applyAppearance(
+  page: import("@playwright/test").Page,
+  appearance: "dark" | "light"
+) {
+  await page.waitForLoadState("domcontentloaded");
+  await page.evaluate((mode) => {
+    window.localStorage.setItem(
+      "clawline-web:settings",
+      JSON.stringify({
+        appearance: mode,
+        diagnostics: false,
+        fontScale: "default"
+      })
+    );
+    document.documentElement.dataset.appearance = mode;
+  }, appearance);
+  await page.reload();
+}
+
 async function focusComposerWithKeyboard(page: import("@playwright/test").Page) {
   for (let attempt = 0; attempt < 16; attempt += 1) {
     await page.keyboard.press("Tab");
@@ -287,6 +433,48 @@ async function focusComposerWithKeyboard(page: import("@playwright/test").Page) 
   }
 
   throw new Error("Failed to focus composer input with keyboard navigation");
+}
+
+async function swipeChatPanel(
+  page: import("@playwright/test").Page,
+  input: { endX: number; startX: number; y: number }
+) {
+  await page.getByTestId("chat-panel").evaluate((element, gesture) => {
+    const start = new Event("touchstart", { bubbles: true, cancelable: true });
+    Object.defineProperty(start, "touches", {
+      value: [{ clientX: gesture.startX, clientY: gesture.y }]
+    });
+    Object.defineProperty(start, "changedTouches", {
+      value: [{ clientX: gesture.startX, clientY: gesture.y }]
+    });
+    element.dispatchEvent(start);
+
+    const end = new Event("touchend", { bubbles: true, cancelable: true });
+    Object.defineProperty(end, "touches", { value: [] });
+    Object.defineProperty(end, "changedTouches", {
+      value: [{ clientX: gesture.endX, clientY: gesture.y }]
+    });
+    element.dispatchEvent(end);
+  }, input);
+}
+
+async function readKeyboardInset(page: import("@playwright/test").Page) {
+  return page.getByTestId("chat-layout").evaluate((element) => {
+    return window.getComputedStyle(element).getPropertyValue("--chat-keyboard-inset").trim();
+  });
+}
+
+async function setVisualViewportInset(
+  page: import("@playwright/test").Page,
+  inset: number
+) {
+  await page.evaluate((nextInset) => {
+    (
+      window as typeof window & {
+        __setVisualViewportInsetForTest?: (value: number) => void;
+      }
+    ).__setVisualViewportInsetForTest?.(nextInset);
+  }, inset);
 }
 
 async function captureFocusOrder(

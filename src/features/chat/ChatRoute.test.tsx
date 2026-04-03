@@ -305,4 +305,36 @@ describe("ChatRoute", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
+
+  it("swipes horizontally between adjacent streams on the chat panel", () => {
+    renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+
+    const chatPanel = screen.getByTestId("chat-panel");
+
+    fireEvent.touchStart(chatPanel, {
+      touches: [{ clientX: 280, clientY: 260 }]
+    });
+    fireEvent.touchEnd(chatPanel, {
+      changedTouches: [{ clientX: 120, clientY: 250 }]
+    });
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/chat/agent:main:main");
+
+    fireEvent.touchStart(chatPanel, {
+      touches: [{ clientX: 120, clientY: 260 }]
+    });
+    fireEvent.touchEnd(chatPanel, {
+      changedTouches: [{ clientX: 280, clientY: 248 }]
+    });
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat/agent:main:clawline:user_1:main"
+    );
+  });
 });
