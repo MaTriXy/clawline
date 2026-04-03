@@ -219,6 +219,163 @@ test("messages use the wrapping flow layout without blank bubbles", async ({ pag
   }
 });
 
+test("medium bubbles wrap on 375px viewports instead of overflowing", async ({ page }) => {
+  const port = 25_701 + Math.floor(Math.random() * 1_000);
+  const sessionKey = "agent:main:clawline:flynn:main";
+  const server = createServer();
+  const wss = new WebSocketServer({ server, path: "/ws" });
+
+  wss.on("connection", (socket) => {
+    socket.on("message", (buffer) => {
+      const payload = JSON.parse(buffer.toString()) as { type: string };
+
+      if (payload.type !== "auth") {
+        return;
+      }
+
+      socket.send(
+        JSON.stringify({
+          type: "auth_result",
+          success: true,
+          userId: "user_flynn",
+          replayCount: 0,
+          sessionKeys: [sessionKey]
+        })
+      );
+      socket.send(
+        JSON.stringify({
+          type: "session_info",
+          userId: "user_flynn",
+          isAdmin: false,
+          sessionKeys: [sessionKey]
+        })
+      );
+      socket.send(
+        JSON.stringify({
+          type: "stream_snapshot",
+          streams: [
+            {
+              sessionKey,
+              displayName: "Main",
+              kind: "main",
+              orderIndex: 0,
+              isBuiltIn: true,
+              createdAt: 1_764_651_000_000,
+              updatedAt: 1_764_651_000_000
+            }
+          ]
+        })
+      );
+
+      for (const message of [
+        {
+          type: "message",
+          id: "s_medium_a",
+          role: "assistant",
+          content: "I am clearing the queue after the reconnect settles.",
+          timestamp: 1_764_651_000_010,
+          streaming: false,
+          sessionKey,
+          attachments: []
+        },
+        {
+          type: "message",
+          id: "s_medium_b",
+          role: "user",
+          content: "Replied to Chris with the draft update just now.",
+          timestamp: 1_764_651_000_020,
+          streaming: false,
+          sessionKey,
+          attachments: []
+        }
+      ]) {
+        socket.send(JSON.stringify(message));
+      }
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(port, "127.0.0.1", () => resolve());
+  });
+
+  try {
+    await page.addInitScript((session) => {
+      window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+      window.localStorage.setItem(
+        "clawline-web:device-id",
+        JSON.stringify(session.deviceId)
+      );
+    }, {
+      claimedName: "Flynn Browser",
+      deviceId: "phase5-flow-narrow-device",
+      isAdmin: false,
+      serverUrl: `ws://127.0.0.1:${port}/ws`,
+      token: "jwt-phase5-flow-narrow-token",
+      userId: "user_flynn"
+    });
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/chat/${sessionKey}`);
+    await expect(page.getByTestId("message-s_medium_a")).toBeVisible();
+    await expect(page.getByTestId("message-s_medium_b")).toBeVisible();
+
+    const metrics = await page.evaluate(() => {
+      function rect(id: string) {
+        const element = document.querySelector<HTMLElement>(`[data-testid="message-${id}"]`);
+        if (!element) {
+          return null;
+        }
+        const box = element.getBoundingClientRect();
+        return {
+          left: box.left,
+          right: box.right,
+          top: box.top,
+          width: box.width
+        };
+      }
+
+      const list = document.querySelector<HTMLElement>('[data-testid="message-list"]');
+      return {
+        first: rect("s_medium_a"),
+        second: rect("s_medium_b"),
+        listClientWidth: list?.clientWidth ?? 0,
+        listScrollWidth: list?.scrollWidth ?? 0
+      };
+    });
+
+    expect(metrics.first).not.toBeNull();
+    expect(metrics.second).not.toBeNull();
+    expect(metrics.second!.top).toBeGreaterThan(metrics.first!.top + 8);
+    expect(metrics.first!.right).toBeLessThanOrEqual(375);
+    expect(metrics.second!.right).toBeLessThanOrEqual(375);
+    expect(metrics.listScrollWidth).toBeLessThanOrEqual(metrics.listClientWidth + 1);
+  } finally {
+    try {
+      await page.goto("about:blank");
+    } catch {
+      // Ignore teardown navigation errors if the test already closed the page.
+    }
+    for (const client of wss.clients) {
+      client.terminate();
+    }
+    await new Promise<void>((resolve, reject) => {
+      wss.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        server.close((serverError) => {
+          if (serverError) {
+            reject(serverError);
+            return;
+          }
+          resolve();
+        });
+      });
+    });
+  }
+});
+
 async function applyAppearance(
   page: import("@playwright/test").Page,
   appearance: "dark" | "light"

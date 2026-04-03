@@ -197,6 +197,7 @@ function buildVirtualLayout(
   gapPx: number
 ) {
   const availableWidth = Math.max(BUBBLE_MIN_WIDTH, containerWidth);
+  const shouldStackMediumMessages = containerWidth <= 500;
   let offsetTop = 0;
   let offsetLeft = 0;
   let currentRowHeight = 0;
@@ -208,7 +209,10 @@ function buildVirtualLayout(
       estimateBubbleWidth(message, presentation, availableWidth);
     const height = measuredSize?.height ?? DEFAULT_MESSAGE_HEIGHT;
     const shouldForceOwnRow =
-      presentation.isWide || presentation.isTruncated || presentation.sizeClass === "long";
+      presentation.isWide
+      || presentation.isTruncated
+      || presentation.sizeClass === "long"
+      || (shouldStackMediumMessages && presentation.sizeClass === "medium");
 
     if (shouldForceOwnRow && offsetLeft > 0) {
       offsetTop += currentRowHeight + gapPx;
