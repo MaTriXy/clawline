@@ -3375,11 +3375,14 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func markSessionRead(_ sessionKey: String) {
-        let tailMessageId = lastServerMessageId(from: sessionMessages[sessionKey] ?? [])
+        let tailMessageId =
+            lastServerMessageId(from: sessionMessages[sessionKey] ?? [])
+            ?? streamTailStateBySession[sessionKey]?.lastMessageId
         if let tailMessageId {
             lastReadMessageIdBySession[sessionKey] = tailMessageId
             persistLastReadMessageId(tailMessageId, for: sessionKey)
             publishReadStateIfPossible(sessionKey: sessionKey, lastReadMessageId: tailMessageId)
+            recomputeStreamDotState(for: sessionKey)
         }
     }
 
