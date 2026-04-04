@@ -19,6 +19,8 @@
   --color-accent: #7ba376;
   --color-accent-soft: linear-gradient(135deg, #2d3b2a 0%, #243322 100%);
   --color-accent-warm: #e07a5f;
+  --color-mark-assistant: rgb(217, 175, 98);
+  --color-mark-user: rgb(123, 163, 118);
   --color-danger: #c47a6e;
   --color-bubble-user: linear-gradient(135deg, #2d3b2a 0%, #243322 100%);
   --color-bubble-user-solid: #243322;
@@ -123,6 +125,8 @@ html[data-appearance="light"] {
   --color-accent: #8fa68a;
   --color-accent-soft: linear-gradient(135deg, #b8ceaf 0%, #c8d9c0 100%);
   --color-accent-warm: #c4785c;
+  --color-mark-assistant: rgb(158, 62, 28);
+  --color-mark-user: rgb(143, 166, 138);
   --color-danger: #c4785c;
   --color-bubble-user: linear-gradient(135deg, #b8ceaf 0%, #c8d9c0 100%);
   --color-bubble-user-solid: #c8d9c0;
@@ -548,6 +552,7 @@ html[data-appearance="light"] body::before {
 }
 
 .message-bubble {
+  --message-mark-color: var(--color-mark-assistant);
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -563,6 +568,7 @@ html[data-appearance="light"] body::before {
 }
 
 .message-bubble--user {
+  --message-mark-color: var(--color-mark-user);
   border-radius: 24px 24px 4px 24px;
   background: var(--color-bubble-user);
   border-color: color-mix(in srgb, var(--color-accent) 22%, var(--color-border));
@@ -826,10 +832,10 @@ html[data-appearance="light"] body::before {
 }
 
 .message-markdown mark {
-  background: color-mix(in srgb, var(--color-accent-warm) 26%, transparent);
-  color: inherit;
-  padding: 0.05rem 0.2rem;
-  border-radius: 0.2rem;
+  background: transparent;
+  color: var(--message-mark-color);
+  font-weight: 600;
+  padding: 0;
 }
 
 .message-actions {
