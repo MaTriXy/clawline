@@ -15,9 +15,10 @@ export function ChatRoute() {
   const { state: transportState } = useTransportMachine();
   const [isSessionListOpen, setSessionListOpen] = useState(false);
   const [isStreamManagerOpen, setStreamManagerOpen] = useState(false);
-  const [selectedUnreadAnchorMessageId, setSelectedUnreadAnchorMessageId] = useState<
-    string | null
-  >(null);
+  const [selectedUnreadAnchor, setSelectedUnreadAnchor] = useState<{
+    messageId: string;
+    sessionKey: string;
+  } | null>(null);
   const [bootRequestedSessionKey, setBootRequestedSessionKey] = useState(
     params.sessionKey ?? null
   );
@@ -54,11 +55,18 @@ export function ChatRoute() {
     const unreadAnchor =
       chatState.firstUnreadMessageIdBySessionKey[selectedSessionKey] ?? null;
 
-    setSelectedUnreadAnchorMessageId(unreadAnchor);
-
-    if (!unreadAnchor) {
-      chatStore.markSessionRead(selectedSessionKey);
+    if (unreadAnchor) {
+      setSelectedUnreadAnchor((current) =>
+        current?.sessionKey === selectedSessionKey && current.messageId === unreadAnchor
+          ? current
+          : {
+              messageId: unreadAnchor,
+              sessionKey: selectedSessionKey
+            }
+      );
     }
+
+    chatStore.markSessionRead(selectedSessionKey);
   }, [
     chatState.firstUnreadMessageIdBySessionKey,
     chatStore,
@@ -136,12 +144,15 @@ export function ChatRoute() {
           navigate(`/chat/${sessionKey}`);
         }}
         onUnreadAnchorConsumed={(messageId) => {
-          if (!selectedSessionKey || selectedUnreadAnchorMessageId !== messageId) {
+          if (
+            !selectedSessionKey ||
+            selectedUnreadAnchor?.sessionKey !== selectedSessionKey ||
+            selectedUnreadAnchor.messageId !== messageId
+          ) {
             return;
           }
 
-          chatStore.markSessionRead(selectedSessionKey);
-          setSelectedUnreadAnchorMessageId(null);
+          setSelectedUnreadAnchor(null);
         }}
         rememberedScrollState={
           selectedSessionKey
@@ -150,7 +161,11 @@ export function ChatRoute() {
         }
         selectedMessages={selectedMessages}
         selectedSessionKey={selectedSessionKey}
-        selectedUnreadAnchorMessageId={selectedUnreadAnchorMessageId}
+        selectedUnreadAnchorMessageId={
+          selectedUnreadAnchor?.sessionKey === selectedSessionKey
+            ? selectedUnreadAnchor.messageId
+            : null
+        }
         provisionedSessionKeys={chatState.provisionedSessionKeys}
         streams={chatState.streams}
         transportPhase={transportState.phase}
