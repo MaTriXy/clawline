@@ -13,7 +13,7 @@ export function ChatRoute() {
   const params = useParams();
   const { state: authState } = useAuthSessionStore();
   const { state: chatState, store: chatStore } = useChatDomainStore();
-  const { state: transportState } = useTransportMachine();
+  const { state: transportState, store: transportStore } = useTransportMachine();
   const [selectedUnreadAnchorMessageId, setSelectedUnreadAnchorMessageId] = useState<
     string | null
   >(null);
@@ -43,6 +43,10 @@ export function ChatRoute() {
         : [],
     [chatState.messagesBySessionKey, engineActiveSessionKey]
   );
+
+  useEffect(() => {
+    transportStore.setSelectedSessionKey(engineActiveSessionKey);
+  }, [engineActiveSessionKey, transportStore]);
 
   useEffect(() => {
     if (!engineActiveSessionKey) {

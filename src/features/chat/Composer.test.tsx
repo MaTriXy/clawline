@@ -38,6 +38,7 @@ function renderComposer({
       return transportState;
     },
     retryNow() {},
+    setSelectedSessionKey() {},
     sendMessage,
     subscribe() {
       return () => {};

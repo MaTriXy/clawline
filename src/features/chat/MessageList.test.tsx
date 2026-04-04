@@ -130,6 +130,7 @@ function renderMessageList(messages: ChatMessageRecord[]) {
       return transportState;
     },
     retryNow() {},
+    setSelectedSessionKey() {},
     async sendMessage() {},
     subscribe() {
       return () => {};
@@ -184,6 +185,7 @@ function renderMessageListWithProps(input: {
       return transportState;
     },
     retryNow() {},
+    setSelectedSessionKey() {},
     async sendMessage() {},
     subscribe() {
       return () => {};
@@ -518,6 +520,7 @@ describe("MessageList rich rendering", () => {
         return transportState;
       },
       retryNow,
+      setSelectedSessionKey() {},
       sendMessage,
       subscribe() {
         return () => {};
@@ -802,6 +805,7 @@ describe("MessageList rich rendering", () => {
         return transportState;
       },
       retryNow() {},
+      setSelectedSessionKey() {},
       async sendMessage() {},
       subscribe() {
         return () => {};
