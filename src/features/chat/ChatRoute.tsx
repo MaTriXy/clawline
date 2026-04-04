@@ -6,7 +6,11 @@ import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
 import { useTransportMachine } from "../../runtime/transport/transportMachine";
 import { ChatShell } from "./ChatShell";
-import { useChatSessionCoordinator } from "./useChatSessionCoordinator";
+import {
+  type ChatSessionSwitchSource,
+  useChatSessionCoordinator,
+  useChatSessionInteractionCoordinator
+} from "./useChatSessionCoordinator";
 
 export function ChatRoute() {
   const navigate = useNavigate();
@@ -47,6 +51,17 @@ export function ChatRoute() {
   useEffect(() => {
     transportStore.setSelectedSessionKey(engineActiveSessionKey);
   }, [engineActiveSessionKey, transportStore]);
+
+  const handleSelectSession = (sessionKey: string, source: ChatSessionSwitchSource) => {
+    coordinator.requestSessionSwitch(sessionKey, source);
+    navigate(`/chat/${sessionKey}`);
+  };
+
+  const interactionCoordinator = useChatSessionInteractionCoordinator({
+    activeSessionKey: engineActiveSessionKey,
+    onSelectSession: handleSelectSession,
+    orderedSessionKeys: chatState.streams.map((stream) => stream.sessionKey)
+  });
 
   useEffect(() => {
     if (!engineActiveSessionKey) {
@@ -101,16 +116,18 @@ export function ChatRoute() {
     <>
       <ChatShell
         activeSessionKey={engineActiveSessionKey}
+        chatLayoutStyle={interactionCoordinator.layoutStyle}
+        keyboardInset={interactionCoordinator.keyboardInset}
         isSessionListOpen={coordinator.isSessionListOpen}
         onCloseSessionList={coordinator.closeSessionList}
+        onChatPanelTouchCancel={interactionCoordinator.handleChatPanelTouchCancel}
+        onChatPanelTouchEnd={interactionCoordinator.handleChatPanelTouchEnd}
+        onChatPanelTouchStart={interactionCoordinator.handleChatPanelTouchStart}
         onOpenSessionList={coordinator.openSessionList}
         onOpenStreamManager={coordinator.openStreamManager}
+        onPopupSessionSelect={interactionCoordinator.handlePopupSessionSelect}
         onRememberScrollState={(input) => chatStore.rememberSessionScrollState(input)}
         provisioningState={provisioningState}
-        onSelectSession={(sessionKey, source) => {
-          coordinator.requestSessionSwitch(sessionKey, source);
-          navigate(`/chat/${sessionKey}`);
-        }}
         onUnreadAnchorConsumed={(messageId) => {
           if (!engineActiveSessionKey || selectedUnreadAnchorMessageId !== messageId) {
             return;
@@ -139,11 +156,11 @@ export function ChatRoute() {
         onClose={coordinator.closeStreamManager}
         onSelectSession={(sessionKey) => {
           if (sessionKey) {
-            coordinator.requestSessionSwitch(sessionKey, "stream-manager");
+            handleSelectSession(sessionKey, "stream-manager");
           } else {
             coordinator.closeStreamManager();
+            navigate("/chat");
           }
-          navigate(sessionKey ? `/chat/${sessionKey}` : "/chat");
         }}
       />
     </>
