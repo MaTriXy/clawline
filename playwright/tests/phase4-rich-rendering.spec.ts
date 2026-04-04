@@ -240,6 +240,10 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
         fontWeight: "400",
         lineHeight: "22.5px"
       });
+      const assistantBubbleRadius = await page
+        .getByTestId("message-s_medium_1")
+        .evaluate((element) => window.getComputedStyle(element).borderRadius);
+      expect(assistantBubbleRadius).toBe("28px 28px 28px 6px / 30px 30px 20px 14px");
       await expect(page.getByTestId("message-s_rich_1").locator(".message-markdown table")).toContainText(
         "alpha"
       );

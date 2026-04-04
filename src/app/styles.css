@@ -38,6 +38,10 @@
     0 30px 90px rgba(0, 0, 0, 0.5),
     0 12px 40px rgba(0, 0, 0, 0.35);
   --color-shadow: rgba(0, 0, 0, 0.22);
+  --surface-radius-bubble-large: 28px;
+  --surface-radius-bubble-tight: 6px;
+  --surface-radius-card: 18px;
+  --surface-radius-card-inner: 14px;
   --layout-max-width: 1200px;
   --font-scale: 1;
 }
@@ -559,9 +563,19 @@ html[data-appearance="light"] body::before {
   display: grid;
   gap: 0.75rem;
   padding: var(--message-bubble-padding-vertical) var(--message-bubble-padding-horizontal);
-  border-radius: 24px 24px 24px 4px;
+  border-radius:
+    var(--surface-radius-bubble-large)
+    var(--surface-radius-bubble-large)
+    var(--surface-radius-bubble-large)
+    var(--surface-radius-bubble-tight)
+    /
+    calc(var(--surface-radius-bubble-large) + 2px)
+    calc(var(--surface-radius-bubble-large) + 2px)
+    calc(var(--surface-radius-bubble-large) - 8px)
+    calc(var(--surface-radius-bubble-tight) + 8px);
   border: 1px solid var(--color-border);
   background: var(--color-bubble-assistant);
+  overflow: clip;
   box-shadow:
     var(--color-shadow-bubble),
     inset 0 1px 0 rgba(255, 255, 255, 0.15);
@@ -569,7 +583,16 @@ html[data-appearance="light"] body::before {
 
 .message-bubble--user {
   --message-mark-color: var(--color-mark-user);
-  border-radius: 24px 24px 4px 24px;
+  border-radius:
+    var(--surface-radius-bubble-large)
+    var(--surface-radius-bubble-large)
+    var(--surface-radius-bubble-tight)
+    var(--surface-radius-bubble-large)
+    /
+    calc(var(--surface-radius-bubble-large) + 2px)
+    calc(var(--surface-radius-bubble-large) + 2px)
+    calc(var(--surface-radius-bubble-tight) + 8px)
+    calc(var(--surface-radius-bubble-large) - 8px);
   background: var(--color-bubble-user);
   border-color: color-mix(in srgb, var(--color-accent) 22%, var(--color-border));
 }
@@ -624,9 +647,19 @@ html[data-appearance="light"] body::before {
   margin-right: auto;
   display: grid;
   place-items: center;
-  border-radius: 24px 24px 24px 4px;
+  border-radius:
+    var(--surface-radius-bubble-large)
+    var(--surface-radius-bubble-large)
+    var(--surface-radius-bubble-large)
+    var(--surface-radius-bubble-tight)
+    /
+    calc(var(--surface-radius-bubble-large) + 2px)
+    calc(var(--surface-radius-bubble-large) + 2px)
+    calc(var(--surface-radius-bubble-large) - 8px)
+    calc(var(--surface-radius-bubble-tight) + 8px);
   border: 1px solid var(--color-border);
   background: var(--color-bubble-assistant);
+  overflow: clip;
   box-shadow:
     var(--color-shadow-bubble),
     inset 0 1px 1px rgba(255, 255, 255, 0.08);
@@ -808,7 +841,7 @@ html[data-appearance="light"] body::before {
   border-collapse: collapse;
   border-spacing: 0;
   overflow: hidden;
-  border-radius: 1rem;
+  border-radius: var(--surface-radius-card);
   border: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-panel-soft) 94%, transparent);
 }
@@ -860,10 +893,22 @@ html[data-appearance="light"] body::before {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.95rem 1rem;
-  border-radius: 1rem;
+  border-radius:
+    var(--surface-radius-card)
+    var(--surface-radius-card)
+    calc(var(--surface-radius-card) - 2px)
+    calc(var(--surface-radius-card) - 2px)
+    /
+    calc(var(--surface-radius-card) + 2px)
+    calc(var(--surface-radius-card) + 2px)
+    calc(var(--surface-radius-card) - 4px)
+    calc(var(--surface-radius-card) - 4px);
   border: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-panel-soft) 92%, transparent);
-  box-shadow: var(--color-shadow-bubble);
+  overflow: clip;
+  box-shadow:
+    var(--color-shadow-bubble),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
   color: inherit;
   text-decoration: none;
 }
@@ -872,7 +917,16 @@ html[data-appearance="light"] body::before {
   width: 56px;
   min-width: 56px;
   height: 56px;
-  border-radius: 0.75rem;
+  border-radius:
+    var(--surface-radius-card-inner)
+    var(--surface-radius-card-inner)
+    calc(var(--surface-radius-card-inner) - 2px)
+    calc(var(--surface-radius-card-inner) - 2px)
+    /
+    calc(var(--surface-radius-card-inner) + 1px)
+    calc(var(--surface-radius-card-inner) + 1px)
+    calc(var(--surface-radius-card-inner) - 3px)
+    calc(var(--surface-radius-card-inner) - 3px);
   object-fit: cover;
   background: color-mix(in srgb, var(--color-panel-soft-strong) 96%, transparent);
   align-self: center;
@@ -913,10 +967,22 @@ html[data-appearance="light"] body::before {
   display: grid;
   gap: 0.6rem;
   padding: 0.85rem;
-  border-radius: 1rem;
+  border-radius:
+    var(--surface-radius-card)
+    var(--surface-radius-card)
+    calc(var(--surface-radius-card) - 2px)
+    calc(var(--surface-radius-card) - 2px)
+    /
+    calc(var(--surface-radius-card) + 2px)
+    calc(var(--surface-radius-card) + 2px)
+    calc(var(--surface-radius-card) - 4px)
+    calc(var(--surface-radius-card) - 4px);
   background: color-mix(in srgb, var(--color-panel-soft) 92%, transparent);
   border: 1px solid var(--color-border);
-  box-shadow: var(--color-shadow-bubble);
+  overflow: clip;
+  box-shadow:
+    var(--color-shadow-bubble),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .message-attachment-card figcaption,
@@ -937,7 +1003,16 @@ html[data-appearance="light"] body::before {
 .message-attachment-video {
   width: 100%;
   max-height: 24rem;
-  border-radius: 0.9rem;
+  border-radius:
+    var(--surface-radius-card-inner)
+    var(--surface-radius-card-inner)
+    calc(var(--surface-radius-card-inner) - 2px)
+    calc(var(--surface-radius-card-inner) - 2px)
+    /
+    calc(var(--surface-radius-card-inner) + 1px)
+    calc(var(--surface-radius-card-inner) + 1px)
+    calc(var(--surface-radius-card-inner) - 3px)
+    calc(var(--surface-radius-card-inner) - 3px);
   background: color-mix(in srgb, var(--color-panel-soft-strong) 96%, transparent);
 }
 

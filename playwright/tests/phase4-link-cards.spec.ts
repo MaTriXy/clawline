@@ -163,6 +163,14 @@ test("message links render as lightweight cards without turning code-block URLs 
       await expect(docsCard).toContainText("Garden Guide");
       await expect(docsCard).toContainText("Fresh herbs, flowers, and paths.");
       await expect(docsCard.locator(".message-link-card-thumbnail")).toBeVisible();
+      expect(await docsCard.evaluate((element) => window.getComputedStyle(element).borderRadius)).toBe(
+        "18px 18px 16px 16px / 20px 20px 14px 14px"
+      );
+      expect(
+        await docsCard
+          .locator(".message-link-card-thumbnail")
+          .evaluate((element) => window.getComputedStyle(element).borderRadius)
+      ).toBe("14px 14px 12px 12px / 15px 15px 11px 11px");
 
       const researchCard = page.locator(`.message-link-card[href="${researchUrl}"]`);
       await expect(researchCard).toBeVisible();
