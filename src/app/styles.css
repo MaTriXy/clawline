@@ -416,11 +416,15 @@ html[data-appearance="light"] body::before {
 
 .message-list-virtual-surface {
   position: relative;
+  width: 100%;
   min-height: 100%;
+  overflow-x: clip;
 }
 
 .message-list-row {
   position: absolute;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .message-cluster {
@@ -447,10 +451,10 @@ html[data-appearance="light"] body::before {
 
 .message-header-text {
   display: flex;
+  flex: 1 1 auto;
   align-items: baseline;
   justify-content: space-between;
   gap: 0.65rem;
-  width: 100%;
   min-width: 0;
 }
 

@@ -130,6 +130,7 @@ function renderMessageList(messages: ChatMessageRecord[]) {
       return transportState;
     },
     retryNow() {},
+    setSelectedSessionKey() {},
     async sendMessage() {},
     subscribe() {
       return () => {};
@@ -184,6 +185,7 @@ function renderMessageListWithProps(input: {
       return transportState;
     },
     retryNow() {},
+    setSelectedSessionKey() {},
     async sendMessage() {},
     subscribe() {
       return () => {};
@@ -518,6 +520,7 @@ describe("MessageList rich rendering", () => {
         return transportState;
       },
       retryNow,
+      setSelectedSessionKey() {},
       sendMessage,
       subscribe() {
         return () => {};
@@ -567,6 +570,71 @@ describe("MessageList rich rendering", () => {
     expect(
       chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:main"][0].delivery
     ).toBe("pending");
+  });
+
+  it("routes failed-send retry through reconnect when transport is not live", async () => {
+    const authStore = createAuthSessionStore();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const retryNow = vi.fn();
+    const transportState = {
+      failureReason: null,
+      isBrowserOnline: true,
+      phase: "recovering" as const,
+      retryAttempt: 0
+    };
+    const transportStore: TransportMachine = {
+      getState() {
+        return transportState;
+      },
+      retryNow,
+      setSelectedSessionKey() {},
+      sendMessage,
+      subscribe() {
+        return () => {};
+      }
+    };
+
+    authStore.storePairingSession({
+      claimedName: "Desk Browser",
+      deviceId: "browser-device-1",
+      serverUrl: "ws://127.0.0.1:18800/ws",
+      token: "jwt-token",
+      userId: "user_1"
+    });
+
+    chatStore.enqueueOptimisticMessage({
+      attachments: [],
+      content: "Retry me later",
+      deviceId: "browser-device-1",
+      id: "c_failed_recovering",
+      sessionKey: "agent:main:clawline:flynn:main",
+      timestamp: 1_764_201_200_080,
+      wireAttachments: []
+    });
+    chatStore.markMessageFailed("c_failed_recovering");
+
+    render(
+      <AuthSessionStoreProvider value={authStore}>
+        <ChatDomainStoreProvider value={chatStore}>
+          <TransportMachineProvider value={transportStore}>
+            <MessageList
+              messages={chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:main"]}
+            />
+          </TransportMachineProvider>
+        </ChatDomainStoreProvider>
+      </AuthSessionStoreProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(retryNow).toHaveBeenCalledTimes(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:main"][0].delivery
+    ).toBe("failed");
   });
 
   it("flows short messages side-by-side and wraps long content to a new row", () => {
@@ -802,6 +870,7 @@ describe("MessageList rich rendering", () => {
         return transportState;
       },
       retryNow() {},
+      setSelectedSessionKey() {},
       async sendMessage() {},
       subscribe() {
         return () => {};
