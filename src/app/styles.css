@@ -22,6 +22,8 @@
   --color-mark-assistant: rgb(217, 175, 98);
   --color-mark-user: rgb(123, 163, 118);
   --color-danger: #c47a6e;
+  --color-connection-reconnecting: rgb(235, 194, 77);
+  --color-connection-disconnected: rgb(224, 77, 77);
   --color-bubble-user: linear-gradient(135deg, #2d3b2a 0%, #243322 100%);
   --color-bubble-user-solid: #243322;
   --color-bubble-assistant: #292524;
@@ -132,6 +134,8 @@ html[data-appearance="light"] {
   --color-mark-assistant: rgb(158, 62, 28);
   --color-mark-user: rgb(143, 166, 138);
   --color-danger: #c4785c;
+  --color-connection-reconnecting: rgb(227, 171, 20);
+  --color-connection-disconnected: rgb(199, 48, 43);
   --color-bubble-user: linear-gradient(135deg, #b8ceaf 0%, #c8d9c0 100%);
   --color-bubble-user-solid: #c8d9c0;
   --color-bubble-assistant: linear-gradient(180deg, #fffdf9 0%, #fdf6ee 100%);
@@ -725,15 +729,18 @@ html[data-appearance="light"] body::before {
 @keyframes composer-send-reconnecting-pulse {
   0%,
   100% {
+    transform: scale(0.75);
     box-shadow:
-      0 0 0 0 color-mix(in srgb, var(--color-accent-warm) 22%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--color-connection-reconnecting) 16%, transparent),
+      0 8px 22px color-mix(in srgb, var(--color-connection-reconnecting) 18%, transparent),
       inset 0 1px 1px rgba(255, 255, 255, 0.08);
   }
 
   50% {
+    transform: scale(1);
     box-shadow:
-      0 0 0 8px color-mix(in srgb, var(--color-accent-warm) 0%, transparent),
-      0 0 24px color-mix(in srgb, var(--color-accent-warm) 28%, transparent),
+      0 0 0 6px color-mix(in srgb, var(--color-connection-reconnecting) 12%, transparent),
+      0 12px 28px color-mix(in srgb, var(--color-connection-reconnecting) 22%, transparent),
       inset 0 1px 1px rgba(255, 255, 255, 0.08);
   }
 }
@@ -1175,6 +1182,10 @@ html[data-appearance="light"] body::before {
   opacity: 0.72;
 }
 
+.composer-circle-button--reconnecting:disabled {
+  opacity: 1;
+}
+
 .composer-circle-button span {
   font-size: 1.2rem;
   line-height: 1;
@@ -1195,18 +1206,19 @@ html[data-appearance="light"] body::before {
 }
 
 .composer-circle-button--reconnecting {
-  background: color-mix(in srgb, var(--color-accent-warm) 26%, var(--color-panel-glass));
-  border-color: color-mix(in srgb, var(--color-accent-warm) 42%, var(--color-border-strong));
-  color: color-mix(in srgb, var(--color-accent-warm) 72%, var(--color-text));
-  animation: composer-send-reconnecting-pulse 1.8s ease-in-out infinite;
+  background: var(--color-connection-reconnecting);
+  border-color: color-mix(in srgb, var(--color-connection-reconnecting) 76%, white 24%);
+  color: white;
+  animation: composer-send-reconnecting-pulse 0.8s ease-in-out infinite;
 }
 
 .composer-circle-button--disconnected {
-  background: color-mix(in srgb, var(--color-danger) 22%, var(--color-panel-glass));
-  border-color: color-mix(in srgb, var(--color-danger) 42%, var(--color-border-strong));
-  color: color-mix(in srgb, var(--color-danger) 78%, white);
+  background: var(--color-connection-disconnected);
+  border-color: color-mix(in srgb, var(--color-connection-disconnected) 76%, white 24%);
+  color: white;
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--color-danger) 24%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-connection-disconnected) 26%, transparent),
+    0 10px 26px color-mix(in srgb, var(--color-connection-disconnected) 18%, transparent),
     inset 0 1px 1px rgba(255, 255, 255, 0.08);
 }
 
