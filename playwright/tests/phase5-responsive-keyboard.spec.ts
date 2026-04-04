@@ -21,6 +21,11 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
         await applyAppearance(page, appearance);
         await expect(page.getByRole("button", { name: "Manage streams" })).toBeVisible();
         const dots = page.getByRole("button", { name: "Manage streams" });
+        expect(
+          await dots
+            .locator(".stream-page-dot--active")
+            .evaluate((element) => window.getComputedStyle(element).backgroundColor)
+        ).toBe("rgb(107, 156, 107)");
         await expect(page.getByTestId("composer-input-bar")).toBeVisible();
 
         await expect(page.getByTestId("chat-layout")).toHaveScreenshot(

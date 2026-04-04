@@ -1101,8 +1101,10 @@ html[data-appearance="light"] body::before {
 }
 
 .stream-page-dot--active {
-  background: var(--color-text);
-  box-shadow: 0 0 0.65rem color-mix(in srgb, var(--color-text) 42%, transparent);
+  background: rgb(107 156 107);
+  box-shadow:
+    0 0 0.4rem color-mix(in srgb, rgb(107 156 107) 72%, transparent),
+    0 0 1rem color-mix(in srgb, rgb(107 156 107) 48%, transparent);
 }
 
 .stream-page-dot--unread {
