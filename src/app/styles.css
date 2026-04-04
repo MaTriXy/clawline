@@ -854,8 +854,9 @@ html[data-appearance="light"] body::before {
 }
 
 .message-link-card {
+  position: relative;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
   gap: 1rem;
   padding: 0.95rem 1rem;
@@ -867,10 +868,21 @@ html[data-appearance="light"] body::before {
   text-decoration: none;
 }
 
+.message-link-card-thumbnail {
+  width: 56px;
+  min-width: 56px;
+  height: 56px;
+  border-radius: 0.75rem;
+  object-fit: cover;
+  background: color-mix(in srgb, var(--color-panel-soft-strong) 96%, transparent);
+  align-self: center;
+}
+
 .message-link-card-copy {
   display: grid;
   gap: 0.2rem;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .message-link-card-copy strong,
@@ -894,6 +906,7 @@ html[data-appearance="light"] body::before {
 .message-link-card-arrow {
   color: var(--color-accent-warm);
   font-size: 1.1rem;
+  align-self: center;
 }
 
 .message-attachment-card {

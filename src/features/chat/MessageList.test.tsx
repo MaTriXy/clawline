@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageList } from "./MessageList";
+import { resetLinkCardMetadataCache } from "./linkCardMetadata";
 import type { ChatMessageRecord } from "../../runtime/chat/chatDomainStore";
 import {
   AuthSessionStoreProvider,
@@ -254,6 +255,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetLinkCardMetadataCache();
   Object.defineProperty(URL, "createObjectURL", {
     configurable: true,
     value: originalCreateObjectUrl
@@ -798,6 +800,48 @@ describe("MessageList rich rendering", () => {
   });
 
   it("renders link cards for visible message links but not code-block URLs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const value = input instanceof URL ? input.toString() : String(input);
+        if (value === "https://example.com/docs") {
+          return new Response(
+            [
+              "<html><head>",
+              '<meta property="og:title" content="Documentation" />',
+              '<meta property="og:description" content="Setup guide" />',
+              '<meta property="og:image" content="https://example.com/preview.png" />',
+              "</head><body></body></html>"
+            ].join(""),
+            {
+              headers: {
+                "content-type": "text/html"
+              },
+              status: 200
+            }
+          );
+        }
+        if (value === "https://openai.com/research") {
+          return new Response(
+            [
+              "<html><head>",
+              "<title>OpenAI Research</title>",
+              '<meta name="description" content="Research index" />',
+              "</head><body></body></html>"
+            ].join(""),
+            {
+              headers: {
+                "content-type": "text/html"
+              },
+              status: 200
+            }
+          );
+        }
+
+        return new Response(null, { status: 404 });
+      })
+    );
+
     renderMessageList([LINK_MESSAGE]);
 
     const cards = await screen.findByText("EXAMPLE.COM");
@@ -811,6 +855,9 @@ describe("MessageList rich rendering", () => {
       "https://example.com/docs",
       "https://openai.com/research"
     ]);
+    expect(await within(linkCards[0]!).findByText("Documentation")).toBeInTheDocument();
+    expect(await within(linkCards[0]!).findByText("Setup guide")).toBeInTheDocument();
+    expect(await within(linkCards[1]!).findByText("OpenAI Research")).toBeInTheDocument();
     expect(linkCards.some((card) => card.href.includes("in-code"))).toBe(false);
   });
 
