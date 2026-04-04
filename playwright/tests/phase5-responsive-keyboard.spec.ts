@@ -232,6 +232,40 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
     }
   });
 
+  test("sending after switching chats from the popup targets the selected session", async ({
+    page
+  }) => {
+    const { close, port, receivedClientMessages } = await startPhase5Server();
+
+    try {
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.setViewportSize({ height: 844, width: 390 });
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+
+      await page.getByRole("button", { name: "Manage streams" }).click();
+      await page.getByRole("button", { name: /Side/ }).click();
+      await expect(page).toHaveURL(new RegExp(`${SIDE_SESSION_KEY.replaceAll(":", "\\:")}$`));
+
+      const composer = page.getByRole("textbox", { name: "Message" });
+      await composer.fill("Send to side");
+      await page.getByRole("button", { name: "Send" }).click();
+
+      await expect
+        .poll(() => receivedClientMessages.at(-1)?.sessionKey ?? null)
+        .toBe(SIDE_SESSION_KEY);
+      await expect(page.getByText("Send to side")).toBeVisible();
+    } finally {
+      await close();
+    }
+  });
+
   test("manage streams tap opens the popup without dismissing the keyboard", async ({ page }) => {
     const { close, port } = await startPhase5Server();
 

@@ -365,12 +365,16 @@ function MeasuredMessageRow({
       return;
     }
 
-      function measure() {
-        if (!rowRef.current) {
-          return;
-        }
+    function measure() {
+      if (!rowRef.current) {
+        return;
+      }
 
-      const rect = rowRef.current.getBoundingClientRect();
+      const measuredTarget =
+        rowRef.current.firstElementChild instanceof HTMLElement
+          ? rowRef.current.firstElementChild
+          : rowRef.current;
+      const rect = measuredTarget.getBoundingClientRect();
       onSizeChange(messageId, {
         height: rect.height,
         width: rect.width
