@@ -11,6 +11,11 @@
   --color-panel-soft-strong: rgba(41, 37, 36, 0.92);
   --color-panel-glass: rgba(60, 60, 60, 0.25);
   --color-panel-glass-strong: rgba(80, 80, 80, 0.35);
+  --color-glass-specular: rgba(255, 255, 255, 0.16);
+  --color-glass-specular-soft: rgba(255, 255, 255, 0.08);
+  --color-glass-shadow: rgba(0, 0, 0, 0.28);
+  --color-glass-shadow-soft: rgba(0, 0, 0, 0.14);
+  --color-glass-tint: rgba(255, 255, 255, 0.03);
   --color-border: rgba(255, 255, 255, 0.08);
   --color-border-strong: rgba(255, 255, 255, 0.12);
   --color-text: #e8e4e0;
@@ -123,6 +128,11 @@ html[data-appearance="light"] {
   --color-panel-soft-strong: rgba(253, 246, 238, 0.92);
   --color-panel-glass: rgba(255, 255, 255, 0.3);
   --color-panel-glass-strong: rgba(255, 255, 255, 0.45);
+  --color-glass-specular: rgba(255, 255, 255, 0.72);
+  --color-glass-specular-soft: rgba(255, 255, 255, 0.34);
+  --color-glass-shadow: rgba(92, 74, 61, 0.18);
+  --color-glass-shadow-soft: rgba(92, 74, 61, 0.08);
+  --color-glass-tint: rgba(255, 255, 255, 0.22);
   --color-border: rgba(93, 74, 61, 0.1);
   --color-border-strong: rgba(255, 255, 255, 0.6);
   --color-text: #3d3429;
@@ -534,17 +544,33 @@ html[data-appearance="light"] body::before {
 .message-list-jump-button {
   pointer-events: auto;
   border-color: var(--color-border-strong);
-  background: var(--color-panel-glass);
-  box-shadow: var(--color-shadow-bubble);
-  backdrop-filter: blur(16px) saturate(180%);
+  background:
+    linear-gradient(180deg, var(--color-glass-specular-soft), transparent 42%),
+    linear-gradient(180deg, var(--color-glass-tint), rgba(255, 255, 255, 0.01)),
+    var(--color-panel-glass);
+  box-shadow:
+    0 10px 28px var(--color-glass-shadow),
+    0 2px 10px var(--color-glass-shadow-soft),
+    inset 0 1px 0 var(--color-glass-specular);
+  backdrop-filter: blur(22px) saturate(190%);
+  -webkit-backdrop-filter: blur(22px) saturate(190%);
 }
 
 .provisioning-banner {
   padding: 0.8rem 1rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-accent-warm) 12%, var(--color-panel));
+  background:
+    linear-gradient(180deg, var(--color-glass-specular-soft), transparent 48%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-accent-warm) 14%, var(--color-glass-tint)),
+      color-mix(in srgb, var(--color-accent-warm) 8%, var(--color-panel-glass))
+    );
   color: var(--color-text-secondary);
   border: 1px solid color-mix(in srgb, var(--color-accent-warm) 24%, var(--color-border));
+  box-shadow:
+    0 10px 24px var(--color-glass-shadow-soft),
+    inset 0 1px 0 var(--color-glass-specular-soft);
 }
 
 .provisioning-banner--floating {
@@ -1167,14 +1193,19 @@ html[data-appearance="light"] body::before {
   width: 2.95rem;
   height: 2.95rem;
   border-radius: 999px;
-  border: 1px solid var(--color-border-strong);
-  background: var(--color-panel-glass);
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 78%, var(--color-glass-specular) 22%);
+  background:
+    radial-gradient(circle at 50% 18%, var(--color-glass-specular) 0%, transparent 52%),
+    linear-gradient(180deg, var(--color-glass-tint), rgba(255, 255, 255, 0.01)),
+    var(--color-panel-glass);
   color: var(--color-text);
   box-shadow:
-    0 10px 26px rgba(0, 0, 0, 0.16),
-    inset 0 1px 1px rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+    0 12px 28px var(--color-glass-shadow),
+    0 2px 10px var(--color-glass-shadow-soft),
+    inset 0 1px 0 var(--color-glass-specular),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(22px) saturate(190%);
+  -webkit-backdrop-filter: blur(22px) saturate(190%);
 }
 
 .composer-circle-button:disabled {
@@ -1192,12 +1223,18 @@ html[data-appearance="light"] body::before {
 }
 
 .composer-circle-button--send {
-  background: var(--color-accent-soft);
+  background:
+    radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.28) 0%, transparent 46%),
+    var(--color-accent-soft);
   color: var(--color-text);
+  border-color: color-mix(in srgb, var(--color-accent) 36%, var(--color-glass-specular) 64%);
 }
 
 .composer-circle-button--attach {
-  background: color-mix(in srgb, var(--color-panel-glass) 92%, transparent);
+  background:
+    radial-gradient(circle at 50% 18%, var(--color-glass-specular-soft) 0%, transparent 48%),
+    linear-gradient(180deg, var(--color-glass-tint), rgba(255, 255, 255, 0.01)),
+    color-mix(in srgb, var(--color-panel-glass) 92%, transparent);
 }
 
 .composer-circle-button--live {
@@ -1206,14 +1243,26 @@ html[data-appearance="light"] body::before {
 }
 
 .composer-circle-button--reconnecting {
-  background: var(--color-connection-reconnecting);
+  background:
+    radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.3) 0%, transparent 45%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-connection-reconnecting) 88%, white 12%),
+      var(--color-connection-reconnecting)
+    );
   border-color: color-mix(in srgb, var(--color-connection-reconnecting) 76%, white 24%);
   color: white;
   animation: composer-send-reconnecting-pulse 0.8s ease-in-out infinite;
 }
 
 .composer-circle-button--disconnected {
-  background: var(--color-connection-disconnected);
+  background:
+    radial-gradient(circle at 50% 16%, rgba(255, 255, 255, 0.26) 0%, transparent 45%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-connection-disconnected) 88%, white 12%),
+      var(--color-connection-disconnected)
+    );
   border-color: color-mix(in srgb, var(--color-connection-disconnected) 76%, white 24%);
   color: white;
   box-shadow:
@@ -1230,14 +1279,18 @@ html[data-appearance="light"] body::before {
   min-height: 3.05rem;
   padding: 0.58rem 1rem;
   border-radius: 999px;
-  border: 1px solid var(--color-border-strong);
-  background: color-mix(in srgb, var(--color-panel-glass-strong) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 74%, var(--color-glass-specular) 26%);
+  background:
+    radial-gradient(circle at 50% -16%, var(--color-glass-specular) 0%, transparent 56%),
+    linear-gradient(180deg, var(--color-glass-tint), rgba(255, 255, 255, 0.01)),
+    color-mix(in srgb, var(--color-panel-glass-strong) 88%, transparent);
   box-shadow:
-    0 12px 28px rgba(0, 0, 0, 0.14),
-    0 2px 10px rgba(0, 0, 0, 0.06),
-    inset 0 1px 1px rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
+    0 14px 34px var(--color-glass-shadow),
+    0 3px 12px var(--color-glass-shadow-soft),
+    inset 0 1px 0 var(--color-glass-specular),
+    inset 0 -14px 22px rgba(0, 0, 0, 0.04);
+  backdrop-filter: blur(24px) saturate(195%);
+  -webkit-backdrop-filter: blur(24px) saturate(195%);
 }
 
 .composer-input-field textarea {
