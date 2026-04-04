@@ -110,6 +110,14 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
               return window.getComputedStyle(element).backgroundColor;
             })
           ).not.toBe("rgba(0, 0, 0, 0)");
+          const attachBox = await page.getByRole("button", { name: "Add attachment" }).boundingBox();
+          const inputBox = await page.locator(".composer-input-field").boundingBox();
+          const sendBox = await page.getByRole("button", { name: "Send" }).boundingBox();
+          expect(attachBox).not.toBeNull();
+          expect(inputBox).not.toBeNull();
+          expect(sendBox).not.toBeNull();
+          expect(inputBox!.x - (attachBox!.x + attachBox!.width)).toBeGreaterThan(8);
+          expect(sendBox!.x - (inputBox!.x + inputBox!.width)).toBeGreaterThan(8);
         }
       }
     } finally {
