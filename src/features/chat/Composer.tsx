@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { Paperclip, RefreshCw, SendHorizontal } from "lucide-react";
+import { Plus, RefreshCw, SendHorizontal } from "lucide-react";
 import type { SessionProvisioningState } from "../streams/provisioning";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
@@ -238,7 +238,7 @@ export function Composer({
           onClick={() => fileInputRef.current?.click()}
           type="button"
         >
-          <Paperclip aria-hidden="true" size={18} strokeWidth={2.1} />
+          <Plus aria-hidden="true" size={18} strokeWidth={2.3} />
         </button>
         <div className="composer-input-field">
           <textarea
