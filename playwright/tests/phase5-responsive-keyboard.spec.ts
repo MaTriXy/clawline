@@ -100,6 +100,16 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
               return window.getComputedStyle(element).display;
             })
           ).toBe("grid");
+          expect(
+            await page.locator(".composer-input-bar").evaluate((element) => {
+              return window.getComputedStyle(element).backgroundColor;
+            })
+          ).toBe("rgba(0, 0, 0, 0)");
+          expect(
+            await page.locator(".composer-input-field").evaluate((element) => {
+              return window.getComputedStyle(element).backgroundColor;
+            })
+          ).not.toBe("rgba(0, 0, 0, 0)");
         }
       }
     } finally {
@@ -186,6 +196,45 @@ test.describe("Phase 5 responsive and keyboard flow", () => {
         .poll(() => receivedClientMessages.at(-1)?.content ?? null)
         .toBe("Tap send");
       await expect(page.getByText("Tap send")).toBeVisible();
+    } finally {
+      await context.close();
+      await close();
+    }
+  });
+
+  test("send button tap still sends after the keyboard is dismissed", async ({ browser }) => {
+    const { close, port, receivedClientMessages } = await startPhase5Server();
+    const context = await browser.newContext({
+      hasTouch: true,
+      isMobile: true,
+      viewport: { height: 844, width: 390 }
+    });
+    const page = await context.newPage();
+
+    try {
+      await page.addInitScript((session) => {
+        window.localStorage.setItem("clawline-web:auth-session", JSON.stringify(session));
+        window.localStorage.setItem(
+          "clawline-web:device-id",
+          JSON.stringify(session.deviceId)
+        );
+      }, makeSession(port));
+
+      await page.goto(`/chat/${MAIN_SESSION_KEY}`);
+      const composer = page.getByRole("textbox", { name: "Message" });
+      await composer.click();
+      await composer.fill("Tap send after blur");
+      await page.keyboard.press("Escape");
+      await expect(composer).not.toBeFocused();
+
+      const sendButton = page.getByRole("button", { name: "Send" });
+      await expect(sendButton).toBeEnabled();
+      await sendButton.tap();
+
+      await expect
+        .poll(() => receivedClientMessages.at(-1)?.content ?? null)
+        .toBe("Tap send after blur");
+      await expect(page.getByText("Tap send after blur")).toBeVisible();
     } finally {
       await context.close();
       await close();

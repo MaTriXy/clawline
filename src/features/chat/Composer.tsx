@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { Paperclip, SendHorizontal } from "lucide-react";
+import { Paperclip, RefreshCw, SendHorizontal } from "lucide-react";
 import type { SessionProvisioningState } from "../streams/provisioning";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
@@ -154,6 +154,17 @@ export function Composer({
     void submit();
   }
 
+  function handleSendButtonClick() {
+    if (sendState.sendAction === "reconnect") {
+      transportStore.retryNow();
+      return;
+    }
+
+    if (sendState.sendAction === "send") {
+      void submit();
+    }
+  }
+
   return (
     <section
       className={
@@ -268,11 +279,14 @@ export function Composer({
             `composer-circle-button--${sendState.connectionState}`
           ].join(" ")}
           data-connection-state={sendState.connectionState}
-          disabled={!sendState.canSend}
-          type="submit"
+          disabled={!sendState.isSendButtonEnabled}
+          onClick={handleSendButtonClick}
+          type="button"
         >
           {isSubmitting ? (
             <span aria-hidden="true">…</span>
+          ) : sendState.sendAction === "reconnect" ? (
+            <RefreshCw aria-hidden="true" size={18} strokeWidth={2.1} />
           ) : (
             <SendHorizontal aria-hidden="true" size={18} strokeWidth={2.1} />
           )}

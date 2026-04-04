@@ -20,7 +20,9 @@ describe("chatSendState", () => {
       canAttach: true,
       canSend: true,
       connectionState: "live",
+      isSendButtonEnabled: true,
       placeholder: "Personal — agent:main:clawline:flynn:main",
+      sendAction: "send",
       sendAriaLabel: "Send"
     });
 
@@ -38,8 +40,28 @@ describe("chatSendState", () => {
       canAttach: true,
       canSend: false,
       connectionState: "reconnecting",
+      isSendButtonEnabled: false,
       placeholder: "Waiting for connection",
-      sendAriaLabel: "Send unavailable while reconnecting"
+      sendAction: "none",
+      sendAriaLabel: "Reconnecting"
+    });
+
+    expect(
+      projectComposerSendState({
+        activeStreamDisplayName: "Personal",
+        draft: "Hello",
+        isSubmitting: false,
+        provisioningState: "ready",
+        sessionKey: "agent:main:clawline:flynn:main",
+        stagedAttachmentCount: 0,
+        transportPhase: "failed"
+      })
+    ).toMatchObject({
+      canSend: false,
+      connectionState: "disconnected",
+      isSendButtonEnabled: true,
+      sendAction: "reconnect",
+      sendAriaLabel: "Disconnected. Tap to reconnect."
     });
   });
 

@@ -14,8 +14,10 @@ export interface ComposerSendState {
   canAttach: boolean;
   canSend: boolean;
   connectionState: ChatSendConnectionState;
+  isSendButtonEnabled: boolean;
   placeholder: string;
   sendAriaLabel: string;
+  sendAction: "none" | "reconnect" | "send";
 }
 
 export interface FailedMessageRetryState {
@@ -46,11 +48,17 @@ export function projectComposerSendState(input: {
     input.provisioningState === "ready" &&
     !input.isSubmitting &&
     hasContent;
+  const sendAction = projectComposerSendAction({
+    canSend,
+    connectionState,
+    isSubmitting: input.isSubmitting
+  });
 
   return {
     canAttach: Boolean(input.sessionKey) && !input.isSubmitting,
     canSend,
     connectionState,
+    isSendButtonEnabled: sendAction !== "none",
     placeholder: projectComposerPlaceholder({
       activeStreamDisplayName: input.activeStreamDisplayName,
       provisioningState: input.provisioningState,
@@ -59,8 +67,10 @@ export function projectComposerSendState(input: {
     }),
     sendAriaLabel: projectComposerSendAriaLabel({
       connectionState,
-      isSubmitting: input.isSubmitting
-    })
+      isSubmitting: input.isSubmitting,
+      sendAction
+    }),
+    sendAction
   };
 }
 
@@ -134,13 +144,18 @@ function projectComposerPlaceholder(input: {
 function projectComposerSendAriaLabel(input: {
   connectionState: ChatSendConnectionState;
   isSubmitting: boolean;
+  sendAction: "none" | "reconnect" | "send";
 }) {
   if (input.isSubmitting) {
     return "Uploading…";
   }
 
+  if (input.sendAction === "reconnect") {
+    return "Disconnected. Tap to reconnect.";
+  }
+
   if (input.connectionState === "reconnecting") {
-    return "Send unavailable while reconnecting";
+    return "Reconnecting";
   }
 
   if (input.connectionState === "disconnected") {
@@ -148,4 +163,24 @@ function projectComposerSendAriaLabel(input: {
   }
 
   return "Send";
+}
+
+function projectComposerSendAction(input: {
+  canSend: boolean;
+  connectionState: ChatSendConnectionState;
+  isSubmitting: boolean;
+}): "none" | "reconnect" | "send" {
+  if (input.isSubmitting) {
+    return "none";
+  }
+
+  if (input.connectionState === "disconnected") {
+    return "reconnect";
+  }
+
+  if (input.canSend) {
+    return "send";
+  }
+
+  return "none";
 }
