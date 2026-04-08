@@ -3747,7 +3747,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if id.hasPrefix("web_") {
             let metrics = ChatFlowTheme.Metrics(isCompact: isCompact)
             let availableWidth = effectiveContentWidth(metrics: metrics)
-            let heightCap = effectiveTruncationHeight(metrics: metrics)
+            let heightCap = metrics.truncationHeight
             let height = max(240, min(heightCap, 520))
             return CGSize(width: availableWidth, height: height)
         }

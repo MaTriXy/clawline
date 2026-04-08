@@ -55,7 +55,6 @@ private final class BubbleSafeAreaNeutralWebView: WKWebView {
     }
 }
 
-@MainActor
 final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestureRecognizerDelegate {
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "LinkPreview")
     private static let heightCache = NSCache<NSString, NSNumber>()
@@ -305,7 +304,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
         if let memoryWarningObserver {
             NotificationCenter.default.removeObserver(memoryWarningObserver)
         }
-        webBubbleCoordinator?.unregister(webView: webView)
+        let coordinator = webBubbleCoordinator
+        let webView = webView
+        Task { @MainActor in
+            coordinator?.unregister(webView: webView)
+        }
         cancelLoad()
     }
 
