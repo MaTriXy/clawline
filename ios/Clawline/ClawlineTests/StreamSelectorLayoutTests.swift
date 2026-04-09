@@ -170,6 +170,38 @@ struct StreamSelectorLayoutTests {
         #expect(filtered.first?.displayName == "Research Notes")
     }
 
+    @Test("List viewport height subtracts the action bar reserve from the container")
+    func listViewportHeightSubtractsActionBar() {
+        let viewport = StreamSelectorLayout.listViewportHeight(
+            containerHeight: CGFloat(320),
+            actionBarReservedHeight: CGFloat(72)
+        )
+
+        #expect(viewport == CGFloat(248))
+    }
+
+    @Test("List viewport height shrinks when the popover allocates less than the ideal")
+    func listViewportHeightShrinksWhenContainerIsConstrained() {
+        // Simulate the popover system giving us less vertical space than cappedContainerHeight.
+        // The viewport must shrink so the list stays inside the visible popup bounds.
+        let viewport = StreamSelectorLayout.listViewportHeight(
+            containerHeight: CGFloat(180),
+            actionBarReservedHeight: CGFloat(72)
+        )
+
+        #expect(viewport == CGFloat(108))
+    }
+
+    @Test("List viewport height clamps to zero when the container is smaller than the action bar")
+    func listViewportHeightClampsToZero() {
+        let viewport = StreamSelectorLayout.listViewportHeight(
+            containerHeight: CGFloat(40),
+            actionBarReservedHeight: CGFloat(72)
+        )
+
+        #expect(viewport == CGFloat(0))
+    }
+
     @Test("Blank stream filter returns all streams")
     func blankStreamFilterReturnsAll() {
         let streams = [

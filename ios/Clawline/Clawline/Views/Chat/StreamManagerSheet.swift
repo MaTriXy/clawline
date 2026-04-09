@@ -125,7 +125,10 @@ struct StreamManagerSheet: View {
     }
 
     private func listViewportHeight(containerHeight: CGFloat) -> CGFloat {
-        max(0, containerHeight - actionBarReservedHeight)
+        StreamSelectorLayout.listViewportHeight(
+            containerHeight: containerHeight,
+            actionBarReservedHeight: actionBarReservedHeight
+        )
     }
 
     private var cappedContainerHeight: CGFloat {
@@ -1039,6 +1042,18 @@ enum StreamSelectorLayout {
         )
         let cap = max(minimumPopoverHeight, maxAvailableHeight)
         return min(desired, cap)
+    }
+
+    /// Adaptive height for the stream list viewport given an actual allocated container height.
+    ///
+    /// This is used by the popup to shrink the scrollable list viewport when the popover
+    /// system allocates less vertical space than the popup's ideal height, so list content
+    /// never overflows into the popup chrome or past the visible popup bounds.
+    static func listViewportHeight(
+        containerHeight: CGFloat,
+        actionBarReservedHeight: CGFloat
+    ) -> CGFloat {
+        max(0, containerHeight - actionBarReservedHeight)
     }
 
     static func isOverflowing(
