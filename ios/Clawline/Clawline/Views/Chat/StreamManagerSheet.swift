@@ -144,7 +144,9 @@ struct StreamManagerSheet: View {
     var body: some View {
         let _ = settings.fontScaleChangeSequence
         GeometryReader { geometry in
-            let containerHeight = max(minimumPopoverHeight, geometry.size.height)
+            // Trust the allocated size. If the popover system gives us less than our ideal,
+            // the List viewport shrinks to match instead of overflowing into the popup chrome.
+            let containerHeight = geometry.size.height
             VStack(spacing: 0) {
                 List {
                     ForEach(filteredStreams) { stream in
@@ -256,6 +258,9 @@ struct StreamManagerSheet: View {
             alignment: .top
         )
         .background(Color.clear)
+        // Hard-clip at the popup's own corner radius so any late-updating list content
+        // cannot visually bleed past the popup bounds when the popover system reallocates height.
+        .clipShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
                 .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
