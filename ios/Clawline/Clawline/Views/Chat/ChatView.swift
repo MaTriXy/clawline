@@ -766,7 +766,7 @@ struct ChatView: View {
             0,
             geometry.size.height
                 - inputBarTopFromScreenBottom
-                - geometry.safeAreaInsets.top
+                - messageListTopInset
                 - streamSelectorSpacingFromMessageBarTop
         )
 
