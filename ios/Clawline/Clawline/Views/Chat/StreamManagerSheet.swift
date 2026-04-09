@@ -255,7 +255,9 @@ struct StreamManagerSheet: View {
             maxWidth: maximumPopoverWidth
         )
         .frame(
-            minHeight: minimumPopoverHeight,
+            // Clamp the floor to the capped height so we never produce an inconsistent
+            // (minHeight > maxHeight) frame when the window is shorter than our preferred minimum.
+            minHeight: min(minimumPopoverHeight, cappedContainerHeight),
             idealHeight: cappedContainerHeight,
             maxHeight: cappedContainerHeight,
             alignment: .top
@@ -1040,8 +1042,15 @@ enum StreamSelectorLayout {
             functionBarHeight: functionBarHeight,
             outerVerticalPadding: outerVerticalPadding
         )
-        let cap = max(minimumPopoverHeight, maxAvailableHeight)
-        return min(desired, cap)
+        // Hard ceiling: never ask the popover system for more than the caller's budget.
+        // When the budget is smaller than our preferred minimum (e.g., a very short
+        // spatial window), clamp to the budget so the popup fits inside the available
+        // space instead of requesting a minimum the popover system cannot honor —
+        // which would silently crop the popup body on visionOS.
+        let cap = max(0, maxAvailableHeight)
+        let preferredFloor = min(minimumPopoverHeight, cap)
+        let desiredWithinBudget = min(desired, cap)
+        return max(preferredFloor, desiredWithinBudget)
     }
 
     /// Adaptive height for the stream list viewport given an actual allocated container height.
