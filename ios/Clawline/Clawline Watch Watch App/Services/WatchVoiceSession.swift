@@ -1,7 +1,6 @@
 import AVFoundation
 import Observation
 import Foundation
-import Network
 
 @MainActor
 @Observable
@@ -32,7 +31,6 @@ final class WatchVoiceSession {
     private let credentialStore: WatchCredentialStore
     private let sonioxClient = SonioxStreamingClient()
     private let cartesiaClient = CartesiaTTSClient()
-    private let directInternetMonitor = DirectInternetMonitor()
 
     private let playbackEngine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
@@ -55,10 +53,9 @@ final class WatchVoiceSession {
     private(set) var transcript: String = ""
     private(set) var errorMessage: String?
     private(set) var mode: VoiceMode?
-    private(set) var hasDirectInternet: Bool = true
 
     var canUseVoice: Bool {
-        hasDirectInternet && credentialStore.sonioxApiKey?.isEmpty == false
+        credentialStore.sonioxApiKey?.isEmpty == false
     }
 
     var onTranscriptReady: ((String) -> Void)?
@@ -88,12 +85,6 @@ final class WatchVoiceSession {
             }
         }
 
-        hasDirectInternet = directInternetMonitor.isDirectInternetAvailable
-        directInternetMonitor.onChange = { [weak self] available in
-            Task { @MainActor in
-                self?.handleDirectInternetChange(available)
-            }
-        }
     }
 
     func startTap() {
@@ -330,7 +321,7 @@ final class WatchVoiceSession {
         mode = nil
         audioLevel = 0
 
-        if !hasDirectInternet || credentialStore.cartesiaApiKey?.isEmpty != false {
+        if credentialStore.cartesiaApiKey?.isEmpty != false {
             phase = .speaking(contextId: "local_speech")
             voiceState = .speaking
             speakWithSystemVoice(text)
@@ -546,46 +537,5 @@ final class WatchVoiceSession {
         try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [])
         try audioSession.setActive(true)
         hasConfiguredAudioSession = true
-    }
-
-    private func handleDirectInternetChange(_ available: Bool) {
-        guard hasDirectInternet != available else { return }
-        hasDirectInternet = available
-
-        guard !available else { return }
-
-        switch phase {
-        case .listening:
-            finalizeAndSend(forceIdleAfterSend: true)
-        case .speaking where activeContextId != nil:
-            cancelCurrentSpeech(clearQueue: true)
-            transitionToIdle()
-        case .idle, .finalizing, .sending, .error, .speaking:
-            break
-        }
-    }
-}
-
-private final class DirectInternetMonitor {
-    private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "co.clicketyclacks.clawline.watch.internet")
-
-    private(set) var isDirectInternetAvailable: Bool = true
-    var onChange: ((Bool) -> Void)?
-
-    init() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            guard let self else { return }
-            let available = path.status == .satisfied &&
-                (path.usesInterfaceType(.wifi) || path.usesInterfaceType(.cellular))
-            guard available != self.isDirectInternetAvailable else { return }
-            self.isDirectInternetAvailable = available
-            self.onChange?(available)
-        }
-        monitor.start(queue: queue)
-    }
-
-    deinit {
-        monitor.cancel()
     }
 }
