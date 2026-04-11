@@ -146,7 +146,7 @@ struct WatchMainView: View {
         case .idle:
             switch transport.transportState {
             case .relay:
-                return voiceSession.canUseVoice ? "Via iPhone" : "Voice unavailable — text only via iPhone"
+                return "Via iPhone — text only"
             case .disconnected:
                 return "No Connection"
             case .direct, .probing:
@@ -180,7 +180,7 @@ struct WatchMainView: View {
                 }
 
                 holdStarted = true
-                if transport.transportState == .disconnected || !voiceSession.canUseVoice {
+                if transport.transportState == .relay || transport.transportState == .disconnected {
                     showTextInputSheet = true
                 } else {
                     voiceSession.startHold()
@@ -214,19 +214,20 @@ struct WatchMainView: View {
     }
 
     private func handleTapAction() {
+        if transport.transportState == .relay || transport.transportState == .disconnected {
+            showTextInputSheet = true
+            return
+        }
+
         switch voiceSession.voiceState {
-        case .speaking:
-            voiceSession.bargeIn()
         case .idle, .error:
-            if transport.transportState == .disconnected || !voiceSession.canUseVoice {
-                showTextInputSheet = true
-            } else {
-                voiceSession.startTap()
-            }
+            voiceSession.startTap()
         case .listening, .finalizing:
             voiceSession.stop()
         case .sending:
             break
+        case .speaking:
+            voiceSession.stop()
         }
     }
 

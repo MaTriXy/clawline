@@ -199,7 +199,6 @@ final class WatchProviderTransport: ChatServicing {
             } catch {
                 enterProbing(reason: "send failure")
                 buffer(message)
-                throw error
             }
         case .relay:
             do {
@@ -216,7 +215,6 @@ final class WatchProviderTransport: ChatServicing {
             } catch {
                 buffer(message)
                 transportState = .disconnected
-                throw error
             }
         case .probing, .disconnected:
             buffer(message)
@@ -425,7 +423,7 @@ final class WatchProviderTransport: ChatServicing {
         }
         if transportState == .relay {
             if !isPhoneReachable {
-                enterProbing(reason: "phone unreachable during relay")
+                relayProbeTask?.cancel()
             }
             return
         }
