@@ -65,6 +65,25 @@ struct StreamPageDotsViewTests {
         #expect(visibleCount == 11)
     }
 
+    @Test("Rendered indicator width matches the visible control width")
+    func renderedControlWidthMatchesVisibleControlWidth() {
+        let visibleCount = StreamPageDotsView.fittingVisibleDotCount(
+            totalSessionCount: 40,
+            maxWidth: CGFloat(640)
+        )
+        let expectedWidth = StreamPageDotsView.requiredControlWidth(
+            visibleDotCount: visibleCount,
+            includesOverflowIndicators: visibleCount < 40
+        )
+
+        #expect(
+            StreamPageDotsView.renderedControlWidth(
+                totalSessionCount: 40,
+                maxWidth: CGFloat(640)
+            ) == expectedWidth
+        )
+    }
+
     @Test("Active dots override unread styling")
     func activeKindWinsPrecedence() {
         let kind = StreamDotColor.kind(
