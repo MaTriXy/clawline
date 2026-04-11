@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageList } from "./MessageList";
+import { resetLinkCardMetadataCache } from "./linkCardMetadata";
 import type { ChatMessageRecord } from "../../runtime/chat/chatDomainStore";
 import {
   AuthSessionStoreProvider,
@@ -129,7 +130,9 @@ function renderMessageList(messages: ChatMessageRecord[]) {
     getState() {
       return transportState;
     },
+    async publishReadState() {},
     retryNow() {},
+    setSelectedSessionKey() {},
     async sendMessage() {},
     subscribe() {
       return () => {};
@@ -183,7 +186,9 @@ function renderMessageListWithProps(input: {
     getState() {
       return transportState;
     },
+    async publishReadState() {},
     retryNow() {},
+    setSelectedSessionKey() {},
     async sendMessage() {},
     subscribe() {
       return () => {};
@@ -252,6 +257,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetLinkCardMetadataCache();
   Object.defineProperty(URL, "createObjectURL", {
     configurable: true,
     value: originalCreateObjectUrl
@@ -517,7 +523,9 @@ describe("MessageList rich rendering", () => {
       getState() {
         return transportState;
       },
+      async publishReadState() {},
       retryNow,
+      setSelectedSessionKey() {},
       sendMessage,
       subscribe() {
         return () => {};
@@ -567,6 +575,72 @@ describe("MessageList rich rendering", () => {
     expect(
       chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:main"][0].delivery
     ).toBe("pending");
+  });
+
+  it("routes failed-send retry through reconnect when transport is not live", async () => {
+    const authStore = createAuthSessionStore();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const retryNow = vi.fn();
+    const transportState = {
+      failureReason: null,
+      isBrowserOnline: true,
+      phase: "recovering" as const,
+      retryAttempt: 0
+    };
+    const transportStore: TransportMachine = {
+      getState() {
+        return transportState;
+      },
+      async publishReadState() {},
+      retryNow,
+      setSelectedSessionKey() {},
+      sendMessage,
+      subscribe() {
+        return () => {};
+      }
+    };
+
+    authStore.storePairingSession({
+      claimedName: "Desk Browser",
+      deviceId: "browser-device-1",
+      serverUrl: "ws://127.0.0.1:18800/ws",
+      token: "jwt-token",
+      userId: "user_1"
+    });
+
+    chatStore.enqueueOptimisticMessage({
+      attachments: [],
+      content: "Retry me later",
+      deviceId: "browser-device-1",
+      id: "c_failed_recovering",
+      sessionKey: "agent:main:clawline:flynn:main",
+      timestamp: 1_764_201_200_080,
+      wireAttachments: []
+    });
+    chatStore.markMessageFailed("c_failed_recovering");
+
+    render(
+      <AuthSessionStoreProvider value={authStore}>
+        <ChatDomainStoreProvider value={chatStore}>
+          <TransportMachineProvider value={transportStore}>
+            <MessageList
+              messages={chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:main"]}
+            />
+          </TransportMachineProvider>
+        </ChatDomainStoreProvider>
+      </AuthSessionStoreProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(retryNow).toHaveBeenCalledTimes(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:main"][0].delivery
+    ).toBe("failed");
   });
 
   it("flows short messages side-by-side and wraps long content to a new row", () => {
@@ -730,6 +804,48 @@ describe("MessageList rich rendering", () => {
   });
 
   it("renders link cards for visible message links but not code-block URLs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const value = input instanceof URL ? input.toString() : String(input);
+        if (value === "https://example.com/docs") {
+          return new Response(
+            [
+              "<html><head>",
+              '<meta property="og:title" content="Documentation" />',
+              '<meta property="og:description" content="Setup guide" />',
+              '<meta property="og:image" content="https://example.com/preview.png" />',
+              "</head><body></body></html>"
+            ].join(""),
+            {
+              headers: {
+                "content-type": "text/html"
+              },
+              status: 200
+            }
+          );
+        }
+        if (value === "https://openai.com/research") {
+          return new Response(
+            [
+              "<html><head>",
+              "<title>OpenAI Research</title>",
+              '<meta name="description" content="Research index" />',
+              "</head><body></body></html>"
+            ].join(""),
+            {
+              headers: {
+                "content-type": "text/html"
+              },
+              status: 200
+            }
+          );
+        }
+
+        return new Response(null, { status: 404 });
+      })
+    );
+
     renderMessageList([LINK_MESSAGE]);
 
     const cards = await screen.findByText("EXAMPLE.COM");
@@ -743,6 +859,9 @@ describe("MessageList rich rendering", () => {
       "https://example.com/docs",
       "https://openai.com/research"
     ]);
+    expect(await within(linkCards[0]!).findByText("Documentation")).toBeInTheDocument();
+    expect(await within(linkCards[0]!).findByText("Setup guide")).toBeInTheDocument();
+    expect(await within(linkCards[1]!).findByText("OpenAI Research")).toBeInTheDocument();
     expect(linkCards.some((card) => card.href.includes("in-code"))).toBe(false);
   });
 
@@ -801,7 +920,9 @@ describe("MessageList rich rendering", () => {
       getState() {
         return transportState;
       },
+      async publishReadState() {},
       retryNow() {},
+      setSelectedSessionKey() {},
       async sendMessage() {},
       subscribe() {
         return () => {};

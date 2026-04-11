@@ -143,6 +143,105 @@ describe("transportMachine", () => {
     expect(chatStore.getState().provisionedSessionKeys).toEqual([
       "agent:main:clawline:user_1:main"
     ]);
+    expect(JSON.parse(factory.sockets[0].sentTexts[0])).toMatchObject({
+      type: "auth",
+      clientFeatures: ["terminal_bubbles_v1"],
+      client: {
+        id: "clawline-web",
+        features: ["terminal_bubbles_v1"]
+      }
+    });
+  });
+
+  it("does not infer selected session from window.location when no explicit selection is injected", async () => {
+    window.history.replaceState({}, "", "/chat/agent:main:clawline:user_1:main");
+
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        userId: "user_1",
+        sessionKeys: [
+          "agent:main:clawline:user_1:main",
+          "agent:main:clawline:user_1:side"
+        ]
+      })
+    );
+
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "message",
+        id: "s_side_101",
+        role: "assistant",
+        content: "Side message",
+        timestamp: 101,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      })
+    );
+
+    expect(chatStore.getState().unreadBySessionKey["agent:main:clawline:user_1:side"]).toBe(1);
+  });
+
+  it("uses the explicitly injected selected session instead of the URL", async () => {
+    window.history.replaceState({}, "", "/chat/agent:main:clawline:user_1:main");
+
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+    transport.setSelectedSessionKey("agent:main:clawline:user_1:side");
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        userId: "user_1",
+        sessionKeys: [
+          "agent:main:clawline:user_1:main",
+          "agent:main:clawline:user_1:side"
+        ]
+      })
+    );
+
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "message",
+        id: "s_side_102",
+        role: "assistant",
+        content: "Side message",
+        timestamp: 102,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      })
+    );
+
+    expect(
+      chatStore.getState().unreadBySessionKey["agent:main:clawline:user_1:side"]
+    ).toBeUndefined();
   });
 
   it("stays replaying until replay messages complete even after auth succeeds", async () => {
@@ -247,7 +346,7 @@ describe("transportMachine", () => {
     expect(transport.getState().phase).toBe("live");
   });
 
-  it("waits for provisioning before entering live when auth result has no session inventory", async () => {
+  it("enters live on auth success even when session inventory arrives later", async () => {
     const authStore = seedSession();
     const chatStore = createChatDomainStore({
       persistence: createMemoryChatPersistence()
@@ -270,7 +369,7 @@ describe("transportMachine", () => {
       })
     );
 
-    expect(transport.getState().phase).toBe("replaying");
+    expect(transport.getState().phase).toBe("live");
 
     factory.sockets[0].emitMessage(
       JSON.stringify({
@@ -281,6 +380,148 @@ describe("transportMachine", () => {
     );
 
     expect(transport.getState().phase).toBe("live");
+  });
+
+  it("accepts native read-state and event frames without regressing the live connection", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        userId: "user_1",
+        replayCount: 0
+      })
+    );
+
+    expect(() =>
+      factory.sockets[0].emitMessage(
+        JSON.stringify({
+          type: "stream_read_state",
+          sessionKey: "agent:main:clawline:user_1:main",
+          lastReadMessageId: "s_101"
+        })
+      )
+    ).not.toThrow();
+    expect(() =>
+      factory.sockets[0].emitMessage(
+        JSON.stringify({
+          type: "stream_tail_state",
+          sessionKey: "agent:main:clawline:user_1:main",
+          lastMessageId: "s_102",
+          lastMessageRole: "assistant"
+        })
+      )
+    ).not.toThrow();
+    expect(() =>
+      factory.sockets[0].emitMessage(
+        JSON.stringify({
+          type: "event",
+          event: "activity",
+          payload: {
+            sessionKey: "agent:main:clawline:user_1:main",
+            isActive: true
+          }
+        })
+      )
+    ).not.toThrow();
+
+    expect(transport.getState().phase).toBe("live");
+    expect(chatStore.getState().streamReadStateBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": "s_101"
+    });
+    expect(chatStore.getState().streamTailStateBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": {
+        lastMessageId: "s_102",
+        lastMessageRole: "assistant"
+      }
+    });
+  });
+
+  it("hydrates authoritative read and tail snapshots from auth bootstrap", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        replayCount: 0,
+        streamReadStates: {
+          "agent:main:clawline:user_1:main": "s_101"
+        },
+        streamTailStates: {
+          "agent:main:clawline:user_1:main": {
+            lastMessageId: "s_102",
+            lastMessageRole: "assistant"
+          }
+        }
+      })
+    );
+
+    expect(chatStore.getState().streamReadStateBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": "s_101"
+    });
+    expect(chatStore.getState().streamTailStateBySessionKey).toEqual({
+      "agent:main:clawline:user_1:main": {
+        lastMessageId: "s_102",
+        lastMessageRole: "assistant"
+      }
+    });
+  });
+
+  it("publishes stream_read frames for visited sessions with server tails", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        replayCount: 0
+      })
+    );
+
+    await transport.publishReadState("agent:main:clawline:user_1:main", "s_101");
+
+    expect(
+      factory.sockets[0].sentTexts.map((entry) => JSON.parse(entry))
+    ).toContainEqual({
+      type: "stream_read",
+      sessionKey: "agent:main:clawline:user_1:main",
+      lastReadMessageId: "s_101"
+    });
   });
 
   it("drops stale local transcript state when auth reports history reset", async () => {

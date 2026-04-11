@@ -56,6 +56,8 @@ struct RootView: View {
             }
         }
         .modifier(KeyboardSafeAreaMode(isActive: auth.isAuthenticated && isProviderConfigured))
+        // iOS and iPadOS must follow the live system appearance. Widening this override back to
+        // shared platforms breaks `@Environment(\.colorScheme)` updates and regresses auto-follow.
 #if os(visionOS)
         .preferredColorScheme(settings.preferredColorScheme)
 #endif
