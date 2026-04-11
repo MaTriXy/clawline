@@ -61,7 +61,6 @@ struct ClawlineApp: App {
         _sonioxKeyStore = State(initialValue: sonioxKeyStore)
         _cartesiaKeyStore = State(initialValue: cartesiaKeyStore)
         _watchConnectivityService = State(initialValue: watchService)
-        watchService.activate()
     }
 
     var body: some Scene {
@@ -79,7 +78,9 @@ struct ClawlineApp: App {
                 .sheet(isPresented: $settingsManager.isSettingsPresented) {
                     SettingsView(settings: settingsManager)
                 }
-
+                .onAppear {
+                    watchConnectivityService.activate()
+                }
         }
         .commands {
             ClawlineAppCommands(settingsManager: settingsManager)
