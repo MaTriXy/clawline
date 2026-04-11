@@ -2,17 +2,6 @@ import AVFoundation
 import Foundation
 
 final class SonioxStreamingClient {
-    enum ClientError: LocalizedError {
-        case notConnected
-
-        var errorDescription: String? {
-            switch self {
-            case .notConnected:
-                return "Soniox socket is not connected"
-            }
-        }
-    }
-
     struct TranscriptUpdate {
         let text: String
         let isFinal: Bool
@@ -55,35 +44,29 @@ final class SonioxStreamingClient {
     func start(apiKey: String, clientReferenceID: String = UUID().uuidString) async throws {
         guard !isRunning else { return }
         isRunning = true
-        latestTranscript = ""
 
-        do {
-            let url = URL(string: "wss://stt-rt.soniox.com/transcribe-websocket")!
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 20
-            let task = session.webSocketTask(with: request)
-            websocketTask = task
-            task.resume()
+        let url = URL(string: "wss://stt-rt.soniox.com/transcribe-websocket")!
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        let task = session.webSocketTask(with: request)
+        websocketTask = task
+        task.resume()
 
-            let config: [String: Any] = [
-                "api_key": apiKey,
-                "model": "stt-rt-preview",
-                "audio_format": "s16le",
-                "sample_rate": 16000,
-                "num_channels": 1,
-                "language_hints": ["en"],
-                "enable_endpoint_detection": true,
-                "client_reference_id": clientReferenceID
-            ]
-            try await sendJSON(config)
+        let config: [String: Any] = [
+            "api_key": apiKey,
+            "model": "stt-rt-preview",
+            "audio_format": "s16le",
+            "sample_rate": 16000,
+            "num_channels": 1,
+            "language_hints": ["en"],
+            "enable_endpoint_detection": true,
+            "client_reference_id": clientReferenceID
+        ]
+        try await sendJSON(config)
 
-            startReceiveLoop()
-            startKeepaliveLoop()
-            try startAudioCapture()
-        } catch {
-            stop()
-            throw error
-        }
+        startReceiveLoop()
+        startKeepaliveLoop()
+        try startAudioCapture()
     }
 
     func finalize(timeoutNanoseconds: UInt64 = 1_200_000_000) async -> String {
@@ -154,7 +137,8 @@ final class SonioxStreamingClient {
                     }
                 } catch {
                     onError?(error)
-                    stop()
+                    finalizeContinuation?.resume()
+                    finalizeContinuation = nil
                     break
                 }
             }
@@ -213,12 +197,9 @@ final class SonioxStreamingClient {
     }
 
     private func sendJSON(_ object: [String: Any]) async throws {
-        guard let websocketTask else {
-            throw ClientError.notConnected
-        }
         let data = try JSONSerialization.data(withJSONObject: object, options: [])
         guard let text = String(data: data, encoding: .utf8) else { return }
-        try await websocketTask.send(.string(text))
+        try await websocketTask?.send(.string(text))
     }
 
     private func startAudioCapture() throws {
@@ -295,15 +276,10 @@ final class SonioxStreamingClient {
         let data = Data(bytes: channelData[0], count: byteCount)
 
         Task { [weak self] in
-            guard let self else { return }
-            guard let websocketTask = self.websocketTask else {
-                self.onError?(ClientError.notConnected)
-                return
-            }
             do {
-                try await websocketTask.send(.data(data))
+                try await self?.websocketTask?.send(.data(data))
             } catch {
-                self.onError?(error)
+                self?.onError?(error)
             }
         }
     }
