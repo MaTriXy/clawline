@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import WatchConnectivity
-import Network
 
 @MainActor
 @Observable
@@ -121,7 +120,6 @@ final class WatchProviderTransport: ChatServicing {
     private let credentialStore: WatchCredentialStore
     private let streamAPIClient = WatchStreamAPIClient()
     private let urlSession = URLSession(configuration: .default)
-    private let directNetworkMonitor = DirectNetworkMonitor()
 
     private let messageBroadcaster = AsyncStreamBroadcaster<Message>()
     private let stateBroadcaster = AsyncStreamBroadcaster<ConnectionState>()
@@ -153,7 +151,6 @@ final class WatchProviderTransport: ChatServicing {
     private var reachabilityDebounceTask: Task<Void, Never>?
 
     private var isPhoneReachable: Bool = false
-    private var isDirectNetworkReachable: Bool = true
     private var pendingMessages: [BufferedMessage] = []
     private var authContinuation: CheckedContinuation<Void, Swift.Error>?
 
@@ -166,14 +163,6 @@ final class WatchProviderTransport: ChatServicing {
                 self?.handleCredentialUpdate()
             }
         }
-
-        isDirectNetworkReachable = directNetworkMonitor.isReachable
-        directNetworkMonitor.onChange = { [weak self] reachable in
-            Task { @MainActor in
-                self?.handleDirectNetworkChange(reachable)
-            }
-        }
-
         Task { [weak self] in
             await self?.start()
         }
@@ -226,6 +215,7 @@ final class WatchProviderTransport: ChatServicing {
                 eventBroadcaster.send(.messageAcked(id: id))
             } catch {
                 buffer(message)
+                transportState = .disconnected
                 throw error
             }
         case .probing, .disconnected:
@@ -441,15 +431,6 @@ final class WatchProviderTransport: ChatServicing {
         }
         if transportState == .direct, websocketTask == nil {
             enterProbing(reason: "direct socket lost")
-        }
-    }
-
-    private func handleDirectNetworkChange(_ reachable: Bool) {
-        guard isDirectNetworkReachable != reachable else { return }
-        isDirectNetworkReachable = reachable
-
-        if transportState == .disconnected, reachable {
-            enterProbing(reason: "network regained")
         }
     }
 
@@ -831,41 +812,11 @@ final class WatchProviderTransport: ChatServicing {
 
         if payload.code == "auth_failed" || payload.code == "token_revoked" {
             resolveAuthContinuation(with: .failure(TransportError.authFailed(payload.message ?? payload.code)))
-            teardownDirectConnection()
-            Task { [weak self] in
-                await self?.attemptAuthRefreshAfterFailure(reason: payload.message ?? payload.code)
-            }
+            transportState = .disconnected
             return
         }
 
         eventBroadcaster.send(.connectionInterrupted(reason: payload.message ?? payload.code))
-    }
-
-    private func attemptAuthRefreshAfterFailure(reason: String) async {
-        guard isPhoneReachable else {
-            transportState = .disconnected
-            eventBroadcaster.send(.connectionInterrupted(reason: "Re-open Clawline on iPhone"))
-            return
-        }
-
-        do {
-            let response = try await sendRelayRequest(type: RelayMessageType.authRefresh, payload: [:])
-            guard let payload = response["payload"] as? [String: Any] else {
-                throw TransportError.malformedReply
-            }
-
-            credentialStore.apply(userInfo: payload)
-
-            if credentialStore.hasProviderCredentials {
-                enterProbing(reason: "auth refresh")
-            } else {
-                transportState = .disconnected
-                eventBroadcaster.send(.connectionInterrupted(reason: "Re-open Clawline on iPhone"))
-            }
-        } catch {
-            transportState = .disconnected
-            eventBroadcaster.send(.connectionInterrupted(reason: reason))
-        }
     }
 
     private func teardownDirectConnection() {
@@ -1088,30 +1039,6 @@ private extension Dictionary where Key == String, Value == Any {
             throw RelayProtocolError.malformed
         }
         return text
-    }
-}
-
-private final class DirectNetworkMonitor {
-    private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "co.clicketyclacks.clawline.watch.transport.network")
-
-    private(set) var isReachable: Bool = true
-    var onChange: ((Bool) -> Void)?
-
-    init() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            guard let self else { return }
-            let reachable = path.status == .satisfied &&
-                (path.usesInterfaceType(.wifi) || path.usesInterfaceType(.cellular))
-            guard reachable != self.isReachable else { return }
-            self.isReachable = reachable
-            self.onChange?(reachable)
-        }
-        monitor.start(queue: queue)
-    }
-
-    deinit {
-        monitor.cancel()
     }
 }
 
