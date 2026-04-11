@@ -50,16 +50,11 @@ struct Clawline_Watch_Watch_AppApp: App {
 
     var body: some Scene {
         WindowGroup {
-            watchRootView
+            WatchMainView()
+                .environment(credentialStore)
+                .environment(providerTransport)
+                .environment(voiceSession)
+                .environment(channelManager)
         }
-    }
-
-    @ViewBuilder
-    private var watchRootView: some View {
-        WatchMainView()
-            .environment(credentialStore)
-            .environment(providerTransport)
-            .environment(voiceSession)
-            .environment(channelManager)
     }
 }
