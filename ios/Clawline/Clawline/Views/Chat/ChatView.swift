@@ -14,6 +14,10 @@ import os.log
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ChatView")
 
+private func t163DotsDiag(_ message: String) {
+    print("[T163_DOTS] \(Date().ISO8601Format()) \(message)")
+}
+
 #if DEBUG
 @MainActor
 private final class T099OnDisappearProbeStore {
@@ -1645,11 +1649,14 @@ struct ChatView: View {
                     .presentationBackground(.clear)
                     .streamManagerPopoverBackgroundInteraction()
                     .onAppear {
+                        t163DotsDiag("popover_onAppear phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
                         streamManagerPopoverSettlingTask?.cancel()
                         streamManagerPopoverSettlingTask = nil
                         streamManagerPopoverPhase = .open
+                        t163DotsDiag("popover_onAppear_state_applied phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
                     }
                     .onDisappear {
+                        t163DotsDiag("popover_onDisappear phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
                         beginStreamManagerPopoverDismissSettling()
                     }
                 }
@@ -1674,6 +1681,7 @@ struct ChatView: View {
         Binding(
             get: { isStreamManagerPopoverPresented },
             set: { newValue in
+                t163DotsDiag("binding_set newValue=\(newValue) phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
                 if newValue {
                     requestStreamManagerPopoverPresentation()
                 } else {
@@ -1684,52 +1692,69 @@ struct ChatView: View {
     }
 
     private func presentStreamManagerPopoverFromDotsTap() {
+        t163DotsDiag("dots_onTap phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
         requestStreamManagerPopoverPresentation()
     }
 
     private func requestStreamManagerPopoverPresentation() {
+        t163DotsDiag("request_open_enter phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
         switch streamManagerPopoverPhase {
         case .idle:
+            t163DotsDiag("request_open_action=open phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented)")
             openStreamManagerPopover()
         case .closing, .settling:
             shouldReopenStreamManagerPopoverAfterDismiss = true
+            t163DotsDiag("request_open_action=defer_reopen phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
         case .opening, .open:
+            t163DotsDiag("request_open_action=ignore_already_opening_or_open phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented)")
             break
         }
     }
 
     private func openStreamManagerPopover() {
-        guard !isStreamManagerPopoverPresented else { return }
+        guard !isStreamManagerPopoverPresented else {
+            t163DotsDiag("open_abort_already_presented phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented)")
+            return
+        }
+        t163DotsDiag("open_apply_start phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
         streamManagerPopoverSettlingTask?.cancel()
         streamManagerPopoverSettlingTask = nil
         shouldReopenStreamManagerPopoverAfterDismiss = false
         streamManagerPopoverPhase = .opening
         isStreamManagerPopoverPresented = true
+        t163DotsDiag("open_apply_done phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
     }
 
     private func dismissStreamManagerPopover() {
+        t163DotsDiag("dismiss_enter phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
         guard isStreamManagerPopoverPresented else {
             if streamManagerPopoverPhase != .settling {
                 streamManagerPopoverPhase = .idle
             }
+            t163DotsDiag("dismiss_noop_not_presented phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
             return
         }
         guard streamManagerPopoverPhase != .opening else {
             streamManagerPopoverPhase = .idle
             isStreamManagerPopoverPresented = false
+            t163DotsDiag("dismiss_cancel_opening phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
             return
         }
         streamManagerPopoverPhase = .closing
         isStreamManagerPopoverPresented = false
+        t163DotsDiag("dismiss_apply_done phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
     }
 
     private func beginStreamManagerPopoverDismissSettling() {
+        t163DotsDiag("settle_enter phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
         guard streamManagerPopoverPhase == .closing else {
             streamManagerPopoverPhase = .idle
+            t163DotsDiag("settle_bypass_to_idle phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
             reopenStreamManagerPopoverAfterDismissIfNeeded()
             return
         }
         streamManagerPopoverPhase = .settling
+        t163DotsDiag("settle_started phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
         streamManagerPopoverSettlingTask?.cancel()
         streamManagerPopoverSettlingTask = Task { @MainActor in
             do {
@@ -1742,16 +1767,25 @@ struct ChatView: View {
             guard !Task.isCancelled else { return }
             guard streamManagerPopoverPhase == .settling else { return }
             streamManagerPopoverPhase = .idle
+            t163DotsDiag("settle_finished_to_idle phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
             reopenStreamManagerPopoverAfterDismissIfNeeded()
         }
     }
 
     private func reopenStreamManagerPopoverAfterDismissIfNeeded() {
-        guard shouldReopenStreamManagerPopoverAfterDismiss else { return }
+        guard shouldReopenStreamManagerPopoverAfterDismiss else {
+            t163DotsDiag("reopen_if_needed_skip phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
+            return
+        }
+        t163DotsDiag("reopen_if_needed_schedule phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
         shouldReopenStreamManagerPopoverAfterDismiss = false
         Task { @MainActor in
             await Task.yield()
-            guard !isStreamManagerPopoverPresented, streamManagerPopoverPhase == .idle else { return }
+            guard !isStreamManagerPopoverPresented, streamManagerPopoverPhase == .idle else {
+                t163DotsDiag("reopen_after_yield_abort phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
+                return
+            }
+            t163DotsDiag("reopen_after_yield_opening phase=\(streamManagerPopoverPhase) presented=\(isStreamManagerPopoverPresented) pendingReopen=\(shouldReopenStreamManagerPopoverAfterDismiss)")
             openStreamManagerPopover()
         }
     }
@@ -2536,6 +2570,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     private var lastMeasuredHeight: CGFloat = 0
     private var lastDesiredBottomGap: CGFloat?
     private var lastPinnedKeyboardVisible: Bool?
+    private var lastT163PageDotsHitTestLogTime: TimeInterval = 0
 
     init(rootView: Content, versionText: AttributedString?) {
         hostingController = UIHostingController(rootView: rootView)
@@ -2729,6 +2764,21 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         layoutIfNeeded()
     }
 
+    private func t163LogPageDotsHitTest(point: CGPoint, view: UIView, result: Bool) {
+        let now = CACurrentMediaTime()
+        let viewFrame = view.frame
+        let nearView = viewFrame.insetBy(dx: -32, dy: -32).contains(point)
+        guard result || nearView || now - lastT163PageDotsHitTestLogTime > 1 else { return }
+        lastT163PageDotsHitTestLogTime = now
+        let presentationFrame = view.layer.presentation()?.frame
+        let convertedPoint = convert(point, to: view)
+        let pointInside = view.point(inside: convertedPoint, with: nil)
+        let hitTestMatched = view.hitTest(convertedPoint, with: nil) != nil
+        t163DotsDiag(
+            "pinned_hit_test pageDots result=\(result) near=\(nearView) point=\(point) frame=\(viewFrame) bounds=\(view.bounds) presentationFrame=\(String(describing: presentationFrame)) convertedPoint=\(convertedPoint) pointInside=\(pointInside) hitTestMatched=\(hitTestMatched) hidden=\(view.isHidden) userInteraction=\(view.isUserInteractionEnabled) alpha=\(view.alpha)"
+        )
+    }
+
     func setDesiredBottomGap(_ gap: CGFloat, isKeyboardVisible: Bool) {
         ensureConstraints(desiredBottomGap: gap)
 #if os(visionOS)
@@ -2817,9 +2867,12 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
            KeyboardPinnedHitTesting.contains(point, in: scrollButtonHost.view, from: self, event: event) {
             return true
         }
-        if let pageDotsHost,
-           KeyboardPinnedHitTesting.contains(point, in: pageDotsHost.view, from: self, event: event) {
-            return true
+        if let pageDotsHost {
+            let pageDotsHit = KeyboardPinnedHitTesting.contains(point, in: pageDotsHost.view, from: self, event: event)
+            t163LogPageDotsHitTest(point: point, view: pageDotsHost.view, result: pageDotsHit)
+            if pageDotsHit {
+                return true
+            }
         }
         if KeyboardPinnedHitTesting.contains(point, in: versionLabel, from: self, event: event) {
             return true
