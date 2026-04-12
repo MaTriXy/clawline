@@ -1643,6 +1643,7 @@ struct ChatView: View {
                     )
                     .presentationCompactAdaptation(.popover)
                     .presentationBackground(.clear)
+                    .streamManagerPopoverBackgroundInteraction()
                     .onAppear {
                         streamManagerPopoverSettlingTask?.cancel()
                         streamManagerPopoverSettlingTask = nil
@@ -2152,6 +2153,15 @@ private struct VisionOSInputBarDepthOffset: ViewModifier {
 private extension View {
     func visionOSInputBarDepthOffset() -> some View {
         modifier(VisionOSInputBarDepthOffset())
+    }
+
+    @ViewBuilder
+    func streamManagerPopoverBackgroundInteraction() -> some View {
+#if os(visionOS)
+        self
+#else
+        self.presentationBackgroundInteraction(.enabled)
+#endif
     }
 
     func handleStreamPopupCommand(
