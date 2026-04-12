@@ -93,6 +93,14 @@ private final class T099OnDisappearProbeStore {
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
 struct ChatView: View {
+    private enum StreamManagerPopoverPhase {
+        case idle
+        case opening
+        case open
+        case closing
+        case settling
+    }
+
     @Bindable var viewModel: ChatViewModel
     let toastManager: ToastManager
     @Environment(\.scenePhase) private var scenePhase
@@ -113,6 +121,9 @@ struct ChatView: View {
     @State private var pendingInputInsertions: [PendingAttachment] = []
     @State private var activeSheet: ChatSheet?
     @State private var isStreamManagerPopoverPresented = false
+    @State private var streamManagerPopoverPhase: StreamManagerPopoverPhase = .idle
+    @State private var shouldReopenStreamManagerPopoverAfterDismiss = false
+    @State private var streamManagerPopoverSettlingTask: Task<Void, Never>?
     @State private var streamPopupShouldAutoFocusSearch = false
     @State private var streamPopupSearchFocusRequestID = 0
     @State private var isTrackPickerPresented = false
@@ -572,6 +583,10 @@ struct ChatView: View {
             )
             viewModel.onDisappear(origin: "ChatView.onDisappear[\(chatViewTraceId)] scene=\(String(describing: scenePhase))")
             resetScrollButtonInteractionState()
+            streamManagerPopoverSettlingTask?.cancel()
+            streamManagerPopoverSettlingTask = nil
+            streamManagerPopoverPhase = .idle
+            shouldReopenStreamManagerPopoverAfterDismiss = false
 #if DEBUG
             lifecycleDebugOverlayDismissTask?.cancel()
             lifecycleDebugOverlayDismissTask = nil
@@ -1591,7 +1606,7 @@ struct ChatView: View {
             activeSessionKey: viewModel.uiSelectedSessionKey,
             dotStatesBySession: dotStatesBySession,
             maxWidth: pageDotsMaxWidth,
-            onTap: { isStreamManagerPopoverPresented = true }
+            onTap: { presentStreamManagerPopoverFromDotsTap() }
         )
         let pageDotsPopoverAnchor = Color.clear
             .frame(width: pageDotsAnchorWidth, height: StreamPageDotsView.controlHeight)
@@ -1601,7 +1616,7 @@ struct ChatView: View {
         return ZStack(alignment: .bottom) {
             pageDotsPopoverAnchor
                 .popover(
-                    isPresented: $isStreamManagerPopoverPresented,
+                    isPresented: streamManagerPopoverPresentationBinding,
                     attachmentAnchor: .rect(.bounds),
                     arrowEdge: .bottom
                 ) {
@@ -1609,7 +1624,7 @@ struct ChatView: View {
                         viewModel: viewModel,
                         streams: effectiveStreams,
                         dotStatesBySession: dotStatesBySession,
-                        isPresented: $isStreamManagerPopoverPresented,
+                        isPresented: streamManagerPopoverPresentationBinding,
                         shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
                         searchFocusRequestID: streamPopupSearchFocusRequestID,
                         maxAvailableHeight: streamSelectorMaxHeight,
@@ -1619,7 +1634,7 @@ struct ChatView: View {
                         },
                         onPresentTrackPicker: {
                             prepareForAttachmentPicker()
-                            isStreamManagerPopoverPresented = false
+                            dismissStreamManagerPopover()
                             Task { @MainActor in
                                 await Task.yield()
                                 isTrackPickerPresented = true
@@ -1628,6 +1643,14 @@ struct ChatView: View {
                     )
                     .presentationCompactAdaptation(.popover)
                     .presentationBackground(.clear)
+                    .onAppear {
+                        streamManagerPopoverSettlingTask?.cancel()
+                        streamManagerPopoverSettlingTask = nil
+                        streamManagerPopoverPhase = .open
+                    }
+                    .onDisappear {
+                        beginStreamManagerPopoverDismissSettling()
+                    }
                 }
             pageDotsControl
         }
@@ -1644,6 +1667,96 @@ struct ChatView: View {
     private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {
         StreamSwitchTiming.log("selectStream_called", sessionKey: sessionKey)
         viewModel.requestStreamSwitch(to: sessionKey, source: source)
+    }
+
+    private var streamManagerPopoverPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { isStreamManagerPopoverPresented },
+            set: { newValue in
+                if newValue {
+                    requestStreamManagerPopoverPresentation()
+                } else {
+                    dismissStreamManagerPopover()
+                }
+            }
+        )
+    }
+
+    private func presentStreamManagerPopoverFromDotsTap() {
+        requestStreamManagerPopoverPresentation()
+    }
+
+    private func requestStreamManagerPopoverPresentation() {
+        switch streamManagerPopoverPhase {
+        case .idle:
+            openStreamManagerPopover()
+        case .closing, .settling:
+            shouldReopenStreamManagerPopoverAfterDismiss = true
+        case .opening, .open:
+            break
+        }
+    }
+
+    private func openStreamManagerPopover() {
+        guard !isStreamManagerPopoverPresented else { return }
+        streamManagerPopoverSettlingTask?.cancel()
+        streamManagerPopoverSettlingTask = nil
+        shouldReopenStreamManagerPopoverAfterDismiss = false
+        streamManagerPopoverPhase = .opening
+        isStreamManagerPopoverPresented = true
+    }
+
+    private func dismissStreamManagerPopover() {
+        guard isStreamManagerPopoverPresented else {
+            if streamManagerPopoverPhase != .settling {
+                streamManagerPopoverPhase = .idle
+            }
+            return
+        }
+        guard streamManagerPopoverPhase != .opening else {
+            streamManagerPopoverPhase = .idle
+            isStreamManagerPopoverPresented = false
+            return
+        }
+        streamManagerPopoverPhase = .closing
+        isStreamManagerPopoverPresented = false
+    }
+
+    private func beginStreamManagerPopoverDismissSettling() {
+        guard streamManagerPopoverPhase == .closing else {
+            streamManagerPopoverPhase = .idle
+            reopenStreamManagerPopoverAfterDismissIfNeeded()
+            return
+        }
+        streamManagerPopoverPhase = .settling
+        streamManagerPopoverSettlingTask?.cancel()
+        streamManagerPopoverSettlingTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: streamManagerPopoverDismissSettlingDuration)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard streamManagerPopoverPhase == .settling else { return }
+            streamManagerPopoverPhase = .idle
+            reopenStreamManagerPopoverAfterDismissIfNeeded()
+        }
+    }
+
+    private func reopenStreamManagerPopoverAfterDismissIfNeeded() {
+        guard shouldReopenStreamManagerPopoverAfterDismiss else { return }
+        shouldReopenStreamManagerPopoverAfterDismiss = false
+        Task { @MainActor in
+            await Task.yield()
+            guard !isStreamManagerPopoverPresented, streamManagerPopoverPhase == .idle else { return }
+            openStreamManagerPopover()
+        }
+    }
+
+    private var streamManagerPopoverDismissSettlingDuration: Duration {
+        .milliseconds(350)
     }
 
     private var supportsKeyboardNavigationShortcuts: Bool {
