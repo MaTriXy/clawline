@@ -40,6 +40,7 @@ function renderComposer({
       return transportState;
     },
     retryNow,
+    async sendInteractiveCallback() {},
     setSelectedSessionKey() {},
     sendMessage,
     subscribe() {

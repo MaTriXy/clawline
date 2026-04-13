@@ -4,7 +4,9 @@ import {
   parseAuthResultPayload,
   parseServerPayload,
   serializeAuthPayload,
-  serializeClientMessage
+  serializeClientMessage,
+  serializeInteractiveCallback,
+  type JsonValue
 } from "../../protocol/chat-wire";
 import type { ClientAttachmentPayload } from "../../protocol/chat-wire";
 import type { AuthSessionStore } from "../auth/authSessionStore";
@@ -17,6 +19,7 @@ import {
   type SocketLike,
   type WebSocketFactory
 } from "./wsClient";
+import { getWebClientFeatures } from "../terminal/terminalCapabilities";
 
 export type TransportPhase =
   | "idle"
@@ -43,6 +46,11 @@ export interface SendMessageInput {
 
 export interface TransportMachine {
   getState(): TransportState;
+  sendInteractiveCallback(input: {
+    action: string;
+    data?: JsonValue;
+    messageId: string;
+  }): Promise<void>;
   subscribe(listener: () => void): () => void;
   retryNow(): void;
   setSelectedSessionKey(sessionKey: string | undefined): void;
@@ -53,6 +61,7 @@ interface CreateTransportMachineOptions {
   authSessionStore: AuthSessionStore;
   chatDomainStore: ChatDomainStore;
   browserRuntime?: BrowserRuntime;
+  clientFeatures?: string[];
   selectedSessionKeySource?: () => string | undefined;
   webSocketFactory?: WebSocketFactory;
 }
@@ -77,16 +86,17 @@ const MAX_SYNC_REPLAY_MESSAGES = 24;
 const REPLAY_MESSAGE_BATCH_SIZE = 24;
 const SHOULD_WARN_ON_STREAM_SNAPSHOT =
   typeof process === "undefined" || process.env.NODE_ENV !== "production";
-const WEB_CLIENT_FEATURES = ["terminal_bubbles_v1"];
 const WEB_CLIENT_ID = "clawline-web";
 
 export function createTransportMachine({
   authSessionStore,
   chatDomainStore,
   browserRuntime = createBrowserRuntime(),
+  clientFeatures,
   selectedSessionKeySource,
   webSocketFactory = createBrowserWebSocketFactory()
 }: CreateTransportMachineOptions): TransportMachine {
+  const resolvedClientFeatures = clientFeatures ?? getWebClientFeatures();
   const baseStore = createStore<TransportState>({
     ...INITIAL_STATE,
     isBrowserOnline: browserRuntime.isOnline()
@@ -232,10 +242,10 @@ export function createTransportMachine({
           token: session.token,
           deviceId: session.deviceId,
           lastMessageId: chatDomainStore.getState().lastServerEventId,
-          clientFeatures: WEB_CLIENT_FEATURES,
+          clientFeatures: resolvedClientFeatures,
           client: {
             id: WEB_CLIENT_ID,
-            features: WEB_CLIENT_FEATURES
+            features: resolvedClientFeatures
           },
           replayCursorsBySessionKey: toReplayCursorPayload(
             chatDomainStore.getState().replayCursorsBySessionKey
@@ -487,6 +497,22 @@ export function createTransportMachine({
           content: input.content,
           attachments: input.attachments,
           sessionKey: input.sessionKey
+        })
+      );
+    },
+    async sendInteractiveCallback(input) {
+      if (baseStore.getState().phase !== "live" || !socket) {
+        throw new Error("Transport is not live");
+      }
+
+      socket.send(
+        serializeInteractiveCallback({
+          type: "interactive-callback",
+          messageId: input.messageId,
+          payload: {
+            action: input.action,
+            data: input.data
+          }
         })
       );
     }

@@ -104,6 +104,7 @@ async function waitForHydration(store: ReturnType<typeof createChatDomainStore>)
 describe("transportMachine", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   it("transitions idle -> connecting -> authenticating -> live on auth success", async () => {
@@ -115,6 +116,7 @@ describe("transportMachine", () => {
     const transport = createTransportMachine({
       authSessionStore: authStore,
       chatDomainStore: chatStore,
+      clientFeatures: ["terminal_bubbles_v1"],
       webSocketFactory: factory.create
     });
 
@@ -149,6 +151,33 @@ describe("transportMachine", () => {
       client: {
         id: "clawline-web",
         features: ["terminal_bubbles_v1"]
+      }
+    });
+  });
+
+  it("does not advertise terminal bubble support when WebSocket is unavailable", async () => {
+    vi.stubGlobal("WebSocket", undefined);
+
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+
+    expect(JSON.parse(factory.sockets[0].sentTexts[0])).toMatchObject({
+      type: "auth",
+      clientFeatures: [],
+      client: {
+        id: "clawline-web",
+        features: []
       }
     });
   });
@@ -858,6 +887,48 @@ describe("transportMachine", () => {
         }
       ],
       sessionKey: "agent:main:clawline:user_1:main"
+    });
+  });
+
+  it("serializes interactive callbacks through the live socket send path", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const factory = new FakeWebSocketFactory();
+    const transport = createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "auth_result",
+        success: true,
+        sessionKeys: ["agent:main:clawline:user_1:main"]
+      })
+    );
+
+    await transport.sendInteractiveCallback({
+      messageId: "s_html_101",
+      action: "ping",
+      data: {
+        count: 7
+      }
+    });
+
+    expect(JSON.parse(factory.sockets[0].sentTexts.at(-1) ?? "{}")).toEqual({
+      type: "interactive-callback",
+      messageId: "s_html_101",
+      payload: {
+        action: "ping",
+        data: {
+          count: 7
+        }
+      }
     });
   });
 

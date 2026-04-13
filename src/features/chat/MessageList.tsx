@@ -287,6 +287,7 @@ export function MessageList({
               width={width}
             >
               <MessageBubble
+                deviceId={authState.session?.deviceId}
                 message={message}
                 onExpand={() => setExpandedMessageId(message.id)}
                 onRetry={() => void handleRetryMessage(message.id)}
@@ -413,6 +414,7 @@ function MeasuredMessageRow({
 }
 
 function MessageBubble({
+  deviceId,
   message,
   onExpand,
   onRetry,
@@ -421,6 +423,7 @@ function MessageBubble({
   transportPhase,
   token
 }: {
+  deviceId?: string;
   message: ChatMessageRecord;
   onExpand: () => void;
   onRetry: () => void;
@@ -504,6 +507,8 @@ function MessageBubble({
       <MessageLinkCards content={message.content} contentRef={contentRef} />
       <MessageAttachments
         attachments={message.attachments}
+        deviceId={deviceId}
+        messageId={message.id}
         serverUrl={serverUrl}
         token={token}
       />
