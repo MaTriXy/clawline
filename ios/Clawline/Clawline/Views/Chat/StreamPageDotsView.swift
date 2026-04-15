@@ -143,15 +143,17 @@ struct StreamPageDotsView: View {
     }
 
     var body: some View {
-        controlBody
-            .frame(minHeight: Self.minimumHitTargetHeight, alignment: .bottom)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: onTap)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction(named: Text("Open stream manager"), onTap)
-            .accessibilityLabel("Manage streams")
-            .accessibilityValue("Stream \(activeIndex + 1) of \(sessionKeys.count)")
-            .accessibilityHint("Opens stream manager")
+        Button(action: onTap) {
+            controlBody
+                .frame(minHeight: Self.minimumHitTargetHeight, alignment: .bottom)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: Text("Open stream manager"), onTap)
+        .accessibilityLabel("Manage streams")
+        .accessibilityValue("Stream \(activeIndex + 1) of \(sessionKeys.count)")
+        .accessibilityHint("Opens stream manager")
     }
 
     private var controlBody: some View {
