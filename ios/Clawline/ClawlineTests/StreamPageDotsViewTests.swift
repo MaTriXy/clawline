@@ -65,6 +65,63 @@ struct StreamPageDotsViewTests {
         #expect(visibleCount == 11)
     }
 
+    @Test("Rendered indicator width matches the visible control width")
+    func renderedControlWidthMatchesVisibleControlWidth() {
+        let visibleCount = StreamPageDotsView.fittingVisibleDotCount(
+            totalSessionCount: 40,
+            maxWidth: CGFloat(640)
+        )
+        let expectedWidth = StreamPageDotsView.requiredControlWidth(
+            visibleDotCount: visibleCount,
+            includesOverflowIndicators: visibleCount < 40
+        )
+
+        #expect(
+            StreamPageDotsView.renderedControlWidth(
+                totalSessionCount: 40,
+                maxWidth: CGFloat(640)
+            ) == expectedWidth
+        )
+    }
+
+    @Test("Popup route controller owns popup search and track picker surfaces")
+    func popupRouteControllerOwnsPopupAndTrackPickerSurfaces() {
+        let routeController = StreamPopupRouteController()
+
+        #expect(routeController.route == .closed)
+        #expect(routeController.isPopupPresented == false)
+        #expect(routeController.isTrackPickerPresented == false)
+
+        routeController.openPopup(focusSearch: false)
+
+        #expect(routeController.route == .popup(searchFocus: .none))
+        #expect(routeController.isPopupPresented)
+        #expect(routeController.popupSearchFocusRequestID == nil)
+
+        routeController.openPopup(focusSearch: true)
+        let initialSearchFocusRequestID = routeController.popupSearchFocusRequestID
+
+        #expect(initialSearchFocusRequestID != nil)
+        if let initialSearchFocusRequestID {
+            #expect(routeController.route == .popup(searchFocus: .request(id: initialSearchFocusRequestID)))
+        }
+
+        routeController.consumeSearchFocusRequest()
+
+        #expect(routeController.route == .popup(searchFocus: .none))
+        #expect(routeController.popupSearchFocusRequestID == nil)
+
+        routeController.presentTrackPicker()
+
+        #expect(routeController.route == .trackPicker)
+        #expect(routeController.isPopupPresented == false)
+        #expect(routeController.isTrackPickerPresented)
+
+        routeController.dismissTrackPicker()
+
+        #expect(routeController.route == .closed)
+    }
+
     @Test("Active dots override unread styling")
     func activeKindWinsPrecedence() {
         let kind = StreamDotColor.kind(

@@ -92,7 +92,68 @@ private final class T099OnDisappearProbeStore {
 //
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
+enum StreamPopupSearchFocus: Equatable {
+    case none
+    case request(id: Int)
+}
+
+enum StreamPopupRoute: Equatable {
+    case closed
+    case popup(searchFocus: StreamPopupSearchFocus)
+    case trackPicker
+}
+
+@MainActor
+@Observable
+final class StreamPopupRouteController {
+    private(set) var route: StreamPopupRoute = .closed
+    private var searchFocusRequestID = 0
+
+    var isPopupPresented: Bool {
+        if case .popup = route {
+            return true
+        }
+        return false
+    }
+
+    var isTrackPickerPresented: Bool {
+        route == .trackPicker
+    }
+
+    var popupSearchFocusRequestID: Int? {
+        guard case .popup(.request(let id)) = route else { return nil }
+        return id
+    }
+
+    func openPopup(focusSearch: Bool) {
+        if focusSearch {
+            searchFocusRequestID &+= 1
+            route = .popup(searchFocus: .request(id: searchFocusRequestID))
+        } else {
+            route = .popup(searchFocus: .none)
+        }
+    }
+
+    func closePopup() {
+        route = .closed
+    }
+
+    func presentTrackPicker() {
+        route = .trackPicker
+    }
+
+    func dismissTrackPicker() {
+        route = .closed
+    }
+
+    func consumeSearchFocusRequest() {
+        guard popupSearchFocusRequestID != nil else { return }
+        route = .popup(searchFocus: .none)
+    }
+}
+
 struct ChatView: View {
+
     @Bindable var viewModel: ChatViewModel
     let toastManager: ToastManager
     @Environment(\.scenePhase) private var scenePhase
@@ -112,10 +173,7 @@ struct ChatView: View {
     @State private var selectionRange = NSRange(location: 0, length: 0)
     @State private var pendingInputInsertions: [PendingAttachment] = []
     @State private var activeSheet: ChatSheet?
-    @State private var isStreamManagerPopoverPresented = false
-    @State private var streamPopupShouldAutoFocusSearch = false
-    @State private var streamPopupSearchFocusRequestID = 0
-    @State private var isTrackPickerPresented = false
+    @State private var streamPopupRouteController = StreamPopupRouteController()
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
@@ -269,7 +327,7 @@ struct ChatView: View {
     }
 
     private func handleMessageFlowScrollEvent(_ event: MessageFlowScrollEvent) {
-        guard !isStreamManagerPopoverPresented else { return }
+        guard !streamPopupRouteController.isPopupPresented else { return }
         switch event {
         case .isAtBottomChanged(let sessionKey, let isAtBottom):
             mutateScrollButtonState(for: sessionKey) { state in
@@ -572,6 +630,7 @@ struct ChatView: View {
             )
             viewModel.onDisappear(origin: "ChatView.onDisappear[\(chatViewTraceId)] scene=\(String(describing: scenePhase))")
             resetScrollButtonInteractionState()
+            streamPopupRouteController.closePopup()
 #if DEBUG
             lifecycleDebugOverlayDismissTask?.cancel()
             lifecycleDebugOverlayDismissTask = nil
@@ -582,15 +641,11 @@ struct ChatView: View {
             guard phase == .active else { return }
             keyboardRefreshToken &+= 1
         }
-        .onChange(of: isStreamManagerPopoverPresented) { _, isPresented in
-            if !isPresented {
-                streamPopupShouldAutoFocusSearch = false
-            }
-        }
         .handleStreamPopupCommand(
-            isPresented: $isStreamManagerPopoverPresented,
             hasStreams: !viewModel.orderedStreams.isEmpty,
-            onOpen: requestStreamPopupSearchFocus
+            onOpen: {
+                streamPopupRouteController.openPopup(focusSearch: true)
+            }
         )
         .handleKeyboardScrollCommands(
             isEnabled: supportsKeyboardNavigationShortcuts,
@@ -1582,56 +1637,26 @@ struct ChatView: View {
             containerWidth: containerWidth,
             bottomSafeAreaInset: bottomSafeAreaInset
         )
-        return StreamPageDotsView(
+        return StreamPopupTrigger(
+            routeController: streamPopupRouteController,
+            viewModel: viewModel,
+            streams: effectiveStreams,
             sessionKeys: effectiveSessionKeys,
             activeSessionKey: viewModel.uiSelectedSessionKey,
             dotStatesBySession: dotStatesBySession,
             maxWidth: pageDotsMaxWidth,
-            onTap: { isStreamManagerPopoverPresented = true }
-        )
-        .overlay(alignment: .top) {
-            Color.clear
-                .frame(maxWidth: .infinity)
-                .frame(height: 1)
-                .allowsHitTesting(false)
-                .popover(
-                    isPresented: $isStreamManagerPopoverPresented,
-                    attachmentAnchor: .rect(.bounds),
-                    arrowEdge: .bottom
-                ) {
-                    StreamManagerSheet(
-                        viewModel: viewModel,
-                        streams: effectiveStreams,
-                        dotStatesBySession: dotStatesBySession,
-                        isPresented: $isStreamManagerPopoverPresented,
-                        shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
-                        searchFocusRequestID: streamPopupSearchFocusRequestID,
-                        maxAvailableHeight: streamSelectorMaxHeight,
-                        maxAvailableWidth: containerWidth,
-                        onSelectStream: { sessionKey in
-                            selectStream(sessionKey, source: .programmatic)
-                        },
-                        onPresentTrackPicker: {
-                            prepareForAttachmentPicker()
-                            isStreamManagerPopoverPresented = false
-                            Task { @MainActor in
-                                await Task.yield()
-                                isTrackPickerPresented = true
-                            }
-                        }
-                    )
-                    .presentationCompactAdaptation(.popover)
-                    .presentationBackground(.clear)
-                }
-        }
-        .sheet(
-            isPresented: $isTrackPickerPresented,
-            onDismiss: {
+            maxAvailableHeight: streamSelectorMaxHeight,
+            maxAvailableWidth: containerWidth,
+            onSelectStream: { sessionKey in
+                selectStream(sessionKey, source: .programmatic)
+            },
+            onPrepareForTrackPicker: {
+                prepareForAttachmentPicker()
+            },
+            onTrackPickerDismiss: {
                 restoreFocusIfNeeded()
             }
-        ) {
-            TrackPickerSheet(viewModel: viewModel)
-        }
+        )
     }
 
     private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {
@@ -1667,11 +1692,6 @@ struct ChatView: View {
     private func scrollActiveSessionToTop() {
         guard let sessionKey = keyboardNavigationSessionKey else { return }
         layoutCoordinator.scrollToTop(sessionKey: sessionKey, animated: true)
-    }
-
-    private func requestStreamPopupSearchFocus() {
-        streamPopupShouldAutoFocusSearch = true
-        streamPopupSearchFocusRequestID &+= 1
     }
 
     private func scheduleStreamToastBusyClear() {
@@ -2029,19 +2049,122 @@ private struct VisionOSInputBarDepthOffset: ViewModifier {
     }
 }
 
+private struct StreamPopupTrigger: View {
+    @Bindable var routeController: StreamPopupRouteController
+
+    let viewModel: ChatViewModel
+    let streams: [StreamSession]
+    let sessionKeys: [String]
+    let activeSessionKey: String
+    let dotStatesBySession: [String: StreamDotState]
+    let maxWidth: CGFloat?
+    let maxAvailableHeight: CGFloat
+    let maxAvailableWidth: CGFloat
+    let onSelectStream: (String) -> Void
+    let onPrepareForTrackPicker: () -> Void
+    let onTrackPickerDismiss: () -> Void
+
+    var body: some View {
+        StreamPageDotsView(
+            sessionKeys: sessionKeys,
+            activeSessionKey: activeSessionKey,
+            dotStatesBySession: dotStatesBySession,
+            maxWidth: maxWidth,
+            onTap: {
+                routeController.openPopup(focusSearch: false)
+            }
+        )
+        .popover(
+            isPresented: popupPresentationBinding,
+            attachmentAnchor: .rect(.bounds),
+            arrowEdge: .bottom
+        ) {
+            StreamManagerSheet(
+                viewModel: viewModel,
+                streams: streams,
+                dotStatesBySession: dotStatesBySession,
+                searchFocusRequestID: routeController.popupSearchFocusRequestID,
+                maxAvailableHeight: maxAvailableHeight,
+                maxAvailableWidth: maxAvailableWidth,
+                onSelectStream: { sessionKey in
+                    routeController.closePopup()
+                    onSelectStream(sessionKey)
+                },
+                onRequestTrackPicker: {
+                    onPrepareForTrackPicker()
+                    routeController.presentTrackPicker()
+                },
+                onConsumeSearchFocusRequest: {
+                    routeController.consumeSearchFocusRequest()
+                }
+            )
+            .presentationCompactAdaptation(.popover)
+            .presentationBackground(.clear)
+            .streamManagerPopoverBackgroundInteraction()
+        }
+        .sheet(
+            isPresented: trackPickerPresentationBinding,
+            onDismiss: {
+                routeController.dismissTrackPicker()
+                onTrackPickerDismiss()
+            }
+        ) {
+            TrackPickerSheet(
+                viewModel: viewModel,
+                onDismissRequested: {
+                    routeController.dismissTrackPicker()
+                }
+            )
+        }
+    }
+
+    private var popupPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { routeController.isPopupPresented },
+            set: { isPresented in
+                if isPresented {
+                    routeController.openPopup(focusSearch: false)
+                } else {
+                    routeController.closePopup()
+                }
+            }
+        )
+    }
+
+    private var trackPickerPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { routeController.isTrackPickerPresented },
+            set: { isPresented in
+                if isPresented {
+                    routeController.presentTrackPicker()
+                } else {
+                    routeController.dismissTrackPicker()
+                }
+            }
+        )
+    }
+}
+
 private extension View {
     func visionOSInputBarDepthOffset() -> some View {
         modifier(VisionOSInputBarDepthOffset())
     }
 
+    @ViewBuilder
+    func streamManagerPopoverBackgroundInteraction() -> some View {
+#if os(visionOS)
+        self
+#else
+        self.presentationBackgroundInteraction(.enabled)
+#endif
+    }
+
     func handleStreamPopupCommand(
-        isPresented: Binding<Bool>,
         hasStreams: Bool,
         onOpen: @escaping () -> Void
     ) -> some View {
         modifier(
             StreamPopupCommandModifier(
-                isPresented: isPresented,
                 hasStreams: hasStreams,
                 onOpen: onOpen
             )
@@ -2064,14 +2187,12 @@ private extension View {
 }
 
 private struct StreamPopupCommandModifier: ViewModifier {
-    @Binding var isPresented: Bool
     let hasStreams: Bool
     let onOpen: () -> Void
 
     func body(content: Content) -> some View {
         content.onReceive(NotificationCenter.default.publisher(for: .clawlineOpenStreamPopupCommand)) { _ in
             guard hasStreams else { return }
-            isPresented = true
             onOpen()
         }
     }
@@ -2357,6 +2478,31 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     }
 }
 
+enum KeyboardPinnedHitTesting {
+    @MainActor
+    static func contains(
+        _ point: CGPoint,
+        in candidate: UIView,
+        from container: UIView,
+        event: UIEvent?
+    ) -> Bool {
+        guard !candidate.isHidden, candidate.isUserInteractionEnabled, candidate.alpha > 0.01 else { return false }
+
+        let pointInCandidate = container.convert(point, to: candidate)
+        if candidate.hitTest(pointInCandidate, with: event) != nil {
+            return true
+        }
+        if candidate.point(inside: pointInCandidate, with: event) {
+            return true
+        }
+        if let presentationFrame = candidate.layer.presentation()?.frame,
+           presentationFrame.contains(point) {
+            return true
+        }
+        return false
+    }
+}
+
 private final class KeyboardPinnedContainerView<Content: View>: UIView, KeyboardPinnedContainerViewProtocol {
     let hostingController: UIHostingController<Content>
     let versionLabel: UILabel
@@ -2562,7 +2708,16 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         pageDotsHost?.view.isHidden = (view == nil)
         pageDotsHost?.view.isUserInteractionEnabled = (view != nil)
         pageDotsBottomToBarTop?.constant = -gap
+        syncPageDotsHostLayout()
 #endif
+    }
+
+    private func syncPageDotsHostLayout() {
+        guard let pageDotsView = pageDotsHost?.view else { return }
+        pageDotsView.invalidateIntrinsicContentSize()
+        pageDotsView.setNeedsLayout()
+        setNeedsLayout()
+        layoutIfNeeded()
     }
 
     func setDesiredBottomGap(_ gap: CGFloat, isKeyboardVisible: Bool) {
@@ -2644,16 +2799,20 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        if let hitView = hostingController.view, hitView.frame.contains(point) {
+        layoutIfNeeded()
+        if let hitView = hostingController.view,
+           KeyboardPinnedHitTesting.contains(point, in: hitView, from: self, event: event) {
             return true
         }
-        if let scrollButtonHost, scrollButtonHost.view.frame.contains(point) {
+        if let scrollButtonHost,
+           KeyboardPinnedHitTesting.contains(point, in: scrollButtonHost.view, from: self, event: event) {
             return true
         }
-        if let pageDotsHost, pageDotsHost.view.frame.contains(point) {
+        if let pageDotsHost,
+           KeyboardPinnedHitTesting.contains(point, in: pageDotsHost.view, from: self, event: event) {
             return true
         }
-        if !versionLabel.isHidden && versionLabel.frame.contains(point) {
+        if KeyboardPinnedHitTesting.contains(point, in: versionLabel, from: self, event: event) {
             return true
         }
         return false
