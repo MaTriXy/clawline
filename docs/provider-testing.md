@@ -136,9 +136,9 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Revocation aborts any in-flight stream (no final message).
 - Revocation-aborted streams still have a message record (created at receipt), marked failed, and no final assistant message is emitted.
 - Implementation detail for tests: revocation sets `messages.streaming = 2` for any in-progress row (same as other failures).
-- Queued messages belonging to streams whose only subscribed connection was revoked are dropped from memory without being persisted (the corresponding client must resend after re-auth/pair).
-- Revocation drops any queued messages for affected streams and does not emit per-message errors (session closes with `token_revoked`).
-- Test: enqueue two messages on one stream, revoke the subscribed device before generation; ensure that stream queue is cleared with no `error` per message and clients must resend after re-auth.
+- Queued messages belonging to streams whose only subscribed connection was revoked keep their durable message records and are marked failed (`messages.streaming = 2`); only in-memory queue entries are dropped. The corresponding client must resend after re-auth/pair with new `c_*` ids.
+- Revocation drops any queued in-memory work for affected streams and does not emit per-message errors (session closes with `token_revoked`).
+- Test: enqueue two messages on one stream, revoke the subscribed device before generation; ensure the durable records are marked failed, the stream queue is cleared with no `error` per message, and clients must resend after re-auth.
 - If the last admin device is revoked, recovery is an operator action (reset state / remove allowlist); there is no in-protocol recovery.
 - Auth without `protocolVersion` is rejected with `invalid_message` and closes the connection.
 - `GET /version` (no auth) returns `{ "protocolVersion": 1 }`; tests should call it before pairing/auth to ensure version mismatches are caught by the client before attempting a socket connection.
@@ -167,7 +167,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - The content hash for a duplicate `id` must reflect the first accepted content.
 - Assistant responses after the new connection authenticates are delivered on the new connection only.
 - Clients correlate responses by message `id`; the old connection should not wait for responses after `session_replaced`.
-- If a stream is active when the new connection authenticates, move it to the new socket: send the latest full snapshot (`streaming: true`) to that connection, continue delivering updates there, and immediately close the old socket with `session_replaced`. A resume is only possible during this overlap window; if both sockets disconnect, the client must retry with a new `id`.
+- If a stream is active when the new connection authenticates, move it to the new socket: send the latest full snapshot (`streaming: true`) to that connection, continue delivering updates there, and immediately close the old socket with `session_replaced`. Live resume is only possible during this overlap window. If both sockets disconnect, the client waits for reconnect replay; it retries with a new `id` only after the stream is failed/inactive with no final.
 - The server signals takeover via the normal `session_replaced` error on the old socket; the new socket receives the same `s_*` stream id so the client can continue rendering the in-flight message without a new identifier.
 - If the new connection fails to authenticate, the old connection remains active (no session takeover).
 - If the old connection is already closed and the new connection fails auth, any stream queues that no longer have subscribed connections are dropped.
@@ -176,7 +176,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Server-sent `message` events include `timestamp` (Unix epoch ms).
 - Server-sent `message` events include `sessionKey` for every persisted or replayable chat event; clients route UI streams and advance replay cursors by that exact key.
 - Echoed user messages always use a server-generated `s_` identifier even though the originating client supplied a `c_` id. The echo includes `clientMessageId` with that original `c_` id so clients can replace the correct optimistic local message.
-- Assistant messages generated as a reply to a client message include `replyToClientMessageId` with the originating `c_` id. Independent outbound assistant messages omit it.
+- Assistant messages generated as a reply to a client message include `replyToMessageId` with the echoed user message's server `s_*` id. They may also include `replyToClientMessageId` for local diagnostics, but clients must use `replyToMessageId` for cross-device reply correlation. Independent outbound assistant messages omit both reply fields.
 - `ServerMessage.deviceId` is present only on echoed user messages (`role: "user"`) so clients can attribute which device sent it; assistant/system messages omit it. Tests should ensure this behavior.
 - `content` length over 64KB of UTF-8 encoded bytes (65,536 bytes) returns `payload_too_large`.
 - Client-provided `id` on user messages is accepted only if it uses the `c_` prefix.
@@ -204,7 +204,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - "Finalized message" means a `message` event with `streaming: false` (complete) that is persisted to history.
 - "Partial" means a `message` event with `streaming: true` (not final).
 - Only one assistant stream may be active per `(userId, sessionKey)` at a time. Messages for the same user and stream are queued FIFO. Different streams for the same user may run concurrently.
-- Clients should send `replayCursorsBySessionKey` on auth: an object keyed by subscribed session key whose values are the last server event IDs (`s_*`) fully processed for those exact streams.
+- Clients should send `replayCursorsBySessionKey` on auth: an object keyed by subscribed session key whose values are the last finalized/replayable server event IDs (`s_*`) fully processed for those exact streams.
 - `lastMessageId` remains a compatibility fallback for older clients. It anchors only the stream that owns that event and must not be treated as a global cursor for unrelated streams.
 - Empty-string or whitespace-only `lastMessageId` payloads are rejected with `invalid_message`; omit the field or send `null` when no prior events exist.
 - Empty-string or whitespace-only values inside `replayCursorsBySessionKey` are ignored for that stream; valid entries for other streams remain usable.
@@ -217,8 +217,10 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Duplicate messages are not emitted during replay + live stream crossover (server must drop duplicates by message `id`).
 - Replay ordering is oldest-to-newest.
 - Replay completes before any live messages are delivered to the newly authenticated socket (no interleaving). Messages created while replay is in progress must not be lost; use an explicit replay/live barrier and duplicate suppression by server message `id`. If post-replay gap fill is used, those gap-fill messages are delivered as live messages and are excluded from `auth_result.replayCount`.
+- After replay messages and any immediately queued post-replay gap-fill live messages have been sent, the provider sends `{ "type": "sync_complete" }`. Clients must not run missing-final detection from reconnect until this control event arrives.
 - Queued messages are processed only after replay completes.
 - Replay includes only finalized messages (partials are never replayed).
+- Streaming partials do not advance replay cursors. If a partial and final assistant message share the same `id`, the final message is the replayable event and must still be applied/replayed even when the client processed the partial before disconnect.
 - Replay includes server-sent assistant messages and echoed user messages.
 - Replay includes messages even if referenced files are missing; clients may see `not_found` when fetching those URLs.
 - Within a single stream, an unfinished assistant stream implies there are no later finalized assistant messages for that same `(userId, sessionKey)`; stopping that stream's replay before the partial does not drop assistant output for that stream. Other streams are independent.
@@ -227,7 +229,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - If a user message was acked and generation continues after disconnect, the final assistant message is persisted and replayed on reconnect. If generation becomes inactive without a final message, the stream is marked failed and the client must retry with a new `id`.
 - If no streaming updates arrive within `streamInactivitySeconds` from the time the message record was created, the stream becomes inactive (even if no output was ever sent or `ack` never reached the client).
 - If no finalized message exists after the skipped partial, replay sends no additional content and the client discards the partial.
-- If the client has a cached partial, it discards it once replay completes (`replayCount` messages received) and no message with that `id` arrived.
+- If the client has a cached partial, it discards it once `sync_complete` arrives and no final message with that `id` arrived.
 - Streaming delivery is never resumed after a disconnect/reconnect; only overlapping session takeover can continue a live stream. If the originating socket drops, active generation may continue in the background until it finalizes or becomes inactive. Finalized output is replayable; partial output is not.
 - **Session takeover clarification:** if a second connection authenticates for the same `deviceId` *before* the original socket closes, the provider moves the active stream to the new socket by sending the latest full-content snapshot (`streaming: true`) and continuing full-content updates there (no deltas). This is not replay; it is the continuity expectation while both sockets overlap for a brief handoff.
 - **Reconnect vs takeover summary:** Takeover requires overlapping sockets (new one authenticates before the old closes) and keeps the existing `s_*` id live; the old socket receives `session_replaced`. If the old socket closes before a replacement authenticates, live streaming stops for that client. On reconnect, replay delivers a finalized assistant message if generation completed; otherwise the client must retry with a new `c_*` id once the stream is failed/inactive.
@@ -364,10 +366,11 @@ typing (client): { type: "typing"; active: boolean }
 // Server -> Client
 pair_approval_request: { type: "pair_approval_request"; deviceId: string; claimedName?: string; deviceInfo: { platform: string; model: string; osVersion?: string; appVersion?: string } }
 pair_result: { type: "pair_result"; success: boolean; token?: string; userId?: string; reason?: "pair_rejected" | "pair_denied" | "pair_timeout" }
-auth_result: { type: "auth_result"; success: boolean; userId?: string; sessionId?: string; isAdmin?: boolean; replayCount: number; replayTruncated: boolean; historyReset: boolean; reason?: "auth_failed" | "token_revoked" | "device_not_approved" }
+auth_result: { type: "auth_result"; success: true; userId: string; sessionId: string; isAdmin: boolean; replayCount: number; replayTruncated: boolean; historyReset: boolean } | { type: "auth_result"; success: false; reason: "auth_failed" | "token_revoked" | "device_not_approved" }
 ack: { type: "ack"; id: string }
-message (server): { type: "message"; id: string; role: "assistant" | "user"; content: string; timestamp: number; sessionKey: string; streaming: boolean; attachments?: Attachment[]; deviceId?: string; clientMessageId?: string; replyToClientMessageId?: string }
+message (server): { type: "message"; id: string; role: "assistant" | "user"; content: string; timestamp: number; sessionKey: string; streaming: boolean; attachments?: Attachment[]; deviceId?: string; clientMessageId?: string; replyToMessageId?: string; replyToClientMessageId?: string }
 typing: { type: "typing"; active: boolean; role?: "assistant" }
+sync_complete: { type: "sync_complete" }
 error: { type: "error"; code: string; message: string; messageId?: string }
 ```
 On `auth_result` with `success: true`, `userId`, `sessionId`, `isAdmin`, `replayCount`, `replayTruncated`, and `historyReset` are required; on `success: false`, those fields may be omitted.

@@ -82,7 +82,7 @@ On subsequent launches:
      }
    }
    ```
-   `replayCursorsBySessionKey` is the authoritative replay input. Each key is a subscribed session key and each value is the most recent server event ID (`s_*`) fully processed for that exact stream. `lastMessageId` is a compatibility fallback only; use the cursor for the actively selected chat stream at auth/reconnect time when known, otherwise omit it or send `null`. Do not compute `lastMessageId` by taking the maximum value across all stream cursors.
+   `replayCursorsBySessionKey` is the authoritative replay input. Each key is a subscribed session key and each value is the most recent finalized/replayable server event ID (`s_*`) fully processed for that exact stream. Streaming partial IDs must not be used as replay cursors. `lastMessageId` is a compatibility fallback only; use the cursor for the actively selected chat stream at auth/reconnect time when known, otherwise omit it or send `null`. Do not compute `lastMessageId` by taking the maximum value across all stream cursors.
 3. Provider responds with:
    ```json
   {
@@ -118,7 +118,7 @@ The client may call `GET /version` (no auth) to verify `protocolVersion: 1` befo
 - Re-auth with stored token (per device).
 - Include `replayCursorsBySessionKey` in the auth payload so the server can replay missed messages for each stream while also keeping other devices for the user in sync.
 - Include `lastMessageId` only as a compatibility fallback for older providers. It must be the cursor for the actively selected chat stream at auth/reconnect time when known; otherwise omit it or send `null`.
-- Client should deduplicate replayed events by `id`. Any event with an `id` the device already processed MUST be ignored (idempotent apply).
+- Client should deduplicate replayed finalized events by `id`. A prior streaming partial with the same `id` does not make the final message a duplicate; the final must replace/commit the partial.
 - Keepalive: server sends WebSocket ping control frames every 30s; client responds with pong. If no ping is received for 90s, treat the connection as dead and reconnect.
 
 ## Chat message flow
@@ -171,6 +171,7 @@ Non-streaming (timestamps are Unix epoch milliseconds):
   "content": "Hi",
   "timestamp": 1704672000000,
   "sessionKey": "agent:main:clawline:flynn:main",
+  "replyToMessageId": "s_789",
   "replyToClientMessageId": "c_123",
   "streaming": false
 }
@@ -185,12 +186,19 @@ Streaming (partial messages):
   "content": "Hi there",
   "timestamp": 1704672000000,
   "sessionKey": "agent:main:clawline:flynn:main",
+  "replyToMessageId": "s_789",
   "replyToClientMessageId": "c_123",
   "streaming": true
 }
 ```
 
 Assistant messages may include `attachments`. Inline attachments (`type: "image"`) contain base64 data; URL attachments (`type: "url"`) reference files under the provider web root and are fetched directly by URL.
+
+After reconnect replay and any immediately queued gap-fill live messages drain, the provider sends:
+```json
+{ "type": "sync_complete" }
+```
+Treat this as the earliest point where reconnect missing-final detection may run.
 
 Client behavior:
 - Optimistically append user messages but track them by outgoing `c_*` id (e.g., `pendingMessages[c_id]`). When the server echoes the message with `role: "user"`, `deviceId` matching the local device, and matching `clientMessageId`, replace that optimistic entry with the echoed one (remove it from `pendingMessages`). Echoes from other devices are appended normally.
@@ -200,7 +208,7 @@ Client behavior:
   - Stream still active when disconnect happens: live streaming does not resume unless there is an overlapping session takeover. The provider may continue generation in the background; if it finalizes, replay delivers the final message on reconnect.
   - Stream finalized while disconnected: provider replays the final message (all devices see the same final response).
   - Stream inactive with no final message (no updates for 5 minutes): treat it as failed and retry with a new `id`. The server does not replay partials, so failure is detected by missing-final logic on reconnect.
-  - Missing-final detection (client requirement): after replay, if a user echo's `clientMessageId` has no assistant final with matching `replyToClientMessageId` and no active stream, treat it as failed and surface a retry affordance.
+  - Missing-final detection (client requirement): after reconnect `sync_complete`, if a user echo's server `id` has no assistant final with matching `replyToMessageId` and no active stream, treat it as failed and surface a retry affordance. Do not use `replyToClientMessageId` alone for this check because `c_*` ids are device-scoped.
 
 ### Typing indicators
 Client may emit typing events (no `role` field):
@@ -307,6 +315,8 @@ Attachments appear on both **client → server** messages and **server → clien
 ```json
 {
   "type": "message",
+  "id": "c_124",
+  "sessionKey": "agent:main:clawline:flynn:main",
   "content": "Check this",
   "attachments": [
     { "type": "image", "mimeType": "image/jpeg", "data": "<base64>" }
@@ -333,6 +343,8 @@ Attachments appear on both **client → server** messages and **server → clien
 ```json
 {
   "type": "message",
+  "id": "c_125",
+  "sessionKey": "agent:main:clawline:flynn:main",
   "content": "Here is the file",
   "attachments": [{ "type": "url", "url": "http://host:port/media/m_123" }]
 }
@@ -382,8 +394,8 @@ Error schema (from `architecture.md`):
 - `ConnectionServicing.approvePairing(deviceId:userId:)` sends `pair_decision` with `approve: true` and explicit `userId`.
 - `ConnectionServicing.denyPairing(deviceId:)` sends `pair_decision` with `approve: false` (no `reason` field in v1).
 - `ChatServicing.connect(...)` opens WebSocket and sends `auth` with an auth replay context: `replayCursorsBySessionKey` plus compatibility `lastMessageId`.
-- `ProviderChatService` owns per-stream replay cursor storage. Every fully processed server event with an `s_*` ID and known session key MUST advance the cursor for that session key.
-- Lifecycle replay paths that apply server events MUST advance `ProviderChatService`'s per-stream cursor map after apply; updating only a singular lifecycle/coordinator cursor is not sufficient.
+- `ProviderChatService` owns per-stream replay cursor storage. Every fully processed finalized/replayable server event with an `s_*` ID and known session key MUST advance the cursor for that session key. Streaming partials update transient UI state but MUST NOT advance the persistent replay cursor.
+- Lifecycle replay paths that apply finalized/replayable server events MUST advance `ProviderChatService`'s per-stream cursor map after apply; updating only a singular lifecycle/coordinator cursor is not sufficient.
 - Cache restore may seed missing cursor keys only. It MUST NOT overwrite a cursor advanced by processed live/replay events in the current connection epoch.
 - `streamReadStates` remains read/unread metadata and MUST NOT be used as replay cursor input.
 - `ChatServicing.incomingMessages` yields `Message` objects as received (including streaming partials).
