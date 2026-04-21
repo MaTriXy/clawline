@@ -6,6 +6,11 @@ Define the minimum functional and behavioral coverage required for the Clawline 
 
 All requirements in this document are normative. Treat each bullet as MUST for the provider implementation. Storage retention is an explicit product decision: v1 keeps all messages and media files indefinitely (no automatic pruning). Features explicitly marked “Not MVP” in `architecture.md` are intentionally excluded from required tests.
 
+Replay/cursor, same-stream ordering, and alert fallback memory-pressure behavior
+is further specified in `specs/clawline-replay-and-memory-pressure-invariants.md`.
+If this document and that spec appear to conflict for those surfaces, update both
+before implementation; do not implement from scratch notes.
+
 ## Test layers
 
 1. **Unit tests** for pure logic (pairing/auth, token validation, allowlist, revocation, message routing).
@@ -27,7 +32,7 @@ Use these defaults when building fixtures; override per-test only when needed.
 | `sessions.maxMessagesPerSecond` | `5` |
 | `sessions.maxTypingPerSecond` | `2` |
 | `sessions.typingAutoExpireSeconds` | `10` |
-| `sessions.maxReplayMessages` | `500` |
+| `sessions.maxReplayMessagesPerStream` | `20` |
 | `sessions.maxQueuedMessages` | `20` |
 | `sessions.streamInactivitySeconds` | `300` |
 
@@ -195,22 +200,25 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 ### Replay + Reconnect
 - "Finalized message" means a `message` event with `streaming: false` (complete) that is persisted to history.
 - "Partial" means a `message` event with `streaming: true` (not final).
-- Only one assistant stream may be active per `deviceId` at a time (messages are queued FIFO).
-- Clients should set `lastMessageId` to the last server event `id` they processed (typically `s_...`, including echoed user messages). If a client sends a `lastMessageId` the server does not recognize, replay falls back to the most recent window.
+- Only one assistant stream may be active per `(userId, sessionKey)` at a time. Messages for the same user and stream are queued FIFO. Different streams for the same user may run concurrently.
+- Clients should send `replayCursorsBySessionKey` on auth: an object keyed by subscribed session key whose values are the last server event IDs (`s_*`) fully processed for those exact streams.
+- `lastMessageId` remains a compatibility fallback for older clients. It anchors only the stream that owns that event and must not be treated as a global cursor for unrelated streams.
 - Empty-string or whitespace-only `lastMessageId` payloads are rejected with `invalid_message`; omit the field or send `null` when no prior events exist.
-- Reconnect with `lastMessageId` replays only messages after that id; if more than `maxReplayMessages` (default 500) exist after `lastMessageId`, replay the last `maxReplayMessages` of the missing range and set `replayTruncated: true`.
-- Example: if `lastMessageId` is followed by 800 messages in chronological order `M1..M800`, replay `M301..M800` (the most recent 500) and drop `M1..M300`.
+- Empty-string or whitespace-only values inside `replayCursorsBySessionKey` are ignored for that stream; valid entries for other streams remain usable.
+- Reconnect with a valid per-stream cursor replays only messages after that cursor for that stream. If more than `maxReplayMessagesPerStream` (default 20) exist after that cursor, replay the last `maxReplayMessagesPerStream` of the missing range for that stream and set `replayTruncated: true`.
+- Example: if one stream cursor is followed by 800 messages in chronological order `M1..M800`, replay the newest capped window for that stream and drop older messages outside the cap.
 - Messages beyond the replay cap are not recoverable in v1 (recent-only history window).
-- If `lastMessageId` is unknown, replay sends the most recent `maxReplayMessages` overall.
-- In that case, set `replayTruncated: true` if the total history exceeds `maxReplayMessages`; otherwise `false`.
+- If a stream has no usable per-stream cursor and no owning legacy `lastMessageId`, replay sends that stream's most recent `maxReplayMessagesPerStream`.
+- In that case, set `historyReset: true` for the auth result. Set `replayTruncated: true` if that stream has more than `maxReplayMessagesPerStream` eligible finalized messages; otherwise `false` unless another stream is truncated.
+- Replay truncation detection must fetch at most `maxReplayMessagesPerStream + 1` rows per stream and deliver at most `maxReplayMessagesPerStream`; tests must not depend on per-stream `COUNT(*)` queries.
 - Duplicate messages are not emitted during replay + live stream crossover (server must drop duplicates by message `id`).
 - Replay ordering is oldest-to-newest.
-- Replay completes before any live messages are delivered (no interleaving).
+- Replay completes before any live messages are delivered to the newly authenticated socket (no interleaving). Messages created while replay is in progress must not be lost; use an explicit replay/live barrier and duplicate suppression by server message `id`.
 - Queued messages are processed only after replay completes.
 - Replay includes only finalized messages (partials are never replayed).
 - Replay includes server-sent assistant messages and echoed user messages.
 - Replay includes messages even if referenced files are missing; clients may see `not_found` when fetching those URLs.
-- Because only one assistant stream may be active per device, an unfinished stream implies there are no later finalized assistant messages beyond it; stopping replay before it does not drop assistant output.
+- Within a single stream, an unfinished assistant stream implies there are no later finalized assistant messages for that same `(userId, sessionKey)`; stopping that stream's replay before the partial does not drop assistant output for that stream. Other streams are independent.
 - Replay never includes partials. If an unfinished stream exists, replay delivers all finalized messages before it, stops before the partial, and the client must retry with a new `id` (retrying the same `id` returns `invalid_message`). Unfinished streams are marked failed in the message record.
 - Client requirement: after a failed/inactive stream, retry with a new `id` (never reuse the old `id`).
 - If a user message was acked but no assistant output was sent before disconnect, the stream is marked failed and the client must retry with a new `id`.
@@ -226,15 +234,26 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Stream inactivity timer starts at message record creation (receipt), even if `ack` send fails. If no streaming update arrives within `streamInactivitySeconds`, the stream is considered inactive. After the first streaming update, the timer resets on each subsequent streaming update.
 - Messages sent by the client during replay are accepted/acked but only processed after replay completes (no interleaving).
 - Messages sent during replay still count toward the queue cap; if the queue is full, reject with `rate_limited`.
-- Only one assistant stream may be active per device; additional user messages are queued and processed sequentially.
-- Queue is FIFO, capped at `maxQueuedMessages` (default 20); when full, new messages are rejected with `rate_limited`.
-- Queue ordering is by server receipt time across all connections; when full, reject the incoming message (no eviction of existing queue).
-- The queue holds messages awaiting generation; the currently generating message is the active stream and is not part of the queue. When the last connection closes, the queue is dropped; during session takeover the queue persists. The active stream continues (until completion or inactivity timeout).
-- There is a single queue per `deviceId`, shared across concurrent connections. The queue persists while any connection for the device is active, and is dropped only after the last connection closes; clients must resend all unacked messages after reconnect (intentional limitation).
+- Only one assistant stream may be active per `(userId, sessionKey)`; additional user messages for that stream are queued and processed sequentially.
+- Each stream queue is FIFO, capped at `maxQueuedMessages` (default 20); when full, new messages for that stream are rejected with `rate_limited`.
+- Queue ordering is by server receipt time for that stream across all connections; when full, reject the incoming message (no eviction of existing queue).
+- The queue holds messages awaiting generation for that stream; the currently generating message is the active stream and is not part of the queue. When no connection remains subscribed to the stream, the queue is dropped; during session takeover the queue persists. The active stream continues (until completion or inactivity timeout).
+- Queues are scoped by `(userId, sessionKey)`, not by device. Clients must resend all unacked messages after reconnect (intentional limitation).
 - If no streaming updates occur for `streamInactivitySeconds` (default 300), the stream is considered failed and no partial is replayed.
 - If a second connection authenticates with the same `deviceId`, the new connection wins and the old socket closes immediately.
 - If the provider restarts mid-stream (no partials persisted), the client resends the original message with a new `id` and a new generation begins.
 - When replay is truncated by the cap, `auth_result.replayTruncated` is true.
+- If `sendJson` fails while sending `auth_result`, stream snapshot/session info, or any replay message, replay aborts immediately, the stale session is removed/closed, and the client must reconnect.
+
+### Alert fallback session-key lookup
+- Alert fallback routing MUST be pressure-safe, not merely functionally correct.
+- If an alert session key is found in Clawline stream state, route through that Clawline-owned stream key.
+- If it is not found in Clawline stream state, fallback lookup MUST use a dedicated existence-only index over relevant OpenClaw session-store files.
+- A valid non-Clawline/global OpenClaw session key that exists in that index MUST route even when Clawline has not adopted or otherwise owned it. Rejecting an existing non-Clawline key solely because it is outside Clawline stream state is a regression.
+- The fallback index stores only normalized session keys and the data needed to return the normalized key.
+- The fallback index is invalidated by authoritative store file metadata, at minimum `mtimeMs` and `size`.
+- Alert fallback MUST NOT use `loadMergedSessionStoreForClawline()`, full session entries, adoption metadata, generic merged-store/listing paths, or repeated full-store clone/iteration as the steady-state hot path.
+- Tests must cover: known non-Clawline key routes successfully through the index without Clawline adoption; repeated unchanged-store lookups do not perform full-store loads/clones/merges/iterations; changed store metadata invalidates the index before answering; unknown key returns 404 and does not enqueue.
 
 ### Pairing + Auth (concurrency)
 - First-admin bootstrap is atomic: only one device can win when two devices attempt first-admin concurrently.
@@ -327,7 +346,7 @@ WebSocket close codes (v1):
 - Each `attachments` entry must be an object; non-object entries (`null`, string, number) return `invalid_message`.
 - Inline image `data` must be valid base64; invalid base64 returns `invalid_message`. Base64 decoding should ignore whitespace and padding; equality compares decoded bytes.
 - Allowed inline image `mimeType` values: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`. Other values return `invalid_message`.
-- `auth` schema includes `lastMessageId?: string | null`: `{ "type": "auth", "protocolVersion": 1, "token": string, "deviceId": string, "lastMessageId"?: string | null }`.
+- `auth` schema includes `lastMessageId?: string | null` for compatibility and `replayCursorsBySessionKey?: Record<string, string>` for per-stream replay recovery: `{ "type": "auth", "protocolVersion": 1, "token": string, "deviceId": string, "lastMessageId"?: string | null, "replayCursorsBySessionKey"?: Record<string, string> }`.
 - `lastMessageId: null` and omitted are equivalent; empty string is `invalid_message`.
 
 #### Message Schemas (v1)
@@ -335,7 +354,7 @@ WebSocket close codes (v1):
 // Client -> Server
 pair_request: { type: "pair_request"; protocolVersion: 1; deviceId: string; claimedName?: string; deviceInfo: { platform: string; model: string; osVersion?: string; appVersion?: string } }
 pair_decision: { type: "pair_decision"; deviceId: string; approve: boolean; userId?: string }
-auth: { type: "auth"; protocolVersion: 1; token: string; deviceId: string; lastMessageId?: string | null }
+auth: { type: "auth"; protocolVersion: 1; token: string; deviceId: string; lastMessageId?: string | null; replayCursorsBySessionKey?: Record<string, string> }
 message (client): { type: "message"; id: string; content: string; attachments?: Attachment[] }
 typing (client): { type: "typing"; active: boolean }
 

@@ -8,6 +8,10 @@ Describe how the iOS client (Clawline) connects to the OpenClaw Clawline provide
 
 This guide is the client-side contract. Statements using MUST/SHOULD are binding; other explanatory text is guidance. Architectural choices live in `architecture.md`.
 
+Replay/cursor behavior is specified with the provider invariants in
+`specs/clawline-replay-and-memory-pressure-invariants.md`. The iOS client MUST
+send per-stream replay cursors; `lastMessageId` is compatibility-only.
+
 ## Client roles (per iOS architecture)
 
 From `ios-architecture.md` and `(external/common reference removed)`:
@@ -71,10 +75,14 @@ On subsequent launches:
      "protocolVersion": 1,
      "token": "<jwt>",
      "deviceId": "ABC123",
-     "lastMessageId": "s_789"
+     "lastMessageId": "s_active_stream_fallback",
+     "replayCursorsBySessionKey": {
+       "agent:main:clawline:flynn:main": "s_main_last_seen",
+       "agent:main:main": "s_global_last_seen"
+     }
    }
    ```
-   Use the most recent server event ID (`s_*`) processed on this device; omit the field or send `null` on first auth after pairing (or if no server events have ever been processed on this device).
+   `replayCursorsBySessionKey` is the authoritative replay input. Each key is a subscribed session key and each value is the most recent server event ID (`s_*`) fully processed for that exact stream. `lastMessageId` is a compatibility fallback only; use the cursor for the actively selected chat stream at auth/reconnect time when known, otherwise omit it or send `null`. Do not compute `lastMessageId` by taking the maximum value across all stream cursors.
 3. Provider responds with:
    ```json
   {
@@ -93,7 +101,7 @@ On subsequent launches:
    ```json
    { "type": "auth_result", "success": false, "reason": "auth_failed" }
    ```
-5. On success, provider replays missed events (if any) after `lastMessageId`. `lastMessageId` MUST be the most recent server event ID (`s_*`) that this device fully processed (assistant output, echoed user message, typing, etc.). Every device tied to the same `userId` eventually observes the same ordered history, although individual sockets may lag until replay completes.
+5. On success, provider replays missed events (if any) independently per subscribed stream using `replayCursorsBySessionKey`, falling back to `lastMessageId` only for the stream that owns that legacy event. Every device tied to the same `userId` eventually observes the same ordered history, although individual sockets may lag until replay completes.
   - Admin detection: read `auth_result.isAdmin` to decide whether to expose admin-only UI (e.g., pending approvals). The JWT no longer carries this flag; rely on the runtime value from the provider and expect it to change if the allowlist is edited.
 6. Use `auth_result.replayCount`, `auth_result.replayTruncated`, and `auth_result.historyReset` to show a "history truncated/reset" notice when needed. When `historyReset` is true, drop any local conversation state beyond what replay delivered.
 Clients must include `protocolVersion: 1` in `pair_request` and `auth` or the provider will reject the request with `error` `invalid_message` and close the socket.
@@ -107,7 +115,8 @@ The client may call `GET /version` (no auth) to verify `protocolVersion: 1` befo
 - On socket loss, attempt reconnect with exponential backoff (start 1s, double each attempt, max 30s, add 0–1s random jitter).
 - Use a short initial connection timeout (e.g., 10 seconds) before entering backoff.
 - Re-auth with stored token (per device).
-- Include `lastMessageId` (server `s_*` id) in the auth payload so the server can replay missed messages for that device while also keeping other devices for the user in sync.
+- Include `replayCursorsBySessionKey` in the auth payload so the server can replay missed messages for each stream while also keeping other devices for the user in sync.
+- Include `lastMessageId` only as a compatibility fallback for older providers. It must be the cursor for the actively selected chat stream at auth/reconnect time when known; otherwise omit it or send `null`.
 - Client should deduplicate replayed events by `id`. Any event with an `id` the device already processed MUST be ignored (idempotent apply).
 - Keepalive: server sends WebSocket ping control frames every 30s; client responds with pong. If no ping is received for 90s, treat the connection as dead and reconnect.
 
@@ -345,7 +354,11 @@ Error schema (from `architecture.md`):
 - `ConnectionServicing.incomingPairingRequests` delivers admin approval requests (admin devices only). After the device authenticates, this stream is driven by `ChatServicing`’s WebSocket.
 - `ConnectionServicing.approvePairing(deviceId:userId:)` sends `pair_decision` with `approve: true` and explicit `userId`.
 - `ConnectionServicing.denyPairing(deviceId:)` sends `pair_decision` with `approve: false` (no `reason` field in v1).
-- `ChatServicing.connect(token:lastMessageId:)` opens WebSocket and sends `auth`.
+- `ChatServicing.connect(...)` opens WebSocket and sends `auth` with an auth replay context: `replayCursorsBySessionKey` plus compatibility `lastMessageId`.
+- `ProviderChatService` owns per-stream replay cursor storage. Every fully processed server event with an `s_*` ID and known session key MUST advance the cursor for that session key.
+- Lifecycle replay paths that apply server events MUST advance `ProviderChatService`'s per-stream cursor map after apply; updating only a singular lifecycle/coordinator cursor is not sufficient.
+- Cache restore may seed missing cursor keys only. It MUST NOT overwrite a cursor advanced by processed live/replay events in the current connection epoch.
+- `streamReadStates` remains read/unread metadata and MUST NOT be used as replay cursor input.
 - `ChatServicing.incomingMessages` yields `Message` objects as received (including streaming partials).
 - `ChatServicing.incomingTyping` yields typing indicators for UI.
 - `ChatServicing.send(content:attachments:)` sends `message` and performs upload if attachments include local files.
