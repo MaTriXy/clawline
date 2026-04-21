@@ -230,7 +230,7 @@ Admin users receive messages from both streams. Non-admin users receive only the
 ## Errors & status codes
 
 - WebSocket `error.code` values come from `architecture.md` (`auth_failed`, `token_revoked`, `invalid_message`, `payload_too_large`, `not_found`, `rate_limited`, `session_replaced`, `upload_failed_retryable`, `server_error`). Display them or map to user-friendly text.
-- `auth_result.reason` values include `auth_failed`, `token_revoked`, `device_not_approved`, and `token_expired`. Treat `token_expired`/`auth_failed` as “clear token and restart pairing.”
+- `auth_result.reason` values include `auth_failed`, `token_revoked`, and `device_not_approved`. Treat `auth_failed` as “clear token and restart pairing”; expired tokens are reported as `auth_failed` in v1.
 - For `device_not_approved`, keep the device on the “Awaiting approval” screen, retry pairing automatically every ~30s, and notify the user that an admin must approve.
 - HTTP uploads return JSON errors with HTTP statuses: 400 (`invalid_message`), 401 (`auth_failed`), 403 (`token_revoked`), 404 (`not_found`), 413 (`payload_too_large`), 429 (`rate_limited`), 503 (`upload_failed_retryable`), 500 (`server_error`). Treat 401/403 as token failures (clear token).
 - `session_replaced` is terminal: the old socket closes immediately when another connection authenticates. UI should show “connected elsewhere” and prompt the user to continue on the new device; do not auto-reconnect until the user explicitly chooses to, to avoid kicking the new session.

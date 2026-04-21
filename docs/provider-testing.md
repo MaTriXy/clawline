@@ -136,9 +136,9 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Revocation aborts any in-flight stream (no final message).
 - Revocation-aborted streams still have a message record (created at receipt), marked failed, and no final assistant message is emitted.
 - Implementation detail for tests: revocation sets `messages.streaming = 2` for any in-progress row (same as other failures).
-- Queued messages belonging to a revoked device are dropped from memory without being persisted (the corresponding client must resend after re-auth/pair).
-- Revocation drops any queued messages for that device and does not emit per-message errors (session closes with `token_revoked`).
-- Test: enqueue two messages, revoke device before generation; ensure queue is cleared with no `error` per message and clients must resend after re-auth.
+- Queued messages belonging to streams whose only subscribed connection was revoked are dropped from memory without being persisted (the corresponding client must resend after re-auth/pair).
+- Revocation drops any queued messages for affected streams and does not emit per-message errors (session closes with `token_revoked`).
+- Test: enqueue two messages on one stream, revoke the subscribed device before generation; ensure that stream queue is cleared with no `error` per message and clients must resend after re-auth.
 - If the last admin device is revoked, recovery is an operator action (reset state / remove allowlist); there is no in-protocol recovery.
 - Auth without `protocolVersion` is rejected with `invalid_message` and closes the connection.
 - `GET /version` (no auth) returns `{ "protocolVersion": 1 }`; tests should call it before pairing/auth to ensure version mismatches are caught by the client before attempting a socket connection.
@@ -170,7 +170,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - If a stream is active when the new connection authenticates, move it to the new socket: send the latest full snapshot (`streaming: true`) to that connection, continue delivering updates there, and immediately close the old socket with `session_replaced`. A resume is only possible during this overlap window; if both sockets disconnect, the client must retry with a new `id`.
 - The server signals takeover via the normal `session_replaced` error on the old socket; the new socket receives the same `s_*` stream id so the client can continue rendering the in-flight message without a new identifier.
 - If the new connection fails to authenticate, the old connection remains active (no session takeover).
-- If the old connection is already closed and the new connection fails auth, the device has no active connections and the queue is dropped.
+- If the old connection is already closed and the new connection fails auth, any stream queues that no longer have subscribed connections are dropped.
 - If the new connection authenticates but immediately drops, the device has no active connection and must re-auth.
 - Unacked messages from the old connection are not replayed; the client must resend after reconnect.
 - Server-sent `message` events include `timestamp` (Unix epoch ms).
@@ -213,7 +213,7 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - Replay truncation detection must fetch at most `maxReplayMessagesPerStream + 1` rows per stream and deliver at most `maxReplayMessagesPerStream`; tests must not depend on per-stream `COUNT(*)` queries.
 - Duplicate messages are not emitted during replay + live stream crossover (server must drop duplicates by message `id`).
 - Replay ordering is oldest-to-newest.
-- Replay completes before any live messages are delivered to the newly authenticated socket (no interleaving). Messages created while replay is in progress must not be lost; use an explicit replay/live barrier and duplicate suppression by server message `id`.
+- Replay completes before any live messages are delivered to the newly authenticated socket (no interleaving). Messages created while replay is in progress must not be lost; use an explicit replay/live barrier and duplicate suppression by server message `id`. If post-replay gap fill is used, those gap-fill messages are delivered as live messages and are excluded from `auth_result.replayCount`.
 - Queued messages are processed only after replay completes.
 - Replay includes only finalized messages (partials are never replayed).
 - Replay includes server-sent assistant messages and echoed user messages.
@@ -252,8 +252,8 @@ Rate limits use a sliding rolling window per `deviceId` (last 60s for per-minute
 - A valid non-Clawline/global OpenClaw session key that exists in that index MUST route even when Clawline has not adopted or otherwise owned it. Rejecting an existing non-Clawline key solely because it is outside Clawline stream state is a regression.
 - The fallback index stores only normalized session keys and the data needed to return the normalized key.
 - The fallback index is invalidated by authoritative store file metadata, at minimum `mtimeMs` and `size`.
-- Alert fallback MUST NOT use `loadMergedSessionStoreForClawline()`, full session entries, adoption metadata, generic merged-store/listing paths, or repeated full-store clone/iteration as the steady-state hot path.
-- Tests must cover: known non-Clawline key routes successfully through the index without Clawline adoption; repeated unchanged-store lookups do not perform full-store loads/clones/merges/iterations; changed store metadata invalidates the index before answering; unknown key returns 404 and does not enqueue.
+- Alert fallback MUST NOT use `loadMergedSessionStoreForClawline()`, `loadSessionStoreEntryForKey()`, full session entries, adoption metadata, generic merged-store/listing paths, or repeated full-store clone/iteration as the steady-state hot path.
+- Tests must cover: known non-Clawline key routes successfully through the index without Clawline adoption; repeated unchanged-store lookups do not perform full-store loads/clones/merges/iterations; changed store metadata invalidates the index before answering; store file creation/deletion invalidates the index before answering; unknown key returns 404 and does not enqueue.
 
 ### Pairing + Auth (concurrency)
 - First-admin bootstrap is atomic: only one device can win when two devices attempt first-admin concurrently.
@@ -361,13 +361,13 @@ typing (client): { type: "typing"; active: boolean }
 // Server -> Client
 pair_approval_request: { type: "pair_approval_request"; deviceId: string; claimedName?: string; deviceInfo: { platform: string; model: string; osVersion?: string; appVersion?: string } }
 pair_result: { type: "pair_result"; success: boolean; token?: string; userId?: string; reason?: "pair_rejected" | "pair_denied" | "pair_timeout" }
-auth_result: { type: "auth_result"; success: boolean; userId?: string; sessionId?: string; replayCount: number; replayTruncated: boolean; reason?: "auth_failed" | "token_revoked" | "device_not_approved" }
+auth_result: { type: "auth_result"; success: boolean; userId?: string; sessionId?: string; isAdmin?: boolean; replayCount: number; replayTruncated: boolean; historyReset: boolean; reason?: "auth_failed" | "token_revoked" | "device_not_approved" }
 ack: { type: "ack"; id: string }
 message (server): { type: "message"; id: string; role: "assistant" | "user"; content: string; timestamp: number; streaming: boolean; attachments?: Attachment[]; deviceId?: string }
 typing: { type: "typing"; active: boolean; role?: "assistant" }
 error: { type: "error"; code: string; message: string; messageId?: string }
 ```
-On `auth_result` with `success: true`, `userId`, `sessionId`, `replayCount`, and `replayTruncated` are required; on `success: false`, those fields may be omitted.
+On `auth_result` with `success: true`, `userId`, `sessionId`, `isAdmin`, `replayCount`, `replayTruncated`, and `historyReset` are required; on `success: false`, those fields may be omitted.
 On `pair_result` with `success: true`, `token` and `userId` are required; on `success: false`, `reason` is required and `token`/`userId` are omitted.
 
 ### HTTP endpoints
