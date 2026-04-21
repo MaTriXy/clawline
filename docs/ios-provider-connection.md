@@ -78,7 +78,7 @@ On subsequent launches:
      "lastMessageId": "s_active_stream_fallback",
      "replayCursorsBySessionKey": {
        "agent:main:clawline:flynn:main": "s_main_last_seen",
-       "agent:main:main": "s_global_last_seen"
+       "agent:main:clawline:flynn:dm": "s_dm_last_seen"
      }
    }
    ```
@@ -104,6 +104,7 @@ On subsequent launches:
 5. On success, provider replays missed events (if any) independently per subscribed stream using `replayCursorsBySessionKey`, falling back to `lastMessageId` only for the stream that owns that legacy event. Every device tied to the same `userId` eventually observes the same ordered history, although individual sockets may lag until replay completes.
   - Admin detection: read `auth_result.isAdmin` to decide whether to expose admin-only UI (e.g., pending approvals). The JWT no longer carries this flag; rely on the runtime value from the provider and expect it to change if the allowlist is edited.
 6. Use `auth_result.replayCount`, `auth_result.replayTruncated`, and `auth_result.historyReset` to show a "history truncated/reset" notice when needed. When `historyReset` is true, drop any local conversation state beyond what replay delivered.
+   `historyReset` is a conservative global reset signal for the authenticated connection. Because v1 does not include per-stream reset metadata, clients must treat it as applying to all subscribed local stream caches for that connection.
 Clients must include `protocolVersion: 1` in `pair_request` and `auth` or the provider will reject the request with `error` `invalid_message` and close the socket.
 The client may call `GET /version` (no auth) to verify `protocolVersion: 1` before attempting a connection. If the server responds with a different version, fail fast and show an update-required UI. Response schema:
 ```json
@@ -127,15 +128,17 @@ The client may call `GET /version` (no auth) to verify `protocolVersion: 1` befo
 {
   "type": "message",
   "id": "c_123",
+  "sessionKey": "agent:main:clawline:flynn:main",
   "content": "Hello",
   "attachments": []
 }
 ```
 Client message IDs must start with `c_`; server-assigned events use `s_<uuid>`. The server uses a per-`userId` sequence internally for ordering; clients treat `s_*` as opaque cursors.
+`sessionKey` selects the target stream. It may be omitted only for legacy/default-Main sends; Clawline multi-stream UI paths must include it.
 Max `content` length is 64KB UTF-8; longer payloads return `payload_too_large`.
 Invalid message ID prefixes are rejected with `invalid_message`.
 Duplicate client message IDs are treated as idempotent retries per device. Client message IDs are scoped to a single `deviceId`; two devices may use the same `c_*` values without conflict. Replay dedup uses server event IDs (`s_*`), not client IDs. Clients must reuse the same `id` for network/ack retries (before `ack`) and never change the `content` for an existing `id` (if content differs, the server returns `invalid_message`). If a stream fails or completes without a final assistant message after `ack`, retry with a new `id`.
-After the provider accepts a user message, it echoes a server event (new `s_<uuid>` id with `role: "user"`) back to every device on the account—including the sender—so all devices append the same representation to their local timeline. The server includes the originating `deviceId` in the echoed payload for attribution.
+After the provider accepts a user message, it echoes a server event (new `s_<uuid>` id with `role: "user"`) back to every device on the account—including the sender—so all devices append the same representation to their local timeline. The server includes the originating `deviceId` for attribution and `clientMessageId` so the sender can replace the correct optimistic local message.
 Echoed user message schema (server -> client):
 ```json
 {
@@ -144,8 +147,10 @@ Echoed user message schema (server -> client):
   "role": "user",
   "content": "Hello",
   "timestamp": 1704672000000,
+  "sessionKey": "agent:main:clawline:flynn:main",
   "streaming": false,
   "deviceId": "ABC123",
+  "clientMessageId": "c_123",
   "attachments": []
 }
 ```
@@ -159,25 +164,43 @@ Client should keep messages in a "sending" state until `ack` arrives. If no `ack
 ### Receive (provider -> client)
 Non-streaming (timestamps are Unix epoch milliseconds):
 ```json
-{ "type": "message", "id": "s_456", "role": "assistant", "content": "Hi", "timestamp": 1704672000000, "streaming": false }
+{
+  "type": "message",
+  "id": "s_456",
+  "role": "assistant",
+  "content": "Hi",
+  "timestamp": 1704672000000,
+  "sessionKey": "agent:main:clawline:flynn:main",
+  "replyToClientMessageId": "c_123",
+  "streaming": false
+}
 ```
 
 Streaming (partial messages):
 ```json
-{ "type": "message", "id": "s_456", "role": "assistant", "content": "Hi there", "timestamp": 1704672000000, "streaming": true }
+{
+  "type": "message",
+  "id": "s_456",
+  "role": "assistant",
+  "content": "Hi there",
+  "timestamp": 1704672000000,
+  "sessionKey": "agent:main:clawline:flynn:main",
+  "replyToClientMessageId": "c_123",
+  "streaming": true
+}
 ```
 
 Assistant messages may include `attachments`. Inline attachments (`type: "image"`) contain base64 data; URL attachments (`type: "url"`) reference files under the provider web root and are fetched directly by URL.
 
 Client behavior:
-- Optimistically append user messages but track them by outgoing `c_*` id (e.g., `pendingMessages[c_id]`). When the server echoes the message with `role: "user"` and `deviceId` matching the local device, replace the optimistic entry with the echoed one (remove it from `pendingMessages`). Echoes from other devices are appended normally.
+- Optimistically append user messages but track them by outgoing `c_*` id (e.g., `pendingMessages[c_id]`). When the server echoes the message with `role: "user"`, `deviceId` matching the local device, and matching `clientMessageId`, replace that optimistic entry with the echoed one (remove it from `pendingMessages`). Echoes from other devices are appended normally.
 - `ChatServicing` yields streaming messages as received (same `id`, `streaming: true`).
 - ViewModel merges assistant messages by `id` and toggles `isStreaming` to false when the final message arrives.
 - Reconnect outcomes (per device):
-  - Stream still active when disconnect happens: v1 cancels the stream when the originating socket closes; no resume occurs. The originating device surfaces a retry affordance, and sibling devices will observe a missing assistant message (same missing-final detection flow).
+  - Stream still active when disconnect happens: live streaming does not resume unless there is an overlapping session takeover. The provider may continue generation in the background; if it finalizes, replay delivers the final message on reconnect.
   - Stream finalized while disconnected: provider replays the final message (all devices see the same final response).
   - Stream inactive with no final message (no updates for 5 minutes): treat it as failed and retry with a new `id`. The server does not replay partials, so failure is detected by missing-final logic on reconnect.
-  - Missing-final detection (client requirement): after replay, if a user echo has no corresponding assistant final message and no active stream, treat it as failed and surface a retry affordance. Example heuristic: if the latest user echo `s_*` has no subsequent assistant `s_*` and there is no streaming message for its `id`, mark it failed.
+  - Missing-final detection (client requirement): after replay, if a user echo's `clientMessageId` has no assistant final with matching `replyToClientMessageId` and no active stream, treat it as failed and surface a retry affordance.
 
 ### Typing indicators
 Client may emit typing events (no `role` field):
@@ -200,29 +223,33 @@ Messages carry a `sessionKey` field that identifies which conversation stream th
 
 ### Session key format
 
-- **DM stream**: `agent:main:main` — shared main session (admins only)
+- **DM stream**: `agent:main:clawline:{userId}:dm` — per-user Clawline DM stream (admins only)
 - **Personal stream**: `agent:main:clawline:{userId}:main` — per-user isolated session
+- **Global OpenClaw session**: `agent:main:main` is not a Clawline stream key. It may still be targeted, adopted, or fallback-routed as an OpenClaw session key, but clients must not treat it as a Clawline-owned stream cursor namespace.
 
 ### Message structure
 
 ```json
 {
+  "type": "message",
   "id": "s_abc123",
+  "role": "assistant",
   "content": "Hello",
   "timestamp": 1735600000000,
   "sessionKey": "agent:main:clawline:flynn:main",
-  "sender": "flynn"
+  "streaming": false
 }
 ```
 
 - `sessionKey`: Which session this message belongs to (used for routing)
-- `sender`: Who sent it (username or `"assistant"`)
+- `role`: `"user"` or `"assistant"`
+- `streaming`: Whether this is an in-progress assistant update
 
 ### Client routing
 
 - Single WebSocket connection per user
 - Filter incoming messages by `sessionKey` to route to correct UI stream
-- `agent:main:main` → DM stream (admins only)
+- `agent:main:clawline:{userId}:dm` → DM stream (admins only)
 - `agent:main:clawline:{userId}:main` → Personal stream
 
 Admin users receive messages from both streams. Non-admin users receive only their personal stream.
@@ -244,7 +271,7 @@ Admin users receive messages from both streams. Non-admin users receive only the
 | `auth` | 5/min per `deviceId` | Clear token on repeated failure, return to pairing |
 | `message` send | 5/sec per `deviceId` | Queue locally, retry after 200–500 ms |
 | `typing` send | 2/sec per `deviceId` | Drop extra typing updates; rely on auto-expire |
-| Oversize payloads | 3 violations within 60s closes socket | Warn user and throttle UI |
+| Oversize payloads | `payload_too_large` error; socket stays open unless another close condition applies | Warn user and throttle UI |
 
 ## Media and file transfer (client integration spec)
 
@@ -269,7 +296,7 @@ Attachments appear on both **client → server** messages and **server → clien
 
 - Inline attachment bytes (decoded) per attachment: **<= 256KB**.
 - Total inline bytes per message: **<= 256KB**.
-- Attachment count per message: **no fixed limit** (bounded by payload size and server resource limits).
+- Attachment count per message: at most **4 total attachments** across inline and URL attachments.
 - Total payload size per message: **<= 320KB** (UTF-8 `content` bytes + decoded inline bytes).
 - Allowed inline `mimeType` values: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/heic`.
 - Max upload size: **100MB** (raw bytes).
@@ -361,4 +388,4 @@ Error schema (from `architecture.md`):
 - `streamReadStates` remains read/unread metadata and MUST NOT be used as replay cursor input.
 - `ChatServicing.incomingMessages` yields `Message` objects as received (including streaming partials).
 - `ChatServicing.incomingTyping` yields typing indicators for UI.
-- `ChatServicing.send(content:attachments:)` sends `message` and performs upload if attachments include local files.
+- `ChatServicing.send(content:sessionKey:attachments:)` sends `message` to the selected stream and performs upload if attachments include local files.
