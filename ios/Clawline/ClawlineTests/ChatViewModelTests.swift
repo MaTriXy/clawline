@@ -136,6 +136,75 @@ struct ChatViewModelTests {
         #expect(finalState.first?.streaming == false)
     }
 
+    @Test("Lifecycle replay advances service-owned per-stream cursor after apply")
+    @MainActor
+    func lifecycleReplayAdvancesServiceReplayCursor() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.startReplayCount = 1
+        chatService.emitSyncCompleteOnStart = false
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.prepareForReplacement() }
+
+        await viewModel.activate(origin: "test.lifecycleReplayCursor")
+
+        for _ in 0..<50 {
+            if viewModel.debugObservationStartupCount() > 0, chatService.connectCallCount > 0 { break }
+            try await Task.sleep(forDuration: .milliseconds(10))
+        }
+
+        let payload = #"{"type":"message","id":"s_replay_final","role":"assistant","content":"Replay final","timestamp":1700000000000,"streaming":false,"sessionKey":"\#(personalSessionKey)","attachments":[]}"#
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .serverMessage(data: Data(payload.utf8))))
+
+        var cursor: String?
+        for _ in 0..<50 {
+            cursor = chatService.replayCursorSnapshot()[personalSessionKey]
+            if cursor == "s_replay_final" { break }
+            try await Task.sleep(forDuration: .milliseconds(10))
+        }
+
+        #expect(cursor == "s_replay_final")
+    }
+
+    @Test("Cache restore seeds missing cursor without replacing a live cursor")
+    @MainActor
+    func cacheRestoreSeedsMissingCursorOnly() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        chatService.setReplayCursor("s_live_final", for: personalSessionKey)
+        await viewModel.onAppear()
+
+        for _ in 0..<50 {
+            if chatService.replayCursorSnapshot()[personalSessionKey] == "s_live_final" { break }
+            try await Task.sleep(forDuration: .milliseconds(10))
+        }
+
+        #expect(chatService.replayCursorSnapshot()[personalSessionKey] == "s_live_final")
+    }
+
     @Test("Server echoes with matching device id replace placeholder")
     @MainActor
     func userEchoWithoutDeviceIdDoesNotDuplicate() async throws {
@@ -161,8 +230,8 @@ struct ChatViewModelTests {
         viewModel.send()
 
         try await Task.sleep(forDuration: .milliseconds(10))
-        let placeholderId = await MainActor.run { viewModel.messages.first?.id }
-        #expect(placeholderId?.hasPrefix("c_") == true)
+        let placeholderId = try #require(await MainActor.run { viewModel.messages.first?.id })
+        #expect(placeholderId.hasPrefix("c_"))
 
         chatService.emit(
             Message(
@@ -174,7 +243,8 @@ struct ChatViewModelTests {
                 attachments: [],
                 deviceId: "device",
                 sessionKey: personalSessionKey,
-                )
+                clientMessageId: placeholderId
+            )
         )
 
         try await Task.sleep(forDuration: .milliseconds(10))
@@ -3085,7 +3155,7 @@ private final class TestChatService: ChatServicing {
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
     private(set) var lastSessionKey: String?
-    private(set) var lastPublishedReadState: (sessionKey: String, lastReadMessageId: String)?
+    var lastPublishedReadState: (sessionKey: String, lastReadMessageId: String)?
     private(set) var connectCallCount: Int = 0
     var isTransportReadyForSend: Bool = false
     var sendError: Swift.Error?
@@ -3104,6 +3174,8 @@ private final class TestChatService: ChatServicing {
     private(set) var lastAdoptedSessionKey: String?
     var adoptStreamReturnedTrackingMode: StreamSession.TrackingMode = .adopted
     var renameReturnedTrackingMode: StreamSession.TrackingMode?
+    var startReplayCount: Int = 0
+    var emitSyncCompleteOnStart: Bool = true
 
     private(set) lazy var incomingMessages: AsyncStream<Message> = {
         AsyncStream { continuation in
@@ -3151,13 +3223,16 @@ private final class TestChatService: ChatServicing {
                 epoch: epoch,
                 payload: .authResult(
                     success: true,
-                    replayCount: 0,
+                    replayCount: startReplayCount,
                     replayTruncated: false,
                     historyReset: false,
                     failureReason: nil
                 )
             )
         )
+        if emitSyncCompleteOnStart {
+            lifecycleContinuation?.yield(.init(epoch: epoch, payload: .syncComplete))
+        }
     }
 
     func stopConnectionAttempt() {}
@@ -3176,6 +3251,13 @@ private final class TestChatService: ChatServicing {
             replayCursorBySessionKey[sessionKey] = cursor
         } else {
             replayCursorBySessionKey.removeValue(forKey: sessionKey)
+        }
+    }
+
+    func seedReplayCursorIfMissing(_ cursor: String?, for sessionKey: String) {
+        guard replayCursorBySessionKey[sessionKey] == nil else { return }
+        if let cursor, !cursor.isEmpty {
+            replayCursorBySessionKey[sessionKey] = cursor
         }
     }
 
@@ -3201,11 +3283,18 @@ private final class TestChatService: ChatServicing {
     }
 
     func emit(_ message: Message) {
+        if message.id.hasPrefix("s_"), !message.streaming {
+            replayCursorBySessionKey[message.sessionKey] = message.id
+        }
         if let continuation = messageContinuation {
             continuation.yield(message)
         } else {
             bufferedMessages.append(message)
         }
+    }
+
+    func emitLifecycleEvent(_ event: LifecycleTransportEvent) {
+        lifecycleContinuation?.yield(event)
     }
 
     func emitConnectionState(_ state: ConnectionState) {
@@ -3226,6 +3315,7 @@ private final class TestChatService: ChatServicing {
                     )
                 )
             )
+            lifecycleContinuation?.yield(.init(epoch: 1, payload: .syncComplete))
         case .disconnected:
             lifecycleContinuation?.yield(.init(epoch: 1, payload: .transportClosed(reason: .error)))
         default:

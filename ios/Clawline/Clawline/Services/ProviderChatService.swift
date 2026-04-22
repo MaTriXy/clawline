@@ -92,7 +92,6 @@ final class ProviderChatService: ChatServicing {
         let protocolVersion = 1
         let token: String
         let deviceId: String
-        let lastMessageId: String?
         let adoptedSessionKeys: [String]?
         let replayCursorsBySessionKey: [String: String]?
         let clientFeatures: [String]?
@@ -119,6 +118,10 @@ final class ProviderChatService: ChatServicing {
     }
 
     private struct Envelope: Decodable {
+        let type: String
+    }
+
+    private struct SyncCompletePayload: Decodable {
         let type: String
     }
 
@@ -432,14 +435,29 @@ final class ProviderChatService: ChatServicing {
     }
 
     func setReplayCursor(_ cursor: String?, for sessionKey: String) {
+        writeReplayCursor(cursor, for: sessionKey, mode: .replace)
+    }
+
+    func seedReplayCursorIfMissing(_ cursor: String?, for sessionKey: String) {
+        writeReplayCursor(cursor, for: sessionKey, mode: .seedIfMissing)
+    }
+
+    private enum ReplayCursorWriteMode {
+        case replace
+        case seedIfMissing
+    }
+
+    private func writeReplayCursor(_ cursor: String?, for sessionKey: String, mode: ReplayCursorWriteMode) {
         let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else { return }
         let normalizedCursor = normalizeServerEventID(cursor)
         let previousCursor = replayCursorBySessionKey[trimmedKey]
+        if mode == .seedIfMissing, previousCursor != nil { return }
         if previousCursor == normalizedCursor { return }
         if let normalizedCursor {
             replayCursorBySessionKey[trimmedKey] = normalizedCursor
         } else {
+            if mode == .seedIfMissing { return }
             replayCursorBySessionKey.removeValue(forKey: trimmedKey)
         }
         persistReplayCursorSnapshot()
@@ -653,14 +671,14 @@ final class ProviderChatService: ChatServicing {
     }
 
     private func sendAuth(client: any WebSocketClient, token: String, lastMessageId: String?) async throws {
-        let sanitizedLastMessageId = normalizeServerEventID(lastMessageId)
+        _ = lastMessageId
         let adoptedSessionKeys = normalizedAdoptedSessionKeys()
+        let replayCursors = normalizedReplayCursorsForAuth()
         let authPayload = AuthPayload(
             token: token,
             deviceId: deviceId,
-            lastMessageId: sanitizedLastMessageId,
             adoptedSessionKeys: adoptedSessionKeys.isEmpty ? nil : adoptedSessionKeys,
-            replayCursorsBySessionKey: nil,
+            replayCursorsBySessionKey: replayCursors.isEmpty ? nil : replayCursors,
             clientFeatures: supportedClientFeatures,
             client: ClientDescriptor(
                 id: Self.clientID,
@@ -685,6 +703,19 @@ final class ProviderChatService: ChatServicing {
             }
         }
         return normalized
+    }
+
+    private func normalizedReplayCursorsForAuth() -> [String: String] {
+        replayCursorBySessionKey
+            .compactMap { entry -> (String, String)? in
+                let key = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !key.isEmpty, let cursor = normalizeServerEventID(entry.value) else { return nil }
+                return (key, cursor)
+            }
+            .sorted { $0.0 < $1.0 }
+            .reduce(into: [String: String]()) { result, entry in
+                result[entry.0] = entry.1
+            }
     }
 
     private func startListening(on client: any WebSocketClient) {
@@ -769,6 +800,8 @@ final class ProviderChatService: ChatServicing {
             handleStreamReadState(data: data)
         case "stream_tail_state":
             handleStreamTailState(data: data)
+        case "sync_complete":
+            handleSyncComplete(data: data, lifecycleEpoch: lifecycleEpoch, lifecycleConnectionToken: lifecycleConnectionToken)
         case "event":
             handleEvent(data: data)
         default:
@@ -804,6 +837,7 @@ final class ProviderChatService: ChatServicing {
             let supportsSessionProvisioning = result.features?.contains("session_info") ?? false
             emitServiceEvent(.sessionProvisioningAvailable(supportsSessionProvisioning))
             if let info = sessionInfo(from: result) {
+                knownSessionKeys = Set(info.sessionKeys)
                 emitServiceEvent(.sessionInfo(info))
             }
             if let streamReadStates = result.streamReadStates {
@@ -852,10 +886,24 @@ final class ProviderChatService: ChatServicing {
             "recv message id=\(payload.id, privacy: .public) sessionKey=\(sessionKey, privacy: .public) role=\(String(describing: payload.role), privacy: .public) streaming=\(payload.streaming, privacy: .public) deviceId=\(payload.deviceId ?? "nil", privacy: .public) snippet=\"\(snippet, privacy: .public)\""
         )
         let message = Message(payload: payload, sessionKey: sessionKey)
-        if message.id.hasPrefix("s_") {
+        if isReplayCursorEvent(message) {
             setReplayCursor(message.id, for: sessionKey)
         }
         messageBroadcaster.send(message)
+    }
+
+    private func handleSyncComplete(data: Data, lifecycleEpoch: Int?, lifecycleConnectionToken: UUID?) {
+        guard (try? decoder.decode(SyncCompletePayload.self, from: data)) != nil else {
+            logger.warning("Dropping sync_complete payload: decode failed")
+            return
+        }
+        if let lifecycleEpoch {
+            emitLifecycleEvent(
+                epoch: lifecycleEpoch,
+                payload: .syncComplete,
+                lifecycleConnectionToken: lifecycleConnectionToken
+            )
+        }
     }
 
     private func handleTyping(data: Data) {
@@ -963,7 +1011,6 @@ final class ProviderChatService: ChatServicing {
             let invalidLastMessageId = payload.code == "invalid_message"
                 && isInvalidLastMessageIdMessage(payload.message)
             if invalidLastMessageId {
-                clearReplayCursors()
                 if let lifecycleEpoch {
                     emitLifecycleEvent(
                         epoch: lifecycleEpoch,
@@ -1380,8 +1427,12 @@ final class ProviderChatService: ChatServicing {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix(Self.serverEventIDPrefix) else { return nil }
-        let uuidPortion = String(trimmed.dropFirst(Self.serverEventIDPrefix.count))
-        guard UUID(uuidString: uuidPortion) != nil else { return nil }
+        guard trimmed.count > Self.serverEventIDPrefix.count else { return nil }
+        guard !trimmed.hasPrefix("\(Self.serverEventIDPrefix)no_reply_") else { return nil }
         return trimmed
+    }
+
+    private func isReplayCursorEvent(_ message: Message) -> Bool {
+        normalizeServerEventID(message.id) != nil && !message.streaming
     }
 }

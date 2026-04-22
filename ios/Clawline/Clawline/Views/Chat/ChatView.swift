@@ -3093,6 +3093,7 @@ private final class PreviewChatService: ChatServicing {
     func disconnect() {}
     func replayCursorSnapshot() -> [String: String] { [:] }
     func setReplayCursor(_ cursor: String?, for sessionKey: String) {}
+    func seedReplayCursorIfMissing(_ cursor: String?, for sessionKey: String) {}
     func clearReplayCursors() {}
     func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String?) async throws {}
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {}
