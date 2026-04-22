@@ -396,6 +396,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var isAssistantTyping: Bool = false
     private(set) var typingSessionKey: String?
     private(set) var connectionState: ConnectionState = .disconnected
+    private(set) var sendButtonConnectionState: SendButtonConnectionState = .disconnected
     private(set) var inputResetToken: Int = 0
     private(set) var sendTask: Task<Void, Never>?
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
@@ -421,10 +422,6 @@ final class ChatViewModel: ChatViewModelHosting {
         pendingAttachmentStageCount == 0
             && transportSendButtonConnectionState == .connected
             && !inputContent.isEffectivelyEmpty
-    }
-
-    var sendButtonConnectionState: SendButtonConnectionState {
-        return temporarySendButtonOverride ?? transportSendButtonConnectionState
     }
 
     let toastManager: ToastManager
@@ -2515,6 +2512,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func transitionConnectionState(_ state: ConnectionState,
                                            source: ConnectionStateMutationSource) {
         connectionState = state
+        refreshSendButtonConnectionState()
         logger.info("connectionState transition id=\(self.instanceId, privacy: .public) source=\(source.rawValue, privacy: .public) state=\(String(describing: state), privacy: .public)")
         switch state {
         case .connected:
@@ -3406,6 +3404,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func setTemporarySendButtonOverride(_ state: SendButtonConnectionState) {
         temporarySendButtonOverride = state
+        refreshSendButtonConnectionState()
         temporarySendButtonOverrideTask?.cancel()
         let overrideDuration = temporarySendButtonOverrideDuration
         temporarySendButtonOverrideTask = Task { @MainActor [weak self] in
@@ -3422,6 +3421,11 @@ final class ChatViewModel: ChatViewModelHosting {
         temporarySendButtonOverrideTask?.cancel()
         temporarySendButtonOverrideTask = nil
         temporarySendButtonOverride = nil
+        refreshSendButtonConnectionState()
+    }
+
+    private func refreshSendButtonConnectionState() {
+        sendButtonConnectionState = temporarySendButtonOverride ?? transportSendButtonConnectionState
     }
 
     @MainActor

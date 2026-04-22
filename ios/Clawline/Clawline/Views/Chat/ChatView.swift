@@ -172,6 +172,7 @@ struct ChatView: View {
     @State private var layoutRevision: Int = 0
     @State private var selectionRange = NSRange(location: 0, length: 0)
     @State private var pendingInputInsertions: [PendingAttachment] = []
+    @State private var inputBarSendButtonConnectionState = SendButtonConnectionStateStore()
     @State private var activeSheet: ChatSheet?
     @State private var streamPopupRouteController = StreamPopupRouteController()
     @State private var isPhotosPickerPresented = false
@@ -751,6 +752,7 @@ struct ChatView: View {
         let isKeyboardVisible = keyboardVisibleHeight > 0.5
         let effectiveStreams = viewModel.orderedStreams
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
+        let sendButtonConnectionState = viewModel.sendButtonConnectionState
         let showsStreamPager = !effectiveSessionKeys.isEmpty
         let pageIndicatorClearance: CGFloat = {
             guard showsStreamPager else { return 0 }
@@ -863,6 +865,10 @@ struct ChatView: View {
             layoutCoordinator.setActiveSessionKey(viewModel.engineActiveSessionKey)
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
+            inputBarSendButtonConnectionState.value = sendButtonConnectionState
+        }
+        .onChange(of: sendButtonConnectionState) { _, newValue in
+            inputBarSendButtonConnectionState.value = newValue
         }
         .onChange(of: viewModel.uiSelectionSequence) { _, _ in
             guard let selectedSessionKey = viewModel.lastUISelectedSessionKey else { return }
@@ -1330,7 +1336,7 @@ struct ChatView: View {
                 canSend: viewModel.canSend,
                 isSending: viewModel.isSending,
                 isStagingAttachments: viewModel.pendingAttachmentStageCount > 0,
-                connectionState: viewModel.sendButtonConnectionState,
+                connectionStateStore: inputBarSendButtonConnectionState,
                 focusTrigger: focusRequestID,
                 bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
                 isKeyboardVisible: isKeyboardVisible,
