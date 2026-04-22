@@ -1010,6 +1010,10 @@ final class ProviderChatService: ChatServicing {
         case "invalid_message", "payload_too_large", "invalid_channel":
             let invalidLastMessageId = payload.code == "invalid_message"
                 && isInvalidLastMessageIdMessage(payload.message)
+            if payload.code == "invalid_message", isUnknownLastReadMessageIdMessage(payload.message) {
+                logger.info("Ignoring background stream_read rejection: unknown lastReadMessageId")
+                return
+            }
             if invalidLastMessageId {
                 if let lifecycleEpoch {
                     emitLifecycleEvent(
@@ -1211,6 +1215,14 @@ final class ProviderChatService: ChatServicing {
             .lowercased()
             .replacingOccurrences(of: " ", with: "")
         return normalized == "invalidlastmessageid"
+    }
+
+    private func isUnknownLastReadMessageIdMessage(_ message: String?) -> Bool {
+        let normalized = (message ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+        return normalized == "unknownlastreadmessageid"
     }
 
     private static let clientID = "openclaw"

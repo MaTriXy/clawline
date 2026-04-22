@@ -2030,6 +2030,66 @@ struct ChatViewModelTests {
         #expect(viewModel.lastReadMessageIdBySession[customKey] == "s_publish_read_target")
     }
 
+    @Test("Activating stream prefers provider tail over stale local transcript")
+    @MainActor
+    func activatingStreamPrefersProviderTailOverStaleLocalTranscript() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let customKey = "agent:main:clawline:user:s_stale_cache"
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: customKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        try await Task.sleep(for: .milliseconds(30))
+
+        chatService.emit(
+            Message(
+                id: "s_stale_cached_tail",
+                role: .assistant,
+                content: "cached",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: customKey
+            )
+        )
+        chatService.emitServiceEvent(
+            .streamTailStateUpdated(
+                sessionKey: customKey,
+                tailState: StreamTailState(lastMessageId: "s_provider_tail", lastMessageRole: .assistant)
+            )
+        )
+        try await Task.sleep(for: .milliseconds(30))
+
+        chatService.lastPublishedReadState = nil
+        viewModel.setActiveSessionKeyForTesting(customKey)
+
+        for _ in 0..<50 {
+            if chatService.lastPublishedReadState?.lastReadMessageId == "s_provider_tail" { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(chatService.lastPublishedReadState?.sessionKey == customKey)
+        #expect(chatService.lastPublishedReadState?.lastReadMessageId == "s_provider_tail")
+        #expect(viewModel.lastReadMessageIdBySession[customKey] == "s_provider_tail")
+    }
+
     @Test("Active stream assistant arrivals publish updated read-state immediately")
     @MainActor
     func activeStreamIncomingAssistantPublishesReadState() async throws {

@@ -267,7 +267,7 @@ final class ChatViewModel: ChatViewModelHosting {
         guard orderedSessionKeys.contains(sessionKey) else { return }
         guard engineActiveSessionKey != sessionKey else { return }
         applyActiveSessionKey(sessionKey)
-        markSessionRead(sessionKey)
+        markSessionRead(sessionKey, preferServerTail: true)
         // Keep intent selection coherent for non-switch engine mutations (bootstrap/deletion fallback).
         // Stream-switch path still writes uiSelectedSessionKey explicitly before this runs.
         if uiSelectedSessionKey != sessionKey {
@@ -3453,10 +3453,13 @@ final class ChatViewModel: ChatViewModelHosting {
         return trimmed
     }
 
-    private func markSessionRead(_ sessionKey: String) {
+    private func markSessionRead(_ sessionKey: String, preferServerTail: Bool = false) {
+        let localTailMessageId = lastServerMessageId(from: sessionMessages[sessionKey] ?? [])
+        let serverTailMessageId = streamTailStateBySession[sessionKey]?.lastMessageId
         let tailMessageId =
-            lastServerMessageId(from: sessionMessages[sessionKey] ?? [])
-            ?? streamTailStateBySession[sessionKey]?.lastMessageId
+            preferServerTail
+                ? (serverTailMessageId ?? localTailMessageId)
+                : (localTailMessageId ?? serverTailMessageId)
         if let tailMessageId {
             lastReadMessageIdBySession[sessionKey] = tailMessageId
             persistLastReadMessageId(tailMessageId, for: sessionKey)

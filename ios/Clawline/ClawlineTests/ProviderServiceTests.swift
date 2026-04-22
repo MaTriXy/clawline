@@ -380,6 +380,54 @@ struct ProviderServiceTests {
         })
     }
 
+    @Test("Unknown read-state cursor rejection does not fail pending messages")
+    func unknownReadStateCursorRejectionDoesNotFailPendingMessages() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(10))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+        try await service.send(
+            id: "c_pending",
+            content: "Hello",
+            attachments: [],
+            sessionKey: nil
+        )
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "error", "code": "invalid_message", "message": "Unknown lastReadMessageId" }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "ack", "id": "c_pending" }"#)
+        }
+
+        for _ in 0..<20 {
+            guard let event = await eventIterator.next() else { continue }
+            switch event {
+            case .messageError(_, let code, let message):
+                Issue.record("Unexpected message error from read-state rejection: \(code) \(message ?? "")")
+                return
+            case .messageAcked(let id) where id == "c_pending":
+                return
+            default:
+                continue
+            }
+        }
+
+        Issue.record("Expected pending message ack")
+    }
+
     @Test("Chat send does not automatically retry an unacked message")
     func chatSendDoesNotRetryUnackedMessage() async throws {
         let mockSocket = MockWebSocketClient()
