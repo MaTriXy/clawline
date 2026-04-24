@@ -2313,7 +2313,11 @@ private final class PromptFocusShortcutView: UIView {
             }
             return
         }
-        guard isShortcutEnabled, !isFirstResponder else { return }
+        guard PromptFocusShortcutActivation.shouldActivate(
+            isShortcutEnabled: isShortcutEnabled,
+            isAlreadyFirstResponder: isFirstResponder,
+            currentFirstResponderIsTextInput: window?.clawlineFirstResponder?.isClawlineTextInputResponder == true
+        ) else { return }
         becomeFirstResponder()
     }
 
@@ -2325,6 +2329,41 @@ private final class PromptFocusShortcutView: UIView {
     @objc private func openStreamPopup(_ sender: UIKeyCommand) {
         guard isShortcutEnabled, hasStreams else { return }
         onOpenStreamPopup?()
+    }
+}
+
+enum PromptFocusShortcutActivation {
+    static func shouldActivate(
+        isShortcutEnabled: Bool,
+        isAlreadyFirstResponder: Bool,
+        currentFirstResponderIsTextInput: Bool
+    ) -> Bool {
+        isShortcutEnabled && !isAlreadyFirstResponder && !currentFirstResponderIsTextInput
+    }
+}
+
+private extension UIResponder {
+    static weak var clawlineCurrentFirstResponder: UIResponder?
+
+    var isClawlineTextInputResponder: Bool {
+        self is UITextInput
+    }
+
+    @objc func clawlineCaptureFirstResponder(_ sender: Any) {
+        UIResponder.clawlineCurrentFirstResponder = self
+    }
+}
+
+private extension UIWindow {
+    var clawlineFirstResponder: UIResponder? {
+        UIResponder.clawlineCurrentFirstResponder = nil
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.clawlineCaptureFirstResponder(_:)),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        return UIResponder.clawlineCurrentFirstResponder
     }
 }
 
