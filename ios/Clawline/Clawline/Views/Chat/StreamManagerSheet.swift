@@ -129,8 +129,11 @@ struct StreamManagerSheet: View {
         )
     }
 
-    private var listViewportHeight: CGFloat {
-        max(0, cappedContainerHeight - actionBarReservedHeight)
+    private func listViewportHeight(containerHeight: CGFloat) -> CGFloat {
+        StreamSelectorLayout.listViewportHeight(
+            containerHeight: containerHeight,
+            actionBarReservedHeight: actionBarReservedHeight
+        )
     }
 
     private var cappedContainerHeight: CGFloat {
@@ -148,79 +151,64 @@ struct StreamManagerSheet: View {
 
     var body: some View {
         let _ = settings.fontScaleChangeSequence
-        VStack(spacing: 0) {
-            List {
-                ForEach(filteredStreams) { stream in
-                    rowContent(for: stream)
-                        .frame(height: listRowHeight, alignment: .center)
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 0,
-                                leading: listRowHorizontalInset,
-                                bottom: 0,
-                                trailing: listRowHorizontalInset
+        GeometryReader { geometry in
+            // Trust the allocated size. If the popover system gives us less than our ideal,
+            // the List viewport shrinks to match instead of overflowing into the popup chrome.
+            let containerHeight = geometry.size.height
+            VStack(spacing: 0) {
+                List {
+                    ForEach(filteredStreams) { stream in
+                        rowContent(for: stream)
+                            .frame(height: listRowHeight, alignment: .center)
+                            .listRowInsets(
+                                EdgeInsets(
+                                    top: 0,
+                                    leading: listRowHorizontalInset,
+                                    bottom: 0,
+                                    trailing: listRowHorizontalInset
+                                )
                             )
-                        )
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(rowBackground(for: stream))
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button {
-                                beginRenaming(stream)
-                            } label: {
-                                Image(systemName: "pencil")
-                                    .font(.title3.weight(.semibold))
-                            }
-                            .accessibilityLabel("Rename")
-                            .disabled(!canPerformRenameAction(for: stream))
-                            .tint(canPerformRenameAction(for: stream) ? .blue : Color.gray.opacity(0.35))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(rowBackground(for: stream))
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    beginRenaming(stream)
+                                } label: {
+                                    Image(systemName: "pencil")
+                                        .font(.title3.weight(.semibold))
+                                }
+                                .accessibilityLabel("Rename")
+                                .disabled(!canPerformRenameAction(for: stream))
+                                .tint(canPerformRenameAction(for: stream) ? .blue : Color.gray.opacity(0.35))
 
-                            Button {
-                                pendingRemovalStream = stream
-                            } label: {
-                                Image(systemName: removalActionImage(for: stream))
-                                    .font(.title3.weight(.semibold))
+                                Button {
+                                    pendingRemovalStream = stream
+                                } label: {
+                                    Image(systemName: removalActionImage(for: stream))
+                                        .font(.title3.weight(.semibold))
+                                }
+                                .accessibilityLabel(removalActionTitle(for: stream))
+                                .disabled(!canPerformRemovalAction(for: stream))
+                                .tint(canPerformRemovalAction(for: stream) ? .red : Color.gray.opacity(0.35))
                             }
-                            .accessibilityLabel(removalActionTitle(for: stream))
-                            .disabled(!canPerformRemovalAction(for: stream))
-                            .tint(canPerformRemovalAction(for: stream) ? .red : Color.gray.opacity(0.35))
-                        }
-                }
-
-                ForEach(filteredPendingCreateRows) { pendingRow in
-                    HStack(spacing: 10) {
-                        Circle()
-                            .fill(Color.primary.opacity(0.18))
-                            .frame(width: 8, height: 8)
-                        Text(pendingRow.displayName)
-                            .font(.clawline(.subsectionHeader).weight(.regular))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.secondary)
                     }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .frame(height: listRowHeight, alignment: .center)
-                    .listRowInsets(
-                        EdgeInsets(
-                            top: 0,
-                            leading: listRowHorizontalInset,
-                            bottom: 0,
-                            trailing: listRowHorizontalInset
-                        )
-                    )
-                    .contentShape(Rectangle())
-                }
 
-                if filteredStreams.isEmpty && filteredPendingCreateRows.isEmpty {
-                    Text("No streams found")
-                        .font(.clawline(.secondaryLabel))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .frame(height: listRowHeight, alignment: .center)
+                    ForEach(filteredPendingCreateRows) { pendingRow in
+                        HStack(spacing: 10) {
+                            Circle()
+                                .fill(Color.primary.opacity(0.18))
+                                .frame(width: 8, height: 8)
+                            Text(pendingRow.displayName)
+                                .font(.clawline(.subsectionHeader).weight(.regular))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.secondary)
+                        }
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
+                        .frame(height: listRowHeight, alignment: .center)
                         .listRowInsets(
                             EdgeInsets(
                                 top: 0,
@@ -229,29 +217,60 @@ struct StreamManagerSheet: View {
                                 trailing: listRowHorizontalInset
                             )
                         )
-                }
-            }
-            .listStyle(.plain)
-            .environment(\.defaultMinListRowHeight, listRowHeight)
-            .listRowSpacing(listRowSpacing)
-            .scrollBounceBehavior(.always)
-            .contentMargins(.top, listOuterVerticalPadding, for: .scrollContent)
-            .contentMargins(.bottom, listOuterVerticalPadding, for: .scrollContent)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
-            .frame(height: listViewportHeight)
-            .clipShape(Rectangle())
-            .disabled(isWorking)
+                        .contentShape(Rectangle())
+                    }
 
-            bottomActionBar
+                    if filteredStreams.isEmpty && filteredPendingCreateRows.isEmpty {
+                        Text("No streams found")
+                            .font(.clawline(.secondaryLabel))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .frame(height: listRowHeight, alignment: .center)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(
+                                EdgeInsets(
+                                    top: 0,
+                                    leading: listRowHorizontalInset,
+                                    bottom: 0,
+                                    trailing: listRowHorizontalInset
+                                )
+                            )
+                    }
+                }
+                .listStyle(.plain)
+                .environment(\.defaultMinListRowHeight, listRowHeight)
+                .listRowSpacing(listRowSpacing)
+                .scrollBounceBehavior(.always)
+                .contentMargins(.top, listOuterVerticalPadding, for: .scrollContent)
+                .contentMargins(.bottom, listOuterVerticalPadding, for: .scrollContent)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .frame(height: listViewportHeight(containerHeight: containerHeight))
+                .clipShape(Rectangle())
+                .disabled(isWorking)
+
+                bottomActionBar
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
         }
-        .frame(height: cappedContainerHeight)
         .frame(
             minWidth: minimumPopoverWidth,
             idealWidth: idealPopoverWidth,
             maxWidth: maximumPopoverWidth
         )
+        .frame(
+            // Clamp the floor to the capped height so we never produce an inconsistent
+            // (minHeight > maxHeight) frame when the window is shorter than our preferred minimum.
+            minHeight: min(minimumPopoverHeight, cappedContainerHeight),
+            idealHeight: cappedContainerHeight,
+            maxHeight: cappedContainerHeight,
+            alignment: .top
+        )
         .background(Color.clear)
+        // Hard-clip at the popup's own corner radius so any late-updating list content
+        // cannot visually bleed past the popup bounds when the popover system reallocates height.
+        .clipShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
                 .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
@@ -1125,8 +1144,27 @@ enum StreamSelectorLayout {
             functionBarHeight: functionBarHeight,
             outerVerticalPadding: outerVerticalPadding
         )
-        let cap = max(minimumPopoverHeight, maxAvailableHeight)
-        return min(desired, cap)
+        // Hard ceiling: never ask the popover system for more than the caller's budget.
+        // When the budget is smaller than our preferred minimum (e.g., a very short
+        // spatial window), clamp to the budget so the popup fits inside the available
+        // space instead of requesting a minimum the popover system cannot honor —
+        // which would silently crop the popup body on visionOS.
+        let cap = max(0, maxAvailableHeight)
+        let preferredFloor = min(minimumPopoverHeight, cap)
+        let desiredWithinBudget = min(desired, cap)
+        return max(preferredFloor, desiredWithinBudget)
+    }
+
+    /// Adaptive height for the stream list viewport given an actual allocated container height.
+    ///
+    /// This is used by the popup to shrink the scrollable list viewport when the popover
+    /// system allocates less vertical space than the popup's ideal height, so list content
+    /// never overflows into the popup chrome or past the visible popup bounds.
+    static func listViewportHeight(
+        containerHeight: CGFloat,
+        actionBarReservedHeight: CGFloat
+    ) -> CGFloat {
+        max(0, containerHeight - actionBarReservedHeight)
     }
 
     static func isOverflowing(
