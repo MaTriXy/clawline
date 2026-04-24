@@ -644,14 +644,12 @@ struct ChatView: View {
         }
         .handleStreamPopupCommand(
             hasStreams: !viewModel.orderedStreams.isEmpty,
-            canHandleShortcut: { !Self.currentFirstResponderIsTextInput() },
             onOpen: {
                 streamPopupRouteController.openPopup(focusSearch: true)
             }
         )
         .handleStreamNavigationCommands(
             isEnabled: !viewModel.orderedStreams.isEmpty,
-            canHandleShortcut: { !Self.currentFirstResponderIsTextInput() },
             onNavigatePrevious: { navigateStreamByShortcut(step: -1, sessionKeys: viewModel.orderedStreams.map(\.sessionKey)) },
             onNavigateNext: { navigateStreamByShortcut(step: 1, sessionKeys: viewModel.orderedStreams.map(\.sessionKey)) }
         )
@@ -1694,14 +1692,6 @@ struct ChatView: View {
         viewModel.requestStreamSwitch(to: sessionKey, source: source)
     }
 
-    private static func currentFirstResponderIsTextInput() -> Bool {
-        let keyWindow = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first { $0.isKeyWindow }
-        return keyWindow?.clawlineFirstResponder?.isClawlineTextInputResponder == true
-    }
-
     private var supportsKeyboardNavigationShortcuts: Bool {
 #if os(iOS)
         UIDevice.current.userInterfaceIdiom == .pad
@@ -2210,13 +2200,11 @@ private extension View {
 
     func handleStreamPopupCommand(
         hasStreams: Bool,
-        canHandleShortcut: @escaping () -> Bool,
         onOpen: @escaping () -> Void
     ) -> some View {
         modifier(
             StreamPopupCommandModifier(
                 hasStreams: hasStreams,
-                canHandleShortcut: canHandleShortcut,
                 onOpen: onOpen
             )
         )
@@ -2224,14 +2212,12 @@ private extension View {
 
     func handleStreamNavigationCommands(
         isEnabled: Bool,
-        canHandleShortcut: @escaping () -> Bool,
         onNavigatePrevious: @escaping () -> Void,
         onNavigateNext: @escaping () -> Void
     ) -> some View {
         modifier(
             StreamNavigationCommandModifier(
                 isEnabled: isEnabled,
-                canHandleShortcut: canHandleShortcut,
                 onNavigatePrevious: onNavigatePrevious,
                 onNavigateNext: onNavigateNext
             )
@@ -2255,12 +2241,11 @@ private extension View {
 
 private struct StreamPopupCommandModifier: ViewModifier {
     let hasStreams: Bool
-    let canHandleShortcut: () -> Bool
     let onOpen: () -> Void
 
     func body(content: Content) -> some View {
         content.onReceive(NotificationCenter.default.publisher(for: .clawlineOpenStreamPopupCommand)) { _ in
-            guard hasStreams, canHandleShortcut() else { return }
+            guard hasStreams else { return }
             onOpen()
         }
     }
@@ -2268,18 +2253,17 @@ private struct StreamPopupCommandModifier: ViewModifier {
 
 private struct StreamNavigationCommandModifier: ViewModifier {
     let isEnabled: Bool
-    let canHandleShortcut: () -> Bool
     let onNavigatePrevious: () -> Void
     let onNavigateNext: () -> Void
 
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .clawlineNavigateToPreviousStreamCommand)) { _ in
-                guard isEnabled, canHandleShortcut() else { return }
+                guard isEnabled else { return }
                 onNavigatePrevious()
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineNavigateToNextStreamCommand)) { _ in
-                guard isEnabled, canHandleShortcut() else { return }
+                guard isEnabled else { return }
                 onNavigateNext()
             }
     }
