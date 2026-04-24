@@ -7,6 +7,8 @@
 
 import Testing
 import CoreGraphics
+import SwiftUI
+import UIKit
 @testable import Clawline
 
 @MainActor
@@ -140,5 +142,51 @@ struct StreamPageDotsViewTests {
         )
 
         #expect(kind == .userTail)
+    }
+
+    @Test("Active dots use the brighter avatar highlight green")
+    func activeDotsUseAvatarHighlightGreen() {
+        let color = StreamDotColor.resolve(
+            isActive: true,
+            dotState: .inactive,
+            colorScheme: .light
+        )
+
+        #expect(Self.rgb(color) == RGB(red: 0.48, green: 0.68, blue: 0.48))
+    }
+
+    @Test("Unread dots keep the unread indicator color")
+    func unreadDotsUseUnreadIndicatorColor() {
+        let color = StreamDotColor.resolve(
+            isActive: false,
+            dotState: .unread,
+            colorScheme: .light
+        )
+
+        #expect(Self.rgb(color) == Self.rgb(ChatFlowTheme.unreadIndicator(.light)))
+    }
+
+    private struct RGB: Equatable {
+        let red: CGFloat
+        let green: CGFloat
+        let blue: CGFloat
+    }
+
+    private static func rgb(_ color: Color) -> RGB {
+        let uiColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return RGB(
+            red: rounded(red),
+            green: rounded(green),
+            blue: rounded(blue)
+        )
+    }
+
+    private static func rounded(_ value: CGFloat) -> CGFloat {
+        (value * 100).rounded() / 100
     }
 }
