@@ -2292,6 +2292,7 @@ private final class PromptFocusShortcutView: UIView {
     var onFocusRequested: (() -> Void)?
     var isShortcutEnabled = false
     var hasStreams = false
+    private var hasPendingActivationRetry = false
 
     override var canBecomeFirstResponder: Bool {
         isShortcutEnabled
@@ -2306,19 +2307,37 @@ private final class PromptFocusShortcutView: UIView {
         ]
     }
 
-    func activateWhenReady() {
+    func activateWhenReady(textInputRetryCount: Int = 1) {
         guard window != nil else {
             DispatchQueue.main.async { [weak self] in
                 self?.activateWhenReady()
             }
             return
         }
-        guard PromptFocusShortcutActivation.shouldActivate(
+        switch PromptFocusShortcutActivation.action(
             isShortcutEnabled: isShortcutEnabled,
             isAlreadyFirstResponder: isFirstResponder,
-            currentFirstResponderIsTextInput: window?.clawlineFirstResponder?.isClawlineTextInputResponder == true
-        ) else { return }
-        becomeFirstResponder()
+            currentFirstResponderIsTextInput: window?.clawlineFirstResponder?.isClawlineTextInputResponder == true,
+            canRetryAfterTextInput: textInputRetryCount > 0
+        ) {
+        case .activate:
+            hasPendingActivationRetry = false
+            becomeFirstResponder()
+        case .retryAfterTextInputResigns:
+            scheduleActivationRetry(textInputRetryCount: textInputRetryCount - 1)
+        case .skip:
+            hasPendingActivationRetry = false
+        }
+    }
+
+    private func scheduleActivationRetry(textInputRetryCount: Int) {
+        guard !hasPendingActivationRetry else { return }
+        hasPendingActivationRetry = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            hasPendingActivationRetry = false
+            activateWhenReady(textInputRetryCount: textInputRetryCount)
+        }
     }
 
     @objc private func focusPromptInput(_ sender: UIKeyCommand) {
@@ -2333,12 +2352,23 @@ private final class PromptFocusShortcutView: UIView {
 }
 
 enum PromptFocusShortcutActivation {
-    static func shouldActivate(
+    enum Action: Equatable {
+        case activate
+        case retryAfterTextInputResigns
+        case skip
+    }
+
+    static func action(
         isShortcutEnabled: Bool,
         isAlreadyFirstResponder: Bool,
-        currentFirstResponderIsTextInput: Bool
-    ) -> Bool {
-        isShortcutEnabled && !isAlreadyFirstResponder && !currentFirstResponderIsTextInput
+        currentFirstResponderIsTextInput: Bool,
+        canRetryAfterTextInput: Bool
+    ) -> Action {
+        guard isShortcutEnabled, !isAlreadyFirstResponder else { return .skip }
+        guard !currentFirstResponderIsTextInput else {
+            return canRetryAfterTextInput ? .retryAfterTextInputResigns : .skip
+        }
+        return .activate
     }
 }
 
