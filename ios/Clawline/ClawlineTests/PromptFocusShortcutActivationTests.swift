@@ -89,6 +89,38 @@ struct PromptFocusShortcutActivationTests {
         )
     }
 
+    @Test("Prompt text input owns Escape as the text release key")
+    @MainActor
+    func promptTextInputOwnsEscapeAsTheTextReleaseKey() {
+        let textView = PastableTextView(frame: .zero, textContainer: nil)
+        let firstEscapeCommand = textView.keyCommands?.first { command in
+            command.input == UIKeyCommand.inputEscape && command.modifierFlags.isEmpty
+        }
+
+        #expect(firstEscapeCommand?.action == Selector(("didPressEscape:")))
+    }
+
+    @Test("Prompt text input reports responder focus transitions")
+    @MainActor
+    func promptTextInputReportsResponderFocusTransitions() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 120))
+        let textView = PastableTextView(frame: CGRect(x: 0, y: 0, width: 320, height: 44), textContainer: nil)
+        var reportedFocusStates: [Bool] = []
+        textView.onResponderFocusChange = { isFocused in
+            reportedFocusStates.append(isFocused)
+        }
+        window.addSubview(textView)
+        window.makeKeyAndVisible()
+
+        let didFocus = textView.becomeFirstResponder()
+        let didRelease = textView.resignFirstResponder()
+        window.isHidden = true
+
+        #expect(didFocus)
+        #expect(didRelease)
+        #expect(reportedFocusStates == [true, false])
+    }
+
     @Test("Shortcut routing separates app commands from no-text responder keys")
     func shortcutRoutingSeparatesAppCommandsFromNoTextResponderKeys() {
         #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command, .shift]) == .appCommand)
