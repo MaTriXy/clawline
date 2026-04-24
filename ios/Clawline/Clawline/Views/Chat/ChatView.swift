@@ -75,7 +75,7 @@ private final class T099OnDisappearProbeStore {
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 //
 // 1. @State isInputFocused lives HERE in ChatView (stable parent, survives geometry changes)
-// 2. MessageInputBar reports focus via callback: onFocusChange: { isInputFocused = $0 }
+// 2. MessageInputBar reports focus via callback: onFocusChange: { scheduleInputFocusChange($0) }
 // 3. Offset modifier applied HERE in ChatView (modifiers on .safeAreaInset content DO update)
 //
 // KEY INSIGHT: .safeAreaInset content body doesn't re-render on parent state change,
@@ -1380,10 +1380,7 @@ struct ChatView: View {
                 // ⚠️ This callback is how focus state survives view recreation.
                 // DO NOT replace with @Binding or try to use @FocusState directly.
                 onFocusChange: { focused in
-                    isInputFocused = focused
-                    if !focused {
-                        clearTypingActivity()
-                    }
+                    scheduleInputFocusChange(focused)
                 },
                 onTextEditActivity: {
                     recordTypingActivity()
@@ -1785,6 +1782,21 @@ struct ChatView: View {
         typingActivityResetTask?.cancel()
         typingActivityResetTask = nil
         isTypingActive = false
+    }
+
+    private func scheduleInputFocusChange(_ focused: Bool) {
+        Task { @MainActor in
+            applyInputFocusChange(focused)
+        }
+    }
+
+    private func applyInputFocusChange(_ focused: Bool) {
+        if isInputFocused != focused {
+            isInputFocused = focused
+        }
+        if !focused {
+            clearTypingActivity()
+        }
     }
 
     private func deviceCornerRadius() -> CGFloat {
