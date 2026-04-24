@@ -10,8 +10,8 @@ import UIKit
 @testable import Clawline
 
 struct PromptFocusShortcutActivationTests {
-    @Test("Prompt focus shortcuts do not include Cmd-L")
-    func promptFocusShortcutsDoNotIncludeCommandL() {
+    @Test("Prompt focus shortcuts do not use Cmd-L")
+    func promptFocusShortcutsDoNotUseCommandL() {
         #expect(
             !PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
                 spec.input == "l"
@@ -21,8 +21,8 @@ struct PromptFocusShortcutActivationTests {
         )
     }
 
-    @Test("App command shortcuts use Cmd-semicolon and Cmd-Shift chat navigation and scroll")
-    func appCommandShortcutsUseCommandSemicolonAndCommandShiftChatNavigationAndScroll() {
+    @Test("App command shortcuts use Cmd-semicolon, Cmd-L, Cmd-Shift navigation, and scroll")
+    func appCommandShortcutsUseCommandSemicolonCommandLCommandShiftNavigationAndScroll() {
         #expect(
             ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
                 spec.input == ";"
@@ -35,6 +35,13 @@ struct PromptFocusShortcutActivationTests {
                 spec.input == "h"
                     && spec.modifierFlags == [.command, .shift]
                     && spec.action.selector == #selector(UIResponder.clawlineNavigateToPreviousStreamCommand(_:))
+            }
+        )
+        #expect(
+            ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+                spec.input == "l"
+                    && spec.modifierFlags == [.command]
+                    && spec.action.selector == #selector(UIResponder.clawlineNavigateToNextStreamCommand(_:))
             }
         )
         #expect(
@@ -60,7 +67,7 @@ struct PromptFocusShortcutActivationTests {
         )
         #expect(
             !ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
-                ["h", "j", "k", "l"].contains(spec.input) && spec.modifierFlags == [.command]
+                ["h", "j", "k"].contains(spec.input) && spec.modifierFlags == [.command]
             }
         )
     }
@@ -82,7 +89,7 @@ struct PromptFocusShortcutActivationTests {
         #expect(ChatShortcutRouting.owner(input: "j", modifierFlags: [.command, .shift]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command, .shift]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: ";", modifierFlags: [.command]) == .appCommand)
-        #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command]) == .textInput)
+        #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: "h", modifierFlags: [.command]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "j", modifierFlags: [.command]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command]) == .textInput)

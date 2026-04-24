@@ -2469,6 +2469,7 @@ enum ChatAppCommandShortcut {
     static let keyCommandSpecs: [KeyCommandSpec] = [
         KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
         KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
+        KeyCommandSpec(input: "l", modifierFlags: [.command], action: .navigateNextStream),
         KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream),
         KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollDown),
         KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollUp)
@@ -2485,6 +2486,9 @@ enum ChatShortcutRouting {
     static func owner(input: String, modifierFlags: UIKeyModifierFlags) -> Owner {
         let normalizedInput = input.lowercased()
         if modifierFlags == [.command], normalizedInput == ";" {
+            return .appCommand
+        }
+        if modifierFlags == [.command], normalizedInput == "l" {
             return .appCommand
         }
         if modifierFlags == [.command, .shift], ["h", "j", "k", "l"].contains(normalizedInput) {
