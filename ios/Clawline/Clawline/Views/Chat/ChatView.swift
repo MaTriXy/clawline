@@ -660,7 +660,7 @@ struct ChatView: View {
             onNavigateNext: { navigateStreamByShortcut(step: 1, sessionKeys: viewModel.orderedStreams.map(\.sessionKey)) }
         )
         .handleKeyboardScrollCommands(
-            isEnabled: supportsKeyboardNavigationShortcuts,
+            isEnabled: keyboardScrollShortcutEnabled,
             onScrollDown: { scrollActiveSessionByPage(.down) },
             onScrollUp: { scrollActiveSessionByPage(.up) }
         )
@@ -1710,6 +1710,16 @@ struct ChatView: View {
 #endif
     }
 
+    private var keyboardScrollShortcutEnabled: Bool {
+        ChatKeyboardScrollRouting.isEnabled(
+            platformSupportsKeyboardNavigation: supportsKeyboardNavigationShortcuts,
+            streamPopupRoute: streamPopupRouteController.route,
+            activeSheetPresented: activeSheet != nil,
+            photosPickerPresented: isPhotosPickerPresented,
+            fileImporterPresented: isFileImporterPresented
+        )
+    }
+
     private var keyboardNavigationSessionKey: String? {
         let sessionKeys = viewModel.orderedStreams.map(\.sessionKey)
         guard !sessionKeys.isEmpty else { return nil }
@@ -2528,6 +2538,22 @@ enum ChatShortcutRouting {
             return .textInput
         }
         return ["/", " ", "\r"].contains(input) ? .noTextResponder : .textInput
+    }
+}
+
+enum ChatKeyboardScrollRouting {
+    static func isEnabled(
+        platformSupportsKeyboardNavigation: Bool,
+        streamPopupRoute: StreamPopupRoute,
+        activeSheetPresented: Bool,
+        photosPickerPresented: Bool,
+        fileImporterPresented: Bool
+    ) -> Bool {
+        platformSupportsKeyboardNavigation
+            && streamPopupRoute == .closed
+            && !activeSheetPresented
+            && !photosPickerPresented
+            && !fileImporterPresented
     }
 }
 

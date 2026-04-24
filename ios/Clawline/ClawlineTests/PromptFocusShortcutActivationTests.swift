@@ -106,6 +106,64 @@ struct PromptFocusShortcutActivationTests {
         #expect(ChatShortcutRouting.owner(input: "\r", modifierFlags: []) == .noTextResponder)
     }
 
+    @Test("Keyboard page scroll shortcuts only enable when chat surface owns scroll")
+    func keyboardPageScrollShortcutsOnlyEnableWhenChatSurfaceOwnsScroll() {
+        #expect(
+            ChatKeyboardScrollRouting.isEnabled(
+                platformSupportsKeyboardNavigation: true,
+                streamPopupRoute: .closed,
+                activeSheetPresented: false,
+                photosPickerPresented: false,
+                fileImporterPresented: false
+            )
+        )
+        #expect(
+            !ChatKeyboardScrollRouting.isEnabled(
+                platformSupportsKeyboardNavigation: false,
+                streamPopupRoute: .closed,
+                activeSheetPresented: false,
+                photosPickerPresented: false,
+                fileImporterPresented: false
+            )
+        )
+        #expect(
+            !ChatKeyboardScrollRouting.isEnabled(
+                platformSupportsKeyboardNavigation: true,
+                streamPopupRoute: .popup(searchFocus: .none),
+                activeSheetPresented: false,
+                photosPickerPresented: false,
+                fileImporterPresented: false
+            )
+        )
+        #expect(
+            !ChatKeyboardScrollRouting.isEnabled(
+                platformSupportsKeyboardNavigation: true,
+                streamPopupRoute: .closed,
+                activeSheetPresented: true,
+                photosPickerPresented: false,
+                fileImporterPresented: false
+            )
+        )
+        #expect(
+            !ChatKeyboardScrollRouting.isEnabled(
+                platformSupportsKeyboardNavigation: true,
+                streamPopupRoute: .closed,
+                activeSheetPresented: false,
+                photosPickerPresented: true,
+                fileImporterPresented: false
+            )
+        )
+        #expect(
+            !ChatKeyboardScrollRouting.isEnabled(
+                platformSupportsKeyboardNavigation: true,
+                streamPopupRoute: .closed,
+                activeSheetPresented: false,
+                photosPickerPresented: false,
+                fileImporterPresented: true
+            )
+        )
+    }
+
     @Test("Chat keyboard navigation follows stream order without wrapping")
     func chatKeyboardNavigationFollowsStreamOrderWithoutWrapping() {
         let sessionKeys = ["left", "middle", "right"]
