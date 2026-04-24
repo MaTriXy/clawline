@@ -10,6 +10,7 @@ import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import WebKit
 import os.log
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ChatView")
@@ -2301,11 +2302,11 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollDownCommand)) { _ in
-                guard isEnabled else { return }
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
                 onScrollDown()
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollUpCommand)) { _ in
-                guard isEnabled else { return }
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
                 onScrollUp()
             }
     }
@@ -2409,6 +2410,7 @@ private final class PromptFocusShortcutView: UIView {
             isShortcutEnabled: isShortcutEnabled,
             isAlreadyFirstResponder: isFirstResponder,
             currentFirstResponderIsTextInput: window?.clawlineFirstResponder?.isClawlineTextInputResponder == true,
+            currentFirstResponderOwnsEmbeddedScroll: window?.clawlineFirstResponder?.ownsClawlineEmbeddedScrollInput == true,
             canRetryAfterTextInput: textInputRetryCount > 0
         ) {
         case .activate:
@@ -2583,9 +2585,11 @@ enum PromptFocusShortcutActivation {
         isShortcutEnabled: Bool,
         isAlreadyFirstResponder: Bool,
         currentFirstResponderIsTextInput: Bool,
+        currentFirstResponderOwnsEmbeddedScroll: Bool,
         canRetryAfterTextInput: Bool
     ) -> Action {
         guard isShortcutEnabled, !isAlreadyFirstResponder else { return .skip }
+        guard !currentFirstResponderOwnsEmbeddedScroll else { return .skip }
         guard !currentFirstResponderIsTextInput else {
             return canRetryAfterTextInput ? .retryAfterTextInputResigns : .skip
         }
@@ -2598,6 +2602,17 @@ private extension UIResponder {
 
     var isClawlineTextInputResponder: Bool {
         self is UITextInput
+    }
+
+    var ownsClawlineEmbeddedScrollInput: Bool {
+        var responder: UIResponder? = self
+        while let current = responder {
+            if current is WKWebView {
+                return true
+            }
+            responder = current.next
+        }
+        return false
     }
 
     @objc func clawlineCaptureFirstResponder(_ sender: Any) {
@@ -2615,6 +2630,13 @@ private extension UIWindow {
             for: nil
         )
         return UIResponder.clawlineCurrentFirstResponder
+    }
+
+    static var clawlineCurrentFirstResponderOwnsEmbeddedScroll: Bool {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .contains { $0.clawlineFirstResponder?.ownsClawlineEmbeddedScrollInput == true }
     }
 }
 

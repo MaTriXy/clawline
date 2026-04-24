@@ -147,6 +147,7 @@ struct PromptFocusShortcutActivationTests {
                 isShortcutEnabled: true,
                 isAlreadyFirstResponder: false,
                 currentFirstResponderIsTextInput: false,
+                currentFirstResponderOwnsEmbeddedScroll: false,
                 canRetryAfterTextInput: true
             ) == .activate
         )
@@ -155,6 +156,7 @@ struct PromptFocusShortcutActivationTests {
                 isShortcutEnabled: true,
                 isAlreadyFirstResponder: false,
                 currentFirstResponderIsTextInput: true,
+                currentFirstResponderOwnsEmbeddedScroll: false,
                 canRetryAfterTextInput: false
             ) == .skip
         )
@@ -163,6 +165,7 @@ struct PromptFocusShortcutActivationTests {
                 isShortcutEnabled: false,
                 isAlreadyFirstResponder: false,
                 currentFirstResponderIsTextInput: false,
+                currentFirstResponderOwnsEmbeddedScroll: false,
                 canRetryAfterTextInput: true
             ) == .skip
         )
@@ -171,6 +174,20 @@ struct PromptFocusShortcutActivationTests {
                 isShortcutEnabled: true,
                 isAlreadyFirstResponder: true,
                 currentFirstResponderIsTextInput: false,
+                currentFirstResponderOwnsEmbeddedScroll: false,
+                canRetryAfterTextInput: true
+            ) == .skip
+        )
+    }
+
+    @Test("Prompt focus shortcut does not steal focus from embedded scroll input")
+    func promptFocusShortcutDoesNotStealFocusFromEmbeddedScrollInput() {
+        #expect(
+            PromptFocusShortcutActivation.action(
+                isShortcutEnabled: true,
+                isAlreadyFirstResponder: false,
+                currentFirstResponderIsTextInput: false,
+                currentFirstResponderOwnsEmbeddedScroll: true,
                 canRetryAfterTextInput: true
             ) == .skip
         )
@@ -183,6 +200,7 @@ struct PromptFocusShortcutActivationTests {
                 isShortcutEnabled: true,
                 isAlreadyFirstResponder: false,
                 currentFirstResponderIsTextInput: true,
+                currentFirstResponderOwnsEmbeddedScroll: false,
                 canRetryAfterTextInput: true
             ) == .retryAfterTextInputResigns
         )
