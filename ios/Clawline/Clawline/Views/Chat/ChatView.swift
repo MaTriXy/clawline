@@ -642,6 +642,11 @@ struct ChatView: View {
             guard phase == .active else { return }
             keyboardRefreshToken &+= 1
         }
+        .handlePromptFocusCommand(
+            onFocusRequested: {
+                focusRequestID &+= 1
+            }
+        )
         .handleStreamPopupCommand(
             hasStreams: !viewModel.orderedStreams.isEmpty,
             onOpen: {
@@ -2197,6 +2202,16 @@ private extension View {
 #endif
     }
 
+    func handlePromptFocusCommand(
+        onFocusRequested: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            PromptFocusCommandModifier(
+                onFocusRequested: onFocusRequested
+            )
+        )
+    }
+
     func handleStreamPopupCommand(
         hasStreams: Bool,
         onOpen: @escaping () -> Void
@@ -2235,6 +2250,16 @@ private extension View {
                 onScrollUp: onScrollUp
             )
         )
+    }
+}
+
+private struct PromptFocusCommandModifier: ViewModifier {
+    let onFocusRequested: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onReceive(NotificationCenter.default.publisher(for: .clawlineFocusPromptInputCommand)) { _ in
+            onFocusRequested()
+        }
     }
 }
 
@@ -2438,6 +2463,7 @@ enum PromptFocusShortcutConfiguration {
 
 enum ChatAppCommandShortcut {
     enum Action {
+        case focusPromptInput
         case openStreamPopup
         case navigatePreviousStream
         case navigateNextStream
@@ -2446,6 +2472,8 @@ enum ChatAppCommandShortcut {
 
         var selector: Selector {
             switch self {
+            case .focusPromptInput:
+                return #selector(UIResponder.clawlineFocusPromptInputCommand(_:))
             case .openStreamPopup:
                 return #selector(UIResponder.clawlineOpenStreamPopupCommand(_:))
             case .navigatePreviousStream:
@@ -2467,9 +2495,9 @@ enum ChatAppCommandShortcut {
     }
 
     static let keyCommandSpecs: [KeyCommandSpec] = [
+        KeyCommandSpec(input: "l", modifierFlags: [.command], action: .focusPromptInput),
         KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
         KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
-        KeyCommandSpec(input: "l", modifierFlags: [.command], action: .navigateNextStream),
         KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream),
         KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollDown),
         KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollUp)
@@ -2502,6 +2530,10 @@ enum ChatShortcutRouting {
 }
 
 extension UIResponder {
+    @objc func clawlineFocusPromptInputCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineFocusPromptInputCommand, object: nil)
+    }
+
     @objc func clawlineOpenStreamPopupCommand(_ sender: UIKeyCommand) {
         NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
     }

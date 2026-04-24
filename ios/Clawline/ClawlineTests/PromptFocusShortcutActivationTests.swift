@@ -10,8 +10,8 @@ import UIKit
 @testable import Clawline
 
 struct PromptFocusShortcutActivationTests {
-    @Test("Prompt focus shortcuts do not use Cmd-L")
-    func promptFocusShortcutsDoNotUseCommandL() {
+    @Test("No-text prompt focus shortcuts keep Cmd-L out of the unmodified host")
+    func noTextPromptFocusShortcutsKeepCommandLOutOfTheUnmodifiedHost() {
         #expect(
             !PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
                 spec.input == "l"
@@ -21,8 +21,15 @@ struct PromptFocusShortcutActivationTests {
         )
     }
 
-    @Test("App command shortcuts use Cmd-semicolon, Cmd-L, Cmd-Shift navigation, and scroll")
-    func appCommandShortcutsUseCommandSemicolonCommandLCommandShiftNavigationAndScroll() {
+    @Test("App command shortcuts use Cmd-L focus, Cmd-semicolon, Cmd-Shift navigation, and scroll")
+    func appCommandShortcutsUseCommandLFocusCommandSemicolonCommandShiftNavigationAndScroll() {
+        #expect(
+            ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+                spec.input == "l"
+                    && spec.modifierFlags == [.command]
+                    && spec.action.selector == #selector(UIResponder.clawlineFocusPromptInputCommand(_:))
+            }
+        )
         #expect(
             ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
                 spec.input == ";"
@@ -38,7 +45,7 @@ struct PromptFocusShortcutActivationTests {
             }
         )
         #expect(
-            ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+            !ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
                 spec.input == "l"
                     && spec.modifierFlags == [.command]
                     && spec.action.selector == #selector(UIResponder.clawlineNavigateToNextStreamCommand(_:))

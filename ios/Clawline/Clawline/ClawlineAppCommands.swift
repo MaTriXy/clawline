@@ -36,6 +36,11 @@ struct ClawlineAppCommands: Commands {
 
             Divider()
 
+            Button("Focus Prompt Input") {
+                NotificationCenter.default.post(name: .clawlineFocusPromptInputCommand, object: nil)
+            }
+            .keyboardShortcut("l", modifiers: .command)
+
             Button("Open Streams") {
                 NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
             }
@@ -49,7 +54,7 @@ struct ClawlineAppCommands: Commands {
             Button("Next Chat") {
                 NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
             }
-            .keyboardShortcut("l", modifiers: .command)
+            .keyboardShortcut("l", modifiers: [.command, .shift])
 
             Divider()
 
