@@ -197,4 +197,101 @@ struct StreamSelectorLayoutTests {
 
         #expect(filtered.count == streams.count)
     }
+
+    @Test("Keyboard selection keeps existing selection when filter still contains it")
+    func keyboardSelectionKeepsVisibleSelection() {
+        let selection = StreamSelectorLayout.resolvedSelection(
+            preferredSessionKey: "agent:main:clawline:user:s_2",
+            activeSessionKey: "agent:main:main",
+            sessionKeys: [
+                "agent:main:main",
+                "agent:main:clawline:user:s_2"
+            ]
+        )
+
+        #expect(selection == "agent:main:clawline:user:s_2")
+    }
+
+    @Test("Keyboard selection falls back to active stream or first filtered stream")
+    func keyboardSelectionFallsBackToActiveOrFirstFilteredStream() {
+        let activeSelection = StreamSelectorLayout.resolvedSelection(
+            preferredSessionKey: "agent:main:clawline:user:s_missing",
+            activeSessionKey: "agent:main:clawline:user:s_2",
+            sessionKeys: [
+                "agent:main:main",
+                "agent:main:clawline:user:s_2"
+            ]
+        )
+        let firstSelection = StreamSelectorLayout.resolvedSelection(
+            preferredSessionKey: "agent:main:clawline:user:s_missing",
+            activeSessionKey: "agent:main:clawline:user:s_other",
+            sessionKeys: [
+                "agent:main:main",
+                "agent:main:clawline:user:s_2"
+            ]
+        )
+
+        #expect(activeSelection == "agent:main:clawline:user:s_2")
+        #expect(firstSelection == "agent:main:main")
+    }
+
+    @Test("Keyboard selection moves through filtered streams without wrapping")
+    func keyboardSelectionMovesThroughFilteredStreams() {
+        let sessionKeys = [
+            "agent:main:main",
+            "agent:main:clawline:user:s_1",
+            "agent:main:clawline:user:s_2"
+        ]
+
+        #expect(
+            StreamSelectorLayout.selectionAfterMoving(
+                currentSessionKey: nil,
+                sessionKeys: sessionKeys,
+                step: 1
+            ) == "agent:main:main"
+        )
+        #expect(
+            StreamSelectorLayout.selectionAfterMoving(
+                currentSessionKey: "agent:main:main",
+                sessionKeys: sessionKeys,
+                step: 1
+            ) == "agent:main:clawline:user:s_1"
+        )
+        #expect(
+            StreamSelectorLayout.selectionAfterMoving(
+                currentSessionKey: "agent:main:clawline:user:s_2",
+                sessionKeys: sessionKeys,
+                step: 1
+            ) == "agent:main:clawline:user:s_2"
+        )
+        #expect(
+            StreamSelectorLayout.selectionAfterMoving(
+                currentSessionKey: "agent:main",
+                sessionKeys: sessionKeys,
+                step: -1
+            ) == "agent:main:clawline:user:s_2"
+        )
+    }
+
+    @Test("Keyboard activation emits selected stream once")
+    func keyboardActivationEmitsSelectedStreamOnce() {
+        #expect(
+            StreamSelectorLayout.activationTarget(
+                selectedSessionKey: "agent:main:clawline:user:s_2",
+                didActivateSelection: false
+            ) == "agent:main:clawline:user:s_2"
+        )
+        #expect(
+            StreamSelectorLayout.activationTarget(
+                selectedSessionKey: "agent:main:clawline:user:s_2",
+                didActivateSelection: true
+            ) == nil
+        )
+        #expect(
+            StreamSelectorLayout.activationTarget(
+                selectedSessionKey: nil,
+                didActivateSelection: false
+            ) == nil
+        )
+    }
 }

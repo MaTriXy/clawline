@@ -826,6 +826,11 @@ struct ChatView: View {
                 - geometry.safeAreaInsets.top
                 - streamSelectorSpacingFromMessageBarTop
         )
+        let promptFocusShortcutEnabled = !isInputFocused
+            && streamPopupRouteController.route == .closed
+            && activeSheet == nil
+            && !isPhotosPickerPresented
+            && !isFileImporterPresented
 
         let messageLayer: AnyView = AnyView(
             pagedStreamView(
@@ -962,6 +967,18 @@ struct ChatView: View {
             EmptyView()
 #endif
         }
+        .modifier(
+            PromptFocusShortcutModifier(
+                isEnabled: promptFocusShortcutEnabled,
+                hasStreams: !effectiveSessionKeys.isEmpty,
+                onOpenStreamPopup: {
+                    streamPopupRouteController.openPopup(focusSearch: true)
+                },
+                onFocusRequested: {
+                    focusRequestID &+= 1
+                }
+            )
+        )
 #if DEBUG
         .overlay(alignment: .topTrailing) {
             lifecycleDebugOverlay(
@@ -2219,6 +2236,164 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
                 guard isEnabled else { return }
                 onScrollToTop()
             }
+    }
+}
+
+private struct PromptFocusShortcutModifier: ViewModifier {
+    let isEnabled: Bool
+    let hasStreams: Bool
+    let onOpenStreamPopup: () -> Void
+    let onFocusRequested: () -> Void
+
+    func body(content: Content) -> some View {
+        content.background {
+            PromptFocusShortcutHost(
+                isEnabled: isEnabled,
+                hasStreams: hasStreams,
+                onOpenStreamPopup: onOpenStreamPopup,
+                onFocusRequested: onFocusRequested
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct PromptFocusShortcutHost: UIViewRepresentable {
+    let isEnabled: Bool
+    let hasStreams: Bool
+    let onOpenStreamPopup: () -> Void
+    let onFocusRequested: () -> Void
+
+    func makeUIView(context: Context) -> PromptFocusShortcutView {
+        let view = PromptFocusShortcutView()
+        view.onOpenStreamPopup = onOpenStreamPopup
+        view.onFocusRequested = onFocusRequested
+        view.isShortcutEnabled = isEnabled
+        view.hasStreams = hasStreams
+        return view
+    }
+
+    func updateUIView(_ view: PromptFocusShortcutView, context: Context) {
+        view.onOpenStreamPopup = onOpenStreamPopup
+        view.onFocusRequested = onFocusRequested
+        view.isShortcutEnabled = isEnabled
+        view.hasStreams = hasStreams
+        if isEnabled {
+            view.activateWhenReady()
+        } else if view.isFirstResponder {
+            view.resignFirstResponder()
+        }
+    }
+}
+
+private final class PromptFocusShortcutView: UIView {
+    var onOpenStreamPopup: (() -> Void)?
+    var onFocusRequested: (() -> Void)?
+    var isShortcutEnabled = false
+    var hasStreams = false
+    private var hasPendingActivationRetry = false
+
+    override var canBecomeFirstResponder: Bool {
+        isShortcutEnabled
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard isShortcutEnabled else { return nil }
+        return [
+            UIKeyCommand(input: "/", modifierFlags: [], action: #selector(openStreamPopup)),
+            UIKeyCommand(input: " ", modifierFlags: [], action: #selector(focusPromptInput)),
+            UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(focusPromptInput))
+        ]
+    }
+
+    func activateWhenReady(textInputRetryCount: Int = 1) {
+        guard window != nil else {
+            DispatchQueue.main.async { [weak self] in
+                self?.activateWhenReady()
+            }
+            return
+        }
+        switch PromptFocusShortcutActivation.action(
+            isShortcutEnabled: isShortcutEnabled,
+            isAlreadyFirstResponder: isFirstResponder,
+            currentFirstResponderIsTextInput: window?.clawlineFirstResponder?.isClawlineTextInputResponder == true,
+            canRetryAfterTextInput: textInputRetryCount > 0
+        ) {
+        case .activate:
+            hasPendingActivationRetry = false
+            becomeFirstResponder()
+        case .retryAfterTextInputResigns:
+            scheduleActivationRetry(textInputRetryCount: textInputRetryCount - 1)
+        case .skip:
+            hasPendingActivationRetry = false
+        }
+    }
+
+    private func scheduleActivationRetry(textInputRetryCount: Int) {
+        guard !hasPendingActivationRetry else { return }
+        hasPendingActivationRetry = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            hasPendingActivationRetry = false
+            activateWhenReady(textInputRetryCount: textInputRetryCount)
+        }
+    }
+
+    @objc private func focusPromptInput(_ sender: UIKeyCommand) {
+        guard isShortcutEnabled else { return }
+        onFocusRequested?()
+    }
+
+    @objc private func openStreamPopup(_ sender: UIKeyCommand) {
+        guard isShortcutEnabled, hasStreams else { return }
+        onOpenStreamPopup?()
+    }
+}
+
+enum PromptFocusShortcutActivation {
+    enum Action: Equatable {
+        case activate
+        case retryAfterTextInputResigns
+        case skip
+    }
+
+    static func action(
+        isShortcutEnabled: Bool,
+        isAlreadyFirstResponder: Bool,
+        currentFirstResponderIsTextInput: Bool,
+        canRetryAfterTextInput: Bool
+    ) -> Action {
+        guard isShortcutEnabled, !isAlreadyFirstResponder else { return .skip }
+        guard !currentFirstResponderIsTextInput else {
+            return canRetryAfterTextInput ? .retryAfterTextInputResigns : .skip
+        }
+        return .activate
+    }
+}
+
+private extension UIResponder {
+    static weak var clawlineCurrentFirstResponder: UIResponder?
+
+    var isClawlineTextInputResponder: Bool {
+        self is UITextInput
+    }
+
+    @objc func clawlineCaptureFirstResponder(_ sender: Any) {
+        UIResponder.clawlineCurrentFirstResponder = self
+    }
+}
+
+private extension UIWindow {
+    var clawlineFirstResponder: UIResponder? {
+        UIResponder.clawlineCurrentFirstResponder = nil
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.clawlineCaptureFirstResponder(_:)),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        return UIResponder.clawlineCurrentFirstResponder
     }
 }
 
