@@ -15,13 +15,12 @@ struct StreamManagerSheet: View {
     @Bindable var viewModel: ChatViewModel
     let streams: [StreamSession]
     let dotStatesBySession: [String: StreamDotState]
-    @Binding var isPresented: Bool
-    let shouldAutoFocusSearchOnAppear: Bool
-    let searchFocusRequestID: Int
+    let searchFocusRequestID: Int?
     let maxAvailableHeight: CGFloat
     let maxAvailableWidth: CGFloat
     let onSelectStream: (String) -> Void
-    let onPresentTrackPicker: () -> Void
+    let onRequestTrackPicker: () -> Void
+    let onConsumeSearchFocusRequest: () -> Void
 
     @State private var draftName = ""
     @State private var searchQuery = ""
@@ -30,6 +29,8 @@ struct StreamManagerSheet: View {
     @State private var removingSessionKeys: Set<String> = []
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
+    @State private var selectedStreamSessionKey: String?
+    @State private var didActivateSelection = false
     @FocusState private var focusedEditor: EditorMode?
     @FocusState private var isSearchFieldFocused: Bool
 
@@ -105,6 +106,10 @@ struct StreamManagerSheet: View {
         StreamSelectorLayout.filter(streams: streams, query: searchQuery)
     }
 
+    private var filteredStreamSessionKeys: [String] {
+        filteredStreams.map(\.sessionKey)
+    }
+
     private var filteredPendingCreateRows: [PendingCreateRow] {
         guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return pendingCreateRows
@@ -164,7 +169,7 @@ struct StreamManagerSheet: View {
                                 )
                             )
                             .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
+                            .listRowBackground(rowBackground(for: stream))
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button {
                                     beginRenaming(stream)
@@ -271,21 +276,25 @@ struct StreamManagerSheet: View {
                 .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
                 .allowsHitTesting(false)
         )
-        .onChange(of: isPresented) { _, presented in
-            if !presented {
-                resetInlineEditing()
-                searchQuery = ""
-                isSearchFieldFocused = false
-            }
-        }
         .onAppear {
-            if shouldAutoFocusSearchOnAppear {
-                focusSearchField()
-            }
+            syncSelectionWithFilteredStreams()
+            handleSearchFocusRequest(searchFocusRequestID)
         }
-        .onChange(of: searchFocusRequestID) { _, _ in
-            guard isPresented else { return }
-            focusSearchField()
+        .onDisappear {
+            resetInlineEditing()
+            searchQuery = ""
+            isSearchFieldFocused = false
+            selectedStreamSessionKey = nil
+            didActivateSelection = false
+        }
+        .onChange(of: searchFocusRequestID) { _, requestID in
+            handleSearchFocusRequest(requestID)
+        }
+        .onChange(of: searchQuery) { _, _ in
+            syncSelectionWithFilteredStreams()
+        }
+        .onChange(of: streams.map(\.sessionKey)) { _, _ in
+            syncSelectionWithFilteredStreams()
         }
         .alert(
             pendingRemovalTitle,
@@ -316,7 +325,23 @@ struct StreamManagerSheet: View {
                     .font(.clawline(.uiLabel))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .submitLabel(.go)
                     .focused($isSearchFieldFocused)
+                    .onSubmit {
+                        selectHighlightedStream()
+                    }
+                    .onKeyPress(.upArrow) {
+                        moveSelection(step: -1)
+                        return .handled
+                    }
+                    .onKeyPress(.downArrow) {
+                        moveSelection(step: 1)
+                        return .handled
+                    }
+                    .onKeyPress(.return) {
+                        selectHighlightedStream()
+                        return .handled
+                    }
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
@@ -325,7 +350,7 @@ struct StreamManagerSheet: View {
 
             if viewModel.canUseTrackFeature {
                 Button {
-                    onPresentTrackPicker()
+                    onRequestTrackPicker()
                 } label: {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color.clear)
@@ -385,13 +410,7 @@ struct StreamManagerSheet: View {
         } else {
             Button {
                 let selectedSessionKey = stream.sessionKey
-                isPresented = false
-                // Avoid mutating presentation + selected stream in the same synchronous tap turn.
-                // Deferring selection to the next main-actor cycle prevents picker-triggered UI lockups.
-                Task { @MainActor in
-                    await Task.yield()
-                    onSelectStream(selectedSessionKey)
-                }
+                onSelectStream(selectedSessionKey)
             } label: {
                 HStack(spacing: 10) {
                     let isActive = stream.sessionKey == viewModel.uiSelectedSessionKey
@@ -428,6 +447,11 @@ struct StreamManagerSheet: View {
             .buttonStyle(.plain)
             .disabled(isWorking || isRemovingStream(stream.sessionKey))
         }
+    }
+
+    private func rowBackground(for stream: StreamSession) -> Color {
+        guard selectedStreamSessionKey == stream.sessionKey else { return .clear }
+        return Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.08)
     }
 
     private func beginRenaming(_ stream: StreamSession) {
@@ -485,7 +509,43 @@ struct StreamManagerSheet: View {
         Task { @MainActor in
             await Task.yield()
             isSearchFieldFocused = true
+            syncSelectionWithFilteredStreams()
         }
+    }
+
+    private func handleSearchFocusRequest(_ requestID: Int?) {
+        guard requestID != nil else { return }
+        focusSearchField()
+        onConsumeSearchFocusRequest()
+    }
+
+    private func syncSelectionWithFilteredStreams() {
+        selectedStreamSessionKey = StreamSelectorLayout.resolvedSelection(
+            preferredSessionKey: selectedStreamSessionKey,
+            activeSessionKey: viewModel.uiSelectedSessionKey,
+            sessionKeys: filteredStreamSessionKeys
+        )
+        didActivateSelection = false
+    }
+
+    private func moveSelection(step: Int) {
+        selectedStreamSessionKey = StreamSelectorLayout.selectionAfterMoving(
+            currentSessionKey: selectedStreamSessionKey,
+            sessionKeys: filteredStreamSessionKeys,
+            step: step
+        )
+        didActivateSelection = false
+    }
+
+    private func selectHighlightedStream() {
+        guard !didActivateSelection else { return }
+        syncSelectionWithFilteredStreams()
+        guard let selectedStreamSessionKey = StreamSelectorLayout.activationTarget(
+            selectedSessionKey: selectedStreamSessionKey,
+            didActivateSelection: didActivateSelection
+        ) else { return }
+        didActivateSelection = true
+        onSelectStream(selectedStreamSessionKey)
     }
 
     private func renameStream(_ stream: StreamSession) async {
@@ -534,10 +594,10 @@ struct StreamManagerSheet: View {
 
 struct TrackPickerSheet: View {
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.settingsManager) private var settings
 
     @Bindable var viewModel: ChatViewModel
+    let onDismissRequested: () -> Void
 
     @State private var selectedTrackCandidateSessionKey: String?
     @State private var trackSearchQuery = ""
@@ -647,7 +707,7 @@ struct TrackPickerSheet: View {
         clearTrackPickerFirstResponder()
         selectedTrackCandidateSessionKey = nil
         trackSearchQuery = ""
-        dismiss()
+        onDismissRequested()
     }
 
     private func clearTrackPickerFirstResponder() {
@@ -1010,6 +1070,48 @@ enum StreamSelectorLayout {
         guard !normalized.isEmpty else { return true }
         return displayName.localizedCaseInsensitiveContains(normalized)
             || sessionKey.localizedCaseInsensitiveContains(normalized)
+    }
+
+    static func resolvedSelection(
+        preferredSessionKey: String?,
+        activeSessionKey: String,
+        sessionKeys: [String]
+    ) -> String? {
+        guard !sessionKeys.isEmpty else { return nil }
+        if let preferredSessionKey, sessionKeys.contains(preferredSessionKey) {
+            return preferredSessionKey
+        }
+        if sessionKeys.contains(activeSessionKey) {
+            return activeSessionKey
+        }
+        return sessionKeys.first
+    }
+
+    static func selectionAfterMoving(
+        currentSessionKey: String?,
+        sessionKeys: [String],
+        step: Int
+    ) -> String? {
+        guard !sessionKeys.isEmpty else { return nil }
+        guard step != 0 else {
+            return resolvedSelection(
+                preferredSessionKey: currentSessionKey,
+                activeSessionKey: "",
+                sessionKeys: sessionKeys
+            )
+        }
+        let currentIndex = currentSessionKey.flatMap { sessionKeys.firstIndex(of: $0) }
+        let startingIndex = currentIndex ?? (step > 0 ? -1 : sessionKeys.count)
+        let targetIndex = min(sessionKeys.count - 1, max(0, startingIndex + step))
+        return sessionKeys[targetIndex]
+    }
+
+    static func activationTarget(
+        selectedSessionKey: String?,
+        didActivateSelection: Bool
+    ) -> String? {
+        guard !didActivateSelection else { return nil }
+        return selectedSessionKey
     }
 
     static func listContentHeight(
