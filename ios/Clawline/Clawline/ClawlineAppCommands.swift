@@ -39,7 +39,6 @@ struct ClawlineAppCommands: Commands {
             Button("Open Streams") {
                 NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
             }
-            .keyboardShortcut("/", modifiers: .command)
 
             Divider()
 

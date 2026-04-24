@@ -976,6 +976,9 @@ struct ChatView: View {
                 },
                 onFocusRequested: {
                     focusRequestID &+= 1
+                },
+                onNavigateStream: { step in
+                    navigateStreamByShortcut(step: step, sessionKeys: effectiveSessionKeys)
                 }
             )
         )
@@ -1717,6 +1720,17 @@ struct ChatView: View {
         layoutCoordinator.scrollToTop(sessionKey: sessionKey, animated: true)
     }
 
+    private func navigateStreamByShortcut(step: Int, sessionKeys: [String]) {
+        guard let targetSessionKey = ChatKeyboardNavigation.targetSessionKey(
+            sessionKeys: sessionKeys,
+            currentSessionKey: keyboardNavigationSessionKey,
+            step: step
+        ) else {
+            return
+        }
+        selectStream(targetSessionKey, source: .programmatic)
+    }
+
     private func scheduleStreamToastBusyClear() {
         streamToastBusyClearTask?.cancel()
         let now = Date()
@@ -2244,6 +2258,7 @@ private struct PromptFocusShortcutModifier: ViewModifier {
     let hasStreams: Bool
     let onOpenStreamPopup: () -> Void
     let onFocusRequested: () -> Void
+    let onNavigateStream: (Int) -> Void
 
     func body(content: Content) -> some View {
         content.background {
@@ -2251,7 +2266,8 @@ private struct PromptFocusShortcutModifier: ViewModifier {
                 isEnabled: isEnabled,
                 hasStreams: hasStreams,
                 onOpenStreamPopup: onOpenStreamPopup,
-                onFocusRequested: onFocusRequested
+                onFocusRequested: onFocusRequested,
+                onNavigateStream: onNavigateStream
             )
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
@@ -2264,11 +2280,13 @@ private struct PromptFocusShortcutHost: UIViewRepresentable {
     let hasStreams: Bool
     let onOpenStreamPopup: () -> Void
     let onFocusRequested: () -> Void
+    let onNavigateStream: (Int) -> Void
 
     func makeUIView(context: Context) -> PromptFocusShortcutView {
         let view = PromptFocusShortcutView()
         view.onOpenStreamPopup = onOpenStreamPopup
         view.onFocusRequested = onFocusRequested
+        view.onNavigateStream = onNavigateStream
         view.isShortcutEnabled = isEnabled
         view.hasStreams = hasStreams
         return view
@@ -2277,6 +2295,7 @@ private struct PromptFocusShortcutHost: UIViewRepresentable {
     func updateUIView(_ view: PromptFocusShortcutView, context: Context) {
         view.onOpenStreamPopup = onOpenStreamPopup
         view.onFocusRequested = onFocusRequested
+        view.onNavigateStream = onNavigateStream
         view.isShortcutEnabled = isEnabled
         view.hasStreams = hasStreams
         if isEnabled {
@@ -2290,6 +2309,7 @@ private struct PromptFocusShortcutHost: UIViewRepresentable {
 private final class PromptFocusShortcutView: UIView {
     var onOpenStreamPopup: (() -> Void)?
     var onFocusRequested: (() -> Void)?
+    var onNavigateStream: ((Int) -> Void)?
     var isShortcutEnabled = false
     var hasStreams = false
     private var hasPendingActivationRetry = false
@@ -2301,13 +2321,28 @@ private final class PromptFocusShortcutView: UIView {
     override var keyCommands: [UIKeyCommand]? {
         guard isShortcutEnabled else { return nil }
         return PromptFocusShortcutConfiguration.keyCommandSpecs.map { spec in
-            UIKeyCommand(
+            let command = UIKeyCommand(
                 input: spec.input,
                 modifierFlags: spec.modifierFlags,
-                action: spec.action == .focusPromptInput
-                    ? #selector(focusPromptInput)
-                    : #selector(openStreamPopup)
+                action: selector(for: spec.action)
             )
+            if spec.wantsPriorityOverSystemBehavior {
+                command.wantsPriorityOverSystemBehavior = true
+            }
+            return command
+        }
+    }
+
+    private func selector(for action: PromptFocusShortcutConfiguration.Action) -> Selector {
+        switch action {
+        case .focusPromptInput:
+            return #selector(focusPromptInput)
+        case .openStreamPopup:
+            return #selector(openStreamPopup)
+        case .navigatePreviousStream:
+            return #selector(navigateToPreviousStream)
+        case .navigateNextStream:
+            return #selector(navigateToNextStream)
         }
     }
 
@@ -2353,18 +2388,31 @@ private final class PromptFocusShortcutView: UIView {
         guard isShortcutEnabled, hasStreams else { return }
         onOpenStreamPopup?()
     }
+
+    @objc private func navigateToPreviousStream(_ sender: UIKeyCommand) {
+        guard isShortcutEnabled, hasStreams else { return }
+        onNavigateStream?(-1)
+    }
+
+    @objc private func navigateToNextStream(_ sender: UIKeyCommand) {
+        guard isShortcutEnabled, hasStreams else { return }
+        onNavigateStream?(1)
+    }
 }
 
 enum PromptFocusShortcutConfiguration {
     enum Action: Equatable {
         case focusPromptInput
         case openStreamPopup
+        case navigatePreviousStream
+        case navigateNextStream
     }
 
     struct KeyCommandSpec {
         let input: String
         let modifierFlags: UIKeyModifierFlags
         let action: Action
+        var wantsPriorityOverSystemBehavior = false
     }
 
     static let keyCommandSpecs: [KeyCommandSpec] = [
@@ -2372,8 +2420,31 @@ enum PromptFocusShortcutConfiguration {
         KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
         KeyCommandSpec(input: " ", modifierFlags: [], action: .focusPromptInput),
         KeyCommandSpec(input: "\r", modifierFlags: [], action: .focusPromptInput),
-        KeyCommandSpec(input: "l", modifierFlags: [.command], action: .focusPromptInput)
+        KeyCommandSpec(
+            input: "h",
+            modifierFlags: [.command],
+            action: .navigatePreviousStream,
+            wantsPriorityOverSystemBehavior: true
+        ),
+        KeyCommandSpec(input: "l", modifierFlags: [.command], action: .navigateNextStream)
     ]
+}
+
+enum ChatKeyboardNavigation {
+    static func targetSessionKey(
+        sessionKeys: [String],
+        currentSessionKey: String?,
+        step: Int
+    ) -> String? {
+        guard !sessionKeys.isEmpty, step != 0 else { return nil }
+        guard let currentSessionKey,
+              let currentIndex = sessionKeys.firstIndex(of: currentSessionKey) else {
+            return sessionKeys.first
+        }
+        let targetIndex = min(sessionKeys.count - 1, max(0, currentIndex + step))
+        guard targetIndex != currentIndex else { return nil }
+        return sessionKeys[targetIndex]
+    }
 }
 
 enum PromptFocusShortcutActivation {

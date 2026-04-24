@@ -10,13 +10,31 @@ import UIKit
 @testable import Clawline
 
 struct PromptFocusShortcutActivationTests {
-    @Test("Prompt focus shortcuts include Cmd-L")
-    func promptFocusShortcutsIncludeCommandL() {
+    @Test("Prompt focus shortcuts do not include Cmd-L")
+    func promptFocusShortcutsDoNotIncludeCommandL() {
+        #expect(
+            !PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
+                spec.input == "l"
+                    && spec.modifierFlags == [.command]
+                    && spec.action == .focusPromptInput
+            }
+        )
+    }
+
+    @Test("Chat navigation shortcuts include Cmd-H and Cmd-L")
+    func chatNavigationShortcutsIncludeCommandHAndCommandL() {
+        #expect(
+            PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
+                spec.input == "h"
+                    && spec.modifierFlags == [.command]
+                    && spec.action == .navigatePreviousStream
+            }
+        )
         #expect(
             PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
                 spec.input == "l"
                     && spec.modifierFlags == [.command]
-                    && spec.action == .focusPromptInput
+                    && spec.action == .navigateNextStream
             }
         )
     }
@@ -36,6 +54,40 @@ struct PromptFocusShortcutActivationTests {
                     && spec.modifierFlags == [.command]
                     && spec.action == .openStreamPopup
             }
+        )
+    }
+
+    @Test("Chat keyboard navigation follows stream order without wrapping")
+    func chatKeyboardNavigationFollowsStreamOrderWithoutWrapping() {
+        let sessionKeys = ["left", "middle", "right"]
+
+        #expect(
+            ChatKeyboardNavigation.targetSessionKey(
+                sessionKeys: sessionKeys,
+                currentSessionKey: "middle",
+                step: -1
+            ) == "left"
+        )
+        #expect(
+            ChatKeyboardNavigation.targetSessionKey(
+                sessionKeys: sessionKeys,
+                currentSessionKey: "middle",
+                step: 1
+            ) == "right"
+        )
+        #expect(
+            ChatKeyboardNavigation.targetSessionKey(
+                sessionKeys: sessionKeys,
+                currentSessionKey: "left",
+                step: -1
+            ) == nil
+        )
+        #expect(
+            ChatKeyboardNavigation.targetSessionKey(
+                sessionKeys: sessionKeys,
+                currentSessionKey: "right",
+                step: 1
+            ) == nil
         )
     }
 
