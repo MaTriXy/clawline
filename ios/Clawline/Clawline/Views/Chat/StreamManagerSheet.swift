@@ -30,6 +30,7 @@ struct StreamManagerSheet: View {
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
     @State private var selectedStreamSessionKey: String?
+    @State private var didActivateSelection = false
     @FocusState private var focusedEditor: EditorMode?
     @FocusState private var isSearchFieldFocused: Bool
 
@@ -265,6 +266,7 @@ struct StreamManagerSheet: View {
             searchQuery = ""
             isSearchFieldFocused = false
             selectedStreamSessionKey = nil
+            didActivateSelection = false
         }
         .onChange(of: searchFocusRequestID) { _, requestID in
             handleSearchFocusRequest(requestID)
@@ -304,7 +306,11 @@ struct StreamManagerSheet: View {
                     .font(.clawline(.uiLabel))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .submitLabel(.go)
                     .focused($isSearchFieldFocused)
+                    .onSubmit {
+                        selectHighlightedStream()
+                    }
                     .onKeyPress(.upArrow) {
                         moveSelection(step: -1)
                         return .handled
@@ -500,6 +506,7 @@ struct StreamManagerSheet: View {
             activeSessionKey: viewModel.uiSelectedSessionKey,
             sessionKeys: filteredStreamSessionKeys
         )
+        didActivateSelection = false
     }
 
     private func moveSelection(step: Int) {
@@ -508,11 +515,17 @@ struct StreamManagerSheet: View {
             sessionKeys: filteredStreamSessionKeys,
             step: step
         )
+        didActivateSelection = false
     }
 
     private func selectHighlightedStream() {
+        guard !didActivateSelection else { return }
         syncSelectionWithFilteredStreams()
-        guard let selectedStreamSessionKey else { return }
+        guard let selectedStreamSessionKey = StreamSelectorLayout.activationTarget(
+            selectedSessionKey: selectedStreamSessionKey,
+            didActivateSelection: didActivateSelection
+        ) else { return }
+        didActivateSelection = true
         onSelectStream(selectedStreamSessionKey)
     }
 
@@ -1072,6 +1085,14 @@ enum StreamSelectorLayout {
         let startingIndex = currentIndex ?? (step > 0 ? -1 : sessionKeys.count)
         let targetIndex = min(sessionKeys.count - 1, max(0, startingIndex + step))
         return sessionKeys[targetIndex]
+    }
+
+    static func activationTarget(
+        selectedSessionKey: String?,
+        didActivateSelection: Bool
+    ) -> String? {
+        guard !didActivateSelection else { return nil }
+        return selectedSessionKey
     }
 
     static func listContentHeight(

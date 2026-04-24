@@ -272,4 +272,26 @@ struct StreamSelectorLayoutTests {
             ) == "agent:main:clawline:user:s_2"
         )
     }
+
+    @Test("Keyboard activation emits selected stream once")
+    func keyboardActivationEmitsSelectedStreamOnce() {
+        #expect(
+            StreamSelectorLayout.activationTarget(
+                selectedSessionKey: "agent:main:clawline:user:s_2",
+                didActivateSelection: false
+            ) == "agent:main:clawline:user:s_2"
+        )
+        #expect(
+            StreamSelectorLayout.activationTarget(
+                selectedSessionKey: "agent:main:clawline:user:s_2",
+                didActivateSelection: true
+            ) == nil
+        )
+        #expect(
+            StreamSelectorLayout.activationTarget(
+                selectedSessionKey: nil,
+                didActivateSelection: false
+            ) == nil
+        )
+    }
 }
