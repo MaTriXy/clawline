@@ -21,77 +21,25 @@ struct PromptFocusShortcutActivationTests {
         )
     }
 
-    @Test("Chat navigation shortcuts include Cmd-H and Cmd-L")
-    func chatNavigationShortcutsIncludeCommandHAndCommandL() {
+    @Test("No-text shortcut host owns only unmodified prompt and popup keys")
+    func noTextShortcutHostOwnsOnlyUnmodifiedPromptAndPopupKeys() {
         #expect(
-            PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
-                spec.input == "h"
-                    && spec.modifierFlags == [.command]
-                    && spec.action == .navigatePreviousStream
-                    && spec.wantsPriorityOverSystemBehavior
-            }
+            PromptFocusShortcutConfiguration.keyCommandSpecs.map(\.input) == ["/", " ", "\r"]
         )
         #expect(
-            PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
-                spec.input == "l"
-                    && spec.modifierFlags == [.command]
-                    && spec.action == .navigateNextStream
-                    && spec.wantsPriorityOverSystemBehavior
-            }
+            PromptFocusShortcutConfiguration.keyCommandSpecs.allSatisfy { $0.modifierFlags.isEmpty }
         )
     }
 
-    @Test("Popup shortcuts include Cmd-semicolon and not Cmd-slash")
-    func popupShortcutsIncludeCommandSemicolonAndNotCommandSlash() {
-        #expect(
-            PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
-                spec.input == ";"
-                    && spec.modifierFlags == [.command]
-                    && spec.action == .openStreamPopup
-                    && spec.wantsPriorityOverSystemBehavior
-            }
-        )
-        #expect(
-            !PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
-                spec.input == "/"
-                    && spec.modifierFlags == [.command]
-                    && spec.action == .openStreamPopup
-            }
-        )
-    }
-
-    @Test("Command-modified press fallback resolves only intended shortcuts")
-    func commandModifiedPressFallbackResolvesOnlyIntendedShortcuts() {
-        #expect(
-            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
-                input: "l",
-                modifierFlags: [.command]
-            ) == .navigateNextStream
-        )
-        #expect(
-            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
-                input: "h",
-                modifierFlags: [.command]
-            ) == .navigatePreviousStream
-        )
-        #expect(
-            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
-                input: ";",
-                modifierFlags: [.command]
-            ) == .openStreamPopup
-        )
-        #expect(
-            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
-                input: "/",
-                modifierFlags: [.command]
-            ) == nil
-        )
-        #expect(
-            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
-                input: "l",
-                modifierFlags: []
-            ) == nil
-        )
+    @Test("Shortcut routing separates app commands from no-text responder keys")
+    func shortcutRoutingSeparatesAppCommandsFromNoTextResponderKeys() {
+        #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: "h", modifierFlags: [.command]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: ";", modifierFlags: [.command]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: [.command]) == .textInput)
+        #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: []) == .noTextResponder)
+        #expect(ChatShortcutRouting.owner(input: " ", modifierFlags: []) == .noTextResponder)
+        #expect(ChatShortcutRouting.owner(input: "\r", modifierFlags: []) == .noTextResponder)
     }
 
     @Test("Chat keyboard navigation follows stream order without wrapping")

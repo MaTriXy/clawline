@@ -39,6 +39,17 @@ struct ClawlineAppCommands: Commands {
             Button("Open Streams") {
                 NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
             }
+            .keyboardShortcut(";", modifiers: .command)
+
+            Button("Previous Chat") {
+                NotificationCenter.default.post(name: .clawlineNavigateToPreviousStreamCommand, object: nil)
+            }
+            .keyboardShortcut("h", modifiers: .command)
+
+            Button("Next Chat") {
+                NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
+            }
+            .keyboardShortcut("l", modifiers: .command)
 
             Divider()
 
