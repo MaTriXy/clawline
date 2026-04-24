@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ClawlineAppCommands: Commands {
     let settingsManager: SettingsManager
+    @FocusedValue(\.cancelCurrentPromptCommand) private var cancelCurrentPromptCommand
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
@@ -40,6 +41,14 @@ struct ClawlineAppCommands: Commands {
                 NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
             }
             .keyboardShortcut("/", modifiers: .command)
+
+            Divider()
+
+            Button("Cancel Current Prompt") {
+                cancelCurrentPromptCommand?.presentConfirmation()
+            }
+            .keyboardShortcut(".", modifiers: .command)
+            .disabled(cancelCurrentPromptCommand == nil)
 
             Divider()
 

@@ -1057,6 +1057,20 @@ final class ChatViewModel: ChatViewModelHosting {
         return true
     }
 
+    var canCancelCurrentPrompt: Bool {
+        isAssistantTyping && typingSessionKey?.isEmpty == false
+    }
+
+    func requestCurrentPromptCancellation() {
+        guard canCancelCurrentPrompt, let sessionKey = typingSessionKey else { return }
+        beginSend(
+            content: "/stop",
+            pendingAttachments: [],
+            sessionKey: sessionKey,
+            clearInputOnSuccess: false
+        )
+    }
+
     func send() {
         guard !isSending else { return }
         let referencedIds = Set(inputContent.pendingAttachmentIds())
@@ -1146,7 +1160,8 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func beginSend(content: String,
                            pendingAttachments: [PendingAttachment],
-                           sessionKey: String) {
+                           sessionKey: String,
+                           clearInputOnSuccess: Bool = true) {
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
 #if DEBUG
@@ -1175,7 +1190,8 @@ final class ChatViewModel: ChatViewModelHosting {
                 clientId: clientId,
                 content: content,
                 pendingAttachments: pendingAttachments,
-                sessionKey: sessionKey
+                sessionKey: sessionKey,
+                clearInputOnSuccess: clearInputOnSuccess
             )
         }
     }
@@ -1960,7 +1976,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private func performSend(clientId: String,
                              content: String,
                              pendingAttachments: [PendingAttachment],
-                             sessionKey: String?) async {
+                             sessionKey: String?,
+                             clearInputOnSuccess: Bool = true) async {
         defer { sendTask = nil }
         do {
             let wireAttachments = try await buildWireAttachments(from: pendingAttachments, content: content)
@@ -1975,7 +1992,9 @@ final class ChatViewModel: ChatViewModelHosting {
 #if DEBUG
                 self.recordImageSendDebugEvent(.sendResult, detail: "success localId=\(clientId)")
 #endif
-                clearInput()
+                if clearInputOnSuccess {
+                    clearInput()
+                }
                 isSending = false
                 activeClientMessageId = nil
             }

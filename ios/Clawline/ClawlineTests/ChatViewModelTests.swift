@@ -419,6 +419,49 @@ struct ChatViewModelTests {
         #expect(messages.contains("That message is too large to send."))
     }
 
+    @Test("Current prompt cancellation sends stop only while assistant is typing")
+    @MainActor
+    func currentPromptCancellationSendsStopOnlyWhileAssistantIsTyping() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+
+        viewModel.inputContent = NSAttributedString(string: "draft")
+        #expect(viewModel.canCancelCurrentPrompt == false)
+        viewModel.requestCurrentPromptCancellation()
+        #expect(chatService.lastSentId == nil)
+
+        chatService.emitServiceEvent(.typingStateChanged(isTyping: true, sessionKey: personalSessionKey))
+        for _ in 0..<50 {
+            if viewModel.canCancelCurrentPrompt { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        viewModel.requestCurrentPromptCancellation()
+        for _ in 0..<50 {
+            if chatService.lastSentContent == "/stop" { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(chatService.lastSentContent == "/stop")
+        #expect(chatService.lastSessionKey == personalSessionKey)
+        #expect(viewModel.inputContent.string == "draft")
+    }
+
     @Test("Connection interruptions update send button state without passive toast")
     @MainActor
     func connectionInterruptionTriggersAlert() async throws {
@@ -3214,6 +3257,7 @@ private final class TestChatService: ChatServicing {
     private var replayCursorBySessionKey: [String: String] = [:]
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
+    private(set) var lastSentContent: String?
     private(set) var lastSessionKey: String?
     var lastPublishedReadState: (sessionKey: String, lastReadMessageId: String)?
     private(set) var connectCallCount: Int = 0
@@ -3330,6 +3374,7 @@ private final class TestChatService: ChatServicing {
             throw sendError
         }
         lastSentId = id
+        lastSentContent = content
         lastSentAttachments = attachments
         lastSessionKey = sessionKey
     }
