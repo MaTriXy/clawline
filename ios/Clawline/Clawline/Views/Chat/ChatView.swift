@@ -2398,6 +2398,41 @@ private final class PromptFocusShortcutView: UIView {
         guard isShortcutEnabled, hasStreams else { return }
         onNavigateStream?(1)
     }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard isShortcutEnabled else {
+            super.pressesBegan(presses, with: event)
+            return
+        }
+        let unhandledPresses = presses.filter { !handleCommandModifiedPress($0) }
+        if !unhandledPresses.isEmpty {
+            super.pressesBegan(Set(unhandledPresses), with: event)
+        }
+    }
+
+    private func handleCommandModifiedPress(_ press: UIPress) -> Bool {
+        guard let key = press.key,
+              let action = PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
+                input: key.charactersIgnoringModifiers,
+                modifierFlags: key.modifierFlags
+              ) else {
+            return false
+        }
+        switch action {
+        case .focusPromptInput:
+            onFocusRequested?()
+        case .openStreamPopup:
+            guard hasStreams else { return true }
+            onOpenStreamPopup?()
+        case .navigatePreviousStream:
+            guard hasStreams else { return true }
+            onNavigateStream?(-1)
+        case .navigateNextStream:
+            guard hasStreams else { return true }
+            onNavigateStream?(1)
+        }
+        return true
+    }
 }
 
 enum PromptFocusShortcutConfiguration {
@@ -2417,7 +2452,12 @@ enum PromptFocusShortcutConfiguration {
 
     static let keyCommandSpecs: [KeyCommandSpec] = [
         KeyCommandSpec(input: "/", modifierFlags: [], action: .openStreamPopup),
-        KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
+        KeyCommandSpec(
+            input: ";",
+            modifierFlags: [.command],
+            action: .openStreamPopup,
+            wantsPriorityOverSystemBehavior: true
+        ),
         KeyCommandSpec(input: " ", modifierFlags: [], action: .focusPromptInput),
         KeyCommandSpec(input: "\r", modifierFlags: [], action: .focusPromptInput),
         KeyCommandSpec(
@@ -2426,8 +2466,25 @@ enum PromptFocusShortcutConfiguration {
             action: .navigatePreviousStream,
             wantsPriorityOverSystemBehavior: true
         ),
-        KeyCommandSpec(input: "l", modifierFlags: [.command], action: .navigateNextStream)
+        KeyCommandSpec(
+            input: "l",
+            modifierFlags: [.command],
+            action: .navigateNextStream,
+            wantsPriorityOverSystemBehavior: true
+        )
     ]
+
+    static func actionForCommandModifiedPress(
+        input: String,
+        modifierFlags: UIKeyModifierFlags
+    ) -> Action? {
+        guard modifierFlags.contains(.command) else { return nil }
+        let normalizedInput = input.lowercased()
+        return keyCommandSpecs.first {
+            $0.input == normalizedInput
+                && $0.modifierFlags == [.command]
+        }?.action
+    }
 }
 
 enum ChatKeyboardNavigation {

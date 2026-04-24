@@ -28,6 +28,7 @@ struct PromptFocusShortcutActivationTests {
                 spec.input == "h"
                     && spec.modifierFlags == [.command]
                     && spec.action == .navigatePreviousStream
+                    && spec.wantsPriorityOverSystemBehavior
             }
         )
         #expect(
@@ -35,6 +36,7 @@ struct PromptFocusShortcutActivationTests {
                 spec.input == "l"
                     && spec.modifierFlags == [.command]
                     && spec.action == .navigateNextStream
+                    && spec.wantsPriorityOverSystemBehavior
             }
         )
     }
@@ -46,6 +48,7 @@ struct PromptFocusShortcutActivationTests {
                 spec.input == ";"
                     && spec.modifierFlags == [.command]
                     && spec.action == .openStreamPopup
+                    && spec.wantsPriorityOverSystemBehavior
             }
         )
         #expect(
@@ -54,6 +57,40 @@ struct PromptFocusShortcutActivationTests {
                     && spec.modifierFlags == [.command]
                     && spec.action == .openStreamPopup
             }
+        )
+    }
+
+    @Test("Command-modified press fallback resolves only intended shortcuts")
+    func commandModifiedPressFallbackResolvesOnlyIntendedShortcuts() {
+        #expect(
+            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
+                input: "l",
+                modifierFlags: [.command]
+            ) == .navigateNextStream
+        )
+        #expect(
+            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
+                input: "h",
+                modifierFlags: [.command]
+            ) == .navigatePreviousStream
+        )
+        #expect(
+            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
+                input: ";",
+                modifierFlags: [.command]
+            ) == .openStreamPopup
+        )
+        #expect(
+            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
+                input: "/",
+                modifierFlags: [.command]
+            ) == nil
+        )
+        #expect(
+            PromptFocusShortcutConfiguration.actionForCommandModifiedPress(
+                input: "l",
+                modifierFlags: []
+            ) == nil
         )
     }
 
