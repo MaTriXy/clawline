@@ -53,15 +53,15 @@ struct ClawlineAppCommands: Commands {
 
             Divider()
 
-            Button("Scroll to Bottom") {
-                NotificationCenter.default.post(name: .clawlineScrollToBottomCommand, object: nil)
+            Button("Scroll Down") {
+                NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)
             }
-            .keyboardShortcut("j", modifiers: .command)
+            .keyboardShortcut("j", modifiers: [.command, .shift])
 
-            Button("Scroll to Top") {
-                NotificationCenter.default.post(name: .clawlineScrollToTopCommand, object: nil)
+            Button("Scroll Up") {
+                NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
             }
-            .keyboardShortcut("k", modifiers: .command)
+            .keyboardShortcut("k", modifiers: [.command, .shift])
         }
     }
 }

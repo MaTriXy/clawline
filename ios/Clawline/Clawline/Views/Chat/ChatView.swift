@@ -655,8 +655,8 @@ struct ChatView: View {
         )
         .handleKeyboardScrollCommands(
             isEnabled: supportsKeyboardNavigationShortcuts,
-            onScrollToBottom: { scrollActiveSessionToBottom() },
-            onScrollToTop: { scrollActiveSessionToTop() }
+            onScrollDown: { scrollActiveSessionByPage(.down) },
+            onScrollUp: { scrollActiveSessionByPage(.up) }
         )
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
@@ -1693,8 +1693,12 @@ struct ChatView: View {
     }
 
     private var supportsKeyboardNavigationShortcuts: Bool {
-#if os(iOS)
+#if targetEnvironment(macCatalyst)
+        true
+#elseif os(iOS)
         UIDevice.current.userInterfaceIdiom == .pad
+#elseif os(visionOS)
+        true
 #else
         false
 #endif
@@ -1712,14 +1716,9 @@ struct ChatView: View {
         return sessionKeys.first
     }
 
-    private func scrollActiveSessionToBottom() {
+    private func scrollActiveSessionByPage(_ direction: ChatScrollPageDirection) {
         guard let sessionKey = keyboardNavigationSessionKey else { return }
-        layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
-    }
-
-    private func scrollActiveSessionToTop() {
-        guard let sessionKey = keyboardNavigationSessionKey else { return }
-        layoutCoordinator.scrollToTop(sessionKey: sessionKey, animated: true)
+        layoutCoordinator.scrollByPage(sessionKey: sessionKey, direction: direction, animated: true)
     }
 
     private func navigateStreamByShortcut(step: Int, sessionKeys: [String]) {
@@ -2226,14 +2225,14 @@ private extension View {
 
     func handleKeyboardScrollCommands(
         isEnabled: Bool,
-        onScrollToBottom: @escaping () -> Void,
-        onScrollToTop: @escaping () -> Void
+        onScrollDown: @escaping () -> Void,
+        onScrollUp: @escaping () -> Void
     ) -> some View {
         modifier(
             KeyboardScrollCommandModifier(
                 isEnabled: isEnabled,
-                onScrollToBottom: onScrollToBottom,
-                onScrollToTop: onScrollToTop
+                onScrollDown: onScrollDown,
+                onScrollUp: onScrollUp
             )
         )
     }
@@ -2271,18 +2270,18 @@ private struct StreamNavigationCommandModifier: ViewModifier {
 
 private struct KeyboardScrollCommandModifier: ViewModifier {
     let isEnabled: Bool
-    let onScrollToBottom: () -> Void
-    let onScrollToTop: () -> Void
+    let onScrollDown: () -> Void
+    let onScrollUp: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToBottomCommand)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollDownCommand)) { _ in
                 guard isEnabled else { return }
-                onScrollToBottom()
+                onScrollDown()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToTopCommand)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollUpCommand)) { _ in
                 guard isEnabled else { return }
-                onScrollToTop()
+                onScrollUp()
             }
     }
 }
@@ -2442,6 +2441,8 @@ enum ChatAppCommandShortcut {
         case openStreamPopup
         case navigatePreviousStream
         case navigateNextStream
+        case scrollDown
+        case scrollUp
 
         var selector: Selector {
             switch self {
@@ -2451,6 +2452,10 @@ enum ChatAppCommandShortcut {
                 return #selector(UIResponder.clawlineNavigateToPreviousStreamCommand(_:))
             case .navigateNextStream:
                 return #selector(UIResponder.clawlineNavigateToNextStreamCommand(_:))
+            case .scrollDown:
+                return #selector(UIResponder.clawlineScrollDownCommand(_:))
+            case .scrollUp:
+                return #selector(UIResponder.clawlineScrollUpCommand(_:))
             }
         }
     }
@@ -2464,7 +2469,9 @@ enum ChatAppCommandShortcut {
     static let keyCommandSpecs: [KeyCommandSpec] = [
         KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
         KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
-        KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream)
+        KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream),
+        KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollUp)
     ]
 }
 
@@ -2480,7 +2487,7 @@ enum ChatShortcutRouting {
         if modifierFlags == [.command], normalizedInput == ";" {
             return .appCommand
         }
-        if modifierFlags == [.command, .shift], ["h", "l"].contains(normalizedInput) {
+        if modifierFlags == [.command, .shift], ["h", "j", "k", "l"].contains(normalizedInput) {
             return .appCommand
         }
         if modifierFlags.contains(.command) {
@@ -2501,6 +2508,14 @@ extension UIResponder {
 
     @objc func clawlineNavigateToNextStreamCommand(_ sender: UIKeyCommand) {
         NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
+    }
+
+    @objc func clawlineScrollDownCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)
+    }
+
+    @objc func clawlineScrollUpCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
     }
 }
 
