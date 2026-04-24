@@ -826,6 +826,11 @@ struct ChatView: View {
                 - geometry.safeAreaInsets.top
                 - streamSelectorSpacingFromMessageBarTop
         )
+        let promptFocusShortcutEnabled = !isInputFocused
+            && streamPopupRouteController.route == .closed
+            && activeSheet == nil
+            && !isPhotosPickerPresented
+            && !isFileImporterPresented
 
         let messageLayer: AnyView = AnyView(
             pagedStreamView(
@@ -962,6 +967,18 @@ struct ChatView: View {
             EmptyView()
 #endif
         }
+        .modifier(
+            PromptFocusShortcutModifier(
+                isEnabled: promptFocusShortcutEnabled,
+                hasStreams: !effectiveSessionKeys.isEmpty,
+                onOpenStreamPopup: {
+                    streamPopupRouteController.openPopup(focusSearch: true)
+                },
+                onFocusRequested: {
+                    focusRequestID &+= 1
+                }
+            )
+        )
 #if DEBUG
         .overlay(alignment: .topTrailing) {
             lifecycleDebugOverlay(
@@ -2219,6 +2236,95 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
                 guard isEnabled else { return }
                 onScrollToTop()
             }
+    }
+}
+
+private struct PromptFocusShortcutModifier: ViewModifier {
+    let isEnabled: Bool
+    let hasStreams: Bool
+    let onOpenStreamPopup: () -> Void
+    let onFocusRequested: () -> Void
+
+    func body(content: Content) -> some View {
+        content.background {
+            PromptFocusShortcutHost(
+                isEnabled: isEnabled,
+                hasStreams: hasStreams,
+                onOpenStreamPopup: onOpenStreamPopup,
+                onFocusRequested: onFocusRequested
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct PromptFocusShortcutHost: UIViewRepresentable {
+    let isEnabled: Bool
+    let hasStreams: Bool
+    let onOpenStreamPopup: () -> Void
+    let onFocusRequested: () -> Void
+
+    func makeUIView(context: Context) -> PromptFocusShortcutView {
+        let view = PromptFocusShortcutView()
+        view.onOpenStreamPopup = onOpenStreamPopup
+        view.onFocusRequested = onFocusRequested
+        view.isShortcutEnabled = isEnabled
+        view.hasStreams = hasStreams
+        return view
+    }
+
+    func updateUIView(_ view: PromptFocusShortcutView, context: Context) {
+        view.onOpenStreamPopup = onOpenStreamPopup
+        view.onFocusRequested = onFocusRequested
+        view.isShortcutEnabled = isEnabled
+        view.hasStreams = hasStreams
+        if isEnabled {
+            view.activateWhenReady()
+        } else if view.isFirstResponder {
+            view.resignFirstResponder()
+        }
+    }
+}
+
+private final class PromptFocusShortcutView: UIView {
+    var onOpenStreamPopup: (() -> Void)?
+    var onFocusRequested: (() -> Void)?
+    var isShortcutEnabled = false
+    var hasStreams = false
+
+    override var canBecomeFirstResponder: Bool {
+        isShortcutEnabled
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard isShortcutEnabled else { return nil }
+        return [
+            UIKeyCommand(input: "/", modifierFlags: [], action: #selector(openStreamPopup)),
+            UIKeyCommand(input: " ", modifierFlags: [], action: #selector(focusPromptInput)),
+            UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(focusPromptInput))
+        ]
+    }
+
+    func activateWhenReady() {
+        guard window != nil else {
+            DispatchQueue.main.async { [weak self] in
+                self?.activateWhenReady()
+            }
+            return
+        }
+        guard isShortcutEnabled, !isFirstResponder else { return }
+        becomeFirstResponder()
+    }
+
+    @objc private func focusPromptInput(_ sender: UIKeyCommand) {
+        guard isShortcutEnabled else { return }
+        onFocusRequested?()
+    }
+
+    @objc private func openStreamPopup(_ sender: UIKeyCommand) {
+        guard isShortcutEnabled, hasStreams else { return }
+        onOpenStreamPopup?()
     }
 }
 

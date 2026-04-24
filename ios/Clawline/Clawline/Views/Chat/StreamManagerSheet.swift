@@ -29,6 +29,7 @@ struct StreamManagerSheet: View {
     @State private var removingSessionKeys: Set<String> = []
     @State private var pendingCreateRows: [PendingCreateRow] = []
     @State private var pendingRemovalStream: StreamSession?
+    @State private var selectedStreamSessionKey: String?
     @FocusState private var focusedEditor: EditorMode?
     @FocusState private var isSearchFieldFocused: Bool
 
@@ -104,6 +105,10 @@ struct StreamManagerSheet: View {
         StreamSelectorLayout.filter(streams: streams, query: searchQuery)
     }
 
+    private var filteredStreamSessionKeys: [String] {
+        filteredStreams.map(\.sessionKey)
+    }
+
     private var filteredPendingCreateRows: [PendingCreateRow] {
         guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return pendingCreateRows
@@ -156,7 +161,7 @@ struct StreamManagerSheet: View {
                             )
                         )
                         .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
+                        .listRowBackground(rowBackground(for: stream))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button {
                                 beginRenaming(stream)
@@ -252,15 +257,23 @@ struct StreamManagerSheet: View {
                 .allowsHitTesting(false)
         )
         .onAppear {
+            syncSelectionWithFilteredStreams()
             handleSearchFocusRequest(searchFocusRequestID)
         }
         .onDisappear {
             resetInlineEditing()
             searchQuery = ""
             isSearchFieldFocused = false
+            selectedStreamSessionKey = nil
         }
         .onChange(of: searchFocusRequestID) { _, requestID in
             handleSearchFocusRequest(requestID)
+        }
+        .onChange(of: searchQuery) { _, _ in
+            syncSelectionWithFilteredStreams()
+        }
+        .onChange(of: streams.map(\.sessionKey)) { _, _ in
+            syncSelectionWithFilteredStreams()
         }
         .alert(
             pendingRemovalTitle,
@@ -292,6 +305,18 @@ struct StreamManagerSheet: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .focused($isSearchFieldFocused)
+                    .onKeyPress(.upArrow) {
+                        moveSelection(step: -1)
+                        return .handled
+                    }
+                    .onKeyPress(.downArrow) {
+                        moveSelection(step: 1)
+                        return .handled
+                    }
+                    .onKeyPress(.return) {
+                        selectHighlightedStream()
+                        return .handled
+                    }
             }
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
@@ -399,6 +424,11 @@ struct StreamManagerSheet: View {
         }
     }
 
+    private func rowBackground(for stream: StreamSession) -> Color {
+        guard selectedStreamSessionKey == stream.sessionKey else { return .clear }
+        return Color.primary.opacity(colorScheme == .dark ? 0.16 : 0.08)
+    }
+
     private func beginRenaming(_ stream: StreamSession) {
         activeEditor = .renaming(stream.sessionKey)
         draftName = stream.displayName
@@ -454,6 +484,7 @@ struct StreamManagerSheet: View {
         Task { @MainActor in
             await Task.yield()
             isSearchFieldFocused = true
+            syncSelectionWithFilteredStreams()
         }
     }
 
@@ -461,6 +492,28 @@ struct StreamManagerSheet: View {
         guard requestID != nil else { return }
         focusSearchField()
         onConsumeSearchFocusRequest()
+    }
+
+    private func syncSelectionWithFilteredStreams() {
+        selectedStreamSessionKey = StreamSelectorLayout.resolvedSelection(
+            preferredSessionKey: selectedStreamSessionKey,
+            activeSessionKey: viewModel.uiSelectedSessionKey,
+            sessionKeys: filteredStreamSessionKeys
+        )
+    }
+
+    private func moveSelection(step: Int) {
+        selectedStreamSessionKey = StreamSelectorLayout.selectionAfterMoving(
+            currentSessionKey: selectedStreamSessionKey,
+            sessionKeys: filteredStreamSessionKeys,
+            step: step
+        )
+    }
+
+    private func selectHighlightedStream() {
+        syncSelectionWithFilteredStreams()
+        guard let selectedStreamSessionKey else { return }
+        onSelectStream(selectedStreamSessionKey)
     }
 
     private func renameStream(_ stream: StreamSession) async {
@@ -985,6 +1038,40 @@ enum StreamSelectorLayout {
         guard !normalized.isEmpty else { return true }
         return displayName.localizedCaseInsensitiveContains(normalized)
             || sessionKey.localizedCaseInsensitiveContains(normalized)
+    }
+
+    static func resolvedSelection(
+        preferredSessionKey: String?,
+        activeSessionKey: String,
+        sessionKeys: [String]
+    ) -> String? {
+        guard !sessionKeys.isEmpty else { return nil }
+        if let preferredSessionKey, sessionKeys.contains(preferredSessionKey) {
+            return preferredSessionKey
+        }
+        if sessionKeys.contains(activeSessionKey) {
+            return activeSessionKey
+        }
+        return sessionKeys.first
+    }
+
+    static func selectionAfterMoving(
+        currentSessionKey: String?,
+        sessionKeys: [String],
+        step: Int
+    ) -> String? {
+        guard !sessionKeys.isEmpty else { return nil }
+        guard step != 0 else {
+            return resolvedSelection(
+                preferredSessionKey: currentSessionKey,
+                activeSessionKey: "",
+                sessionKeys: sessionKeys
+            )
+        }
+        let currentIndex = currentSessionKey.flatMap { sessionKeys.firstIndex(of: $0) }
+        let startingIndex = currentIndex ?? (step > 0 ? -1 : sessionKeys.count)
+        let targetIndex = min(sessionKeys.count - 1, max(0, startingIndex + step))
+        return sessionKeys[targetIndex]
     }
 
     static func listContentHeight(
