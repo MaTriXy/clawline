@@ -2369,6 +2369,7 @@ enum PromptFocusShortcutConfiguration {
 
     static let keyCommandSpecs: [KeyCommandSpec] = [
         KeyCommandSpec(input: "/", modifierFlags: [], action: .openStreamPopup),
+        KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
         KeyCommandSpec(input: " ", modifierFlags: [], action: .focusPromptInput),
         KeyCommandSpec(input: "\r", modifierFlags: [], action: .focusPromptInput),
         KeyCommandSpec(input: "l", modifierFlags: [.command], action: .focusPromptInput)

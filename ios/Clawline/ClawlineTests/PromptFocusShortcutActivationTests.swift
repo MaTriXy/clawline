@@ -21,6 +21,24 @@ struct PromptFocusShortcutActivationTests {
         )
     }
 
+    @Test("Popup shortcuts include Cmd-semicolon and not Cmd-slash")
+    func popupShortcutsIncludeCommandSemicolonAndNotCommandSlash() {
+        #expect(
+            PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
+                spec.input == ";"
+                    && spec.modifierFlags == [.command]
+                    && spec.action == .openStreamPopup
+            }
+        )
+        #expect(
+            !PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
+                spec.input == "/"
+                    && spec.modifierFlags == [.command]
+                    && spec.action == .openStreamPopup
+            }
+        )
+    }
+
     @Test("Prompt focus shortcut does not steal focus from active text input")
     func promptFocusShortcutDoesNotStealFocusFromActiveTextInput() {
         #expect(
