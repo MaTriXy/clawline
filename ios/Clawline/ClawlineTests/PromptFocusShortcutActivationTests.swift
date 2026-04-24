@@ -6,9 +6,21 @@
 //
 
 import Testing
+import UIKit
 @testable import Clawline
 
 struct PromptFocusShortcutActivationTests {
+    @Test("Prompt focus shortcuts include Cmd-L")
+    func promptFocusShortcutsIncludeCommandL() {
+        #expect(
+            PromptFocusShortcutConfiguration.keyCommandSpecs.contains { spec in
+                spec.input == "l"
+                    && spec.modifierFlags == [.command]
+                    && spec.action == .focusPromptInput
+            }
+        )
+    }
+
     @Test("Prompt focus shortcut does not steal focus from active text input")
     func promptFocusShortcutDoesNotStealFocusFromActiveTextInput() {
         #expect(

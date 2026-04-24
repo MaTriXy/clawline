@@ -2300,11 +2300,15 @@ private final class PromptFocusShortcutView: UIView {
 
     override var keyCommands: [UIKeyCommand]? {
         guard isShortcutEnabled else { return nil }
-        return [
-            UIKeyCommand(input: "/", modifierFlags: [], action: #selector(openStreamPopup)),
-            UIKeyCommand(input: " ", modifierFlags: [], action: #selector(focusPromptInput)),
-            UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(focusPromptInput))
-        ]
+        return PromptFocusShortcutConfiguration.keyCommandSpecs.map { spec in
+            UIKeyCommand(
+                input: spec.input,
+                modifierFlags: spec.modifierFlags,
+                action: spec.action == .focusPromptInput
+                    ? #selector(focusPromptInput)
+                    : #selector(openStreamPopup)
+            )
+        }
     }
 
     func activateWhenReady(textInputRetryCount: Int = 1) {
@@ -2349,6 +2353,26 @@ private final class PromptFocusShortcutView: UIView {
         guard isShortcutEnabled, hasStreams else { return }
         onOpenStreamPopup?()
     }
+}
+
+enum PromptFocusShortcutConfiguration {
+    enum Action: Equatable {
+        case focusPromptInput
+        case openStreamPopup
+    }
+
+    struct KeyCommandSpec {
+        let input: String
+        let modifierFlags: UIKeyModifierFlags
+        let action: Action
+    }
+
+    static let keyCommandSpecs: [KeyCommandSpec] = [
+        KeyCommandSpec(input: "/", modifierFlags: [], action: .openStreamPopup),
+        KeyCommandSpec(input: " ", modifierFlags: [], action: .focusPromptInput),
+        KeyCommandSpec(input: "\r", modifierFlags: [], action: .focusPromptInput),
+        KeyCommandSpec(input: "l", modifierFlags: [.command], action: .focusPromptInput)
+    ]
 }
 
 enum PromptFocusShortcutActivation {
