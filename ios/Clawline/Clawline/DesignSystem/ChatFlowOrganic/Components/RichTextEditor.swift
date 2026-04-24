@@ -387,7 +387,14 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
             UIKeyCommand(input: "k", modifierFlags: [.control], action: #selector(didPressCtrlK)),
             UIKeyCommand(input: "c", modifierFlags: [.control], action: #selector(didPressCtrlC))
         ]
-        return base + emacsCommands
+        let appCommandShortcuts = ChatAppCommandShortcut.keyCommandSpecs.map { spec in
+            UIKeyCommand(
+                input: spec.input,
+                modifierFlags: spec.modifierFlags,
+                action: spec.action.selector
+            )
+        }
+        return base + emacsCommands + appCommandShortcuts
     }
 
     private var canHandleInputShortcut: Bool {

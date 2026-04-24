@@ -21,6 +21,36 @@ struct PromptFocusShortcutActivationTests {
         )
     }
 
+    @Test("App command shortcuts use Cmd-semicolon and Cmd-Shift chat navigation")
+    func appCommandShortcutsUseCommandSemicolonAndCommandShiftChatNavigation() {
+        #expect(
+            ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+                spec.input == ";"
+                    && spec.modifierFlags == [.command]
+                    && spec.action.selector == #selector(UIResponder.clawlineOpenStreamPopupCommand(_:))
+            }
+        )
+        #expect(
+            ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+                spec.input == "h"
+                    && spec.modifierFlags == [.command, .shift]
+                    && spec.action.selector == #selector(UIResponder.clawlineNavigateToPreviousStreamCommand(_:))
+            }
+        )
+        #expect(
+            ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+                spec.input == "l"
+                    && spec.modifierFlags == [.command, .shift]
+                    && spec.action.selector == #selector(UIResponder.clawlineNavigateToNextStreamCommand(_:))
+            }
+        )
+        #expect(
+            !ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+                ["h", "l"].contains(spec.input) && spec.modifierFlags == [.command]
+            }
+        )
+    }
+
     @Test("No-text shortcut host owns only unmodified prompt and popup keys")
     func noTextShortcutHostOwnsOnlyUnmodifiedPromptAndPopupKeys() {
         #expect(
@@ -33,9 +63,11 @@ struct PromptFocusShortcutActivationTests {
 
     @Test("Shortcut routing separates app commands from no-text responder keys")
     func shortcutRoutingSeparatesAppCommandsFromNoTextResponderKeys() {
-        #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command]) == .appCommand)
-        #expect(ChatShortcutRouting.owner(input: "h", modifierFlags: [.command]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command, .shift]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: "h", modifierFlags: [.command, .shift]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: ";", modifierFlags: [.command]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command]) == .textInput)
+        #expect(ChatShortcutRouting.owner(input: "h", modifierFlags: [.command]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: [.command]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: []) == .noTextResponder)
         #expect(ChatShortcutRouting.owner(input: " ", modifierFlags: []) == .noTextResponder)

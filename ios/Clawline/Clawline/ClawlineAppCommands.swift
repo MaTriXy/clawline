@@ -44,12 +44,12 @@ struct ClawlineAppCommands: Commands {
             Button("Previous Chat") {
                 NotificationCenter.default.post(name: .clawlineNavigateToPreviousStreamCommand, object: nil)
             }
-            .keyboardShortcut("h", modifiers: .command)
+            .keyboardShortcut("h", modifiers: [.command, .shift])
 
             Button("Next Chat") {
                 NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
             }
-            .keyboardShortcut("l", modifiers: .command)
+            .keyboardShortcut("l", modifiers: [.command, .shift])
 
             Divider()
 

@@ -2348,13 +2348,21 @@ private final class PromptFocusShortcutView: UIView {
 
     override var keyCommands: [UIKeyCommand]? {
         guard isShortcutEnabled else { return nil }
-        return PromptFocusShortcutConfiguration.keyCommandSpecs.map { spec in
+        let noTextCommands = PromptFocusShortcutConfiguration.keyCommandSpecs.map { spec in
             UIKeyCommand(
                 input: spec.input,
                 modifierFlags: spec.modifierFlags,
                 action: selector(for: spec.action)
             )
         }
+        let appCommandShortcuts = ChatAppCommandShortcut.keyCommandSpecs.map { spec in
+            UIKeyCommand(
+                input: spec.input,
+                modifierFlags: spec.modifierFlags,
+                action: spec.action.selector
+            )
+        }
+        return noTextCommands + appCommandShortcuts
     }
 
     private func selector(for action: PromptFocusShortcutConfiguration.Action) -> Selector {
@@ -2429,6 +2437,37 @@ enum PromptFocusShortcutConfiguration {
     ]
 }
 
+enum ChatAppCommandShortcut {
+    enum Action {
+        case openStreamPopup
+        case navigatePreviousStream
+        case navigateNextStream
+
+        var selector: Selector {
+            switch self {
+            case .openStreamPopup:
+                return #selector(UIResponder.clawlineOpenStreamPopupCommand(_:))
+            case .navigatePreviousStream:
+                return #selector(UIResponder.clawlineNavigateToPreviousStreamCommand(_:))
+            case .navigateNextStream:
+                return #selector(UIResponder.clawlineNavigateToNextStreamCommand(_:))
+            }
+        }
+    }
+
+    struct KeyCommandSpec {
+        let input: String
+        let modifierFlags: UIKeyModifierFlags
+        let action: Action
+    }
+
+    static let keyCommandSpecs: [KeyCommandSpec] = [
+        KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
+        KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
+        KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream)
+    ]
+}
+
 enum ChatShortcutRouting {
     enum Owner: Equatable {
         case appCommand
@@ -2438,10 +2477,30 @@ enum ChatShortcutRouting {
 
     static func owner(input: String, modifierFlags: UIKeyModifierFlags) -> Owner {
         let normalizedInput = input.lowercased()
+        if modifierFlags == [.command], normalizedInput == ";" {
+            return .appCommand
+        }
+        if modifierFlags == [.command, .shift], ["h", "l"].contains(normalizedInput) {
+            return .appCommand
+        }
         if modifierFlags.contains(.command) {
-            return [";", "h", "l"].contains(normalizedInput) ? .appCommand : .textInput
+            return .textInput
         }
         return ["/", " ", "\r"].contains(input) ? .noTextResponder : .textInput
+    }
+}
+
+extension UIResponder {
+    @objc func clawlineOpenStreamPopupCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
+    }
+
+    @objc func clawlineNavigateToPreviousStreamCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineNavigateToPreviousStreamCommand, object: nil)
+    }
+
+    @objc func clawlineNavigateToNextStreamCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
     }
 }
 
