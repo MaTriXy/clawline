@@ -10,6 +10,7 @@ import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import WebKit
 import os.log
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ChatView")
@@ -642,16 +643,26 @@ struct ChatView: View {
             guard phase == .active else { return }
             keyboardRefreshToken &+= 1
         }
+        .handlePromptFocusCommand(
+            onFocusRequested: {
+                focusRequestID &+= 1
+            }
+        )
         .handleStreamPopupCommand(
             hasStreams: !viewModel.orderedStreams.isEmpty,
             onOpen: {
                 streamPopupRouteController.openPopup(focusSearch: true)
             }
         )
+        .handleStreamNavigationCommands(
+            isEnabled: !viewModel.orderedStreams.isEmpty,
+            onNavigatePrevious: { navigateStreamByShortcut(step: -1, sessionKeys: viewModel.orderedStreams.map(\.sessionKey)) },
+            onNavigateNext: { navigateStreamByShortcut(step: 1, sessionKeys: viewModel.orderedStreams.map(\.sessionKey)) }
+        )
         .handleKeyboardScrollCommands(
-            isEnabled: supportsKeyboardNavigationShortcuts,
-            onScrollToBottom: { scrollActiveSessionToBottom() },
-            onScrollToTop: { scrollActiveSessionToTop() }
+            isEnabled: keyboardScrollShortcutEnabled,
+            onScrollDown: { scrollActiveSessionByPage(.down) },
+            onScrollUp: { scrollActiveSessionByPage(.up) }
         )
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
@@ -1688,11 +1699,25 @@ struct ChatView: View {
     }
 
     private var supportsKeyboardNavigationShortcuts: Bool {
-#if os(iOS)
+#if targetEnvironment(macCatalyst)
+        true
+#elseif os(iOS)
         UIDevice.current.userInterfaceIdiom == .pad
+#elseif os(visionOS)
+        true
 #else
         false
 #endif
+    }
+
+    private var keyboardScrollShortcutEnabled: Bool {
+        ChatKeyboardScrollRouting.isEnabled(
+            platformSupportsKeyboardNavigation: supportsKeyboardNavigationShortcuts,
+            streamPopupRoute: streamPopupRouteController.route,
+            activeSheetPresented: activeSheet != nil,
+            photosPickerPresented: isPhotosPickerPresented,
+            fileImporterPresented: isFileImporterPresented
+        )
     }
 
     private var keyboardNavigationSessionKey: String? {
@@ -1707,14 +1732,20 @@ struct ChatView: View {
         return sessionKeys.first
     }
 
-    private func scrollActiveSessionToBottom() {
+    private func scrollActiveSessionByPage(_ direction: ChatScrollPageDirection) {
         guard let sessionKey = keyboardNavigationSessionKey else { return }
-        layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
+        layoutCoordinator.scrollByPage(sessionKey: sessionKey, direction: direction, animated: true)
     }
 
-    private func scrollActiveSessionToTop() {
-        guard let sessionKey = keyboardNavigationSessionKey else { return }
-        layoutCoordinator.scrollToTop(sessionKey: sessionKey, animated: true)
+    private func navigateStreamByShortcut(step: Int, sessionKeys: [String]) {
+        guard let targetSessionKey = ChatKeyboardNavigation.targetSessionKey(
+            sessionKeys: sessionKeys,
+            currentSessionKey: keyboardNavigationSessionKey,
+            step: step
+        ) else {
+            return
+        }
+        selectStream(targetSessionKey, source: .programmatic)
     }
 
     private func scheduleStreamToastBusyClear() {
@@ -2182,6 +2213,16 @@ private extension View {
 #endif
     }
 
+    func handlePromptFocusCommand(
+        onFocusRequested: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            PromptFocusCommandModifier(
+                onFocusRequested: onFocusRequested
+            )
+        )
+    }
+
     func handleStreamPopupCommand(
         hasStreams: Bool,
         onOpen: @escaping () -> Void
@@ -2194,18 +2235,42 @@ private extension View {
         )
     }
 
+    func handleStreamNavigationCommands(
+        isEnabled: Bool,
+        onNavigatePrevious: @escaping () -> Void,
+        onNavigateNext: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            StreamNavigationCommandModifier(
+                isEnabled: isEnabled,
+                onNavigatePrevious: onNavigatePrevious,
+                onNavigateNext: onNavigateNext
+            )
+        )
+    }
+
     func handleKeyboardScrollCommands(
         isEnabled: Bool,
-        onScrollToBottom: @escaping () -> Void,
-        onScrollToTop: @escaping () -> Void
+        onScrollDown: @escaping () -> Void,
+        onScrollUp: @escaping () -> Void
     ) -> some View {
         modifier(
             KeyboardScrollCommandModifier(
                 isEnabled: isEnabled,
-                onScrollToBottom: onScrollToBottom,
-                onScrollToTop: onScrollToTop
+                onScrollDown: onScrollDown,
+                onScrollUp: onScrollUp
             )
         )
+    }
+}
+
+private struct PromptFocusCommandModifier: ViewModifier {
+    let onFocusRequested: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onReceive(NotificationCenter.default.publisher(for: .clawlineFocusPromptInputCommand)) { _ in
+            onFocusRequested()
+        }
     }
 }
 
@@ -2221,20 +2286,38 @@ private struct StreamPopupCommandModifier: ViewModifier {
     }
 }
 
-private struct KeyboardScrollCommandModifier: ViewModifier {
+private struct StreamNavigationCommandModifier: ViewModifier {
     let isEnabled: Bool
-    let onScrollToBottom: () -> Void
-    let onScrollToTop: () -> Void
+    let onNavigatePrevious: () -> Void
+    let onNavigateNext: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToBottomCommand)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineNavigateToPreviousStreamCommand)) { _ in
                 guard isEnabled else { return }
-                onScrollToBottom()
+                onNavigatePrevious()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToTopCommand)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineNavigateToNextStreamCommand)) { _ in
                 guard isEnabled else { return }
-                onScrollToTop()
+                onNavigateNext()
+            }
+    }
+}
+
+private struct KeyboardScrollCommandModifier: ViewModifier {
+    let isEnabled: Bool
+    let onScrollDown: () -> Void
+    let onScrollUp: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollDownCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollDown()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollUpCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollUp()
             }
     }
 }
@@ -2300,11 +2383,30 @@ private final class PromptFocusShortcutView: UIView {
 
     override var keyCommands: [UIKeyCommand]? {
         guard isShortcutEnabled else { return nil }
-        return [
-            UIKeyCommand(input: "/", modifierFlags: [], action: #selector(openStreamPopup)),
-            UIKeyCommand(input: " ", modifierFlags: [], action: #selector(focusPromptInput)),
-            UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(focusPromptInput))
-        ]
+        let noTextCommands = PromptFocusShortcutConfiguration.keyCommandSpecs.map { spec in
+            UIKeyCommand(
+                input: spec.input,
+                modifierFlags: spec.modifierFlags,
+                action: selector(for: spec.action)
+            )
+        }
+        let appCommandShortcuts = ChatAppCommandShortcut.keyCommandSpecs.map { spec in
+            UIKeyCommand(
+                input: spec.input,
+                modifierFlags: spec.modifierFlags,
+                action: spec.action.selector
+            )
+        }
+        return noTextCommands + appCommandShortcuts
+    }
+
+    private func selector(for action: PromptFocusShortcutConfiguration.Action) -> Selector {
+        switch action {
+        case .focusPromptInput:
+            return #selector(focusPromptInput)
+        case .openStreamPopup:
+            return #selector(openStreamPopup)
+        }
     }
 
     func activateWhenReady(textInputRetryCount: Int = 1) {
@@ -2318,6 +2420,7 @@ private final class PromptFocusShortcutView: UIView {
             isShortcutEnabled: isShortcutEnabled,
             isAlreadyFirstResponder: isFirstResponder,
             currentFirstResponderIsTextInput: window?.clawlineFirstResponder?.isClawlineTextInputResponder == true,
+            currentFirstResponderOwnsEmbeddedScroll: window?.clawlineFirstResponder?.ownsClawlineEmbeddedScrollInput == true,
             canRetryAfterTextInput: textInputRetryCount > 0
         ) {
         case .activate:
@@ -2351,6 +2454,152 @@ private final class PromptFocusShortcutView: UIView {
     }
 }
 
+enum PromptFocusShortcutConfiguration {
+    enum Action: Equatable {
+        case focusPromptInput
+        case openStreamPopup
+    }
+
+    struct KeyCommandSpec {
+        let input: String
+        let modifierFlags: UIKeyModifierFlags
+        let action: Action
+    }
+
+    static let keyCommandSpecs: [KeyCommandSpec] = [
+        KeyCommandSpec(input: "/", modifierFlags: [], action: .openStreamPopup),
+        KeyCommandSpec(input: " ", modifierFlags: [], action: .focusPromptInput),
+        KeyCommandSpec(input: "\r", modifierFlags: [], action: .focusPromptInput)
+    ]
+}
+
+enum ChatAppCommandShortcut {
+    enum Action {
+        case focusPromptInput
+        case openStreamPopup
+        case navigatePreviousStream
+        case navigateNextStream
+        case scrollDown
+        case scrollUp
+
+        var selector: Selector {
+            switch self {
+            case .focusPromptInput:
+                return #selector(UIResponder.clawlineFocusPromptInputCommand(_:))
+            case .openStreamPopup:
+                return #selector(UIResponder.clawlineOpenStreamPopupCommand(_:))
+            case .navigatePreviousStream:
+                return #selector(UIResponder.clawlineNavigateToPreviousStreamCommand(_:))
+            case .navigateNextStream:
+                return #selector(UIResponder.clawlineNavigateToNextStreamCommand(_:))
+            case .scrollDown:
+                return #selector(UIResponder.clawlineScrollDownCommand(_:))
+            case .scrollUp:
+                return #selector(UIResponder.clawlineScrollUpCommand(_:))
+            }
+        }
+    }
+
+    struct KeyCommandSpec {
+        let input: String
+        let modifierFlags: UIKeyModifierFlags
+        let action: Action
+    }
+
+    static let keyCommandSpecs: [KeyCommandSpec] = [
+        KeyCommandSpec(input: "l", modifierFlags: [.command], action: .focusPromptInput),
+        KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
+        KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
+        KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream),
+        KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollUp)
+    ]
+}
+
+enum ChatShortcutRouting {
+    enum Owner: Equatable {
+        case appCommand
+        case noTextResponder
+        case textInput
+    }
+
+    static func owner(input: String, modifierFlags: UIKeyModifierFlags) -> Owner {
+        let normalizedInput = input.lowercased()
+        if modifierFlags == [.command], normalizedInput == ";" {
+            return .appCommand
+        }
+        if modifierFlags == [.command], normalizedInput == "l" {
+            return .appCommand
+        }
+        if modifierFlags == [.command, .shift], ["h", "j", "k", "l"].contains(normalizedInput) {
+            return .appCommand
+        }
+        if modifierFlags.contains(.command) {
+            return .textInput
+        }
+        return ["/", " ", "\r"].contains(input) ? .noTextResponder : .textInput
+    }
+}
+
+enum ChatKeyboardScrollRouting {
+    static func isEnabled(
+        platformSupportsKeyboardNavigation: Bool,
+        streamPopupRoute: StreamPopupRoute,
+        activeSheetPresented: Bool,
+        photosPickerPresented: Bool,
+        fileImporterPresented: Bool
+    ) -> Bool {
+        platformSupportsKeyboardNavigation
+            && streamPopupRoute == .closed
+            && !activeSheetPresented
+            && !photosPickerPresented
+            && !fileImporterPresented
+    }
+}
+
+extension UIResponder {
+    @objc func clawlineFocusPromptInputCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineFocusPromptInputCommand, object: nil)
+    }
+
+    @objc func clawlineOpenStreamPopupCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
+    }
+
+    @objc func clawlineNavigateToPreviousStreamCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineNavigateToPreviousStreamCommand, object: nil)
+    }
+
+    @objc func clawlineNavigateToNextStreamCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
+    }
+
+    @objc func clawlineScrollDownCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)
+    }
+
+    @objc func clawlineScrollUpCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
+    }
+}
+
+enum ChatKeyboardNavigation {
+    static func targetSessionKey(
+        sessionKeys: [String],
+        currentSessionKey: String?,
+        step: Int
+    ) -> String? {
+        guard !sessionKeys.isEmpty, step != 0 else { return nil }
+        guard let currentSessionKey,
+              let currentIndex = sessionKeys.firstIndex(of: currentSessionKey) else {
+            return sessionKeys.first
+        }
+        let targetIndex = min(sessionKeys.count - 1, max(0, currentIndex + step))
+        guard targetIndex != currentIndex else { return nil }
+        return sessionKeys[targetIndex]
+    }
+}
+
 enum PromptFocusShortcutActivation {
     enum Action: Equatable {
         case activate
@@ -2362,9 +2611,11 @@ enum PromptFocusShortcutActivation {
         isShortcutEnabled: Bool,
         isAlreadyFirstResponder: Bool,
         currentFirstResponderIsTextInput: Bool,
+        currentFirstResponderOwnsEmbeddedScroll: Bool,
         canRetryAfterTextInput: Bool
     ) -> Action {
         guard isShortcutEnabled, !isAlreadyFirstResponder else { return .skip }
+        guard !currentFirstResponderOwnsEmbeddedScroll else { return .skip }
         guard !currentFirstResponderIsTextInput else {
             return canRetryAfterTextInput ? .retryAfterTextInputResigns : .skip
         }
@@ -2377,6 +2628,17 @@ private extension UIResponder {
 
     var isClawlineTextInputResponder: Bool {
         self is UITextInput
+    }
+
+    var ownsClawlineEmbeddedScrollInput: Bool {
+        var responder: UIResponder? = self
+        while let current = responder {
+            if current is WKWebView {
+                return true
+            }
+            responder = current.next
+        }
+        return false
     }
 
     @objc func clawlineCaptureFirstResponder(_ sender: Any) {
@@ -2394,6 +2656,13 @@ private extension UIWindow {
             for: nil
         )
         return UIResponder.clawlineCurrentFirstResponder
+    }
+
+    static var clawlineCurrentFirstResponderOwnsEmbeddedScroll: Bool {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .contains { $0.clawlineFirstResponder?.ownsClawlineEmbeddedScrollInput == true }
     }
 }
 
