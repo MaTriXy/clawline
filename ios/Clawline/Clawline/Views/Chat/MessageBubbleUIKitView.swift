@@ -41,6 +41,17 @@ private final class BubbleSafeAreaNeutralScrollView: UIScrollView {
 }
 
 enum RemoteMessageImagePolicy {
+    static func request(for url: URL) -> URLRequest {
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: 30
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        return request
+    }
+
     static func image(from data: Data, response: URLResponse?) -> UIImage? {
         if let http = response as? HTTPURLResponse,
            !(200..<400).contains(http.statusCode) {
@@ -100,7 +111,7 @@ private final class RemoteMessageImageView: UIImageView {
             heightConstraint?.constant = preferredPlaceholderHeight()
         }
 
-        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 30)
+        let request = RemoteMessageImagePolicy.request(for: url)
         task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let data,
                   let image = RemoteMessageImagePolicy.image(from: data, response: response) else {

@@ -128,6 +128,16 @@ struct MessagePresentationURLBoundaryTests {
         #expect(RemoteMessageImagePolicy.image(from: data, response: response) != nil)
     }
 
+    @Test("Remote image loader bypasses URL cache for mutable direct image URLs")
+    func remoteImageLoaderBypassesURLCacheForMutableDirectImageURLs() throws {
+        let url = try #require(URL(string: "http://tars.tail4105e8.ts.net:18800/www/ticker/latest.png"))
+        let request = RemoteMessageImagePolicy.request(for: url)
+
+        #expect(request.cachePolicy == .reloadIgnoringLocalAndRemoteCacheData)
+        #expect(request.value(forHTTPHeaderField: "Cache-Control") == "no-cache")
+        #expect(request.value(forHTTPHeaderField: "Pragma") == "no-cache")
+    }
+
     @Test("Remote image loader rejects undecodable web page payload")
     func remoteImageLoaderRejectsUndecodableWebPagePayload() throws {
         let data = try #require("<html><body>not an image</body></html>".data(using: .utf8))
