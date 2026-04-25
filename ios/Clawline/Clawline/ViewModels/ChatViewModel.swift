@@ -10,153 +10,6 @@ import Observation
 import OSLog
 import UIKit
 
-#if DEBUG
-enum T218ImageDiag {
-    private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "T218ImageDiag")
-    private static let fileQueue = DispatchQueue(label: "co.clicketyclacks.Clawline.T218ImageDiag")
-
-    static var isEnabled: Bool {
-        ProcessInfo.processInfo.arguments.contains("-T218ImageDiag")
-            || ProcessInfo.processInfo.environment["T218_IMAGE_DIAG"] == "1"
-    }
-
-    static var platform: String {
-        #if targetEnvironment(macCatalyst)
-        "macCatalyst"
-        #elseif os(iOS)
-        "iOS"
-        #elseif os(visionOS)
-        "visionOS"
-        #else
-        "unknown"
-        #endif
-    }
-
-    static func quote(_ value: String?) -> String {
-        guard let value else { return "null" }
-        let escaped = value
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-        return "\"\(escaped)\""
-    }
-
-    static func contentFields(_ content: String) -> String {
-        let prefix = String(content.prefix(160))
-        let prefixBase64 = prefix.data(using: .utf8)?.base64EncodedString() ?? ""
-        return "contentLength=\(content.count) contentPrefixB64=\(quote(prefixBase64))"
-    }
-
-    static func attachmentSummary(_ attachments: [Attachment]) -> String {
-        let entries = attachments.map { attachment in
-            let dataLength = attachment.data?.count
-            let decodeOK = attachment.data.map { UIImage(data: $0) != nil }
-            return "{id:\(quote(attachment.id)),type:\(quote(attachment.type.rawValue)),mime:\(quote(attachment.mimeType)),assetId:\(quote(attachment.assetId)),dataLength:\(dataLength.map(String.init) ?? "null"),decodeOK:\(decodeOK.map(String.init) ?? "null")}"
-        }
-        return "[\(entries.joined(separator: ","))]"
-    }
-
-    static func messageSummary(_ messages: [Message]) -> String {
-        let entries = messages.map { message in
-            "{messageId:\(quote(message.id)),sessionKey:\(quote(message.sessionKey)),\(contentFields(message.content)),attachmentCount:\(message.attachments.count),attachments:\(attachmentSummary(message.attachments))}"
-        }
-        return "[\(entries.joined(separator: ","))]"
-    }
-
-    static func diagnosticMessages(from messages: [Message]) -> [Message] {
-        messages.filter { message in
-            if !message.attachments.isEmpty { return true }
-            let lower = message.content.lowercased()
-            return lower.contains("png")
-                || lower.contains("ihdr")
-                || lower.contains("data:image")
-                || lower.contains("![")
-                || lower.contains(".png")
-                || lower.contains("led-ticker")
-                || lower.contains("ticker")
-        }
-    }
-
-    static func partSummary(_ parts: [MessagePart]) -> String {
-        let entries = parts.map { part -> String in
-            switch part {
-            case .text(let value):
-                return "{kind:\"text\",length:\(value.count)}"
-            case .markdown(let value):
-                return "{kind:\"markdown\",length:\(value.count)}"
-            case .table:
-                return "{kind:\"table\"}"
-            case .code:
-                return "{kind:\"code\"}"
-            case .linkPreview(let url):
-                return "{kind:\"linkPreview\",url:\(quote(url.absoluteString))}"
-            case .image(let attachment):
-                return "{kind:\"image\",attachmentId:\(quote(attachment.id)),mime:\(quote(attachment.mimeType)),assetId:\(quote(attachment.assetId)),dataLength:\(attachment.data.map { String($0.count) } ?? "null")}"
-            case .gallery(let attachments):
-                return "{kind:\"gallery\",count:\(attachments.count),attachmentIds:\(quote(attachments.map(\.id).joined(separator: ",")))}"
-            case .file(let attachment):
-                return "{kind:\"file\",attachmentId:\(quote(attachment.id)),mime:\(quote(attachment.mimeType)),assetId:\(quote(attachment.assetId)),dataLength:\(attachment.data.map { String($0.count) } ?? "null")}"
-            case .terminalSession:
-                return "{kind:\"terminalSession\"}"
-            case .interactiveHTML:
-                return "{kind:\"interactiveHTML\"}"
-            case .inlineEmoji(let value):
-                return "{kind:\"inlineEmoji\",length:\(value.count)}"
-            }
-        }
-        return "[\(entries.joined(separator: ","))]"
-    }
-
-    static func logPathSummary() -> String {
-        let paths = logFileURLs().map(\.path).joined(separator: ",")
-        return quote(paths)
-    }
-
-    static func printLine(_ fields: String) {
-        guard isEnabled else { return }
-        let line = "[T218_IMAGE] platform=\(platform) \(fields)"
-        print(line)
-        logger.info("\(line, privacy: .public)")
-        writeLineToFiles(line)
-    }
-
-    private static func logFileURLs() -> [URL] {
-        var urls = [URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("T218_IMAGE.log")]
-        if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-            urls.append(documents.appendingPathComponent("T218_IMAGE.log"))
-        }
-        return urls
-    }
-
-    private static func writeLineToFiles(_ line: String) {
-        let timestampedLine = "\(Date().ISO8601Format()) \(line)\n"
-        guard let data = timestampedLine.data(using: .utf8) else { return }
-        let urls = logFileURLs()
-        fileQueue.async {
-            for url in urls {
-                do {
-                    try FileManager.default.createDirectory(
-                        at: url.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    if FileManager.default.fileExists(atPath: url.path) {
-                        let handle = try FileHandle(forWritingTo: url)
-                        try handle.seekToEnd()
-                        try handle.write(contentsOf: data)
-                        try handle.close()
-                    } else {
-                        try data.write(to: url)
-                    }
-                } catch {
-                    print("[T218_IMAGE] platform=\(platform) event=fileSinkFailed path=\(quote(url.path)) error=\(quote(error.localizedDescription))")
-                }
-            }
-        }
-    }
-}
-#endif
-
 enum SendButtonConnectionState: Equatable {
     case connected
     case reconnecting
@@ -982,11 +835,6 @@ final class ChatViewModel: ChatViewModelHosting {
         guard !isRetired else { return }
         guard isConnectionOwner else { return }
         isAppInForeground = true
-#if DEBUG
-        T218ImageDiag.printLine(
-            "event=sceneDidBecomeActive vm=\(T218ImageDiag.quote(instanceId)) tokenPresent=\(auth.token != nil) activeSession=\(T218ImageDiag.quote(engineActiveSessionKey)) cachedSessionCount=\(sessionMessages.count) visibleMessageCount=\(messages.count) logPaths=\(T218ImageDiag.logPathSummary())"
-        )
-#endif
         guard hasActivatedLifecycleOwnership else {
             coordinatorDiag("sceneDidBecomeActive deferred until activate")
             return
@@ -1768,11 +1616,6 @@ final class ChatViewModel: ChatViewModelHosting {
               !sessionKey.isEmpty else {
             return
         }
-#if DEBUG
-        T218ImageDiag.printLine(
-            "event=serverPayload messageId=\(T218ImageDiag.quote(serverPayload.id)) sessionKey=\(T218ImageDiag.quote(sessionKey)) \(T218ImageDiag.contentFields(serverPayload.content)) attachmentCount=\(serverPayload.attachments.count) attachments=\(T218ImageDiag.attachmentSummary(serverPayload.attachments))"
-        )
-#endif
         let message = Message(payload: serverPayload, sessionKey: sessionKey)
         handleIncoming(message)
         if isReplayCursorEvent(message) {
@@ -1837,11 +1680,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 guard let assetId = attachment.assetId else { continue }
                 if let cached = downloadedAssetData[assetId] {
                     logger.info("attachment cache hit id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(cached.count, privacy: .public)")
-#if DEBUG
-                    T218ImageDiag.printLine(
-                        "event=attachmentCacheHit messageId=\(T218ImageDiag.quote(message.id)) sessionKey=\(T218ImageDiag.quote(message.sessionKey)) attachmentId=\(T218ImageDiag.quote(attachment.id)) type=\(T218ImageDiag.quote(attachment.type.rawValue)) mime=\(T218ImageDiag.quote(attachment.mimeType)) assetId=\(T218ImageDiag.quote(assetId)) dataLength=\(cached.count) decodeOK=\(UIImage(data: cached) != nil)"
-                    )
-#endif
                     updatedAttachments[index] = Attachment(
                         id: attachment.id,
                         type: attachment.type,
@@ -1857,18 +1695,8 @@ final class ChatViewModel: ChatViewModelHosting {
 
                 do {
                     logger.info("attachment download start id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public)")
-#if DEBUG
-                    T218ImageDiag.printLine(
-                        "event=attachmentDownloadStart messageId=\(T218ImageDiag.quote(message.id)) sessionKey=\(T218ImageDiag.quote(message.sessionKey)) attachmentId=\(T218ImageDiag.quote(attachment.id)) type=\(T218ImageDiag.quote(attachment.type.rawValue)) mime=\(T218ImageDiag.quote(attachment.mimeType)) assetId=\(T218ImageDiag.quote(assetId))"
-                    )
-#endif
                     let data = try await uploadService.download(assetId: assetId)
                     guard !data.isEmpty else {
-#if DEBUG
-                        T218ImageDiag.printLine(
-                            "event=attachmentDownloadEmpty messageId=\(T218ImageDiag.quote(message.id)) sessionKey=\(T218ImageDiag.quote(message.sessionKey)) attachmentId=\(T218ImageDiag.quote(attachment.id)) type=\(T218ImageDiag.quote(attachment.type.rawValue)) mime=\(T218ImageDiag.quote(attachment.mimeType)) assetId=\(T218ImageDiag.quote(assetId)) dataLength=0"
-                        )
-#endif
                         continue
                     }
                     let isImageAttachment = attachment.type == .image
@@ -1878,18 +1706,8 @@ final class ChatViewModel: ChatViewModelHosting {
                         // Image attachments remain guarded to avoid corrupt image payloads.
                         guard UIImage(data: data) != nil else {
                             logger.error("attachment download non-image id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) bytes=\(data.count, privacy: .public)")
-#if DEBUG
-                            T218ImageDiag.printLine(
-                                "event=attachmentDownloadDecoded messageId=\(T218ImageDiag.quote(message.id)) sessionKey=\(T218ImageDiag.quote(message.sessionKey)) attachmentId=\(T218ImageDiag.quote(attachment.id)) type=\(T218ImageDiag.quote(attachment.type.rawValue)) mime=\(T218ImageDiag.quote(attachment.mimeType)) assetId=\(T218ImageDiag.quote(assetId)) dataLength=\(data.count) decodeOK=false"
-                            )
-#endif
                             continue
                         }
-#if DEBUG
-                        T218ImageDiag.printLine(
-                            "event=attachmentDownloadDecoded messageId=\(T218ImageDiag.quote(message.id)) sessionKey=\(T218ImageDiag.quote(message.sessionKey)) attachmentId=\(T218ImageDiag.quote(attachment.id)) type=\(T218ImageDiag.quote(attachment.type.rawValue)) mime=\(T218ImageDiag.quote(attachment.mimeType)) assetId=\(T218ImageDiag.quote(assetId)) dataLength=\(data.count) decodeOK=true"
-                        )
-#endif
                     } else if !Self.needsPayloadHydration(for: attachment) {
                         continue
                     }
@@ -1907,11 +1725,6 @@ final class ChatViewModel: ChatViewModelHosting {
                     didUpdate = true
                 } catch {
                     logger.error("attachment download failed id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
-#if DEBUG
-                    T218ImageDiag.printLine(
-                        "event=attachmentDownloadFailed messageId=\(T218ImageDiag.quote(message.id)) sessionKey=\(T218ImageDiag.quote(message.sessionKey)) attachmentId=\(T218ImageDiag.quote(attachment.id)) type=\(T218ImageDiag.quote(attachment.type.rawValue)) mime=\(T218ImageDiag.quote(attachment.mimeType)) assetId=\(T218ImageDiag.quote(assetId)) error=\(T218ImageDiag.quote(error.localizedDescription))"
-                    )
-#endif
                 }
             }
 
@@ -2025,14 +1838,6 @@ final class ChatViewModel: ChatViewModelHosting {
         let oldCount = sessionMessages[sessionKey]?.count ?? 0
         sessionMessages[sessionKey] = newMessages
         let newCount = newMessages.count
-#if DEBUG
-        let diagnosticMessages = T218ImageDiag.diagnosticMessages(from: newMessages)
-        if !diagnosticMessages.isEmpty {
-            T218ImageDiag.printLine(
-                "event=messageStoreUpdate sessionKey=\(T218ImageDiag.quote(sessionKey)) oldCount=\(oldCount) newCount=\(newCount) diagnosticCount=\(diagnosticMessages.count) messages=\(T218ImageDiag.messageSummary(Array(diagnosticMessages.suffix(5))))"
-            )
-        }
-#endif
         if oldCount > 0, newCount == 0 {
             StreamSwitchTiming.log("stream_messages_unloaded oldCount=\(oldCount) newCount=0", sessionKey: sessionKey)
         } else if oldCount == 0, newCount > 0 {
