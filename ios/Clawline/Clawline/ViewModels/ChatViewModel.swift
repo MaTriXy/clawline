@@ -468,6 +468,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private var restoreTaskBySessionKey: [String: Task<Void, Never>] = [:]
     private var writerCurrentEpoch: Int?
     private var firstReplayAppliedEpoch: Int?
+    private var pendingHistoryResetReplay: PendingHistoryResetReplay?
 #if DEBUG
     private var observationStartupCount: Int = 0
     private(set) var lifecycleDebugPhase: ConnectionLifecyclePhase = .idle
@@ -515,6 +516,12 @@ final class ChatViewModel: ChatViewModelHosting {
         let content: String
         let attachments: [PendingAttachment]
         let sessionKey: String
+    }
+
+    private struct PendingHistoryResetReplay {
+        let epoch: Int
+        let cursorBackedSessionKeys: Set<String>
+        var messagesBySessionKey: [String: [Message]] = [:]
     }
 
 #if DEBUG
@@ -1617,6 +1624,10 @@ final class ChatViewModel: ChatViewModelHosting {
             return
         }
         let message = Message(payload: serverPayload, sessionKey: sessionKey)
+        if pendingHistoryResetReplay?.epoch == epoch {
+            pendingHistoryResetReplay?.messagesBySessionKey[sessionKey, default: []].append(message)
+            return
+        }
         handleIncoming(message)
         if isReplayCursorEvent(message) {
             chatService.setReplayCursor(message.id, for: sessionKey)
@@ -1631,19 +1642,76 @@ final class ChatViewModel: ChatViewModelHosting {
     private func handleHistoryResetRequired(epoch: Int) {
         restoreTaskBySessionKey.values.forEach { $0.cancel() }
         restoreTaskBySessionKey.removeAll()
-        restoredSessionKeys.removeAll()
-        sessionMessages.removeAll()
-        messages.removeAll()
         pendingLocalMessages.removeAll()
         ackedPendingLocalMessageIDs.removeAll()
         messageFailures.removeAll()
+        let cursorBackedSessionKeys = Set(chatService.replayCursorSnapshot().keys)
         chatService.clearReplayCursors()
         clearMessageCache()
+        pendingHistoryResetReplay = PendingHistoryResetReplay(
+            epoch: epoch,
+            cursorBackedSessionKeys: cursorBackedSessionKeys
+        )
         makeStreamSwitchCoordinator().reset()
         Task {
             await lifecycleCoordinator.updateCanonicalCursor(nil)
             await lifecycleCoordinator.acknowledgeHistoryReset(epoch: epoch)
         }
+    }
+
+    private func applyPendingHistoryResetReplayIfNeeded() {
+        guard let pending = pendingHistoryResetReplay else { return }
+        pendingHistoryResetReplay = nil
+
+        let allSessionKeys = Set(sessionMessages.keys)
+            .union(streamsBySessionKey.keys)
+            .union(pending.messagesBySessionKey.keys)
+        for sessionKey in allSessionKeys {
+            let replayMessages = pending.messagesBySessionKey[sessionKey] ?? []
+            if pending.cursorBackedSessionKeys.contains(sessionKey) {
+                guard !replayMessages.isEmpty else { continue }
+                let merged = mergedMessagesPreservingOrder(
+                    existing: sessionMessages[sessionKey] ?? [],
+                    incoming: replayMessages
+                )
+                setMessages(merged, for: sessionKey)
+            } else {
+                removeCachedMessages(for: sessionKey)
+                setMessages(replayMessages, for: sessionKey)
+            }
+            applyReplayMessageSideEffects(replayMessages, sessionKey: sessionKey)
+
+            if let replayCursor = lastServerMessageId(from: replayMessages) {
+                chatService.setReplayCursor(replayCursor, for: sessionKey)
+                Task { await lifecycleCoordinator.updateCanonicalCursor(replayCursor) }
+            } else if !pending.cursorBackedSessionKeys.contains(sessionKey) {
+                clearCursor(for: sessionKey)
+            }
+        }
+        restoredSessionKeys.formUnion(allSessionKeys)
+    }
+
+    private func applyReplayMessageSideEffects(_ replayMessages: [Message], sessionKey: String) {
+        guard !replayMessages.isEmpty else { return }
+        replayMessages.forEach { resolveAssetAttachmentsIfNeeded(for: $0) }
+        if sessionKey == engineActiveSessionKey,
+           replayMessages.contains(where: { $0.id.hasPrefix("s_") }) {
+            markSessionRead(sessionKey)
+        }
+    }
+
+    private func mergedMessagesPreservingOrder(existing: [Message], incoming: [Message]) -> [Message] {
+        guard !existing.isEmpty else { return incoming }
+        guard !incoming.isEmpty else { return existing }
+        var merged = existing
+        for message in incoming {
+            if let index = merged.firstIndex(where: { $0.id == message.id }) {
+                merged[index] = message
+            } else {
+                merged.append(message)
+            }
+        }
+        return merged
     }
 
     private func maybeTriggerAssistantIncomingHaptic(for message: Message, didAppendNewMessage: Bool) {
@@ -1883,6 +1951,9 @@ final class ChatViewModel: ChatViewModelHosting {
                 firstReplayAppliedEpoch = nil
                 restoreTaskBySessionKey.values.forEach { $0.cancel() }
                 restoreTaskBySessionKey.removeAll()
+                if pendingHistoryResetReplay?.epoch != epoch {
+                    pendingHistoryResetReplay = nil
+                }
             }
             connectionLifecyclePhase = to
 #if DEBUG
@@ -1918,6 +1989,7 @@ final class ChatViewModel: ChatViewModelHosting {
         case .serverMessage(let epoch, let payload):
             handleLifecycleServerMessage(epoch: epoch, payload: payload)
         case .replayCompleted:
+            applyPendingHistoryResetReplayIfNeeded()
             markMissingFinalsAfterReplay()
         case .historyTruncated(let epoch):
             logger.info("history truncated for epoch=\(epoch, privacy: .public)")
@@ -2781,6 +2853,14 @@ final class ChatViewModel: ChatViewModelHosting {
         self.chatService.setReplayCursor(nil, for: sessionKey)
         Task { await lifecycleCoordinator.updateCanonicalCursor(nil) }
         self.armForceReRead(for: sessionKey)
+    }
+
+    private func removeCachedMessages(for sessionKey: String) {
+        guard let url = messageCacheURL(for: sessionKey) else { return }
+        persistDebounceTasks[sessionKey]?.cancel()
+        persistDebounceTasks[sessionKey] = nil
+        pendingPersistPayloads.removeValue(forKey: sessionKey)
+        try? FileManager.default.removeItem(at: url)
     }
 
     private func persistMessages(_ messages: [Message], for sessionKey: String) {
