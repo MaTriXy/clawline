@@ -374,6 +374,12 @@ enum MessagePresentationBuilder {
             .filter { !$0.isEmpty }
             .count
 
+#if DEBUG
+        T218ImageDiag.printLine(
+            "event=presentationBuilt messageId=\(T218ImageDiag.quote(message.id)) sessionKey=\(T218ImageDiag.quote(message.sessionKey)) \(T218ImageDiag.contentFields(message.content)) attachmentCount=\(message.attachments.count) attachments=\(T218ImageDiag.attachmentSummary(message.attachments)) detectedURLCount=\(detectedURLOccurrences.count) detectedURLs=\(T218ImageDiag.quote(uniqueURLs.map(\.absoluteString).joined(separator: ","))) parts=\(T218ImageDiag.partSummary(parts))"
+        )
+#endif
+
         return MessagePresentation(
             parts: parts,
             markdownRenderPlan: suppressTextForFiles ? .empty : markdownPlan,

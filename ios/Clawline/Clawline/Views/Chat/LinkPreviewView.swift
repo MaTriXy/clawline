@@ -438,6 +438,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             }
         }
         currentURL = url
+#if DEBUG
+        T218ImageDiag.printLine(
+            "event=linkPreviewConfigure messageId=\(T218ImageDiag.quote(ownerItemId)) sessionKey=null url=\(T218ImageDiag.quote(url.absoluteString)) pathExtension=\(T218ImageDiag.quote(url.pathExtension.lowercased())) directMediaByURL=\(Self.isDirectMediaPreviewURL(url)) minHeight=\(self.minHeight) maxHeight=\(self.maxHeight)"
+        )
+#endif
         let hostLabel = url.host ?? url.absoluteString
         isAccessibilityElement = true
         accessibilityLabel = "Link preview: \(hostLabel)"
@@ -999,6 +1004,11 @@ final class LinkPreviewView: UIView, WKNavigationDelegate, WKUIDelegate, UIGestu
             updateScrollBehaviorForPreviewContent()
             syncDirectMediaPreviewHeightIfNeeded(notifyOnChange: false)
         }
+#if DEBUG
+        T218ImageDiag.printLine(
+            "event=linkPreviewNavigationResponse messageId=\(T218ImageDiag.quote(ownerItemId)) sessionKey=null url=\(T218ImageDiag.quote(url.absoluteString)) mime=\(T218ImageDiag.quote(navigationResponse.response.mimeType)) directMediaByMIME=\(Self.isDirectMediaMimeType(navigationResponse.response.mimeType)) isDirectMediaPreview=\(isDirectMediaPreview)"
+        )
+#endif
         decisionHandler(.allow)
     }
 
