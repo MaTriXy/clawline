@@ -29,6 +29,9 @@ struct ClawlineApp: App {
         }
 #if DEBUG
         logViewHierarchyOnce()
+        T218ImageDiag.printLine(
+            "event=appInit arguments=\(T218ImageDiag.quote(ProcessInfo.processInfo.arguments.joined(separator: ","))) envEnabled=\(ProcessInfo.processInfo.environment["T218_IMAGE_DIAG"] == "1") logPaths=\(T218ImageDiag.logPathSummary())"
+        )
 #endif
         clearHostingBackgrounds()
 

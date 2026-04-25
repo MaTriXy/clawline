@@ -12,6 +12,9 @@ import UIKit
 
 #if DEBUG
 enum T218ImageDiag {
+    private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "T218ImageDiag")
+    private static let fileQueue = DispatchQueue(label: "co.clicketyclacks.Clawline.T218ImageDiag")
+
     static var isEnabled: Bool {
         ProcessInfo.processInfo.arguments.contains("-T218ImageDiag")
             || ProcessInfo.processInfo.environment["T218_IMAGE_DIAG"] == "1"
@@ -54,6 +57,27 @@ enum T218ImageDiag {
         return "[\(entries.joined(separator: ","))]"
     }
 
+    static func messageSummary(_ messages: [Message]) -> String {
+        let entries = messages.map { message in
+            "{messageId:\(quote(message.id)),sessionKey:\(quote(message.sessionKey)),\(contentFields(message.content)),attachmentCount:\(message.attachments.count),attachments:\(attachmentSummary(message.attachments))}"
+        }
+        return "[\(entries.joined(separator: ","))]"
+    }
+
+    static func diagnosticMessages(from messages: [Message]) -> [Message] {
+        messages.filter { message in
+            if !message.attachments.isEmpty { return true }
+            let lower = message.content.lowercased()
+            return lower.contains("png")
+                || lower.contains("ihdr")
+                || lower.contains("data:image")
+                || lower.contains("![")
+                || lower.contains(".png")
+                || lower.contains("led-ticker")
+                || lower.contains("ticker")
+        }
+    }
+
     static func partSummary(_ parts: [MessagePart]) -> String {
         let entries = parts.map { part -> String in
             switch part {
@@ -84,9 +108,51 @@ enum T218ImageDiag {
         return "[\(entries.joined(separator: ","))]"
     }
 
+    static func logPathSummary() -> String {
+        let paths = logFileURLs().map(\.path).joined(separator: ",")
+        return quote(paths)
+    }
+
     static func printLine(_ fields: String) {
         guard isEnabled else { return }
-        print("[T218_IMAGE] platform=\(platform) \(fields)")
+        let line = "[T218_IMAGE] platform=\(platform) \(fields)"
+        print(line)
+        logger.info("\(line, privacy: .public)")
+        writeLineToFiles(line)
+    }
+
+    private static func logFileURLs() -> [URL] {
+        var urls = [URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("T218_IMAGE.log")]
+        if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            urls.append(documents.appendingPathComponent("T218_IMAGE.log"))
+        }
+        return urls
+    }
+
+    private static func writeLineToFiles(_ line: String) {
+        let timestampedLine = "\(Date().ISO8601Format()) \(line)\n"
+        guard let data = timestampedLine.data(using: .utf8) else { return }
+        let urls = logFileURLs()
+        fileQueue.async {
+            for url in urls {
+                do {
+                    try FileManager.default.createDirectory(
+                        at: url.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        let handle = try FileHandle(forWritingTo: url)
+                        try handle.seekToEnd()
+                        try handle.write(contentsOf: data)
+                        try handle.close()
+                    } else {
+                        try data.write(to: url)
+                    }
+                } catch {
+                    print("[T218_IMAGE] platform=\(platform) event=fileSinkFailed path=\(quote(url.path)) error=\(quote(error.localizedDescription))")
+                }
+            }
+        }
     }
 }
 #endif
@@ -916,6 +982,11 @@ final class ChatViewModel: ChatViewModelHosting {
         guard !isRetired else { return }
         guard isConnectionOwner else { return }
         isAppInForeground = true
+#if DEBUG
+        T218ImageDiag.printLine(
+            "event=sceneDidBecomeActive vm=\(T218ImageDiag.quote(instanceId)) tokenPresent=\(auth.token != nil) activeSession=\(T218ImageDiag.quote(engineActiveSessionKey)) cachedSessionCount=\(sessionMessages.count) visibleMessageCount=\(messages.count) logPaths=\(T218ImageDiag.logPathSummary())"
+        )
+#endif
         guard hasActivatedLifecycleOwnership else {
             coordinatorDiag("sceneDidBecomeActive deferred until activate")
             return
@@ -1954,6 +2025,14 @@ final class ChatViewModel: ChatViewModelHosting {
         let oldCount = sessionMessages[sessionKey]?.count ?? 0
         sessionMessages[sessionKey] = newMessages
         let newCount = newMessages.count
+#if DEBUG
+        let diagnosticMessages = T218ImageDiag.diagnosticMessages(from: newMessages)
+        if !diagnosticMessages.isEmpty {
+            T218ImageDiag.printLine(
+                "event=messageStoreUpdate sessionKey=\(T218ImageDiag.quote(sessionKey)) oldCount=\(oldCount) newCount=\(newCount) diagnosticCount=\(diagnosticMessages.count) messages=\(T218ImageDiag.messageSummary(Array(diagnosticMessages.suffix(5))))"
+            )
+        }
+#endif
         if oldCount > 0, newCount == 0 {
             StreamSwitchTiming.log("stream_messages_unloaded oldCount=\(oldCount) newCount=0", sessionKey: sessionKey)
         } else if oldCount == 0, newCount > 0 {
