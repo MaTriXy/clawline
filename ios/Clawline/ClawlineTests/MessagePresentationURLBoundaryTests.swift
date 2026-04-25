@@ -5,6 +5,7 @@
 
 import Testing
 import Foundation
+import UIKit
 @testable import Clawline
 
 struct MessagePresentationURLBoundaryTests {
@@ -114,6 +115,32 @@ struct MessagePresentationURLBoundaryTests {
         }))
     }
 
+    @Test("Remote image loader accepts decodable PNG with octet-stream MIME")
+    func remoteImageLoaderAcceptsDecodablePNGWithOctetStreamMIME() throws {
+        let data = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        let response = try #require(HTTPURLResponse(
+            url: URL(string: "http://tars.tail4105e8.ts.net:18800/www/ticker/latest.png")!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/octet-stream"]
+        ))
+
+        #expect(RemoteMessageImagePolicy.image(from: data, response: response) != nil)
+    }
+
+    @Test("Remote image loader rejects undecodable web page payload")
+    func remoteImageLoaderRejectsUndecodableWebPagePayload() throws {
+        let data = try #require("<html><body>not an image</body></html>".data(using: .utf8))
+        let response = try #require(HTTPURLResponse(
+            url: URL(string: "https://example.com/ticker/latest.png")!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "text/html"]
+        ))
+
+        #expect(RemoteMessageImagePolicy.image(from: data, response: response) == nil)
+    }
+
     @Test("Wrapped mark delimiters do not leak into link preview hrefs")
     func wrappedMarkDelimitersDoNotLeakIntoLinkPreviewHrefs() {
         let presentation = buildPresentation(content: "==https://example.com==")
@@ -160,4 +187,8 @@ struct MessagePresentationURLBoundaryTests {
             streamingState: &state
         )
     }
+
+    private static let onePixelPNGBase64 = """
+    iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=
+    """
 }
