@@ -742,20 +742,7 @@ struct ChatView: View {
                              toastManager: ToastManager) -> some View {
         @Bindable var viewModel = viewModel
         let statusBarTopInset: CGFloat = geometry.safeAreaInsets.top
-        let messageListTopInset: CGFloat = {
-#if os(visionOS)
-            return geometry.safeAreaInsets.top + (geometry.size.height * 0.25)
-#else
-            return geometry.safeAreaInsets.top
-#endif
-        }()
-        let spatialAdditionalBottomInset: CGFloat = {
-#if os(visionOS)
-            return geometry.size.height * 0.25
-#else
-            return 0
-#endif
-        }()
+        let messageListTopInset = geometry.safeAreaInsets.top
         let isCompactLayout = horizontalSizeClass == .compact
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompactLayout)
         let resolvedInputHeight = max(inputBarHeight, MessageInputBarMetrics.minInputBarHeight)
@@ -772,7 +759,7 @@ struct ChatView: View {
         let bottomFlowGap: CGFloat = isCompactLayout
             ? metrics.flowGap
             : ChatFlowTheme.Metrics(isCompact: false).flowGap
-        let bottomInsetFlowGap = bottomFlowGap + spatialAdditionalBottomInset
+        let bottomInsetFlowGap = bottomFlowGap
         // Keep the bar gap continuous through the final keyboard-dismiss frames.
         let keyboardInsetProgress = min(1, max(0, keyboardVisibleHeight / 24))
         let belowBarGap: CGFloat = 24 - (12 * keyboardInsetProgress)
