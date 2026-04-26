@@ -986,46 +986,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 isDark: currentIsDark
             )
         }
-#if os(visionOS)
-        updateVisibleCellOpacity()
-#endif
     }
-
-#if os(visionOS)
-    private func updateVisibleCellOpacity() {
-        guard collectionView.bounds.height > 1 else { return }
-        let visibleRect = collectionView.bounds
-        let fadeStartY = visibleRect.minY + (visibleRect.height * 0.08)
-        let fadeStartBottomY = visibleRect.maxY - (visibleRect.height * 0.08)
-        let topDenom = max(fadeStartY - visibleRect.minY, 1)
-        let bottomDenom = max(visibleRect.maxY - fadeStartBottomY, 1)
-        for cell in collectionView.visibleCells {
-            let cellMinY = cell.frame.minY
-            let cellMaxY = cell.frame.maxY
-            let topAlpha: CGFloat
-            if cellMinY >= fadeStartY {
-                topAlpha = 1
-            } else {
-                topAlpha = max(0, min(1, (cellMinY - visibleRect.minY) / topDenom))
-            }
-
-            let bottomAlpha: CGFloat
-            if cellMaxY <= fadeStartBottomY {
-                bottomAlpha = 1
-            } else {
-                bottomAlpha = max(0, min(1, (visibleRect.maxY - cellMaxY) / bottomDenom))
-            }
-
-            cell.alpha = min(topAlpha, bottomAlpha)
-        }
-    }
-#endif
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         bubbleSizingV2LastScrollActivityTime = CFAbsoluteTimeGetCurrent()
-#if os(visionOS)
-        updateVisibleCellOpacity()
-#endif
         guard let sessionKey = callbackSessionKey() else { return }
         handleUserScrolled(sessionKey: sessionKey)
         checkFirstUnreadCrossingIfNeeded(sessionKey: sessionKey)
@@ -1036,11 +1000,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-#if os(visionOS)
-        if !decelerate {
-            updateVisibleCellOpacity()
-        }
-#endif
         if !decelerate {
             setSalientHighlightIsScrolling(false)
         }
@@ -1058,9 +1017,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-#if os(visionOS)
-        updateVisibleCellOpacity()
-#endif
         flushDeferredPreviewRemeasuresIfPossible()
         setSalientHighlightIsScrolling(false)
         guard let sessionKey = callbackSessionKey() else { return }
@@ -1110,9 +1066,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-#if os(visionOS)
-        updateVisibleCellOpacity()
-#else
         guard let id = dataSource.itemIdentifier(for: indexPath) else { return }
         // During morph, we intentionally drive the target cell's alpha from 0->1 in our own
         // `UIView.animate`. Don't let willDisplay stomp it back to 1 early.
@@ -1138,7 +1091,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             cell.alpha = 1
             cell.transform = .identity
         }
-#endif
         scheduleDeferredBottomInsetRemeasure()
     }
 
@@ -2211,17 +2163,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if shouldMorph {
             isSnapshotApplyInFlight = true
-#if os(visionOS)
-            StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
-            applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
-                afterSnapshotApplied()
-                self?.scheduleBubbleSizingV2ViewportAnchorCompensation(expansionAnchor)
-                self?.updateVisibleCellOpacity()
-                StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
-                self?.isSnapshotApplyInFlight = false
-                self?.drainQueuedUpdateIfPossible()
-            }
-#else
             StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
                 afterSnapshotApplied()
@@ -2230,20 +2171,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 self?.isSnapshotApplyInFlight = false
                 self?.drainQueuedUpdateIfPossible()
             }
-#endif
         } else {
             isSnapshotApplyInFlight = true
-#if os(visionOS)
-            StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
-            dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
-                afterSnapshotApplied()
-                self?.scheduleBubbleSizingV2ViewportAnchorCompensation(expansionAnchor)
-                self?.updateVisibleCellOpacity()
-                StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)
-                self?.isSnapshotApplyInFlight = false
-                self?.drainQueuedUpdateIfPossible()
-            }
-#else
             StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
             dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
                 afterSnapshotApplied()
@@ -2252,7 +2181,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 self?.isSnapshotApplyInFlight = false
                 self?.drainQueuedUpdateIfPossible()
             }
-#endif
         }
         logger.info(
             "diffing apply snapshot count=\(messageCount, privacy: .public) changed=\(changedIds.count, privacy: .public) needsLayout=\(needsFullLayout, privacy: .public) morph=\(shouldMorph, privacy: .public)"
