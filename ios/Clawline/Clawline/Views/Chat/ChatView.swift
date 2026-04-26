@@ -2404,9 +2404,14 @@ private final class PromptFocusShortcutView: UIView {
     var isShortcutEnabled = false
     var hasStreams = false
     private var hasPendingActivationRetry = false
+    private static let keyboardSuppressingInputView = PromptFocusShortcutSuppressedInputView()
 
     override var canBecomeFirstResponder: Bool {
         isShortcutEnabled
+    }
+
+    override var inputView: UIView? {
+        Self.keyboardSuppressingInputView
     }
 
     override var keyCommands: [UIKeyCommand]? {
@@ -2479,6 +2484,12 @@ private final class PromptFocusShortcutView: UIView {
     @objc private func openStreamPopup(_ sender: UIKeyCommand) {
         guard isShortcutEnabled, hasStreams else { return }
         onOpenStreamPopup?()
+    }
+}
+
+private final class PromptFocusShortcutSuppressedInputView: UIView {
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: 0)
     }
 }
 
