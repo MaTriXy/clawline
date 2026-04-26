@@ -3537,7 +3537,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard !presentation.hasMediaOnly else { return false }
         return presentation.parts.contains { part in
             switch part {
-            case .image, .gallery:
+            case .remoteImage, .image, .gallery:
                 return true
             default:
                 return false
@@ -3610,7 +3610,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if presentation.parts.contains(where: { part in
             switch part {
-            case .image, .gallery, .linkPreview, .terminalSession:
+            case .remoteImage, .image, .gallery, .linkPreview, .terminalSession:
                 return true
             default:
                 return false
@@ -3654,7 +3654,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         if presentation.parts.contains(where: { part in
             switch part {
-            case .image, .gallery, .terminalSession:
+            case .remoteImage, .image, .gallery, .terminalSession:
                 return true
             default:
                 return false

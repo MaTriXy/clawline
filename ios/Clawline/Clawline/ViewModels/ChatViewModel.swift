@@ -1764,7 +1764,9 @@ final class ChatViewModel: ChatViewModelHosting {
                 do {
                     logger.info("attachment download start id=\(attachment.id, privacy: .public) assetId=\(assetId, privacy: .public)")
                     let data = try await uploadService.download(assetId: assetId)
-                    guard !data.isEmpty else { continue }
+                    guard !data.isEmpty else {
+                        continue
+                    }
                     let isImageAttachment = attachment.type == .image
                         || attachment.type == .asset
                         || attachment.mimeType?.lowercased().hasPrefix("image/") == true

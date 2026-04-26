@@ -40,6 +40,105 @@ private final class BubbleSafeAreaNeutralScrollView: UIScrollView {
     }
 }
 
+enum RemoteMessageImagePolicy {
+    static func request(for url: URL) -> URLRequest {
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: 30
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+        return request
+    }
+
+    static func image(from data: Data, response: URLResponse?) -> UIImage? {
+        if let http = response as? HTTPURLResponse,
+           !(200..<400).contains(http.statusCode) {
+            return nil
+        }
+        return UIImage(data: data)
+    }
+}
+
+private final class RemoteMessageImageView: UIImageView {
+    private var task: URLSessionDataTask?
+    private var configuredURL: URL?
+    private var widthConstraint: NSLayoutConstraint?
+    private var heightConstraint: NSLayoutConstraint?
+    private var maxWidth: CGFloat = 0
+    private var maxHeight: CGFloat = 0
+    private var onLoad: (() -> Void)?
+
+    deinit {
+        task?.cancel()
+    }
+
+    func configure(
+        url: URL,
+        maxWidth: CGFloat,
+        maxHeight: CGFloat,
+        cornerRadius: CGFloat,
+        onLoad: @escaping () -> Void
+    ) {
+        task?.cancel()
+        task = nil
+        configuredURL = url
+        self.maxWidth = maxWidth
+        self.maxHeight = maxHeight
+        self.onLoad = onLoad
+        image = nil
+        backgroundColor = UIColor.secondarySystemFill
+        contentMode = .scaleAspectFit
+        clipsToBounds = true
+        layer.cornerRadius = cornerRadius
+        translatesAutoresizingMaskIntoConstraints = false
+        accessibilityLabel = "Image"
+
+        if widthConstraint == nil {
+            let constraint = widthAnchor.constraint(equalToConstant: maxWidth)
+            constraint.isActive = true
+            widthConstraint = constraint
+        } else {
+            widthConstraint?.constant = maxWidth
+        }
+
+        if heightConstraint == nil {
+            let constraint = heightAnchor.constraint(equalToConstant: preferredPlaceholderHeight())
+            constraint.isActive = true
+            heightConstraint = constraint
+        } else {
+            heightConstraint?.constant = preferredPlaceholderHeight()
+        }
+
+        let request = RemoteMessageImagePolicy.request(for: url)
+        task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            guard let data,
+                  let image = RemoteMessageImagePolicy.image(from: data, response: response) else {
+                return
+            }
+            DispatchQueue.main.async {
+                guard let self, self.configuredURL == url else { return }
+                self.backgroundColor = .clear
+                self.image = image
+                self.heightConstraint?.constant = self.preferredHeight(for: image)
+                self.invalidateIntrinsicContentSize()
+                self.onLoad?()
+            }
+        }
+        task?.resume()
+    }
+
+    private func preferredPlaceholderHeight() -> CGFloat {
+        min(maxHeight, max(120, maxWidth * 9 / 16))
+    }
+
+    private func preferredHeight(for image: UIImage) -> CGFloat {
+        let aspectRatio = image.size.height / max(image.size.width, 1)
+        return min(maxHeight, maxWidth * aspectRatio)
+    }
+}
+
 final class MessageBubbleUIKitContainerView: UIView {
     private let bubbleView: MessageBubbleUIKitView
     private let badgeView = MessageFailureBadgeView()
@@ -1013,7 +1112,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         let isSingleImageOnly: Bool = {
             guard presentation.hasMediaOnly, presentation.parts.count == 1 else { return false }
             switch presentation.parts[0] {
-            case .image, .gallery:
+            case .remoteImage, .image, .gallery:
                 return true
             default:
                 return false
@@ -1036,6 +1135,19 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         var didRenderAttachments = !fileParts.isEmpty
         for part in presentation.parts {
             switch part {
+            case .remoteImage(let url):
+                let imageView = RemoteMessageImageView()
+                imageView.configure(
+                    url: url,
+                    maxWidth: maxImageWidth,
+                    maxHeight: maxImageHeight,
+                    cornerRadius: Self.mediaCornerRadius
+                ) { [weak self] in
+                    self?.onRequestLayout?(message.id)
+                }
+                dynamicContentStack.addArrangedSubview(imageView)
+                dynamicContentViews.append(imageView)
+                didRenderAttachments = true
             case .image(let attachment):
                 if let imageView = Self.makeImageView(
                     attachment: attachment,
@@ -1731,7 +1843,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
                 return "Table (\(model.rows.count) rows)"
             case .linkPreview:
                 return ""
-            case .image, .gallery, .file, .terminalSession, .interactiveHTML:
+            case .remoteImage, .image, .gallery, .file, .terminalSession, .interactiveHTML:
                 return ""
             }
         }
