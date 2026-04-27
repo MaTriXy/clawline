@@ -64,8 +64,9 @@ private struct SpatialWindowCornerResizeMarkers: View {
             Spacer(minLength: 0)
             SpatialWindowCornerResizeMarker(edge: .trailing)
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 1)
+        .padding(.bottom, 1)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
