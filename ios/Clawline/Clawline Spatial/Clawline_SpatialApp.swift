@@ -43,6 +43,9 @@ struct Clawline_SpatialApp: App {
                 .environment(\.deviceIdentifier, deviceIdentifier)
                 .environment(\.chatService, chatService)
                 .environment(\.settingsManager, settingsManager)
+                .overlay(alignment: .bottom) {
+                    SpatialWindowCornerResizeMarkers()
+                }
                 .sheet(isPresented: $settingsManager.isSettingsPresented) {
                     SettingsView(settings: settingsManager)
                 }
@@ -52,6 +55,56 @@ struct Clawline_SpatialApp: App {
             ClawlineAppCommands(settingsManager: settingsManager)
         }
     }
+}
+
+private struct SpatialWindowCornerResizeMarkers: View {
+    var body: some View {
+        HStack {
+            SpatialWindowCornerResizeMarker(edge: .leading)
+            Spacer(minLength: 0)
+            SpatialWindowCornerResizeMarker(edge: .trailing)
+        }
+        .padding(.horizontal, 18)
+        .padding(.bottom, 16)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct SpatialWindowCornerResizeMarker: View {
+    enum Edge {
+        case leading
+        case trailing
+    }
+
+    let edge: Edge
+
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            let strokeInset = lineWidth / 2
+            let minX = strokeInset
+            let maxX = size.width - strokeInset
+            let minY = strokeInset
+            let maxY = size.height - strokeInset
+            let horizontalEnd = edge == .leading ? minX + armLength : maxX - armLength
+
+            path.move(to: CGPoint(x: edge == .leading ? minX : maxX, y: minY))
+            path.addLine(to: CGPoint(x: edge == .leading ? minX : maxX, y: maxY))
+            path.addLine(to: CGPoint(x: horizontalEnd, y: maxY))
+
+            context.stroke(
+                path,
+                with: .color(.secondary.opacity(0.42)),
+                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+            )
+        }
+        .frame(width: markerSize, height: markerSize)
+    }
+
+    private var markerSize: CGFloat { 28 }
+    private var armLength: CGFloat { 18 }
+    private var lineWidth: CGFloat { 1.5 }
 }
 
 #if DEBUG
