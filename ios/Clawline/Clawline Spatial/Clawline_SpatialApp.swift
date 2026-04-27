@@ -85,25 +85,49 @@ private struct SpatialWindowCornerResizeMarker: View {
             let strokeInset = lineWidth / 2
             let minX = strokeInset
             let maxX = size.width - strokeInset
-            let minY = strokeInset
             let maxY = size.height - strokeInset
-            let horizontalEnd = edge == .leading ? minX + armLength : maxX - armLength
+            let radius = min(cornerRadius, size.width - lineWidth, size.height - lineWidth)
+            let verticalStartY = maxY - radius - armLength
+            let arcTopY = maxY - radius
+            let arcEndX = edge == .leading ? minX + radius : maxX - radius
+            let horizontalEndX = edge == .leading ? min(maxX, arcEndX + armLength) : max(minX, arcEndX - armLength)
 
-            path.move(to: CGPoint(x: edge == .leading ? minX : maxX, y: minY))
-            path.addLine(to: CGPoint(x: edge == .leading ? minX : maxX, y: maxY))
-            path.addLine(to: CGPoint(x: horizontalEnd, y: maxY))
+            switch edge {
+            case .leading:
+                path.move(to: CGPoint(x: minX, y: verticalStartY))
+                path.addLine(to: CGPoint(x: minX, y: arcTopY))
+                path.addArc(
+                    center: CGPoint(x: minX + radius, y: maxY - radius),
+                    radius: radius,
+                    startAngle: .degrees(180),
+                    endAngle: .degrees(90),
+                    clockwise: true
+                )
+            case .trailing:
+                path.move(to: CGPoint(x: maxX, y: verticalStartY))
+                path.addLine(to: CGPoint(x: maxX, y: arcTopY))
+                path.addArc(
+                    center: CGPoint(x: maxX - radius, y: maxY - radius),
+                    radius: radius,
+                    startAngle: .degrees(0),
+                    endAngle: .degrees(90),
+                    clockwise: false
+                )
+            }
+            path.addLine(to: CGPoint(x: horizontalEndX, y: maxY))
 
             context.stroke(
                 path,
-                with: .color(.secondary.opacity(0.42)),
+                with: .color(.secondary.opacity(0.28)),
                 style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
             )
         }
         .frame(width: markerSize, height: markerSize)
     }
 
-    private var markerSize: CGFloat { 28 }
+    private var markerSize: CGFloat { cornerRadius + armLength }
     private var armLength: CGFloat { 18 }
+    private var cornerRadius: CGFloat { 45 }
     private var lineWidth: CGFloat { 1.5 }
 }
 
