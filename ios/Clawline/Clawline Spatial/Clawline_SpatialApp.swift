@@ -118,7 +118,7 @@ private struct SpatialWindowCornerResizeMarker: View {
 
             context.stroke(
                 path,
-                with: .color(.secondary.opacity(0.28)),
+                with: .color(.white.opacity(0.18)),
                 style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
             )
         }
