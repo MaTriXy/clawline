@@ -138,6 +138,23 @@ struct PromptFocusShortcutActivationTests {
         #expect(ChatShortcutRouting.owner(input: "\r", modifierFlags: []) == .noTextResponder)
     }
 
+    @Test("No-text composed printable typing activates prompt insertion")
+    func noTextComposedPrintableTypingActivatesPromptInsertion() {
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: "a") == "a")
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: "é") == "é")
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: "hello") == "hello")
+    }
+
+    @Test("No-text typing preserves existing slash, space, return, and control key routes")
+    func noTextTypingPreservesExistingShortcutAndControlRoutes() {
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: "/") == nil)
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: " ") == nil)
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: "\r") == nil)
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: "\n") == nil)
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: "\t") == nil)
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: "") == nil)
+    }
+
     @Test("Keyboard page scroll shortcuts only enable when chat surface owns scroll")
     func keyboardPageScrollShortcutsOnlyEnableWhenChatSurfaceOwnsScroll() {
         #expect(

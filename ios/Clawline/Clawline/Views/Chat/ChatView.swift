@@ -974,6 +974,9 @@ struct ChatView: View {
                 },
                 onFocusRequested: {
                     focusRequestID &+= 1
+                },
+                onTextInserted: { text in
+                    insertPromptTextFromNoTextOwner(text)
                 }
             )
         )
@@ -1771,6 +1774,26 @@ struct ChatView: View {
         isTypingActive = false
     }
 
+    private func insertPromptTextFromNoTextOwner(_ text: String) {
+        guard let insertedText = PromptFocusTypingActivation.promptInsertionText(from: text) else { return }
+        let mutable = NSMutableAttributedString(attributedString: viewModel.inputContent)
+        let insertionRange = clampedPromptSelectionRange(length: mutable.length)
+        mutable.replaceCharacters(in: insertionRange, with: NSAttributedString(string: insertedText))
+        viewModel.inputContent = mutable
+        selectionRange = NSRange(location: insertionRange.location + (insertedText as NSString).length, length: 0)
+        recordTypingActivity()
+        focusRequestID &+= 1
+    }
+
+    private func clampedPromptSelectionRange(length: Int) -> NSRange {
+        guard selectionRange.location != NSNotFound else {
+            return NSRange(location: length, length: 0)
+        }
+        let safeLocation = min(max(selectionRange.location, 0), length)
+        let safeLength = max(0, min(selectionRange.length, length - safeLocation))
+        return NSRange(location: safeLocation, length: safeLength)
+    }
+
     private func scheduleInputFocusChange(_ focused: Bool) {
         Task { @MainActor in
             applyInputFocusChange(focused)
@@ -2326,6 +2349,7 @@ private struct PromptFocusShortcutModifier: ViewModifier {
     let hasStreams: Bool
     let onOpenStreamPopup: () -> Void
     let onFocusRequested: () -> Void
+    let onTextInserted: (String) -> Void
 
     func body(content: Content) -> some View {
         content.background {
@@ -2333,7 +2357,8 @@ private struct PromptFocusShortcutModifier: ViewModifier {
                 isEnabled: isEnabled,
                 hasStreams: hasStreams,
                 onOpenStreamPopup: onOpenStreamPopup,
-                onFocusRequested: onFocusRequested
+                onFocusRequested: onFocusRequested,
+                onTextInserted: onTextInserted
             )
             .frame(width: 0, height: 0)
             .allowsHitTesting(false)
@@ -2346,11 +2371,13 @@ private struct PromptFocusShortcutHost: UIViewRepresentable {
     let hasStreams: Bool
     let onOpenStreamPopup: () -> Void
     let onFocusRequested: () -> Void
+    let onTextInserted: (String) -> Void
 
     func makeUIView(context: Context) -> PromptFocusShortcutView {
         let view = PromptFocusShortcutView()
         view.onOpenStreamPopup = onOpenStreamPopup
         view.onFocusRequested = onFocusRequested
+        view.onTextInserted = onTextInserted
         view.isShortcutEnabled = isEnabled
         view.hasStreams = hasStreams
         return view
@@ -2359,6 +2386,7 @@ private struct PromptFocusShortcutHost: UIViewRepresentable {
     func updateUIView(_ view: PromptFocusShortcutView, context: Context) {
         view.onOpenStreamPopup = onOpenStreamPopup
         view.onFocusRequested = onFocusRequested
+        view.onTextInserted = onTextInserted
         view.isShortcutEnabled = isEnabled
         view.hasStreams = hasStreams
         if isEnabled {
@@ -2372,12 +2400,22 @@ private struct PromptFocusShortcutHost: UIViewRepresentable {
 private final class PromptFocusShortcutView: UIView {
     var onOpenStreamPopup: (() -> Void)?
     var onFocusRequested: (() -> Void)?
+    var onTextInserted: ((String) -> Void)?
     var isShortcutEnabled = false
     var hasStreams = false
     private var hasPendingActivationRetry = false
+    private static let keyboardSuppressingInputView = PromptFocusShortcutSuppressedInputView()
 
+    // T221: This hidden responder is the no-text-owner input-intent router. The chat
+    // surface owns scroll/selection/content interaction, and Prompt Input owns real
+    // editing; this view only bridges ordinary typing from "nothing owns text input"
+    // to "Prompt Input should take over."
     override var canBecomeFirstResponder: Bool {
         isShortcutEnabled
+    }
+
+    override var inputView: UIView? {
+        Self.keyboardSuppressingInputView
     }
 
     override var keyCommands: [UIKeyCommand]? {
@@ -2451,6 +2489,29 @@ private final class PromptFocusShortcutView: UIView {
         guard isShortcutEnabled, hasStreams else { return }
         onOpenStreamPopup?()
     }
+}
+
+// The catcher must stay side-effect-free: no visible UI, no software keyboard, and
+// no lasting editing ownership. Hardware/composed text may reach `insertText(_:)`,
+// but the responder immediately hands the intent to Prompt Input.
+private final class PromptFocusShortcutSuppressedInputView: UIView {
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: 0)
+    }
+}
+
+extension PromptFocusShortcutView: UIKeyInput {
+    var hasText: Bool {
+        false
+    }
+
+    func insertText(_ text: String) {
+        guard isShortcutEnabled else { return }
+        // Product invariant: when nothing else owns text input, typing intent reaches Prompt Input.
+        onTextInserted?(text)
+    }
+
+    func deleteBackward() {}
 }
 
 enum PromptFocusShortcutConfiguration {
@@ -2537,6 +2598,15 @@ enum ChatShortcutRouting {
             return .textInput
         }
         return ["/", " ", "\r"].contains(input) ? .noTextResponder : .textInput
+    }
+}
+
+enum PromptFocusTypingActivation {
+    static func promptInsertionText(from insertedText: String) -> String? {
+        guard !insertedText.isEmpty else { return nil }
+        guard !["/", " ", "\r", "\n"].contains(insertedText) else { return nil }
+        guard insertedText.rangeOfCharacter(from: .controlCharacters) == nil else { return nil }
+        return insertedText
     }
 }
 
