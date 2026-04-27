@@ -2406,6 +2406,10 @@ private final class PromptFocusShortcutView: UIView {
     private var hasPendingActivationRetry = false
     private static let keyboardSuppressingInputView = PromptFocusShortcutSuppressedInputView()
 
+    // T221: This hidden responder is the no-text-owner input-intent router. The chat
+    // surface owns scroll/selection/content interaction, and Prompt Input owns real
+    // editing; this view only bridges ordinary typing from "nothing owns text input"
+    // to "Prompt Input should take over."
     override var canBecomeFirstResponder: Bool {
         isShortcutEnabled
     }
@@ -2487,6 +2491,9 @@ private final class PromptFocusShortcutView: UIView {
     }
 }
 
+// The catcher must stay side-effect-free: no visible UI, no software keyboard, and
+// no lasting editing ownership. Hardware/composed text may reach `insertText(_:)`,
+// but the responder immediately hands the intent to Prompt Input.
 private final class PromptFocusShortcutSuppressedInputView: UIView {
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: 0)
@@ -2500,6 +2507,7 @@ extension PromptFocusShortcutView: UIKeyInput {
 
     func insertText(_ text: String) {
         guard isShortcutEnabled else { return }
+        // Product invariant: when nothing else owns text input, typing intent reaches Prompt Input.
         onTextInserted?(text)
     }
 
