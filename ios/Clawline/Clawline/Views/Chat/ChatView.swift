@@ -2528,6 +2528,7 @@ enum PromptFocusShortcutConfiguration {
 
     static let keyCommandSpecs: [KeyCommandSpec] = [
         KeyCommandSpec(input: "/", modifierFlags: [], action: .openStreamPopup),
+        KeyCommandSpec(input: ";", modifierFlags: [], action: .openStreamPopup),
         KeyCommandSpec(input: " ", modifierFlags: [], action: .focusPromptInput),
         KeyCommandSpec(input: "\r", modifierFlags: [], action: .focusPromptInput)
     ]
@@ -2597,14 +2598,14 @@ enum ChatShortcutRouting {
         if modifierFlags.contains(.command) {
             return .textInput
         }
-        return ["/", " ", "\r"].contains(input) ? .noTextResponder : .textInput
+        return ["/", ";", " ", "\r"].contains(input) ? .noTextResponder : .textInput
     }
 }
 
 enum PromptFocusTypingActivation {
     static func promptInsertionText(from insertedText: String) -> String? {
         guard !insertedText.isEmpty else { return nil }
-        guard !["/", " ", "\r", "\n"].contains(insertedText) else { return nil }
+        guard !["/", ";", " ", "\r", "\n"].contains(insertedText) else { return nil }
         guard insertedText.rangeOfCharacter(from: .controlCharacters) == nil else { return nil }
         return insertedText
     }

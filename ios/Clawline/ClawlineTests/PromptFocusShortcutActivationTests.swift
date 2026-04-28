@@ -82,7 +82,7 @@ struct PromptFocusShortcutActivationTests {
     @Test("No-text shortcut host owns only unmodified prompt and popup keys")
     func noTextShortcutHostOwnsOnlyUnmodifiedPromptAndPopupKeys() {
         #expect(
-            PromptFocusShortcutConfiguration.keyCommandSpecs.map(\.input) == ["/", " ", "\r"]
+            PromptFocusShortcutConfiguration.keyCommandSpecs.map(\.input) == ["/", ";", " ", "\r"]
         )
         #expect(
             PromptFocusShortcutConfiguration.keyCommandSpecs.allSatisfy { $0.modifierFlags.isEmpty }
@@ -134,6 +134,7 @@ struct PromptFocusShortcutActivationTests {
         #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: [.command]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: []) == .noTextResponder)
+        #expect(ChatShortcutRouting.owner(input: ";", modifierFlags: []) == .noTextResponder)
         #expect(ChatShortcutRouting.owner(input: " ", modifierFlags: []) == .noTextResponder)
         #expect(ChatShortcutRouting.owner(input: "\r", modifierFlags: []) == .noTextResponder)
     }
@@ -145,9 +146,10 @@ struct PromptFocusShortcutActivationTests {
         #expect(PromptFocusTypingActivation.promptInsertionText(from: "hello") == "hello")
     }
 
-    @Test("No-text typing preserves existing slash, space, return, and control key routes")
+    @Test("No-text typing preserves existing slash, semicolon, space, return, and control key routes")
     func noTextTypingPreservesExistingShortcutAndControlRoutes() {
         #expect(PromptFocusTypingActivation.promptInsertionText(from: "/") == nil)
+        #expect(PromptFocusTypingActivation.promptInsertionText(from: ";") == nil)
         #expect(PromptFocusTypingActivation.promptInsertionText(from: " ") == nil)
         #expect(PromptFocusTypingActivation.promptInsertionText(from: "\r") == nil)
         #expect(PromptFocusTypingActivation.promptInsertionText(from: "\n") == nil)
