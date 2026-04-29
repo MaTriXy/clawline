@@ -65,6 +65,16 @@ struct ClawlineAppCommands: Commands {
                 NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
             }
             .keyboardShortcut("k", modifiers: .command)
+
+            Button("Scroll Chat Down") {
+                NotificationCenter.default.post(name: .clawlineScrollChatDownCommand, object: nil)
+            }
+            .keyboardShortcut("j", modifiers: [.command, .shift])
+
+            Button("Scroll Chat Up") {
+                NotificationCenter.default.post(name: .clawlineScrollChatUpCommand, object: nil)
+            }
+            .keyboardShortcut("k", modifiers: [.command, .shift])
         }
     }
 }
