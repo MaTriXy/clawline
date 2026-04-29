@@ -55,6 +55,16 @@ struct ClawlineAppCommands: Commands {
                 NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
             }
             .keyboardShortcut("l", modifiers: [.command, .shift])
+
+            Button("Scroll Bubble Contents Down") {
+                NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)
+            }
+            .keyboardShortcut("j", modifiers: .command)
+
+            Button("Scroll Bubble Contents Up") {
+                NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
+            }
+            .keyboardShortcut("k", modifiers: .command)
         }
     }
 }

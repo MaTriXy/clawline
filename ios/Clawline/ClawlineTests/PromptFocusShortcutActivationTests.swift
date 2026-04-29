@@ -21,8 +21,8 @@ struct PromptFocusShortcutActivationTests {
         )
     }
 
-    @Test("App command shortcuts use Cmd-L focus, Cmd-semicolon, Cmd-Shift navigation, and scroll")
-    func appCommandShortcutsUseCommandLFocusCommandSemicolonCommandShiftNavigationAndScroll() {
+    @Test("App command shortcuts use Cmd-L focus, Cmd-semicolon, Cmd-Shift navigation, and Cmd-J/K bubble scroll")
+    func appCommandShortcutsUseCommandLFocusCommandSemicolonCommandShiftNavigationAndCommandJKBubbleScroll() {
         #expect(
             ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
                 spec.input == "l"
@@ -61,20 +61,20 @@ struct PromptFocusShortcutActivationTests {
         #expect(
             ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
                 spec.input == "j"
-                    && spec.modifierFlags == [.command, .shift]
+                    && spec.modifierFlags == [.command]
                     && spec.action.selector == #selector(UIResponder.clawlineScrollDownCommand(_:))
             }
         )
         #expect(
             ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
                 spec.input == "k"
-                    && spec.modifierFlags == [.command, .shift]
+                    && spec.modifierFlags == [.command]
                     && spec.action.selector == #selector(UIResponder.clawlineScrollUpCommand(_:))
             }
         )
         #expect(
             !ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
-                ["h", "j", "k"].contains(spec.input) && spec.modifierFlags == [.command]
+                spec.input == "h" && spec.modifierFlags == [.command]
             }
         )
     }
@@ -125,18 +125,59 @@ struct PromptFocusShortcutActivationTests {
     func shortcutRoutingSeparatesAppCommandsFromNoTextResponderKeys() {
         #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command, .shift]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: "h", modifierFlags: [.command, .shift]) == .appCommand)
-        #expect(ChatShortcutRouting.owner(input: "j", modifierFlags: [.command, .shift]) == .appCommand)
-        #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command, .shift]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: ";", modifierFlags: [.command]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: "j", modifierFlags: [.command]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: "h", modifierFlags: [.command]) == .textInput)
-        #expect(ChatShortcutRouting.owner(input: "j", modifierFlags: [.command]) == .textInput)
-        #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command]) == .textInput)
+        #expect(ChatShortcutRouting.owner(input: "j", modifierFlags: [.command, .shift]) == .textInput)
+        #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command, .shift]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: [.command]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: []) == .noTextResponder)
         #expect(ChatShortcutRouting.owner(input: ";", modifierFlags: []) == .noTextResponder)
         #expect(ChatShortcutRouting.owner(input: " ", modifierFlags: []) == .noTextResponder)
         #expect(ChatShortcutRouting.owner(input: "\r", modifierFlags: []) == .noTextResponder)
+    }
+
+    @Test("Visible bubble content scroller targets all visible top-level vertical scroll views")
+    @MainActor
+    func visibleBubbleContentScrollerTargetsAllVisibleTopLevelVerticalScrollViews() {
+        let viewport = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 400))
+        let root = UIView(frame: viewport.bounds)
+        viewport.addSubview(root)
+
+        let first = makeVerticalScrollView(frame: CGRect(x: 0, y: 10, width: 200, height: 100), contentHeight: 420)
+        let nested = makeVerticalScrollView(frame: CGRect(x: 0, y: 0, width: 180, height: 80), contentHeight: 300)
+        first.addSubview(nested)
+        let second = makeVerticalScrollView(frame: CGRect(x: 0, y: 150, width: 200, height: 120), contentHeight: 420)
+        let offscreen = makeVerticalScrollView(frame: CGRect(x: 0, y: 450, width: 200, height: 120), contentHeight: 420)
+        root.addSubview(first)
+        root.addSubview(second)
+        root.addSubview(offscreen)
+
+        let visible = ChatVisibleBubbleContentScroll.topLevelVisibleVerticalScrollViews(
+            in: root,
+            visibleIn: viewport
+        )
+
+        #expect(visible.count == 2)
+        #expect(visible.contains { $0 === first })
+        #expect(visible.contains { $0 === second })
+        #expect(!visible.contains { $0 === nested })
+        #expect(!visible.contains { $0 === offscreen })
+
+        let scrolled = ChatVisibleBubbleContentScroll.scrollVisibleScrollableContent(
+            in: root,
+            visibleIn: viewport,
+            direction: .down,
+            animated: false
+        )
+
+        #expect(scrolled == 2)
+        #expect(first.contentOffset.y > 0)
+        #expect(second.contentOffset.y > 0)
+        #expect(nested.contentOffset.y == 0)
+        #expect(offscreen.contentOffset.y == 0)
     }
 
     @Test("No-text composed printable typing activates prompt insertion")
@@ -157,8 +198,8 @@ struct PromptFocusShortcutActivationTests {
         #expect(PromptFocusTypingActivation.promptInsertionText(from: "") == nil)
     }
 
-    @Test("Keyboard page scroll shortcuts only enable when chat surface owns scroll")
-    func keyboardPageScrollShortcutsOnlyEnableWhenChatSurfaceOwnsScroll() {
+    @Test("Keyboard bubble scroll shortcuts only enable when chat content can receive commands")
+    func keyboardBubbleScrollShortcutsOnlyEnableWhenChatContentCanReceiveCommands() {
         #expect(
             ChatKeyboardScrollRouting.isEnabled(
                 platformSupportsKeyboardNavigation: true,
@@ -314,4 +355,11 @@ struct PromptFocusShortcutActivationTests {
             ) == .retryAfterTextInputResigns
         )
     }
+}
+
+private func makeVerticalScrollView(frame: CGRect, contentHeight: CGFloat) -> UIScrollView {
+    let scrollView = UIScrollView(frame: frame)
+    scrollView.isScrollEnabled = true
+    scrollView.contentSize = CGSize(width: frame.width, height: contentHeight)
+    return scrollView
 }
