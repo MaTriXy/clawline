@@ -661,8 +661,8 @@ struct ChatView: View {
         )
         .handleKeyboardScrollCommands(
             isEnabled: keyboardScrollShortcutEnabled,
-            onScrollDown: { scrollActiveSessionByPage(.down) },
-            onScrollUp: { scrollActiveSessionByPage(.up) }
+            onScrollDown: { scrollVisibleBubbleContents(.down) },
+            onScrollUp: { scrollVisibleBubbleContents(.up) }
         )
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
@@ -1719,9 +1719,9 @@ struct ChatView: View {
         return sessionKeys.first
     }
 
-    private func scrollActiveSessionByPage(_ direction: ChatScrollPageDirection) {
+    private func scrollVisibleBubbleContents(_ direction: ChatScrollPageDirection) {
         guard let sessionKey = keyboardNavigationSessionKey else { return }
-        layoutCoordinator.scrollByPage(sessionKey: sessionKey, direction: direction, animated: true)
+        layoutCoordinator.scrollVisibleBubbleContents(sessionKey: sessionKey, direction: direction, animated: true)
     }
 
     private func navigateStreamByShortcut(step: Int, sessionKeys: [String]) {
@@ -2572,8 +2572,8 @@ enum ChatAppCommandShortcut {
         KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
         KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
         KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream),
-        KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollDown),
-        KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollUp)
+        KeyCommandSpec(input: "j", modifierFlags: [.command], action: .scrollDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command], action: .scrollUp)
     ]
 }
 
@@ -2592,7 +2592,10 @@ enum ChatShortcutRouting {
         if modifierFlags == [.command], normalizedInput == "l" {
             return .appCommand
         }
-        if modifierFlags == [.command, .shift], ["h", "j", "k", "l"].contains(normalizedInput) {
+        if modifierFlags == [.command, .shift], ["h", "l"].contains(normalizedInput) {
+            return .appCommand
+        }
+        if modifierFlags == [.command], ["j", "k"].contains(normalizedInput) {
             return .appCommand
         }
         if modifierFlags.contains(.command) {

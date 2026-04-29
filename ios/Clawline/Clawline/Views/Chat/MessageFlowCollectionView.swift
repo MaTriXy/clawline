@@ -17,6 +17,90 @@ enum MessageFlowScrollEvent: Equatable {
     case didInvalidateFirstUnreadAnchor(sessionKey: String)
 }
 
+enum ChatVisibleBubbleContentScroll {
+    @discardableResult
+    static func scrollVisibleScrollableContent(
+        in root: UIView,
+        visibleIn viewport: UIView,
+        direction: ChatScrollPageDirection,
+        animated: Bool
+    ) -> Int {
+        root.layoutIfNeeded()
+        let scrollViews = topLevelVisibleVerticalScrollViews(in: root, visibleIn: viewport)
+        var scrolledCount = 0
+        for scrollView in scrollViews {
+            if scroll(scrollView, direction: direction, animated: animated) {
+                scrolledCount += 1
+            }
+        }
+        return scrolledCount
+    }
+
+    static func topLevelVisibleVerticalScrollViews(in root: UIView, visibleIn viewport: UIView) -> [UIScrollView] {
+        root.layoutIfNeeded()
+        return topLevelVisibleVerticalScrollViews(in: root, visibleIn: viewport, ancestorScrollAccepted: false)
+    }
+
+    private static func topLevelVisibleVerticalScrollViews(
+        in view: UIView,
+        visibleIn viewport: UIView,
+        ancestorScrollAccepted: Bool
+    ) -> [UIScrollView] {
+        guard !view.isHidden, view.alpha > 0.01 else { return [] }
+
+        let viewIsAcceptedScroll = (view as? UIScrollView).map { scrollView in
+            isVisible(scrollView, in: viewport) && isVerticallyScrollable(scrollView)
+        } ?? false
+
+        if !ancestorScrollAccepted, viewIsAcceptedScroll, let scrollView = view as? UIScrollView {
+            return [scrollView]
+        }
+
+        return view.subviews.flatMap { child in
+            topLevelVisibleVerticalScrollViews(
+                in: child,
+                visibleIn: viewport,
+                ancestorScrollAccepted: ancestorScrollAccepted || viewIsAcceptedScroll
+            )
+        }
+    }
+
+    private static func scroll(
+        _ scrollView: UIScrollView,
+        direction: ChatScrollPageDirection,
+        animated: Bool
+    ) -> Bool {
+        let inset = scrollView.contentInset
+        let minY = -inset.top
+        let maxY = max(minY, scrollView.contentSize.height - scrollView.bounds.height + inset.bottom)
+        let visibleHeight = scrollView.bounds.height - inset.top - inset.bottom
+        guard visibleHeight > 1, maxY > minY else { return false }
+
+        let increment = max(80, visibleHeight * 0.82)
+        let delta = direction == .down ? increment : -increment
+        let targetY = min(max(scrollView.contentOffset.y + delta, minY), maxY)
+        guard abs(targetY - scrollView.contentOffset.y) > 0.5 else { return false }
+
+        scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: targetY), animated: animated)
+        return true
+    }
+
+    private static func isVerticallyScrollable(_ scrollView: UIScrollView) -> Bool {
+        guard scrollView.isScrollEnabled else { return false }
+        guard scrollView.bounds.height > 1 else { return false }
+        let inset = scrollView.contentInset
+        let minY = -inset.top
+        let maxY = max(minY, scrollView.contentSize.height - scrollView.bounds.height + inset.bottom)
+        return maxY > minY + 0.5
+    }
+
+    private static func isVisible(_ view: UIView, in viewport: UIView) -> Bool {
+        guard view.window != nil || viewport.window == nil else { return false }
+        let rect = view.convert(view.bounds, to: viewport)
+        return rect.width > 1 && rect.height > 1 && viewport.bounds.intersects(rect)
+    }
+}
+
 @MainActor
 struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var viewModel: ChatViewModel
@@ -4390,6 +4474,24 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if !animated, let sessionKey = callbackSessionKey() {
             refreshLastKnownScrollSnapshot(sessionKey: sessionKey)
         }
+    }
+
+    @discardableResult
+    func scrollVisibleBubbleContents(direction: ChatScrollPageDirection, animated: Bool) -> Int {
+        collectionView.layoutIfNeeded()
+
+        var scrolledCount = 0
+        for cell in collectionView.visibleCells {
+            guard cell is MessageBubbleUIKitCell || cell is WebBubbleUIKitCell else { continue }
+            guard collectionView.bounds.intersects(cell.frame) else { continue }
+            scrolledCount += ChatVisibleBubbleContentScroll.scrollVisibleScrollableContent(
+                in: cell.contentView,
+                visibleIn: collectionView,
+                direction: direction,
+                animated: animated
+            )
+        }
+        return scrolledCount
     }
 
     func scrollToMessageCentered(messageId: String, animated: Bool) {
