@@ -165,6 +165,10 @@ final class StubChatService: ChatServicing {
         []
     }
 
+    func fetchSessionStatus(sessionKey: String) async throws -> SessionStatus {
+        throw ProviderChatService.Error.notConnected
+    }
+
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
         let now = Date()
         let stream = StreamSession(

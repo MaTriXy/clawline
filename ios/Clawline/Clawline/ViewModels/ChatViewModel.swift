@@ -279,6 +279,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func setUISelectedSessionKey(_ sessionKey: String) {
         uiSelectedSessionKey = sessionKey
         StreamSwitchTiming.log("uiSelectedSessionKey_set", sessionKey: sessionKey)
+        scheduleSessionStatusRefresh(for: sessionKey, reason: "uiSelectedSession")
     }
 
 #if DEBUG
@@ -378,6 +379,10 @@ final class ChatViewModel: ChatViewModelHosting {
             displayName: activeSessionDisplayName,
             sessionKey: uiSelectedSessionKey
         )
+    }
+
+    func sessionStatus(for sessionKey: String) -> SessionStatus? {
+        sessionStatusBySessionKey[sessionKey]
     }
 
     nonisolated static func placeholderText(displayName: String, sessionKey: String) -> String {
@@ -493,6 +498,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private var trackableSessionKeyOrder: [String] = []
     private var refreshStreamsTask: Task<Void, Never>?
     private var refreshTrackableSessionsTask: Task<Void, Never>?
+    private(set) var sessionStatusBySessionKey: [String: SessionStatus] = [:]
+    private var sessionStatusRefreshTasks: [String: Task<Void, Never>] = [:]
     private var pendingUntrackRecovery: StreamSession?
     private var hasLoadedTrackableSessionsOnce = false
     private var hasSurfacedInitialTrackableSessionsFailure = false
@@ -826,9 +833,11 @@ final class ChatViewModel: ChatViewModelHosting {
                 self.coordinatorDiag("handleAuthStateChange task after authChanged signal")
             }
             refreshStreamsFromProvider(reason: "authChanged")
+            scheduleSessionStatusRefresh(for: uiSelectedSessionKey, reason: "authChanged")
         } else {
             coordinatorDiag("handleAuthStateChange logout-path")
             didRestoreActiveSessionKey = false
+            clearSessionStatusRefreshes()
             stopObservingLifecycle(origin: "handleAuthStateChange.logoutPath")
 #if DEBUG
             recordLifecycleDebugSignal(.authChangedNil)
@@ -849,6 +858,7 @@ final class ChatViewModel: ChatViewModelHosting {
         guard auth.token != nil else { return }
         logger.info("ChatViewModel sceneDidBecomeActive id=\(self.instanceId, privacy: .public) state=\(String(describing: self.connectionState), privacy: .public)")
         coordinatorDiag("sceneDidBecomeActive tokenPresent=true observationTaskNil=\(observationTask == nil)")
+        scheduleSessionStatusRefresh(for: uiSelectedSessionKey, reason: "sceneDidBecomeActive")
         Task {
             self.coordinatorDiag("sceneDidBecomeActive task before startObservingIfNeeded")
             await startObservingIfNeeded(origin: "sceneDidBecomeActive")
@@ -970,6 +980,7 @@ final class ChatViewModel: ChatViewModelHosting {
         guard !isRetired else { return }
         isRetired = true
         hasActivatedLifecycleOwnership = false
+        clearSessionStatusRefreshes()
         stopObservingLifecycle(origin: "prepareForReplacement")
         cancelSend()
         guard isConnectionOwner else { return }
@@ -1185,6 +1196,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 sessionKey: sessionKey
             )
         }
+        scheduleSessionStatusRefresh(for: sessionKey, reason: "sendDispatchFollowUp", delay: .seconds(2))
     }
 
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) {
@@ -1297,6 +1309,7 @@ final class ChatViewModel: ChatViewModelHosting {
         activationTask = nil
         hasActivatedLifecycleOwnership = false
         clearTemporarySendButtonOverride()
+        clearSessionStatusRefreshes()
         observationTask?.cancel()
         observationTask = nil
         lifecycleTransportEventsSubscription = nil
@@ -2477,10 +2490,12 @@ final class ChatViewModel: ChatViewModelHosting {
             if isTyping {
                 self.isAssistantTyping = true
                 self.typingSessionKey = sessionKey
+                scheduleSessionStatusRefresh(for: sessionKey, reason: "typingStarted")
             } else if self.typingSessionKey == sessionKey {
                 // Only clear if the stop event is for the same session we're tracking
                 self.isAssistantTyping = false
                 self.typingSessionKey = nil
+                scheduleSessionStatusRefresh(for: sessionKey, reason: "typingStopped")
             }
         case .streamSnapshot(let streams):
             hasResolvedProvisioningCapability = true
@@ -2699,6 +2714,69 @@ final class ChatViewModel: ChatViewModelHosting {
                 }
             }
         }
+    }
+
+    private func scheduleSessionStatusRefresh(
+        for sessionKey: String,
+        reason: String,
+        delay: Duration = .zero
+    ) {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty else { return }
+        guard auth.token != nil else { return }
+
+        sessionStatusRefreshTasks[normalizedSessionKey]?.cancel()
+        sessionStatusRefreshTasks[normalizedSessionKey] = Task { [weak self] in
+            guard let self else { return }
+            if delay > .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    return
+                }
+            }
+            guard !Task.isCancelled else { return }
+            do {
+                let status = try await self.chatService.fetchSessionStatus(sessionKey: normalizedSessionKey)
+                guard !Task.isCancelled else { return }
+                self.sessionStatusRefreshTasks[normalizedSessionKey] = nil
+                self.sessionStatusBySessionKey[normalizedSessionKey] = status
+                if status.sessionKey != normalizedSessionKey {
+                    self.sessionStatusBySessionKey[status.sessionKey] = status
+                }
+                self.scheduleSessionStatusFollowUpIfNeeded(status, requestedSessionKey: normalizedSessionKey)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.sessionStatusRefreshTasks[normalizedSessionKey] = nil
+                self.logger.debug(
+                    "session status refresh failed reason=\(reason, privacy: .public) sessionKey=\(normalizedSessionKey, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
+    }
+
+    private func scheduleSessionStatusFollowUpIfNeeded(_ status: SessionStatus, requestedSessionKey: String) {
+        guard uiSelectedSessionKey == requestedSessionKey || engineActiveSessionKey == requestedSessionKey else {
+            return
+        }
+        switch status.run.state {
+        case .running, .queued:
+            scheduleSessionStatusRefresh(
+                for: requestedSessionKey,
+                reason: "runStateFollowUp",
+                delay: .seconds(5)
+            )
+        case .idle, .unknown:
+            break
+        }
+    }
+
+    private func clearSessionStatusRefreshes() {
+        sessionStatusRefreshTasks.values.forEach { $0.cancel() }
+        sessionStatusRefreshTasks.removeAll()
+        sessionStatusBySessionKey.removeAll()
     }
 
     private func normalizeSessionKeyList(_ sessionKeys: [String]) -> [String] {
@@ -3051,6 +3129,8 @@ final class ChatViewModel: ChatViewModelHosting {
             lastReadMessageIdBySession.removeValue(forKey: sessionKey)
             streamTailStateBySession.removeValue(forKey: sessionKey)
             streamDotStateBySession.removeValue(forKey: sessionKey)
+            sessionStatusBySessionKey.removeValue(forKey: sessionKey)
+            sessionStatusRefreshTasks.removeValue(forKey: sessionKey)?.cancel()
             let removedIDs = Set(pendingLocalMessages.filter { $0.sessionKey == sessionKey }.map(\.id))
             pendingLocalMessages.removeAll { $0.sessionKey == sessionKey }
             ackedPendingLocalMessageIDs.subtract(removedIDs)
@@ -3095,6 +3175,8 @@ final class ChatViewModel: ChatViewModelHosting {
         lastReadMessageIdBySession.removeValue(forKey: sessionKey)
         streamTailStateBySession.removeValue(forKey: sessionKey)
         streamDotStateBySession.removeValue(forKey: sessionKey)
+        sessionStatusBySessionKey.removeValue(forKey: sessionKey)
+        sessionStatusRefreshTasks.removeValue(forKey: sessionKey)?.cancel()
         chatService.setReplayCursor(nil, for: sessionKey)
         persistLastReadMessageId(nil, for: sessionKey)
         persistMessages([], for: sessionKey)
@@ -3153,6 +3235,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private func unlinkTrackedSession(sessionKey: String) {
         streamsBySessionKey.removeValue(forKey: sessionKey)
         syntheticSessionKeys.remove(sessionKey)
+        sessionStatusBySessionKey.removeValue(forKey: sessionKey)
+        sessionStatusRefreshTasks.removeValue(forKey: sessionKey)?.cancel()
         recalculateOrderedSessionKeys()
 
         if typingSessionKey == sessionKey {

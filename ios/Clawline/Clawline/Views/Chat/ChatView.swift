@@ -191,6 +191,7 @@ struct ChatView: View {
     @State private var scrollButtonSettleTask: Task<Void, Never>?
     @State private var scrollButtonTapSuppressionTask: Task<Void, Never>?
     @AppStorage("chat.scrollButton.horizontalDetent") private var scrollButtonDetentRawValue = ScrollButtonHorizontalDetent.center.rawValue
+    @ScaledMetric(relativeTo: .subheadline) private var sessionStatusPillHeight: CGFloat = 28
 
     init(viewModel: ChatViewModel, toastManager: ToastManager) {
         self._viewModel = Bindable(wrappedValue: viewModel)
@@ -752,9 +753,13 @@ struct ChatView: View {
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
         let sendButtonConnectionState = viewModel.sendButtonConnectionState
         let showsStreamPager = !effectiveSessionKeys.isEmpty
+        let showsSessionStatusPill = viewModel.sessionStatus(for: viewModel.uiSelectedSessionKey) != nil
         let pageIndicatorClearance: CGFloat = {
             guard showsStreamPager else { return 0 }
-            return floatingPageDotsBottomGap + StreamPageDotsView.controlHeight
+            let statusPillClearance = showsSessionStatusPill
+                ? sessionStatusPillHeight + SessionStatusPill.verticalSpacing
+                : 0
+            return floatingPageDotsBottomGap + StreamPageDotsView.controlHeight + statusPillClearance
         }()
         let bottomFlowGap: CGFloat = isCompactLayout
             ? metrics.flowGap
@@ -1658,26 +1663,31 @@ struct ChatView: View {
             containerWidth: containerWidth,
             bottomSafeAreaInset: bottomSafeAreaInset
         )
-        return StreamPopupTrigger(
-            routeController: streamPopupRouteController,
-            viewModel: viewModel,
-            streams: effectiveStreams,
-            sessionKeys: effectiveSessionKeys,
-            activeSessionKey: viewModel.uiSelectedSessionKey,
-            dotStatesBySession: dotStatesBySession,
-            maxWidth: pageDotsMaxWidth,
-            maxAvailableHeight: streamSelectorMaxHeight,
-            maxAvailableWidth: containerWidth,
-            onSelectStream: { sessionKey in
-                selectStream(sessionKey, source: .programmatic)
-            },
-            onPrepareForTrackPicker: {
-                prepareForAttachmentPicker()
-            },
-            onTrackPickerDismiss: {
-                restoreFocusIfNeeded()
+        return VStack(spacing: 4) {
+            if let status = viewModel.sessionStatus(for: viewModel.uiSelectedSessionKey) {
+                SessionStatusPill(status: status, maxWidth: pageDotsMaxWidth, height: sessionStatusPillHeight)
             }
-        )
+            StreamPopupTrigger(
+                routeController: streamPopupRouteController,
+                viewModel: viewModel,
+                streams: effectiveStreams,
+                sessionKeys: effectiveSessionKeys,
+                activeSessionKey: viewModel.uiSelectedSessionKey,
+                dotStatesBySession: dotStatesBySession,
+                maxWidth: pageDotsMaxWidth,
+                maxAvailableHeight: streamSelectorMaxHeight,
+                maxAvailableWidth: containerWidth,
+                onSelectStream: { sessionKey in
+                    selectStream(sessionKey, source: .programmatic)
+                },
+                onPrepareForTrackPicker: {
+                    prepareForAttachmentPicker()
+                },
+                onTrackPickerDismiss: {
+                    restoreFocusIfNeeded()
+                }
+            )
+        }
     }
 
     private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {
@@ -2122,6 +2132,105 @@ private struct VisionOSInputBarDepthOffset: ViewModifier {
 #else
         content
 #endif
+    }
+}
+
+private struct SessionStatusPill: View {
+    static let verticalSpacing: CGFloat = 4
+
+    let status: SessionStatus
+    let maxWidth: CGFloat?
+    let height: CGFloat
+
+    private var iconName: String {
+        switch status.run.state {
+        case .running:
+            return "bolt.fill"
+        case .queued:
+            return "clock.fill"
+        case .idle:
+            return "checkmark.circle.fill"
+        case .unknown:
+            return "questionmark.circle.fill"
+        }
+    }
+
+    private var runText: String {
+        let base: String
+        switch status.run.state {
+        case .running:
+            base = "Running"
+        case .queued:
+            base = "Queued"
+        case .idle:
+            base = "Idle"
+        case .unknown:
+            base = "Unknown"
+        }
+        guard let queueDepth = status.run.queueDepth, queueDepth > 0 else {
+            return base
+        }
+        return "\(base) q\(queueDepth)"
+    }
+
+    private var detailText: String? {
+        let display = status.display
+        let parts = [
+            normalized(display.provider),
+            normalized(display.model),
+            prefixed("think", display.thinkingLevel),
+            prefixed("reason", display.reasoningLevel),
+            normalized(display.mode),
+            prefixed("verbosity", display.verbosity)
+        ].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " / ")
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: iconName)
+                .font(.caption2.weight(.semibold))
+            Text(runText)
+                .font(.clawline(.uiLabel).weight(.semibold))
+            if let detailText {
+                Circle()
+                    .fill(.secondary.opacity(0.7))
+                    .frame(width: 3, height: 3)
+                Text(detailText)
+                    .font(.clawline(.uiLabel))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: height)
+        .frame(maxWidth: maxWidth, alignment: .center)
+#if !os(visionOS)
+        .glassEffect(.regular, in: Capsule())
+#else
+        .background(.regularMaterial, in: Capsule())
+#endif
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        if let detailText {
+            return "Session status, \(runText), \(detailText)"
+        }
+        return "Session status, \(runText)"
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func prefixed(_ prefix: String, _ value: String?) -> String? {
+        guard let normalized = normalized(value) else { return nil }
+        return "\(prefix) \(normalized)"
     }
 }
 
@@ -3623,6 +3732,9 @@ private final class PreviewChatService: ChatServicing {
     func publishReadState(sessionKey: String, lastReadMessageId: String) async throws {}
     func fetchStreams() async throws -> [StreamSession] { [] }
     func fetchTrackableSessions() async throws -> [TrackableSession] { [] }
+    func fetchSessionStatus(sessionKey: String) async throws -> SessionStatus {
+        throw ProviderChatService.Error.notConnected
+    }
     func adoptStream(sessionKey: String) async throws -> StreamSession {
         StreamSession(
             sessionKey: sessionKey,
