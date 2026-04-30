@@ -855,6 +855,7 @@ struct ProviderServiceTests {
                 "harness": null,
                 "reasoningLevel": null,
                 "thinkingLevel": "high",
+                "fastMode": true,
                 "mode": null,
                 "verbosity": null
               },
@@ -909,6 +910,7 @@ struct ProviderServiceTests {
         #expect(status.display.provider == "anthropic")
         #expect(status.display.model == "claude-sonnet-4.6")
         #expect(status.display.thinkingLevel == "high")
+        #expect(status.display.fastMode == true)
         #expect(status.run.state == .running)
         #expect(status.run.queueDepth == 2)
         #expect(status.capabilities.cancelCurrentRun?.supported == false)

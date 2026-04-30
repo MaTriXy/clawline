@@ -3739,6 +3739,7 @@ private func makeSessionStatus(
             harness: nil,
             reasoningLevel: nil,
             thinkingLevel: thinkingLevel,
+            fastMode: nil,
             mode: nil,
             verbosity: nil
         ),

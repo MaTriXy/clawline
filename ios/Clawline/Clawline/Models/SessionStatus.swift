@@ -22,6 +22,7 @@ struct SessionStatus: Decodable, Equatable {
         let harness: String?
         let reasoningLevel: String?
         let thinkingLevel: String?
+        let fastMode: Bool?
         let mode: String?
         let verbosity: String?
     }
@@ -75,4 +76,3 @@ struct SessionStatus: Decodable, Equatable {
         let reason: String?
     }
 }
-
