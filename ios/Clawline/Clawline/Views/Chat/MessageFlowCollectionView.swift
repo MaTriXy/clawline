@@ -5226,7 +5226,7 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
                 isMutable: capabilitySupported(status.capabilities.setModel) || status.capabilities.canChangeModel == true
             ),
             FooterItem(
-                text: "Thinking \(normalized(display.thinkingLevel) ?? "Unknown")",
+                text: "Thinking \(normalized(display.thinkingLevel) ?? normalized(display.reasoningLevel) ?? "Unknown")",
                 isMutable: capabilitySupported(status.capabilities.setReasoning) || status.capabilities.canChangeReasoning == true
             ),
             FooterItem(

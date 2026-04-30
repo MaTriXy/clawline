@@ -2531,9 +2531,9 @@ struct ChatViewModelTests {
         #expect(status?.display.thinkingLevel == "high")
     }
 
-    @Test("Session status uses latest partial display metadata without resurrecting stale values")
+    @Test("Session status keeps sticky display metadata until real values arrive")
     @MainActor
-    func sessionStatusUsesLatestPartialDisplayMetadataWithoutResurrectingStaleValues() async throws {
+    func sessionStatusKeepsStickyDisplayMetadataUntilRealValuesArrive() async throws {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
@@ -2596,9 +2596,189 @@ struct ChatViewModelTests {
         #expect(status?.run.state == .idle)
         #expect(status?.run.queueDepth == 0)
         #expect(status?.display.provider == nil)
-        #expect(status?.display.model == nil)
-        #expect(status?.display.thinkingLevel == nil)
-        #expect(status?.display.fastMode == nil)
+        #expect(status?.display.model == "gpt-5.5")
+        #expect(status?.display.thinkingLevel == "low")
+        #expect(status?.display.fastMode == true)
+
+        let secondFetchCount = chatService.fetchSessionStatusCallCount
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: nil,
+            model: "gpt-5.4",
+            thinkingLevel: "high",
+            fastMode: false,
+            queueDepth: 0
+        )
+        let updatedAssistantPayload = #"{"type":"message","id":"s_assistant_final_2","role":"assistant","content":"done again","timestamp":1700000000001,"streaming":false,"sessionKey":"\#(personalSessionKey)","attachments":[]}"#
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .serverMessage(data: Data(updatedAssistantPayload.utf8))))
+
+        for _ in 0..<50 {
+            if chatService.fetchSessionStatusCallCount > secondFetchCount,
+               viewModel.sessionStatus(for: personalSessionKey)?.display.model == "gpt-5.4" {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let updatedStatus = viewModel.sessionStatus(for: personalSessionKey)
+        #expect(updatedStatus?.display.model == "gpt-5.4")
+        #expect(updatedStatus?.display.thinkingLevel == "high")
+        #expect(updatedStatus?.display.fastMode == false)
+
+        let reasoningFetchCount = chatService.fetchSessionStatusCallCount
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: nil,
+            model: nil,
+            reasoningLevel: "medium",
+            thinkingLevel: nil,
+            fastMode: nil,
+            queueDepth: 0
+        )
+        let reasoningAssistantPayload = #"{"type":"message","id":"s_assistant_final_3","role":"assistant","content":"done three","timestamp":1700000000002,"streaming":false,"sessionKey":"\#(personalSessionKey)","attachments":[]}"#
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .serverMessage(data: Data(reasoningAssistantPayload.utf8))))
+
+        for _ in 0..<50 {
+            if chatService.fetchSessionStatusCallCount > reasoningFetchCount,
+               viewModel.sessionStatus(for: personalSessionKey)?.display.reasoningLevel == "medium" {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let reasoningStatus = viewModel.sessionStatus(for: personalSessionKey)
+        #expect(reasoningStatus?.display.model == "gpt-5.4")
+        #expect(reasoningStatus?.display.thinkingLevel == "medium")
+        #expect(reasoningStatus?.display.reasoningLevel == "medium")
+        #expect(reasoningStatus?.display.fastMode == false)
+    }
+
+    @Test("Session status sticky display metadata is keyed per stream")
+    @MainActor
+    func sessionStatusStickyDisplayMetadataIsKeyedPerStream() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let researchSessionKey = "agent:main:clawline:user:s_research"
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: researchSessionKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "low",
+            fastMode: true,
+            queueDepth: 1
+        )
+        chatService.sessionStatusBySessionKey[researchSessionKey] = makeSessionStatus(
+            sessionKey: researchSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.4",
+            thinkingLevel: "high",
+            fastMode: false,
+            queueDepth: 1
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.prepareForReplacement() }
+
+        await viewModel.activate(origin: "test.sessionStatusPerStreamSticky")
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey)?.display.model == "gpt-5.5" {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let researchSeedFetchCount = chatService.fetchSessionStatusCallCount
+        let researchSeedPayload = #"{"type":"message","id":"s_research_seed","role":"assistant","content":"seed","timestamp":1700000000000,"streaming":false,"sessionKey":"\#(researchSessionKey)","attachments":[]}"#
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .serverMessage(data: Data(researchSeedPayload.utf8))))
+
+        for _ in 0..<50 {
+            if chatService.fetchSessionStatusCallCount > researchSeedFetchCount,
+               viewModel.sessionStatus(for: researchSessionKey)?.display.model == "gpt-5.4" {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: nil,
+            model: nil,
+            thinkingLevel: nil,
+            fastMode: nil,
+            queueDepth: 0
+        )
+        let personalMissingFetchCount = chatService.fetchSessionStatusCallCount
+        let personalMissingPayload = #"{"type":"message","id":"s_personal_missing","role":"assistant","content":"done","timestamp":1700000000001,"streaming":false,"sessionKey":"\#(personalSessionKey)","attachments":[]}"#
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .serverMessage(data: Data(personalMissingPayload.utf8))))
+
+        for _ in 0..<50 {
+            if chatService.fetchSessionStatusCallCount > personalMissingFetchCount,
+               viewModel.sessionStatus(for: personalSessionKey)?.run.state == .idle {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let personalStatus = viewModel.sessionStatus(for: personalSessionKey)
+        let researchStatusAfterPersonalRefresh = viewModel.sessionStatus(for: researchSessionKey)
+        #expect(personalStatus?.display.model == "gpt-5.5")
+        #expect(personalStatus?.display.thinkingLevel == "low")
+        #expect(personalStatus?.display.fastMode == true)
+        #expect(researchStatusAfterPersonalRefresh?.display.model == "gpt-5.4")
+        #expect(researchStatusAfterPersonalRefresh?.display.thinkingLevel == "high")
+        #expect(researchStatusAfterPersonalRefresh?.display.fastMode == false)
+
+        chatService.sessionStatusBySessionKey[researchSessionKey] = makeSessionStatus(
+            sessionKey: researchSessionKey,
+            state: .idle,
+            provider: nil,
+            model: "gpt-5.3",
+            reasoningLevel: "medium",
+            thinkingLevel: nil,
+            fastMode: true,
+            queueDepth: 0
+        )
+        let researchUpdateFetchCount = chatService.fetchSessionStatusCallCount
+        let researchUpdatePayload = #"{"type":"message","id":"s_research_update","role":"assistant","content":"updated","timestamp":1700000000002,"streaming":false,"sessionKey":"\#(researchSessionKey)","attachments":[]}"#
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .serverMessage(data: Data(researchUpdatePayload.utf8))))
+
+        for _ in 0..<50 {
+            if chatService.fetchSessionStatusCallCount > researchUpdateFetchCount,
+               viewModel.sessionStatus(for: researchSessionKey)?.display.model == "gpt-5.3" {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let personalStatusAfterResearchUpdate = viewModel.sessionStatus(for: personalSessionKey)
+        let researchUpdatedStatus = viewModel.sessionStatus(for: researchSessionKey)
+        #expect(personalStatusAfterResearchUpdate?.display.model == "gpt-5.5")
+        #expect(personalStatusAfterResearchUpdate?.display.thinkingLevel == "low")
+        #expect(personalStatusAfterResearchUpdate?.display.fastMode == true)
+        #expect(researchUpdatedStatus?.display.model == "gpt-5.3")
+        #expect(researchUpdatedStatus?.display.thinkingLevel == "medium")
+        #expect(researchUpdatedStatus?.display.reasoningLevel == "medium")
+        #expect(researchUpdatedStatus?.display.fastMode == true)
     }
 
     @Test("Session status refreshes after terminal message error")
@@ -2663,9 +2843,9 @@ struct ChatViewModelTests {
 
         let status = viewModel.sessionStatus(for: personalSessionKey)
         #expect(status?.run.state == .idle)
-        #expect(status?.display.model == nil)
-        #expect(status?.display.thinkingLevel == nil)
-        #expect(status?.display.fastMode == nil)
+        #expect(status?.display.model == "gpt-5.5")
+        #expect(status?.display.thinkingLevel == "high")
+        #expect(status?.display.fastMode == true)
     }
 
     @Test("Track candidates can be refreshed on demand")
@@ -3864,6 +4044,7 @@ private func makeSessionStatus(
     state: SessionStatus.Run.State,
     provider: String?,
     model: String?,
+    reasoningLevel: String? = nil,
     thinkingLevel: String?,
     fastMode: Bool? = nil,
     queueDepth: Int
@@ -3875,7 +4056,7 @@ private func makeSessionStatus(
             fallbackModels: nil,
             provider: provider,
             harness: nil,
-            reasoningLevel: nil,
+            reasoningLevel: reasoningLevel,
             thinkingLevel: thinkingLevel,
             fastMode: fastMode,
             mode: nil,

@@ -2745,12 +2745,16 @@ final class ChatViewModel: ChatViewModelHosting {
             do {
                 let status = try await self.chatService.fetchSessionStatus(sessionKey: normalizedSessionKey)
                 guard !Task.isCancelled else { return }
+                let displayStatus = self.sessionStatusByKeepingStickyDisplayFields(
+                    from: status,
+                    requestedSessionKey: normalizedSessionKey
+                )
                 self.sessionStatusRefreshTasks[normalizedSessionKey] = nil
-                self.sessionStatusBySessionKey[normalizedSessionKey] = status
-                if status.sessionKey != normalizedSessionKey {
-                    self.sessionStatusBySessionKey[status.sessionKey] = status
+                self.sessionStatusBySessionKey[normalizedSessionKey] = displayStatus
+                if displayStatus.sessionKey != normalizedSessionKey {
+                    self.sessionStatusBySessionKey[displayStatus.sessionKey] = displayStatus
                 }
-                self.scheduleSessionStatusFollowUpIfNeeded(status, requestedSessionKey: normalizedSessionKey)
+                self.scheduleSessionStatusFollowUpIfNeeded(displayStatus, requestedSessionKey: normalizedSessionKey)
             } catch {
                 guard !Task.isCancelled else { return }
                 self.sessionStatusRefreshTasks[normalizedSessionKey] = nil
@@ -2759,6 +2763,44 @@ final class ChatViewModel: ChatViewModelHosting {
                 )
             }
         }
+    }
+
+    private func sessionStatusByKeepingStickyDisplayFields(from incoming: SessionStatus,
+                                                           requestedSessionKey: String) -> SessionStatus {
+        let cached = sessionStatusBySessionKey[incoming.sessionKey] ?? sessionStatusBySessionKey[requestedSessionKey]
+        guard let cached else { return incoming }
+        let incomingThinkingLevel = realDisplayString(incoming.display.thinkingLevel)
+            ?? realDisplayString(incoming.display.reasoningLevel)
+        let incomingReasoningLevel = realDisplayString(incoming.display.reasoningLevel)
+            ?? realDisplayString(incoming.display.thinkingLevel)
+
+        return SessionStatus(
+            sessionKey: incoming.sessionKey,
+            display: .init(
+                model: stickyDisplayString(incoming.display.model, cached: cached.display.model),
+                fallbackModels: incoming.display.fallbackModels,
+                provider: incoming.display.provider,
+                harness: incoming.display.harness,
+                reasoningLevel: incomingReasoningLevel ?? cached.display.reasoningLevel,
+                thinkingLevel: incomingThinkingLevel ?? cached.display.thinkingLevel,
+                fastMode: incoming.display.fastMode ?? cached.display.fastMode,
+                mode: incoming.display.mode,
+                verbosity: incoming.display.verbosity
+            ),
+            run: incoming.run,
+            context: incoming.context,
+            approval: incoming.approval,
+            capabilities: incoming.capabilities
+        )
+    }
+
+    private func stickyDisplayString(_ incoming: String?, cached: String?) -> String? {
+        realDisplayString(incoming) ?? cached
+    }
+
+    private func realDisplayString(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : value
     }
 
     private func scheduleSessionStatusFollowUpIfNeeded(_ status: SessionStatus, requestedSessionKey: String) {
