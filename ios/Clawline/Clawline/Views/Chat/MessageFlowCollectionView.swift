@@ -18,6 +18,10 @@ enum MessageFlowScrollEvent: Equatable {
 }
 
 enum ChatVisibleBubbleContentScroll {
+    static var lineIncrement: CGFloat {
+        ceil(UIFont.clawline(.bodyText).lineHeight + 4)
+    }
+
     @discardableResult
     static func scrollVisibleScrollableContent(
         in root: UIView,
@@ -76,7 +80,7 @@ enum ChatVisibleBubbleContentScroll {
         let visibleHeight = scrollView.bounds.height - inset.top - inset.bottom
         guard visibleHeight > 1, maxY > minY else { return false }
 
-        let increment = max(80, visibleHeight * 0.82)
+        let increment = lineIncrement
         let delta = direction == .down ? increment : -increment
         let targetY = min(max(scrollView.contentOffset.y + delta, minY), maxY)
         guard abs(targetY - scrollView.contentOffset.y) > 0.5 else { return false }
