@@ -1196,7 +1196,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 sessionKey: sessionKey
             )
         }
-        scheduleSessionStatusRefresh(for: sessionKey, reason: "sendDispatchFollowUp", delay: .seconds(2))
     }
 
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) {
@@ -1607,6 +1606,9 @@ final class ChatViewModel: ChatViewModelHosting {
             didAppendNewMessage = true
         }
         setMessages(messageList, for: resolvedMessage.sessionKey)
+        if resolvedMessage.role == .assistant, !resolvedMessage.streaming {
+            scheduleSessionStatusRefresh(for: resolvedMessage.sessionKey, reason: "assistantResponseCommitted")
+        }
         if resolvedMessage.sessionKey == engineActiveSessionKey,
            resolvedMessage.id.hasPrefix("s_") {
             markSessionRead(resolvedMessage.sessionKey)
@@ -2452,6 +2454,10 @@ final class ChatViewModel: ChatViewModelHosting {
                 handleNoReplyAck(messageId: messageId)
                 return
             }
+            scheduleSessionStatusRefreshAfterTerminalMessageEvent(
+                messageId: messageId,
+                reason: "messageErrorTerminal"
+            )
             if shouldShowMessageErrorToast(code: code) {
                 let resolved = userFacingMessage(for: code, fallback: message)
                 toastManager.show(resolved)
@@ -2490,12 +2496,10 @@ final class ChatViewModel: ChatViewModelHosting {
             if isTyping {
                 self.isAssistantTyping = true
                 self.typingSessionKey = sessionKey
-                scheduleSessionStatusRefresh(for: sessionKey, reason: "typingStarted")
             } else if self.typingSessionKey == sessionKey {
                 // Only clear if the stop event is for the same session we're tracking
                 self.isAssistantTyping = false
                 self.typingSessionKey = nil
-                scheduleSessionStatusRefresh(for: sessionKey, reason: "typingStopped")
             }
         case .streamSnapshot(let streams):
             hasResolvedProvisioningCapability = true
@@ -3493,6 +3497,29 @@ final class ChatViewModel: ChatViewModelHosting {
             sessionKey: sessionKey
         )
         appendMessage(ack)
+        scheduleSessionStatusRefresh(for: sessionKey, reason: "noReplyTerminal")
+    }
+
+    private func scheduleSessionStatusRefreshAfterTerminalMessageEvent(messageId: String?, reason: String) {
+        var sessionKeys = Set<String>()
+        if let messageId {
+            if let pending = pendingLocalMessages.first(where: { $0.id == messageId }) {
+                sessionKeys.insert(pending.sessionKey)
+            } else if let (_, sessionKey, _) = findMessage(id: messageId) {
+                sessionKeys.insert(sessionKey)
+            }
+        } else {
+            sessionKeys.formUnion(pendingLocalMessages.map(\.sessionKey))
+        }
+        if sessionKeys.isEmpty {
+            let activeSessionKey = engineActiveSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !activeSessionKey.isEmpty {
+                sessionKeys.insert(activeSessionKey)
+            }
+        }
+        for sessionKey in sessionKeys {
+            scheduleSessionStatusRefresh(for: sessionKey, reason: reason)
+        }
     }
 
     private func trimPresentationCache() {

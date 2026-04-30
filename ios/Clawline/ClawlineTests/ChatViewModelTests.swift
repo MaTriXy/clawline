@@ -2559,9 +2559,9 @@ struct ChatViewModelTests {
             toastManager: ToastManager(),
             salientHighlightService: SalientHighlightService()
         )
-        defer { viewModel.onDisappear() }
+        defer { viewModel.prepareForReplacement() }
 
-        await viewModel.onAppear()
+        await viewModel.activate(origin: "test.sessionStatusLatestPartial")
         chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
 
         for _ in 0..<50 {
@@ -2581,7 +2581,8 @@ struct ChatViewModelTests {
             fastMode: nil,
             queueDepth: 0
         )
-        chatService.emitServiceEvent(.typingStateChanged(false, sessionKey: personalSessionKey))
+        let assistantPayload = #"{"type":"message","id":"s_assistant_final","role":"assistant","content":"done","timestamp":1700000000000,"streaming":false,"sessionKey":"\#(personalSessionKey)","attachments":[]}"#
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .serverMessage(data: Data(assistantPayload.utf8))))
 
         for _ in 0..<50 {
             if chatService.fetchSessionStatusCallCount > firstFetchCount,
@@ -2595,6 +2596,73 @@ struct ChatViewModelTests {
         #expect(status?.run.state == .idle)
         #expect(status?.run.queueDepth == 0)
         #expect(status?.display.provider == nil)
+        #expect(status?.display.model == nil)
+        #expect(status?.display.thinkingLevel == nil)
+        #expect(status?.display.fastMode == nil)
+    }
+
+    @Test("Session status refreshes after terminal message error")
+    @MainActor
+    func sessionStatusRefreshesAfterTerminalMessageError() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            fastMode: true,
+            queueDepth: 1
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.prepareForReplacement() }
+
+        await viewModel.activate(origin: "test.sessionStatusTerminalError")
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey)?.run.state == .running {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let firstFetchCount = chatService.fetchSessionStatusCallCount
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: nil,
+            model: nil,
+            thinkingLevel: nil,
+            fastMode: nil,
+            queueDepth: 0
+        )
+        chatService.emitServiceEvent(.messageError(messageId: nil, code: "connection_lost", message: nil))
+
+        for _ in 0..<50 {
+            if chatService.fetchSessionStatusCallCount > firstFetchCount,
+               viewModel.sessionStatus(for: personalSessionKey)?.run.state == .idle {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let status = viewModel.sessionStatus(for: personalSessionKey)
+        #expect(status?.run.state == .idle)
         #expect(status?.display.model == nil)
         #expect(status?.display.thinkingLevel == nil)
         #expect(status?.display.fastMode == nil)
