@@ -1441,6 +1441,7 @@ struct ChatView: View {
             },
             layoutCoordinator: layoutCoordinator,
             sessionKey: sessionKey,
+            sessionStatus: viewModel.sessionStatus(for: sessionKey),
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: handleDeferredMessageFlowScrollEvent
@@ -1592,6 +1593,7 @@ struct ChatView: View {
                 // Do not register prewarm shells as live session list views.
                 shouldRegisterWithLayoutCoordinator: false,
                 sessionKey: sessionKey,
+                sessionStatus: viewModel.sessionStatus(for: sessionKey),
                 forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
                 fontScaleChangeSequence: fontScaleChangeSequence,
                 onScrollEvent: nil
@@ -3663,6 +3665,9 @@ private final class PreviewChatService: ChatServicing {
     func publishReadState(sessionKey: String, lastReadMessageId: String) async throws {}
     func fetchStreams() async throws -> [StreamSession] { [] }
     func fetchTrackableSessions() async throws -> [TrackableSession] { [] }
+    func fetchSessionStatus(sessionKey: String) async throws -> SessionStatus {
+        throw ProviderChatService.Error.notConnected
+    }
     func adoptStream(sessionKey: String) async throws -> StreamSession {
         StreamSession(
             sessionKey: sessionKey,

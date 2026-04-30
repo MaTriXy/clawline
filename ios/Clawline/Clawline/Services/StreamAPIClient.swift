@@ -103,6 +103,16 @@ final class StreamAPIClient {
         return response.sessions
     }
 
+    func fetchSessionStatus(sessionKey: String, token: String?) async throws -> SessionStatus {
+        try await sendRequest(
+            method: "GET",
+            path: "/api/session-status",
+            queryItems: [URLQueryItem(name: "sessionKey", value: sessionKey)],
+            token: token,
+            body: Optional<String>.none
+        )
+    }
+
     func createStream(displayName: String, idempotencyKey: String, token: String?) async throws -> StreamSession {
         let response: MutateStreamResponse = try await sendRequest(
             method: "POST",
@@ -148,13 +158,14 @@ final class StreamAPIClient {
     private func sendRequest<Body: Encodable, Response: Decodable>(
         method: String,
         path: String,
+        queryItems: [URLQueryItem] = [],
         token: String?,
         body: Body?
     ) async throws -> Response {
         guard let baseURL = baseURLProvider() else {
             throw ProviderChatService.Error.missingBaseURL
         }
-        guard let url = endpointURL(baseURL: baseURL, path: path) else {
+        guard let url = endpointURL(baseURL: baseURL, path: path, queryItems: queryItems) else {
             throw ProviderChatService.Error.missingBaseURL
         }
         var request = URLRequest(url: url)
@@ -193,13 +204,16 @@ final class StreamAPIClient {
         value.addingPercentEncoding(withAllowedCharacters: Self.urlPathComponentAllowed) ?? value
     }
 
-    private func endpointURL(baseURL: URL, path: String) -> URL? {
+    private func endpointURL(baseURL: URL, path: String, queryItems: [URLQueryItem]) -> URL? {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             return nil
         }
         let basePath = components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path
         let suffix = path.hasPrefix("/") ? path : "/\(path)"
         components.path = basePath + suffix
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
         return components.url
     }
 }
