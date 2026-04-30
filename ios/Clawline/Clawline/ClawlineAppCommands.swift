@@ -36,22 +36,45 @@ struct ClawlineAppCommands: Commands {
 
             Divider()
 
+            Button("Focus Prompt Input") {
+                NotificationCenter.default.post(name: .clawlineFocusPromptInputCommand, object: nil)
+            }
+            .keyboardShortcut("l", modifiers: .command)
+
             Button("Open Streams") {
                 NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
             }
-            .keyboardShortcut("/", modifiers: .command)
+            .keyboardShortcut(";", modifiers: .command)
 
-            Divider()
+            Button("Previous Chat") {
+                NotificationCenter.default.post(name: .clawlineNavigateToPreviousStreamCommand, object: nil)
+            }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
 
-            Button("Scroll to Bottom") {
-                NotificationCenter.default.post(name: .clawlineScrollToBottomCommand, object: nil)
+            Button("Next Chat") {
+                NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+
+            Button("Scroll Bubble Contents Down") {
+                NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)
             }
             .keyboardShortcut("j", modifiers: .command)
 
-            Button("Scroll to Top") {
-                NotificationCenter.default.post(name: .clawlineScrollToTopCommand, object: nil)
+            Button("Scroll Bubble Contents Up") {
+                NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
             }
             .keyboardShortcut("k", modifiers: .command)
+
+            Button("Scroll Chat Down") {
+                NotificationCenter.default.post(name: .clawlineScrollChatDownCommand, object: nil)
+            }
+            .keyboardShortcut("j", modifiers: [.command, .shift])
+
+            Button("Scroll Chat Up") {
+                NotificationCenter.default.post(name: .clawlineScrollChatUpCommand, object: nil)
+            }
+            .keyboardShortcut("k", modifiers: [.command, .shift])
         }
     }
 }

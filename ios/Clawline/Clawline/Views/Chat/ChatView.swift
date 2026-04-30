@@ -10,6 +10,7 @@ import PhotosUI
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import WebKit
 import os.log
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ChatView")
@@ -74,7 +75,7 @@ private final class T099OnDisappearProbeStore {
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 //
 // 1. @State isInputFocused lives HERE in ChatView (stable parent, survives geometry changes)
-// 2. MessageInputBar reports focus via callback: onFocusChange: { isInputFocused = $0 }
+// 2. MessageInputBar reports focus via callback: onFocusChange: { scheduleInputFocusChange($0) }
 // 3. Offset modifier applied HERE in ChatView (modifiers on .safeAreaInset content DO update)
 //
 // KEY INSIGHT: .safeAreaInset content body doesn't re-render on parent state change,
@@ -92,7 +93,68 @@ private final class T099OnDisappearProbeStore {
 //
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
+enum StreamPopupSearchFocus: Equatable {
+    case none
+    case request(id: Int)
+}
+
+enum StreamPopupRoute: Equatable {
+    case closed
+    case popup(searchFocus: StreamPopupSearchFocus)
+    case trackPicker
+}
+
+@MainActor
+@Observable
+final class StreamPopupRouteController {
+    private(set) var route: StreamPopupRoute = .closed
+    private var searchFocusRequestID = 0
+
+    var isPopupPresented: Bool {
+        if case .popup = route {
+            return true
+        }
+        return false
+    }
+
+    var isTrackPickerPresented: Bool {
+        route == .trackPicker
+    }
+
+    var popupSearchFocusRequestID: Int? {
+        guard case .popup(.request(let id)) = route else { return nil }
+        return id
+    }
+
+    func openPopup(focusSearch: Bool) {
+        if focusSearch {
+            searchFocusRequestID &+= 1
+            route = .popup(searchFocus: .request(id: searchFocusRequestID))
+        } else {
+            route = .popup(searchFocus: .none)
+        }
+    }
+
+    func closePopup() {
+        route = .closed
+    }
+
+    func presentTrackPicker() {
+        route = .trackPicker
+    }
+
+    func dismissTrackPicker() {
+        route = .closed
+    }
+
+    func consumeSearchFocusRequest() {
+        guard popupSearchFocusRequestID != nil else { return }
+        route = .popup(searchFocus: .none)
+    }
+}
+
 struct ChatView: View {
+
     @Bindable var viewModel: ChatViewModel
     let toastManager: ToastManager
     @Environment(\.scenePhase) private var scenePhase
@@ -111,11 +173,9 @@ struct ChatView: View {
     @State private var layoutRevision: Int = 0
     @State private var selectionRange = NSRange(location: 0, length: 0)
     @State private var pendingInputInsertions: [PendingAttachment] = []
+    @State private var inputBarSendButtonConnectionState = SendButtonConnectionStateStore()
     @State private var activeSheet: ChatSheet?
-    @State private var isStreamManagerPopoverPresented = false
-    @State private var streamPopupShouldAutoFocusSearch = false
-    @State private var streamPopupSearchFocusRequestID = 0
-    @State private var isTrackPickerPresented = false
+    @State private var streamPopupRouteController = StreamPopupRouteController()
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
@@ -269,7 +329,7 @@ struct ChatView: View {
     }
 
     private func handleMessageFlowScrollEvent(_ event: MessageFlowScrollEvent) {
-        guard !isStreamManagerPopoverPresented else { return }
+        guard !streamPopupRouteController.isPopupPresented else { return }
         switch event {
         case .isAtBottomChanged(let sessionKey, let isAtBottom):
             mutateScrollButtonState(for: sessionKey) { state in
@@ -572,6 +632,7 @@ struct ChatView: View {
             )
             viewModel.onDisappear(origin: "ChatView.onDisappear[\(chatViewTraceId)] scene=\(String(describing: scenePhase))")
             resetScrollButtonInteractionState()
+            streamPopupRouteController.closePopup()
 #if DEBUG
             lifecycleDebugOverlayDismissTask?.cancel()
             lifecycleDebugOverlayDismissTask = nil
@@ -582,20 +643,28 @@ struct ChatView: View {
             guard phase == .active else { return }
             keyboardRefreshToken &+= 1
         }
-        .onChange(of: isStreamManagerPopoverPresented) { _, isPresented in
-            if !isPresented {
-                streamPopupShouldAutoFocusSearch = false
+        .handlePromptFocusCommand(
+            onFocusRequested: {
+                focusRequestID &+= 1
             }
-        }
+        )
         .handleStreamPopupCommand(
-            isPresented: $isStreamManagerPopoverPresented,
             hasStreams: !viewModel.orderedStreams.isEmpty,
-            onOpen: requestStreamPopupSearchFocus
+            onOpen: {
+                streamPopupRouteController.openPopup(focusSearch: true)
+            }
+        )
+        .handleStreamNavigationCommands(
+            isEnabled: !viewModel.orderedStreams.isEmpty,
+            onNavigatePrevious: { navigateStreamByShortcut(step: -1, sessionKeys: viewModel.orderedStreams.map(\.sessionKey)) },
+            onNavigateNext: { navigateStreamByShortcut(step: 1, sessionKeys: viewModel.orderedStreams.map(\.sessionKey)) }
         )
         .handleKeyboardScrollCommands(
-            isEnabled: supportsKeyboardNavigationShortcuts,
-            onScrollToBottom: { scrollActiveSessionToBottom() },
-            onScrollToTop: { scrollActiveSessionToTop() }
+            isEnabled: keyboardScrollShortcutEnabled,
+            onScrollDown: { scrollVisibleBubbleContents(.down) },
+            onScrollUp: { scrollVisibleBubbleContents(.up) },
+            onScrollChatDown: { scrollChatSurface(.down) },
+            onScrollChatUp: { scrollChatSurface(.up) }
         )
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
@@ -675,20 +744,7 @@ struct ChatView: View {
                              toastManager: ToastManager) -> some View {
         @Bindable var viewModel = viewModel
         let statusBarTopInset: CGFloat = geometry.safeAreaInsets.top
-        let messageListTopInset: CGFloat = {
-#if os(visionOS)
-            return geometry.safeAreaInsets.top + (geometry.size.height * 0.25)
-#else
-            return geometry.safeAreaInsets.top
-#endif
-        }()
-        let spatialAdditionalBottomInset: CGFloat = {
-#if os(visionOS)
-            return geometry.size.height * 0.25
-#else
-            return 0
-#endif
-        }()
+        let messageListTopInset = geometry.safeAreaInsets.top
         let isCompactLayout = horizontalSizeClass == .compact
         let metrics = ChatFlowTheme.Metrics(isCompact: isCompactLayout)
         let resolvedInputHeight = max(inputBarHeight, MessageInputBarMetrics.minInputBarHeight)
@@ -696,6 +752,7 @@ struct ChatView: View {
         let isKeyboardVisible = keyboardVisibleHeight > 0.5
         let effectiveStreams = viewModel.orderedStreams
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
+        let sendButtonConnectionState = viewModel.sendButtonConnectionState
         let showsStreamPager = !effectiveSessionKeys.isEmpty
         let pageIndicatorClearance: CGFloat = {
             guard showsStreamPager else { return 0 }
@@ -704,7 +761,7 @@ struct ChatView: View {
         let bottomFlowGap: CGFloat = isCompactLayout
             ? metrics.flowGap
             : ChatFlowTheme.Metrics(isCompact: false).flowGap
-        let bottomInsetFlowGap = bottomFlowGap + spatialAdditionalBottomInset
+        let bottomInsetFlowGap = bottomFlowGap
         // Keep the bar gap continuous through the final keyboard-dismiss frames.
         let keyboardInsetProgress = min(1, max(0, keyboardVisibleHeight / 24))
         let belowBarGap: CGFloat = 24 - (12 * keyboardInsetProgress)
@@ -766,9 +823,14 @@ struct ChatView: View {
             0,
             geometry.size.height
                 - inputBarTopFromScreenBottom
-                - geometry.safeAreaInsets.top
+                - messageListTopInset
                 - streamSelectorSpacingFromMessageBarTop
         )
+        let promptFocusShortcutEnabled = !isInputFocused
+            && streamPopupRouteController.route == .closed
+            && activeSheet == nil
+            && !isPhotosPickerPresented
+            && !isFileImporterPresented
 
         let messageLayer: AnyView = AnyView(
             pagedStreamView(
@@ -808,6 +870,10 @@ struct ChatView: View {
             layoutCoordinator.setActiveSessionKey(viewModel.engineActiveSessionKey)
             layoutCoordinator.updateInputs(layoutInputs, metrics: layoutMetrics)
             layoutCoordinator.markInputsChanged()
+            inputBarSendButtonConnectionState.value = sendButtonConnectionState
+        }
+        .onChange(of: sendButtonConnectionState) { _, newValue in
+            inputBarSendButtonConnectionState.value = newValue
         }
         .onChange(of: viewModel.uiSelectionSequence) { _, _ in
             guard let selectedSessionKey = viewModel.lastUISelectedSessionKey else { return }
@@ -901,6 +967,21 @@ struct ChatView: View {
             EmptyView()
 #endif
         }
+        .modifier(
+            PromptFocusShortcutModifier(
+                isEnabled: promptFocusShortcutEnabled,
+                hasStreams: !effectiveSessionKeys.isEmpty,
+                onOpenStreamPopup: {
+                    streamPopupRouteController.openPopup(focusSearch: true)
+                },
+                onFocusRequested: {
+                    focusRequestID &+= 1
+                },
+                onTextInserted: { text in
+                    insertPromptTextFromNoTextOwner(text)
+                }
+            )
+        )
 #if DEBUG
         .overlay(alignment: .topTrailing) {
             lifecycleDebugOverlay(
@@ -1275,7 +1356,7 @@ struct ChatView: View {
                 canSend: viewModel.canSend,
                 isSending: viewModel.isSending,
                 isStagingAttachments: viewModel.pendingAttachmentStageCount > 0,
-                connectionState: viewModel.sendButtonConnectionState,
+                connectionStateStore: inputBarSendButtonConnectionState,
                 focusTrigger: focusRequestID,
                 bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
                 isKeyboardVisible: isKeyboardVisible,
@@ -1291,10 +1372,7 @@ struct ChatView: View {
                 // ⚠️ This callback is how focus state survives view recreation.
                 // DO NOT replace with @Binding or try to use @FocusState directly.
                 onFocusChange: { focused in
-                    isInputFocused = focused
-                    if !focused {
-                        clearTypingActivity()
-                    }
+                    scheduleInputFocusChange(focused)
                 },
                 onTextEditActivity: {
                     recordTypingActivity()
@@ -1363,6 +1441,7 @@ struct ChatView: View {
             },
             layoutCoordinator: layoutCoordinator,
             sessionKey: sessionKey,
+            sessionStatus: viewModel.sessionStatus(for: sessionKey),
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: handleDeferredMessageFlowScrollEvent
@@ -1514,6 +1593,7 @@ struct ChatView: View {
                 // Do not register prewarm shells as live session list views.
                 shouldRegisterWithLayoutCoordinator: false,
                 sessionKey: sessionKey,
+                sessionStatus: viewModel.sessionStatus(for: sessionKey),
                 forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
                 fontScaleChangeSequence: fontScaleChangeSequence,
                 onScrollEvent: nil
@@ -1582,56 +1662,26 @@ struct ChatView: View {
             containerWidth: containerWidth,
             bottomSafeAreaInset: bottomSafeAreaInset
         )
-        return StreamPageDotsView(
+        return StreamPopupTrigger(
+            routeController: streamPopupRouteController,
+            viewModel: viewModel,
+            streams: effectiveStreams,
             sessionKeys: effectiveSessionKeys,
             activeSessionKey: viewModel.uiSelectedSessionKey,
             dotStatesBySession: dotStatesBySession,
             maxWidth: pageDotsMaxWidth,
-            onTap: { isStreamManagerPopoverPresented = true }
-        )
-        .overlay(alignment: .top) {
-            Color.clear
-                .frame(maxWidth: .infinity)
-                .frame(height: 1)
-                .allowsHitTesting(false)
-                .popover(
-                    isPresented: $isStreamManagerPopoverPresented,
-                    attachmentAnchor: .rect(.bounds),
-                    arrowEdge: .bottom
-                ) {
-                    StreamManagerSheet(
-                        viewModel: viewModel,
-                        streams: effectiveStreams,
-                        dotStatesBySession: dotStatesBySession,
-                        isPresented: $isStreamManagerPopoverPresented,
-                        shouldAutoFocusSearchOnAppear: streamPopupShouldAutoFocusSearch,
-                        searchFocusRequestID: streamPopupSearchFocusRequestID,
-                        maxAvailableHeight: streamSelectorMaxHeight,
-                        maxAvailableWidth: containerWidth,
-                        onSelectStream: { sessionKey in
-                            selectStream(sessionKey, source: .programmatic)
-                        },
-                        onPresentTrackPicker: {
-                            prepareForAttachmentPicker()
-                            isStreamManagerPopoverPresented = false
-                            Task { @MainActor in
-                                await Task.yield()
-                                isTrackPickerPresented = true
-                            }
-                        }
-                    )
-                    .presentationCompactAdaptation(.popover)
-                    .presentationBackground(.clear)
-                }
-        }
-        .sheet(
-            isPresented: $isTrackPickerPresented,
-            onDismiss: {
+            maxAvailableHeight: streamSelectorMaxHeight,
+            maxAvailableWidth: containerWidth,
+            onSelectStream: { sessionKey in
+                selectStream(sessionKey, source: .programmatic)
+            },
+            onPrepareForTrackPicker: {
+                prepareForAttachmentPicker()
+            },
+            onTrackPickerDismiss: {
                 restoreFocusIfNeeded()
             }
-        ) {
-            TrackPickerSheet(viewModel: viewModel)
-        }
+        )
     }
 
     private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {
@@ -1640,11 +1690,25 @@ struct ChatView: View {
     }
 
     private var supportsKeyboardNavigationShortcuts: Bool {
-#if os(iOS)
+#if targetEnvironment(macCatalyst)
+        true
+#elseif os(iOS)
         UIDevice.current.userInterfaceIdiom == .pad
+#elseif os(visionOS)
+        true
 #else
         false
 #endif
+    }
+
+    private var keyboardScrollShortcutEnabled: Bool {
+        ChatKeyboardScrollRouting.isEnabled(
+            platformSupportsKeyboardNavigation: supportsKeyboardNavigationShortcuts,
+            streamPopupRoute: streamPopupRouteController.route,
+            activeSheetPresented: activeSheet != nil,
+            photosPickerPresented: isPhotosPickerPresented,
+            fileImporterPresented: isFileImporterPresented
+        )
     }
 
     private var keyboardNavigationSessionKey: String? {
@@ -1659,19 +1723,25 @@ struct ChatView: View {
         return sessionKeys.first
     }
 
-    private func scrollActiveSessionToBottom() {
+    private func scrollVisibleBubbleContents(_ direction: ChatScrollPageDirection) {
         guard let sessionKey = keyboardNavigationSessionKey else { return }
-        layoutCoordinator.scrollToBottom(sessionKey: sessionKey, animated: true)
+        layoutCoordinator.scrollVisibleBubbleContents(sessionKey: sessionKey, direction: direction, animated: true)
     }
 
-    private func scrollActiveSessionToTop() {
+    private func scrollChatSurface(_ direction: ChatScrollPageDirection) {
         guard let sessionKey = keyboardNavigationSessionKey else { return }
-        layoutCoordinator.scrollToTop(sessionKey: sessionKey, animated: true)
+        layoutCoordinator.scrollByPage(sessionKey: sessionKey, direction: direction, animated: true)
     }
 
-    private func requestStreamPopupSearchFocus() {
-        streamPopupShouldAutoFocusSearch = true
-        streamPopupSearchFocusRequestID &+= 1
+    private func navigateStreamByShortcut(step: Int, sessionKeys: [String]) {
+        guard let targetSessionKey = ChatKeyboardNavigation.targetSessionKey(
+            sessionKeys: sessionKeys,
+            currentSessionKey: keyboardNavigationSessionKey,
+            step: step
+        ) else {
+            return
+        }
+        selectStream(targetSessionKey, source: .programmatic)
     }
 
     private func scheduleStreamToastBusyClear() {
@@ -1711,6 +1781,41 @@ struct ChatView: View {
         typingActivityResetTask?.cancel()
         typingActivityResetTask = nil
         isTypingActive = false
+    }
+
+    private func insertPromptTextFromNoTextOwner(_ text: String) {
+        guard let insertedText = PromptFocusTypingActivation.promptInsertionText(from: text) else { return }
+        let mutable = NSMutableAttributedString(attributedString: viewModel.inputContent)
+        let insertionRange = clampedPromptSelectionRange(length: mutable.length)
+        mutable.replaceCharacters(in: insertionRange, with: NSAttributedString(string: insertedText))
+        viewModel.inputContent = mutable
+        selectionRange = NSRange(location: insertionRange.location + (insertedText as NSString).length, length: 0)
+        recordTypingActivity()
+        focusRequestID &+= 1
+    }
+
+    private func clampedPromptSelectionRange(length: Int) -> NSRange {
+        guard selectionRange.location != NSNotFound else {
+            return NSRange(location: length, length: 0)
+        }
+        let safeLocation = min(max(selectionRange.location, 0), length)
+        let safeLength = max(0, min(selectionRange.length, length - safeLocation))
+        return NSRange(location: safeLocation, length: safeLength)
+    }
+
+    private func scheduleInputFocusChange(_ focused: Bool) {
+        Task { @MainActor in
+            applyInputFocusChange(focused)
+        }
+    }
+
+    private func applyInputFocusChange(_ focused: Bool) {
+        if isInputFocused != focused {
+            isInputFocused = focused
+        }
+        if !focused {
+            clearTypingActivity()
+        }
     }
 
     private func deviceCornerRadius() -> CGFloat {
@@ -2029,69 +2134,650 @@ private struct VisionOSInputBarDepthOffset: ViewModifier {
     }
 }
 
+private struct StreamPopupTrigger: View {
+    @Bindable var routeController: StreamPopupRouteController
+
+    let viewModel: ChatViewModel
+    let streams: [StreamSession]
+    let sessionKeys: [String]
+    let activeSessionKey: String
+    let dotStatesBySession: [String: StreamDotState]
+    let maxWidth: CGFloat?
+    let maxAvailableHeight: CGFloat
+    let maxAvailableWidth: CGFloat
+    let onSelectStream: (String) -> Void
+    let onPrepareForTrackPicker: () -> Void
+    let onTrackPickerDismiss: () -> Void
+
+    var body: some View {
+        StreamPageDotsView(
+            sessionKeys: sessionKeys,
+            activeSessionKey: activeSessionKey,
+            dotStatesBySession: dotStatesBySession,
+            maxWidth: maxWidth,
+            onTap: {
+                routeController.openPopup(focusSearch: false)
+            }
+        )
+        .popover(
+            isPresented: popupPresentationBinding,
+            attachmentAnchor: .rect(.bounds),
+            arrowEdge: .bottom
+        ) {
+            StreamManagerSheet(
+                viewModel: viewModel,
+                streams: streams,
+                dotStatesBySession: dotStatesBySession,
+                searchFocusRequestID: routeController.popupSearchFocusRequestID,
+                maxAvailableHeight: maxAvailableHeight,
+                maxAvailableWidth: maxAvailableWidth,
+                onSelectStream: { sessionKey in
+                    routeController.closePopup()
+                    onSelectStream(sessionKey)
+                },
+                onRequestTrackPicker: {
+                    onPrepareForTrackPicker()
+                    routeController.presentTrackPicker()
+                },
+                onConsumeSearchFocusRequest: {
+                    routeController.consumeSearchFocusRequest()
+                }
+            )
+            .presentationCompactAdaptation(.popover)
+            .presentationBackground(.clear)
+            .streamManagerPopoverBackgroundInteraction()
+        }
+        .sheet(
+            isPresented: trackPickerPresentationBinding,
+            onDismiss: {
+                routeController.dismissTrackPicker()
+                onTrackPickerDismiss()
+            }
+        ) {
+            TrackPickerSheet(
+                viewModel: viewModel,
+                onDismissRequested: {
+                    routeController.dismissTrackPicker()
+                }
+            )
+        }
+    }
+
+    private var popupPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { routeController.isPopupPresented },
+            set: { isPresented in
+                if isPresented {
+                    routeController.openPopup(focusSearch: false)
+                } else {
+                    routeController.closePopup()
+                }
+            }
+        )
+    }
+
+    private var trackPickerPresentationBinding: Binding<Bool> {
+        Binding(
+            get: { routeController.isTrackPickerPresented },
+            set: { isPresented in
+                if isPresented {
+                    routeController.presentTrackPicker()
+                } else {
+                    routeController.dismissTrackPicker()
+                }
+            }
+        )
+    }
+}
+
 private extension View {
     func visionOSInputBarDepthOffset() -> some View {
         modifier(VisionOSInputBarDepthOffset())
     }
 
+    @ViewBuilder
+    func streamManagerPopoverBackgroundInteraction() -> some View {
+#if os(visionOS)
+        self
+#else
+        self.presentationBackgroundInteraction(.enabled)
+#endif
+    }
+
+    func handlePromptFocusCommand(
+        onFocusRequested: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            PromptFocusCommandModifier(
+                onFocusRequested: onFocusRequested
+            )
+        )
+    }
+
     func handleStreamPopupCommand(
-        isPresented: Binding<Bool>,
         hasStreams: Bool,
         onOpen: @escaping () -> Void
     ) -> some View {
         modifier(
             StreamPopupCommandModifier(
-                isPresented: isPresented,
                 hasStreams: hasStreams,
                 onOpen: onOpen
             )
         )
     }
 
+    func handleStreamNavigationCommands(
+        isEnabled: Bool,
+        onNavigatePrevious: @escaping () -> Void,
+        onNavigateNext: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            StreamNavigationCommandModifier(
+                isEnabled: isEnabled,
+                onNavigatePrevious: onNavigatePrevious,
+                onNavigateNext: onNavigateNext
+            )
+        )
+    }
+
     func handleKeyboardScrollCommands(
         isEnabled: Bool,
-        onScrollToBottom: @escaping () -> Void,
-        onScrollToTop: @escaping () -> Void
+        onScrollDown: @escaping () -> Void,
+        onScrollUp: @escaping () -> Void,
+        onScrollChatDown: @escaping () -> Void,
+        onScrollChatUp: @escaping () -> Void
     ) -> some View {
         modifier(
             KeyboardScrollCommandModifier(
                 isEnabled: isEnabled,
-                onScrollToBottom: onScrollToBottom,
-                onScrollToTop: onScrollToTop
+                onScrollDown: onScrollDown,
+                onScrollUp: onScrollUp,
+                onScrollChatDown: onScrollChatDown,
+                onScrollChatUp: onScrollChatUp
             )
         )
     }
 }
 
+private struct PromptFocusCommandModifier: ViewModifier {
+    let onFocusRequested: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onReceive(NotificationCenter.default.publisher(for: .clawlineFocusPromptInputCommand)) { _ in
+            onFocusRequested()
+        }
+    }
+}
+
 private struct StreamPopupCommandModifier: ViewModifier {
-    @Binding var isPresented: Bool
     let hasStreams: Bool
     let onOpen: () -> Void
 
     func body(content: Content) -> some View {
         content.onReceive(NotificationCenter.default.publisher(for: .clawlineOpenStreamPopupCommand)) { _ in
             guard hasStreams else { return }
-            isPresented = true
             onOpen()
         }
     }
 }
 
-private struct KeyboardScrollCommandModifier: ViewModifier {
+private struct StreamNavigationCommandModifier: ViewModifier {
     let isEnabled: Bool
-    let onScrollToBottom: () -> Void
-    let onScrollToTop: () -> Void
+    let onNavigatePrevious: () -> Void
+    let onNavigateNext: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToBottomCommand)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineNavigateToPreviousStreamCommand)) { _ in
                 guard isEnabled else { return }
-                onScrollToBottom()
+                onNavigatePrevious()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollToTopCommand)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineNavigateToNextStreamCommand)) { _ in
                 guard isEnabled else { return }
-                onScrollToTop()
+                onNavigateNext()
             }
+    }
+}
+
+private struct KeyboardScrollCommandModifier: ViewModifier {
+    let isEnabled: Bool
+    let onScrollDown: () -> Void
+    let onScrollUp: () -> Void
+    let onScrollChatDown: () -> Void
+    let onScrollChatUp: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollDownCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollDown()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollUpCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollUp()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatDownCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollChatDown()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatUpCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollChatUp()
+            }
+    }
+}
+
+private struct PromptFocusShortcutModifier: ViewModifier {
+    let isEnabled: Bool
+    let hasStreams: Bool
+    let onOpenStreamPopup: () -> Void
+    let onFocusRequested: () -> Void
+    let onTextInserted: (String) -> Void
+
+    func body(content: Content) -> some View {
+        content.background {
+            PromptFocusShortcutHost(
+                isEnabled: isEnabled,
+                hasStreams: hasStreams,
+                onOpenStreamPopup: onOpenStreamPopup,
+                onFocusRequested: onFocusRequested,
+                onTextInserted: onTextInserted
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+private struct PromptFocusShortcutHost: UIViewRepresentable {
+    let isEnabled: Bool
+    let hasStreams: Bool
+    let onOpenStreamPopup: () -> Void
+    let onFocusRequested: () -> Void
+    let onTextInserted: (String) -> Void
+
+    func makeUIView(context: Context) -> PromptFocusShortcutView {
+        let view = PromptFocusShortcutView()
+        view.onOpenStreamPopup = onOpenStreamPopup
+        view.onFocusRequested = onFocusRequested
+        view.onTextInserted = onTextInserted
+        view.isShortcutEnabled = isEnabled
+        view.hasStreams = hasStreams
+        return view
+    }
+
+    func updateUIView(_ view: PromptFocusShortcutView, context: Context) {
+        view.onOpenStreamPopup = onOpenStreamPopup
+        view.onFocusRequested = onFocusRequested
+        view.onTextInserted = onTextInserted
+        view.isShortcutEnabled = isEnabled
+        view.hasStreams = hasStreams
+        if isEnabled {
+            view.activateWhenReady()
+        } else if view.isFirstResponder {
+            view.resignFirstResponder()
+        }
+    }
+}
+
+private final class PromptFocusShortcutView: UIView {
+    var onOpenStreamPopup: (() -> Void)?
+    var onFocusRequested: (() -> Void)?
+    var onTextInserted: ((String) -> Void)?
+    var isShortcutEnabled = false
+    var hasStreams = false
+    private var hasPendingActivationRetry = false
+    private static let keyboardSuppressingInputView = PromptFocusShortcutSuppressedInputView()
+
+    // T221: This hidden responder is the no-text-owner input-intent router. The chat
+    // surface owns scroll/selection/content interaction, and Prompt Input owns real
+    // editing; this view only bridges ordinary typing from "nothing owns text input"
+    // to "Prompt Input should take over."
+    override var canBecomeFirstResponder: Bool {
+        isShortcutEnabled
+    }
+
+    override var inputView: UIView? {
+        Self.keyboardSuppressingInputView
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard isShortcutEnabled else { return nil }
+        let noTextCommands = PromptFocusShortcutConfiguration.keyCommandSpecs.map { spec in
+            UIKeyCommand(
+                input: spec.input,
+                modifierFlags: spec.modifierFlags,
+                action: selector(for: spec.action)
+            )
+        }
+        let appCommandShortcuts = ChatAppCommandShortcut.keyCommandSpecs.map { spec in
+            UIKeyCommand(
+                input: spec.input,
+                modifierFlags: spec.modifierFlags,
+                action: spec.action.selector
+            )
+        }
+        return noTextCommands + appCommandShortcuts
+    }
+
+    private func selector(for action: PromptFocusShortcutConfiguration.Action) -> Selector {
+        switch action {
+        case .focusPromptInput:
+            return #selector(focusPromptInput)
+        case .openStreamPopup:
+            return #selector(openStreamPopup)
+        }
+    }
+
+    func activateWhenReady(textInputRetryCount: Int = 1) {
+        guard window != nil else {
+            DispatchQueue.main.async { [weak self] in
+                self?.activateWhenReady()
+            }
+            return
+        }
+        switch PromptFocusShortcutActivation.action(
+            isShortcutEnabled: isShortcutEnabled,
+            isAlreadyFirstResponder: isFirstResponder,
+            currentFirstResponderIsTextInput: window?.clawlineFirstResponder?.isClawlineTextInputResponder == true,
+            currentFirstResponderOwnsEmbeddedScroll: window?.clawlineFirstResponder?.ownsClawlineEmbeddedScrollInput == true,
+            canRetryAfterTextInput: textInputRetryCount > 0
+        ) {
+        case .activate:
+            hasPendingActivationRetry = false
+            becomeFirstResponder()
+        case .retryAfterTextInputResigns:
+            scheduleActivationRetry(textInputRetryCount: textInputRetryCount - 1)
+        case .skip:
+            hasPendingActivationRetry = false
+        }
+    }
+
+    private func scheduleActivationRetry(textInputRetryCount: Int) {
+        guard !hasPendingActivationRetry else { return }
+        hasPendingActivationRetry = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            hasPendingActivationRetry = false
+            activateWhenReady(textInputRetryCount: textInputRetryCount)
+        }
+    }
+
+    @objc private func focusPromptInput(_ sender: UIKeyCommand) {
+        guard isShortcutEnabled else { return }
+        onFocusRequested?()
+    }
+
+    @objc private func openStreamPopup(_ sender: UIKeyCommand) {
+        guard isShortcutEnabled, hasStreams else { return }
+        onOpenStreamPopup?()
+    }
+}
+
+// The catcher must stay side-effect-free: no visible UI, no software keyboard, and
+// no lasting editing ownership. Hardware/composed text may reach `insertText(_:)`,
+// but the responder immediately hands the intent to Prompt Input.
+private final class PromptFocusShortcutSuppressedInputView: UIView {
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: 0)
+    }
+}
+
+extension PromptFocusShortcutView: UIKeyInput {
+    var hasText: Bool {
+        false
+    }
+
+    func insertText(_ text: String) {
+        guard isShortcutEnabled else { return }
+        // Product invariant: when nothing else owns text input, typing intent reaches Prompt Input.
+        onTextInserted?(text)
+    }
+
+    func deleteBackward() {}
+}
+
+enum PromptFocusShortcutConfiguration {
+    enum Action: Equatable {
+        case focusPromptInput
+        case openStreamPopup
+    }
+
+    struct KeyCommandSpec {
+        let input: String
+        let modifierFlags: UIKeyModifierFlags
+        let action: Action
+    }
+
+    static let keyCommandSpecs: [KeyCommandSpec] = [
+        KeyCommandSpec(input: "/", modifierFlags: [], action: .openStreamPopup),
+        KeyCommandSpec(input: ";", modifierFlags: [], action: .openStreamPopup),
+        KeyCommandSpec(input: " ", modifierFlags: [], action: .focusPromptInput),
+        KeyCommandSpec(input: "\r", modifierFlags: [], action: .focusPromptInput)
+    ]
+}
+
+enum ChatAppCommandShortcut {
+    enum Action {
+        case focusPromptInput
+        case openStreamPopup
+        case navigatePreviousStream
+        case navigateNextStream
+        case scrollDown
+        case scrollUp
+        case scrollChatDown
+        case scrollChatUp
+
+        var selector: Selector {
+            switch self {
+            case .focusPromptInput:
+                return #selector(UIResponder.clawlineFocusPromptInputCommand(_:))
+            case .openStreamPopup:
+                return #selector(UIResponder.clawlineOpenStreamPopupCommand(_:))
+            case .navigatePreviousStream:
+                return #selector(UIResponder.clawlineNavigateToPreviousStreamCommand(_:))
+            case .navigateNextStream:
+                return #selector(UIResponder.clawlineNavigateToNextStreamCommand(_:))
+            case .scrollDown:
+                return #selector(UIResponder.clawlineScrollDownCommand(_:))
+            case .scrollUp:
+                return #selector(UIResponder.clawlineScrollUpCommand(_:))
+            case .scrollChatDown:
+                return #selector(UIResponder.clawlineScrollChatDownCommand(_:))
+            case .scrollChatUp:
+                return #selector(UIResponder.clawlineScrollChatUpCommand(_:))
+            }
+        }
+    }
+
+    struct KeyCommandSpec {
+        let input: String
+        let modifierFlags: UIKeyModifierFlags
+        let action: Action
+    }
+
+    static let keyCommandSpecs: [KeyCommandSpec] = [
+        KeyCommandSpec(input: "l", modifierFlags: [.command], action: .focusPromptInput),
+        KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
+        KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
+        KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream),
+        KeyCommandSpec(input: "j", modifierFlags: [.command], action: .scrollDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command], action: .scrollUp),
+        KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollChatDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollChatUp)
+    ]
+}
+
+enum ChatShortcutRouting {
+    enum Owner: Equatable {
+        case appCommand
+        case noTextResponder
+        case textInput
+    }
+
+    static func owner(input: String, modifierFlags: UIKeyModifierFlags) -> Owner {
+        let normalizedInput = input.lowercased()
+        if modifierFlags == [.command], normalizedInput == ";" {
+            return .appCommand
+        }
+        if modifierFlags == [.command], normalizedInput == "l" {
+            return .appCommand
+        }
+        if modifierFlags == [.command, .shift], ["h", "l"].contains(normalizedInput) {
+            return .appCommand
+        }
+        if modifierFlags == [.command], ["j", "k"].contains(normalizedInput) {
+            return .appCommand
+        }
+        if modifierFlags == [.command, .shift], ["j", "k"].contains(normalizedInput) {
+            return .appCommand
+        }
+        if modifierFlags.contains(.command) {
+            return .textInput
+        }
+        return ["/", ";", " ", "\r"].contains(input) ? .noTextResponder : .textInput
+    }
+}
+
+enum PromptFocusTypingActivation {
+    static func promptInsertionText(from insertedText: String) -> String? {
+        guard !insertedText.isEmpty else { return nil }
+        guard !["/", ";", " ", "\r", "\n"].contains(insertedText) else { return nil }
+        guard insertedText.rangeOfCharacter(from: .controlCharacters) == nil else { return nil }
+        return insertedText
+    }
+}
+
+enum ChatKeyboardScrollRouting {
+    static func isEnabled(
+        platformSupportsKeyboardNavigation: Bool,
+        streamPopupRoute: StreamPopupRoute,
+        activeSheetPresented: Bool,
+        photosPickerPresented: Bool,
+        fileImporterPresented: Bool
+    ) -> Bool {
+        platformSupportsKeyboardNavigation
+            && streamPopupRoute == .closed
+            && !activeSheetPresented
+            && !photosPickerPresented
+            && !fileImporterPresented
+    }
+}
+
+extension UIResponder {
+    @objc func clawlineFocusPromptInputCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineFocusPromptInputCommand, object: nil)
+    }
+
+    @objc func clawlineOpenStreamPopupCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineOpenStreamPopupCommand, object: nil)
+    }
+
+    @objc func clawlineNavigateToPreviousStreamCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineNavigateToPreviousStreamCommand, object: nil)
+    }
+
+    @objc func clawlineNavigateToNextStreamCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
+    }
+
+    @objc func clawlineScrollDownCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)
+    }
+
+    @objc func clawlineScrollUpCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
+    }
+
+    @objc func clawlineScrollChatDownCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollChatDownCommand, object: nil)
+    }
+
+    @objc func clawlineScrollChatUpCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollChatUpCommand, object: nil)
+    }
+}
+
+enum ChatKeyboardNavigation {
+    static func targetSessionKey(
+        sessionKeys: [String],
+        currentSessionKey: String?,
+        step: Int
+    ) -> String? {
+        guard !sessionKeys.isEmpty, step != 0 else { return nil }
+        guard let currentSessionKey,
+              let currentIndex = sessionKeys.firstIndex(of: currentSessionKey) else {
+            return sessionKeys.first
+        }
+        let targetIndex = min(sessionKeys.count - 1, max(0, currentIndex + step))
+        guard targetIndex != currentIndex else { return nil }
+        return sessionKeys[targetIndex]
+    }
+}
+
+enum PromptFocusShortcutActivation {
+    enum Action: Equatable {
+        case activate
+        case retryAfterTextInputResigns
+        case skip
+    }
+
+    static func action(
+        isShortcutEnabled: Bool,
+        isAlreadyFirstResponder: Bool,
+        currentFirstResponderIsTextInput: Bool,
+        currentFirstResponderOwnsEmbeddedScroll: Bool,
+        canRetryAfterTextInput: Bool
+    ) -> Action {
+        guard isShortcutEnabled, !isAlreadyFirstResponder else { return .skip }
+        guard !currentFirstResponderOwnsEmbeddedScroll else { return .skip }
+        guard !currentFirstResponderIsTextInput else {
+            return canRetryAfterTextInput ? .retryAfterTextInputResigns : .skip
+        }
+        return .activate
+    }
+}
+
+private extension UIResponder {
+    static weak var clawlineCurrentFirstResponder: UIResponder?
+
+    var isClawlineTextInputResponder: Bool {
+        self is UITextInput
+    }
+
+    var ownsClawlineEmbeddedScrollInput: Bool {
+        var responder: UIResponder? = self
+        while let current = responder {
+            if current is WKWebView {
+                return true
+            }
+            responder = current.next
+        }
+        return false
+    }
+
+    @objc func clawlineCaptureFirstResponder(_ sender: Any) {
+        UIResponder.clawlineCurrentFirstResponder = self
+    }
+}
+
+private extension UIWindow {
+    var clawlineFirstResponder: UIResponder? {
+        UIResponder.clawlineCurrentFirstResponder = nil
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.clawlineCaptureFirstResponder(_:)),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        return UIResponder.clawlineCurrentFirstResponder
+    }
+
+    static var clawlineCurrentFirstResponderOwnsEmbeddedScroll: Bool {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .contains { $0.clawlineFirstResponder?.ownsClawlineEmbeddedScrollInput == true }
     }
 }
 
@@ -2357,6 +3043,31 @@ private struct KeyboardPinnedContainer<Content: View>: UIViewRepresentable {
     }
 }
 
+enum KeyboardPinnedHitTesting {
+    @MainActor
+    static func contains(
+        _ point: CGPoint,
+        in candidate: UIView,
+        from container: UIView,
+        event: UIEvent?
+    ) -> Bool {
+        guard !candidate.isHidden, candidate.isUserInteractionEnabled, candidate.alpha > 0.01 else { return false }
+
+        let pointInCandidate = container.convert(point, to: candidate)
+        if candidate.hitTest(pointInCandidate, with: event) != nil {
+            return true
+        }
+        if candidate.point(inside: pointInCandidate, with: event) {
+            return true
+        }
+        if let presentationFrame = candidate.layer.presentation()?.frame,
+           presentationFrame.contains(point) {
+            return true
+        }
+        return false
+    }
+}
+
 private final class KeyboardPinnedContainerView<Content: View>: UIView, KeyboardPinnedContainerViewProtocol {
     let hostingController: UIHostingController<Content>
     let versionLabel: UILabel
@@ -2562,7 +3273,16 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
         pageDotsHost?.view.isHidden = (view == nil)
         pageDotsHost?.view.isUserInteractionEnabled = (view != nil)
         pageDotsBottomToBarTop?.constant = -gap
+        syncPageDotsHostLayout()
 #endif
+    }
+
+    private func syncPageDotsHostLayout() {
+        guard let pageDotsView = pageDotsHost?.view else { return }
+        pageDotsView.invalidateIntrinsicContentSize()
+        pageDotsView.setNeedsLayout()
+        setNeedsLayout()
+        layoutIfNeeded()
     }
 
     func setDesiredBottomGap(_ gap: CGFloat, isKeyboardVisible: Bool) {
@@ -2644,16 +3364,20 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        if let hitView = hostingController.view, hitView.frame.contains(point) {
+        layoutIfNeeded()
+        if let hitView = hostingController.view,
+           KeyboardPinnedHitTesting.contains(point, in: hitView, from: self, event: event) {
             return true
         }
-        if let scrollButtonHost, scrollButtonHost.view.frame.contains(point) {
+        if let scrollButtonHost,
+           KeyboardPinnedHitTesting.contains(point, in: scrollButtonHost.view, from: self, event: event) {
             return true
         }
-        if let pageDotsHost, pageDotsHost.view.frame.contains(point) {
+        if let pageDotsHost,
+           KeyboardPinnedHitTesting.contains(point, in: pageDotsHost.view, from: self, event: event) {
             return true
         }
-        if !versionLabel.isHidden && versionLabel.frame.contains(point) {
+        if KeyboardPinnedHitTesting.contains(point, in: versionLabel, from: self, event: event) {
             return true
         }
         return false
@@ -2934,12 +3658,16 @@ private final class PreviewChatService: ChatServicing {
     func disconnect() {}
     func replayCursorSnapshot() -> [String: String] { [:] }
     func setReplayCursor(_ cursor: String?, for sessionKey: String) {}
+    func seedReplayCursorIfMissing(_ cursor: String?, for sessionKey: String) {}
     func clearReplayCursors() {}
     func send(id: String, content: String, attachments: [WireAttachment], sessionKey: String?) async throws {}
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {}
     func publishReadState(sessionKey: String, lastReadMessageId: String) async throws {}
     func fetchStreams() async throws -> [StreamSession] { [] }
     func fetchTrackableSessions() async throws -> [TrackableSession] { [] }
+    func fetchSessionStatus(sessionKey: String) async throws -> SessionStatus {
+        throw ProviderChatService.Error.notConnected
+    }
     func adoptStream(sessionKey: String) async throws -> StreamSession {
         StreamSession(
             sessionKey: sessionKey,

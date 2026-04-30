@@ -154,9 +154,91 @@ struct ProviderServiceTests {
         let message = await iterator.next()
 
         #expect(connector.connectedURL?.absoluteString == "wss://example.com/ws")
-        #expect(mockSocket.sentTexts.contains { $0.contains("\"type\":\"auth\"") && $0.contains("\"lastMessageId\":\"s_0\"") })
+        #expect(mockSocket.sentTexts.contains { $0.contains("\"type\":\"auth\"") })
+        #expect(mockSocket.sentTexts.allSatisfy { !$0.contains("\"lastMessageId\"") })
         #expect(mockSocket.sentTexts.contains { $0.contains("\"clientFeatures\":[\"terminal_bubbles_v1\"]") })
         #expect(message?.content == "Hi")
+    }
+
+    @Test("Chat auth sends per-stream replay cursors without legacy cursor")
+    func chatAuthSendsReplayCursorMap() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_replay_map",
+            baseURLProvider: { baseURL }
+        )
+        defer { service.clearReplayCursors() }
+
+        let mainKey = "agent:main:clawline:user:main"
+        let sideKey = "agent:main:clawline:user:side"
+        service.setReplayCursor("s_main_final", for: mainKey)
+        service.setReplayCursor("s_side_final", for: sideKey)
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: "s_main_final")
+
+        let auth = try #require(mockSocket.sentTexts.first(where: { $0.contains("\"type\":\"auth\"") }))
+        let payload = try jsonObject(auth)
+        #expect(payload["lastMessageId"] == nil)
+        let replayCursors = try #require(payload["replayCursorsBySessionKey"] as? [String: Any])
+        #expect(replayCursors[mainKey] as? String == "s_main_final")
+        #expect(replayCursors[sideKey] as? String == "s_side_final")
+    }
+
+    @Test("Streaming partials do not advance replay cursors but finals do")
+    func streamingPartialsDoNotAdvanceReplayCursors() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_stream_cursor",
+            baseURLProvider: { baseURL }
+        )
+        defer { service.clearReplayCursors() }
+
+        let sessionKey = "agent:main:clawline:user:main"
+        var iterator = service.incomingMessages.makeAsyncIterator()
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+
+        mockSocket.enqueue(text: #"{ "type": "message", "id": "s_shared_reply", "role": "assistant", "content": "Partial", "timestamp": 1700000000000, "streaming": true, "sessionKey": "agent:main:clawline:user:main", "attachments": [] }"#)
+        _ = await iterator.next()
+        #expect(service.replayCursorSnapshot()[sessionKey] == nil)
+
+        mockSocket.enqueue(text: #"{ "type": "message", "id": "s_shared_reply", "role": "assistant", "content": "Final", "timestamp": 1700000001000, "streaming": false, "sessionKey": "agent:main:clawline:user:main", "attachments": [] }"#)
+        _ = await iterator.next()
+        #expect(service.replayCursorSnapshot()[sessionKey] == "s_shared_reply")
+    }
+
+    @Test("Cache restore seeding cannot overwrite an advanced replay cursor")
+    func cacheSeedDoesNotOverwriteAdvancedCursor() {
+        let service = ProviderChatService(
+            connector: MockWebSocketConnector(client: MockWebSocketClient()),
+            deviceId: "device_seed_cursor",
+            baseURLProvider: { URL(string: "https://example.com")! }
+        )
+        defer { service.clearReplayCursors() }
+
+        let mainKey = "agent:main:clawline:user:main"
+        let sideKey = "agent:main:clawline:user:side"
+        service.setReplayCursor("s_live_final", for: mainKey)
+        service.seedReplayCursorIfMissing("s_cache_old", for: mainKey)
+        service.seedReplayCursorIfMissing("s_side_cache", for: sideKey)
+
+        #expect(service.replayCursorSnapshot()[mainKey] == "s_live_final")
+        #expect(service.replayCursorSnapshot()[sideKey] == "s_side_cache")
     }
 
     @Test("Chat connect reports adopted session keys during auth")
@@ -296,6 +378,54 @@ struct ProviderServiceTests {
                 && $0.contains("\"sessionKey\":\"agent:main:clawline:user:main\"")
                 && $0.contains("\"lastReadMessageId\":\"s_read_1\"")
         })
+    }
+
+    @Test("Unknown read-state cursor rejection does not fail pending messages")
+    func unknownReadStateCursorRejectionDoesNotFailPendingMessages() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL }
+        )
+        var eventIterator = service.serviceEvents.makeAsyncIterator()
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(10))
+            mockSocket.enqueue(text: #"{ "type": "auth_result", "success": true }"#)
+        }
+
+        try await service.connect(token: "jwt", lastMessageId: nil)
+        try await service.send(
+            id: "c_pending",
+            content: "Hello",
+            attachments: [],
+            sessionKey: nil
+        )
+
+        Task {
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "error", "code": "invalid_message", "message": "Unknown lastReadMessageId" }"#)
+            try await Task.sleep(forDuration: .milliseconds(20))
+            mockSocket.enqueue(text: #"{ "type": "ack", "id": "c_pending" }"#)
+        }
+
+        for _ in 0..<20 {
+            guard let event = await eventIterator.next() else { continue }
+            switch event {
+            case .messageError(_, let code, let message):
+                Issue.record("Unexpected message error from read-state rejection: \(code) \(message ?? "")")
+                return
+            case .messageAcked(let id) where id == "c_pending":
+                return
+            default:
+                continue
+            }
+        }
+
+        Issue.record("Expected pending message ack")
     }
 
     @Test("Chat send does not automatically retry an unacked message")
@@ -700,6 +830,90 @@ struct ProviderServiceTests {
         #expect(streams.count == 2)
         #expect(streams[0].adopted)
         #expect(!streams[1].adopted)
+    }
+
+    @Test("Fetch session status uses provider status endpoint and decodes capabilities")
+    func fetchSessionStatusUsesProviderEndpoint() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let sessionKey = "agent:main:clawline:user:s_status"
+        defer { HTTPStubURLProtocol.requestHandler = nil }
+        HTTPStubURLProtocol.requestHandler = { request in
+            #expect(request.url?.path == "/api/session-status")
+            let queryItems = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+            #expect(queryItems?.first(where: { $0.name == "sessionKey" })?.value == sessionKey)
+            #expect(request.httpMethod == "GET")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer jwt")
+            let data = #"""
+            {
+              "sessionKey": "agent:main:clawline:user:s_status",
+              "display": {
+                "model": "claude-sonnet-4.6",
+                "fallbackModels": null,
+                "provider": "anthropic",
+                "harness": null,
+                "reasoningLevel": null,
+                "thinkingLevel": "high",
+                "fastMode": true,
+                "mode": null,
+                "verbosity": null
+              },
+              "run": {
+                "state": "running",
+                "runId": "run_1",
+                "messageId": "c_1",
+                "startedAt": 1700000000000,
+                "queueDepth": 2
+              },
+              "context": {
+                "available": false,
+                "compaction": null
+              },
+              "approval": {
+                "state": null
+              },
+              "capabilities": {
+                "cancelCurrentRun": { "supported": false, "reason": "provider_control_not_available" },
+                "setModel": { "supported": false, "reason": "provider_control_not_available" },
+                "setReasoning": { "supported": false, "reason": "provider_control_not_available" },
+                "setMode": { "supported": false, "reason": "provider_control_not_available" },
+                "setVerbosity": { "supported": false, "reason": "provider_control_not_available" }
+              }
+            }
+            """#.data(using: .utf8) ?? Data()
+            return (
+                HTTPURLResponse(
+                    url: request.url ?? baseURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPStubURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let streamAPIClient = StreamAPIClient(baseURLProvider: { baseURL }, session: urlSession)
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            authTokenProvider: { "jwt" },
+            streamAPIClient: streamAPIClient
+        )
+
+        let status = try await service.fetchSessionStatus(sessionKey: sessionKey)
+
+        #expect(status.sessionKey == sessionKey)
+        #expect(status.display.provider == "anthropic")
+        #expect(status.display.model == "claude-sonnet-4.6")
+        #expect(status.display.thinkingLevel == "high")
+        #expect(status.display.fastMode == true)
+        #expect(status.run.state == .running)
+        #expect(status.run.queueDepth == 2)
+        #expect(status.capabilities.cancelCurrentRun?.supported == false)
     }
 
     @Test("Adopt stream request posts session key to provider")
@@ -1109,4 +1323,20 @@ private final class HangingWebSocketClient: WebSocketClient {
     }
 
     func close(with code: URLSessionWebSocketTask.CloseCode?) {}
+}
+
+private func jsonObject(_ text: String) throws -> [String: Any] {
+    guard let data = text.data(using: .utf8) else {
+        throw JSONParseError.invalidUTF8
+    }
+    let object = try JSONSerialization.jsonObject(with: data)
+    guard let dictionary = object as? [String: Any] else {
+        throw JSONParseError.notDictionary
+    }
+    return dictionary
+}
+
+private enum JSONParseError: Error {
+    case invalidUTF8
+    case notDictionary
 }

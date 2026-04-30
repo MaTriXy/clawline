@@ -36,6 +36,13 @@ struct RootView: View {
             : Color(uiColor: .systemGray6)              // Light gray
     }
 
+    private var isPairingRouteVisible: Bool {
+        RootBackgroundShaderLifecycle.isShaderActive(
+            isAuthenticated: auth.isAuthenticated,
+            isProviderConfigured: isProviderConfigured
+        )
+    }
+
     var body: some View {
         let _ = settings.fontScaleChangeSequence
         Group {
@@ -98,8 +105,14 @@ struct RootView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
 #else
-            backgroundColor
-                .backgroundEffect(settings.effectConfig)
+            Group {
+                if isPairingRouteVisible {
+                    backgroundColor
+                        .backgroundEffect(settings.effectConfig)
+                } else {
+                    backgroundColor
+                }
+            }
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -148,6 +161,12 @@ struct RootView: View {
     private func showPendingFontScaleToastIfNeeded() {
         guard let message = settings.consumePendingFontScaleToastMessage() else { return }
         toastManager.show(message, duration: .seconds(3))
+    }
+}
+
+enum RootBackgroundShaderLifecycle {
+    static func isShaderActive(isAuthenticated: Bool, isProviderConfigured: Bool) -> Bool {
+        !isAuthenticated || !isProviderConfigured
     }
 }
 

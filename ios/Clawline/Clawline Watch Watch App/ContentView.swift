@@ -1,8 +1,8 @@
 //
 //  ContentView.swift
-//  Surf Ace
+//  Clawline Watch Watch App
 //
-//  Created by Mike Manzano on 2/26/26.
+//  Created by Mike Manzano on 1/7/26.
 //
 
 import SwiftUI

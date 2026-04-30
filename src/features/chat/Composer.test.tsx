@@ -39,6 +39,7 @@ function renderComposer({
     getState() {
       return transportState;
     },
+    async publishReadState() {},
     retryNow,
     async sendInteractiveCallback() {},
     setSelectedSessionKey() {},

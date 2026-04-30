@@ -8,6 +8,19 @@
 import SwiftUI
 import UIKit
 import Foundation
+import Observation
+
+// The input bar is hosted in a pinned UIKit container, so parent value changes do not always
+// rebuild its content closure. Keep the send button state in a stable observable store.
+@Observable
+@MainActor
+final class SendButtonConnectionStateStore {
+    var value: SendButtonConnectionState
+
+    init(value: SendButtonConnectionState = .disconnected) {
+        self.value = value
+    }
+}
 
 // MARK: - ⚠️⚠️⚠️ CRITICAL: READ ChatView.swift HEADER BEFORE MODIFYING ⚠️⚠️⚠️
 //
@@ -47,7 +60,7 @@ struct MessageInputBar: View {
     let canSend: Bool
     let isSending: Bool
     let isStagingAttachments: Bool
-    let connectionState: SendButtonConnectionState
+    let connectionStateStore: SendButtonConnectionStateStore
     let focusTrigger: Int
     /// Pass geometry.safeAreaInsets.bottom directly - DO NOT pass a computed Bool.
     let bottomSafeAreaInset: CGFloat
@@ -179,6 +192,10 @@ struct MessageInputBar: View {
 #else
         return colorScheme == .light
 #endif
+    }
+
+    private var connectionState: SendButtonConnectionState {
+        connectionStateStore.value
     }
 
     private var inputBarColorScheme: ColorScheme {
@@ -582,6 +599,7 @@ private struct MessageSendControl: View {
 #Preview("Message Input") {
     @Previewable @State var content = NSAttributedString(string: "Hello")
     @Previewable @State var selection = NSRange(location: 5, length: 0)
+    @Previewable @State var connectionStateStore = SendButtonConnectionStateStore(value: .connected)
     Color.clear
         .safeAreaInset(edge: .bottom) {
             MessageInputBar(
@@ -593,7 +611,7 @@ private struct MessageSendControl: View {
                 canSend: true,
                 isSending: false,
                 isStagingAttachments: false,
-                connectionState: .connected,
+                connectionStateStore: connectionStateStore,
                 focusTrigger: 0,
                 bottomSafeAreaInset: 34,
                 isKeyboardVisible: false,

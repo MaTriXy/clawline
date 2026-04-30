@@ -5,6 +5,7 @@ import {
   parseServerPayload,
   serializeAuthPayload,
   serializeClientMessage,
+  serializeClientStreamRead,
   serializeInteractiveCallback,
   type JsonValue
 } from "../../protocol/chat-wire";
@@ -52,6 +53,7 @@ export interface TransportMachine {
     messageId: string;
   }): Promise<void>;
   subscribe(listener: () => void): () => void;
+  publishReadState(sessionKey: string, lastReadMessageId: string): Promise<void>;
   retryNow(): void;
   setSelectedSessionKey(sessionKey: string | undefined): void;
   sendMessage(input: SendMessageInput): Promise<void>;
@@ -107,6 +109,7 @@ export function createTransportMachine({
   let replayFlushTimer: number | null = null;
   let connectionGeneration = 0;
   let replayMessagesRemaining = 0;
+  let shouldResetChatBeforeNextAuth = !authSessionStore.getState().session;
   let queuedReplayMessages: Array<{
     generation: number;
     payload: Parameters<ChatDomainStore["applyIncomingMessage"]>[0];
@@ -162,7 +165,13 @@ export function createTransportMachine({
         });
       }
       chatDomainStore.reset();
+      shouldResetChatBeforeNextAuth = true;
       return;
+    }
+
+    if (shouldResetChatBeforeNextAuth) {
+      chatDomainStore.reset();
+      shouldResetChatBeforeNextAuth = false;
     }
 
     if (baseStore.getState().phase === "idle") {
@@ -280,6 +289,12 @@ export function createTransportMachine({
               sessionKeys: payload.sessionKeys,
               sessions: payload.sessions
             });
+            if (payload.streamReadStates) {
+              chatDomainStore.applyStreamReadStateSnapshot(payload.streamReadStates);
+            }
+            if (payload.streamTailStates) {
+              chatDomainStore.applyStreamTailStateSnapshot(payload.streamTailStates);
+            }
 
             syncReplayProgress(trigger);
             return;
@@ -348,7 +363,20 @@ export function createTransportMachine({
             syncReplayProgress(trigger);
             return;
           case "stream_read_state":
+            chatDomainStore.applyStreamReadStateUpdate({
+              lastReadMessageId: payload.lastReadMessageId,
+              sessionKey: payload.sessionKey
+            });
+            return;
           case "stream_tail_state":
+            chatDomainStore.applyStreamTailStateUpdate({
+              sessionKey: payload.sessionKey,
+              tailState: {
+                lastMessageId: payload.lastMessageId,
+                lastMessageRole: payload.lastMessageRole
+              }
+            });
+            return;
           case "event":
             return;
           case "error":
@@ -479,6 +507,24 @@ export function createTransportMachine({
   return {
     getState: baseStore.getState,
     subscribe: baseStore.subscribe,
+    async publishReadState(sessionKey, lastReadMessageId) {
+      if (
+        baseStore.getState().phase !== "live" ||
+        !socket ||
+        !sessionKey ||
+        !lastReadMessageId.startsWith("s_")
+      ) {
+        return;
+      }
+
+      socket.send(
+        serializeClientStreamRead({
+          type: "stream_read",
+          sessionKey,
+          lastReadMessageId
+        })
+      );
+    },
     retryNow() {
       void connect("retry");
     },

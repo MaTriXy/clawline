@@ -48,6 +48,8 @@ export interface AuthResultPayload {
   historyReset?: boolean;
   sessionKeys?: string[];
   sessions?: SessionDescriptor[];
+  streamReadStates?: Record<string, string>;
+  streamTailStates?: Record<string, StreamTailStateRecord>;
   reason?: string;
 }
 
@@ -186,6 +188,17 @@ export interface StreamTailStatePayload {
   lastMessageRole: MessageRole;
 }
 
+export interface StreamTailStateRecord {
+  lastMessageId: string;
+  lastMessageRole: MessageRole;
+}
+
+export interface ClientStreamReadPayload {
+  type: "stream_read";
+  sessionKey: string;
+  lastReadMessageId: string;
+}
+
 export interface EventPayload {
   type: "event";
   event: string;
@@ -218,6 +231,10 @@ export function serializeClientMessage(payload: ClientMessagePayload) {
 }
 
 export function serializeInteractiveCallback(payload: InteractiveCallbackPayload) {
+  return JSON.stringify(payload);
+}
+
+export function serializeClientStreamRead(payload: ClientStreamReadPayload) {
   return JSON.stringify(payload);
 }
 
@@ -254,6 +271,14 @@ export function parseAuthResultPayload(raw: string): AuthResultPayload {
     historyReset: optionalBoolean(value.historyReset, "auth_result.historyReset"),
     sessionKeys: optionalStringArray(value.sessionKeys, "auth_result.sessionKeys"),
     sessions: optionalSessionDescriptors(value.sessions, "auth_result.sessions"),
+    streamReadStates: optionalStringRecord(
+      value.streamReadStates,
+      "auth_result.streamReadStates"
+    ),
+    streamTailStates: optionalStreamTailStateRecordMap(
+      value.streamTailStates,
+      "auth_result.streamTailStates"
+    ),
     reason: optionalString(value.reason, "auth_result.reason")
   };
 }
@@ -369,24 +394,10 @@ function parseStreamTailStateFromRecord(
   value: JsonRecord
 ): StreamTailStatePayload {
   assertLiteral(value.type, "stream_tail_state", "stream_tail_state.type");
-  const lastMessageRole = requiredString(
-    value.lastMessageRole,
-    "stream_tail_state.lastMessageRole"
-  );
-  if (lastMessageRole !== "user" && lastMessageRole !== "assistant") {
-    throw new Error(
-      `Invalid stream_tail_state.lastMessageRole: ${lastMessageRole}`
-    );
-  }
-
   return {
     type: "stream_tail_state",
     sessionKey: requiredString(value.sessionKey, "stream_tail_state.sessionKey"),
-    lastMessageId: requiredString(
-      value.lastMessageId,
-      "stream_tail_state.lastMessageId"
-    ),
-    lastMessageRole
+    ...parseStreamTailStateRecord(value, "stream_tail_state")
   };
 }
 
@@ -482,6 +493,59 @@ function optionalSessionDescriptors(
       sessionKey: requiredString(record.sessionKey, `${field}[${index}].sessionKey`)
     };
   });
+}
+
+function optionalStringRecord(
+  value: unknown,
+  field: string
+): Record<string, string> | undefined {
+  if (value == null) {
+    return undefined;
+  }
+
+  const record = asRecord(value, field);
+  return Object.fromEntries(
+    Object.entries(record).map(([key, entryValue]) => [
+      requiredString(key, `${field}.key`),
+      requiredString(entryValue, `${field}.${key}`)
+    ])
+  );
+}
+
+function optionalStreamTailStateRecordMap(
+  value: unknown,
+  field: string
+): Record<string, StreamTailStateRecord> | undefined {
+  if (value == null) {
+    return undefined;
+  }
+
+  const record = asRecord(value, field);
+  return Object.fromEntries(
+    Object.entries(record).map(([key, entryValue]) => [
+      requiredString(key, `${field}.key`),
+      parseStreamTailStateRecord(entryValue, `${field}.${key}`)
+    ])
+  );
+}
+
+function parseStreamTailStateRecord(
+  value: unknown,
+  field: string
+): StreamTailStateRecord {
+  const record = asRecord(value, field);
+  const lastMessageRole = requiredString(
+    record.lastMessageRole,
+    `${field}.lastMessageRole`
+  );
+  if (lastMessageRole !== "user" && lastMessageRole !== "assistant") {
+    throw new Error(`Invalid ${field}.lastMessageRole: ${lastMessageRole}`);
+  }
+
+  return {
+    lastMessageId: requiredString(record.lastMessageId, `${field}.lastMessageId`),
+    lastMessageRole
+  };
 }
 
 function parseStreamSession(value: unknown, field: string): StreamSessionPayload {
