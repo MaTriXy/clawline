@@ -18,6 +18,7 @@ function makeTransportStore(sendInteractiveCallback = vi.fn(async () => {})): Tr
       return state;
     },
     retryNow() {},
+    async publishReadState() {},
     sendInteractiveCallback,
     setSelectedSessionKey() {},
     async sendMessage() {},
