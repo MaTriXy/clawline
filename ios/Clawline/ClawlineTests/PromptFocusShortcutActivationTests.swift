@@ -21,8 +21,8 @@ struct PromptFocusShortcutActivationTests {
         )
     }
 
-    @Test("App command shortcuts use Cmd-L focus, Cmd-semicolon, Cmd-Shift navigation, and Cmd-J/K bubble scroll")
-    func appCommandShortcutsUseCommandLFocusCommandSemicolonCommandShiftNavigationAndCommandJKBubbleScroll() {
+    @Test("App command shortcuts use Cmd-L focus, Cmd-semicolon, Cmd-Shift navigation, Cmd-J/K bubble scroll, and Cmd-Shift-J/K chat scroll")
+    func appCommandShortcutsUseCommandLFocusCommandSemicolonCommandShiftNavigationCommandJKBubbleScrollAndCommandShiftJKChatScroll() {
         #expect(
             ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
                 spec.input == "l"
@@ -70,6 +70,20 @@ struct PromptFocusShortcutActivationTests {
                 spec.input == "k"
                     && spec.modifierFlags == [.command]
                     && spec.action.selector == #selector(UIResponder.clawlineScrollUpCommand(_:))
+            }
+        )
+        #expect(
+            ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+                spec.input == "j"
+                    && spec.modifierFlags == [.command, .shift]
+                    && spec.action.selector == #selector(UIResponder.clawlineScrollChatDownCommand(_:))
+            }
+        )
+        #expect(
+            ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+                spec.input == "k"
+                    && spec.modifierFlags == [.command, .shift]
+                    && spec.action.selector == #selector(UIResponder.clawlineScrollChatUpCommand(_:))
             }
         )
         #expect(
@@ -129,9 +143,9 @@ struct PromptFocusShortcutActivationTests {
         #expect(ChatShortcutRouting.owner(input: "l", modifierFlags: [.command]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: "j", modifierFlags: [.command]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: "j", modifierFlags: [.command, .shift]) == .appCommand)
+        #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command, .shift]) == .appCommand)
         #expect(ChatShortcutRouting.owner(input: "h", modifierFlags: [.command]) == .textInput)
-        #expect(ChatShortcutRouting.owner(input: "j", modifierFlags: [.command, .shift]) == .textInput)
-        #expect(ChatShortcutRouting.owner(input: "k", modifierFlags: [.command, .shift]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: [.command]) == .textInput)
         #expect(ChatShortcutRouting.owner(input: "/", modifierFlags: []) == .noTextResponder)
         #expect(ChatShortcutRouting.owner(input: ";", modifierFlags: []) == .noTextResponder)
@@ -178,6 +192,67 @@ struct PromptFocusShortcutActivationTests {
         #expect(second.contentOffset.y > 0)
         #expect(nested.contentOffset.y == 0)
         #expect(offscreen.contentOffset.y == 0)
+    }
+
+    @Test("Scroll command responders post distinct bubble and chat notifications")
+    @MainActor
+    func scrollCommandRespondersPostDistinctBubbleAndChatNotifications() {
+        let center = NotificationCenter.default
+        let recorder = ScrollCommandNotificationRecorder()
+        let names: [Notification.Name] = [
+            .clawlineScrollDownCommand,
+            .clawlineScrollUpCommand,
+            .clawlineScrollChatDownCommand,
+            .clawlineScrollChatUpCommand
+        ]
+        names.forEach { name in
+            center.addObserver(
+                recorder,
+                selector: #selector(ScrollCommandNotificationRecorder.record(_:)),
+                name: name,
+                object: nil
+            )
+        }
+        defer {
+            center.removeObserver(recorder)
+        }
+
+        let responder = UIResponder()
+        responder.clawlineScrollDownCommand(
+            UIKeyCommand(
+                input: "j",
+                modifierFlags: [.command],
+                action: #selector(UIResponder.clawlineScrollDownCommand(_:))
+            )
+        )
+        responder.clawlineScrollUpCommand(
+            UIKeyCommand(
+                input: "k",
+                modifierFlags: [.command],
+                action: #selector(UIResponder.clawlineScrollUpCommand(_:))
+            )
+        )
+        responder.clawlineScrollChatDownCommand(
+            UIKeyCommand(
+                input: "j",
+                modifierFlags: [.command, .shift],
+                action: #selector(UIResponder.clawlineScrollChatDownCommand(_:))
+            )
+        )
+        responder.clawlineScrollChatUpCommand(
+            UIKeyCommand(
+                input: "k",
+                modifierFlags: [.command, .shift],
+                action: #selector(UIResponder.clawlineScrollChatUpCommand(_:))
+            )
+        )
+
+        #expect(recorder.postedNames == [
+            .clawlineScrollDownCommand,
+            .clawlineScrollUpCommand,
+            .clawlineScrollChatDownCommand,
+            .clawlineScrollChatUpCommand
+        ])
     }
 
     @Test("No-text composed printable typing activates prompt insertion")
@@ -362,4 +437,12 @@ private func makeVerticalScrollView(frame: CGRect, contentHeight: CGFloat) -> UI
     scrollView.isScrollEnabled = true
     scrollView.contentSize = CGSize(width: frame.width, height: contentHeight)
     return scrollView
+}
+
+private final class ScrollCommandNotificationRecorder: NSObject {
+    var postedNames: [Notification.Name] = []
+
+    @objc func record(_ notification: Notification) {
+        postedNames.append(notification.name)
+    }
 }

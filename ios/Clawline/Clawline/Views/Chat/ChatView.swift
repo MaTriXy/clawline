@@ -662,7 +662,9 @@ struct ChatView: View {
         .handleKeyboardScrollCommands(
             isEnabled: keyboardScrollShortcutEnabled,
             onScrollDown: { scrollVisibleBubbleContents(.down) },
-            onScrollUp: { scrollVisibleBubbleContents(.up) }
+            onScrollUp: { scrollVisibleBubbleContents(.up) },
+            onScrollChatDown: { scrollChatSurface(.down) },
+            onScrollChatUp: { scrollChatSurface(.up) }
         )
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
@@ -1726,6 +1728,11 @@ struct ChatView: View {
         layoutCoordinator.scrollVisibleBubbleContents(sessionKey: sessionKey, direction: direction, animated: true)
     }
 
+    private func scrollChatSurface(_ direction: ChatScrollPageDirection) {
+        guard let sessionKey = keyboardNavigationSessionKey else { return }
+        layoutCoordinator.scrollByPage(sessionKey: sessionKey, direction: direction, animated: true)
+    }
+
     private func navigateStreamByShortcut(step: Int, sessionKeys: [String]) {
         guard let targetSessionKey = ChatKeyboardNavigation.targetSessionKey(
             sessionKeys: sessionKeys,
@@ -2276,13 +2283,17 @@ private extension View {
     func handleKeyboardScrollCommands(
         isEnabled: Bool,
         onScrollDown: @escaping () -> Void,
-        onScrollUp: @escaping () -> Void
+        onScrollUp: @escaping () -> Void,
+        onScrollChatDown: @escaping () -> Void,
+        onScrollChatUp: @escaping () -> Void
     ) -> some View {
         modifier(
             KeyboardScrollCommandModifier(
                 isEnabled: isEnabled,
                 onScrollDown: onScrollDown,
-                onScrollUp: onScrollUp
+                onScrollUp: onScrollUp,
+                onScrollChatDown: onScrollChatDown,
+                onScrollChatUp: onScrollChatUp
             )
         )
     }
@@ -2332,6 +2343,8 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
     let isEnabled: Bool
     let onScrollDown: () -> Void
     let onScrollUp: () -> Void
+    let onScrollChatDown: () -> Void
+    let onScrollChatUp: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -2342,6 +2355,14 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollUpCommand)) { _ in
                 guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
                 onScrollUp()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatDownCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollChatDown()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatUpCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollChatUp()
             }
     }
 }
@@ -2544,6 +2565,8 @@ enum ChatAppCommandShortcut {
         case navigateNextStream
         case scrollDown
         case scrollUp
+        case scrollChatDown
+        case scrollChatUp
 
         var selector: Selector {
             switch self {
@@ -2559,6 +2582,10 @@ enum ChatAppCommandShortcut {
                 return #selector(UIResponder.clawlineScrollDownCommand(_:))
             case .scrollUp:
                 return #selector(UIResponder.clawlineScrollUpCommand(_:))
+            case .scrollChatDown:
+                return #selector(UIResponder.clawlineScrollChatDownCommand(_:))
+            case .scrollChatUp:
+                return #selector(UIResponder.clawlineScrollChatUpCommand(_:))
             }
         }
     }
@@ -2575,7 +2602,9 @@ enum ChatAppCommandShortcut {
         KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
         KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream),
         KeyCommandSpec(input: "j", modifierFlags: [.command], action: .scrollDown),
-        KeyCommandSpec(input: "k", modifierFlags: [.command], action: .scrollUp)
+        KeyCommandSpec(input: "k", modifierFlags: [.command], action: .scrollUp),
+        KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollChatDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollChatUp)
     ]
 }
 
@@ -2598,6 +2627,9 @@ enum ChatShortcutRouting {
             return .appCommand
         }
         if modifierFlags == [.command], ["j", "k"].contains(normalizedInput) {
+            return .appCommand
+        }
+        if modifierFlags == [.command, .shift], ["j", "k"].contains(normalizedInput) {
             return .appCommand
         }
         if modifierFlags.contains(.command) {
@@ -2655,6 +2687,14 @@ extension UIResponder {
 
     @objc func clawlineScrollUpCommand(_ sender: UIKeyCommand) {
         NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
+    }
+
+    @objc func clawlineScrollChatDownCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollChatDownCommand, object: nil)
+    }
+
+    @objc func clawlineScrollChatUpCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollChatUpCommand, object: nil)
     }
 }
 
