@@ -2510,11 +2510,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func restingBottomContentHeight() -> CGFloat {
-        guard let footerIndexPath = dataSource.indexPath(for: SessionMetadataFooterCell.itemId),
-              let attributes = collectionView.layoutAttributesForItem(at: footerIndexPath) else {
+        guard dataSource.indexPath(for: SessionMetadataFooterCell.itemId) != nil else {
             return collectionView.contentSize.height
         }
-        return max(0, attributes.frame.minY - flowLayout.minimumLineSpacing + flowLayout.sectionInset.bottom)
+        let footerClearance = SessionMetadataFooterCell.height(for: sessionStatus) + flowLayout.minimumLineSpacing
+        return max(0, collectionView.contentSize.height - footerClearance)
     }
 
     private func restingBottomOffsetMaxY(bottomInset: CGFloat) -> CGFloat {
@@ -5169,13 +5169,18 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
 
     private let label = UILabel()
 
+    private struct FooterItem {
+        let text: String
+        let isMutable: Bool
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.backgroundColor = .clear
         backgroundColor = .clear
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.textAlignment = .right
+        label.textAlignment = .center
         label.numberOfLines = 1
         label.font = UIFont.clawline(.timestamp)
         label.adjustsFontForContentSizeCategory = true
@@ -5198,6 +5203,7 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         label.textColor = palette.textMuted.withAlphaComponent(isDark ? 0.78 : 0.7)
         label.text = Self.footerText(for: status)
         accessibilityLabel = label.text
+        accessibilityTraits = .staticText
     }
 
     static func height(for status: SessionStatus?) -> CGFloat {
@@ -5206,15 +5212,37 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
     }
 
     static func footerText(for status: SessionStatus?) -> String? {
-        guard let status else { return nil }
-        let display = status.display
-        let parts = [
-            normalized(display.model),
-            prefixed("Thinking", display.thinkingLevel),
-            display.fastMode.map { $0 ? "Fast on" : "Fast off" }
-        ].compactMap { $0 }
+        let parts = footerItems(for: status).map(\.text)
         guard !parts.isEmpty else { return nil }
         return parts.joined(separator: "  ·  ")
+    }
+
+    private static func footerItems(for status: SessionStatus?) -> [FooterItem] {
+        guard let status else { return [] }
+        let display = status.display
+        return [
+            FooterItem(
+                text: normalized(display.model) ?? "Unknown model",
+                isMutable: capabilitySupported(status.capabilities.setModel) || status.capabilities.canChangeModel == true
+            ),
+            FooterItem(
+                text: "Thinking \(normalized(display.thinkingLevel) ?? "Unknown")",
+                isMutable: capabilitySupported(status.capabilities.setReasoning) || status.capabilities.canChangeReasoning == true
+            ),
+            FooterItem(
+                text: fastModeText(display.fastMode),
+                isMutable: status.capabilities.canChangeFastMode == true
+            )
+        ]
+    }
+
+    private static func capabilitySupported(_ capability: SessionStatus.Capability?) -> Bool {
+        capability?.supported == true
+    }
+
+    private static func fastModeText(_ fastMode: Bool?) -> String {
+        guard let fastMode else { return "Fast Unknown" }
+        return fastMode ? "Fast on" : "Fast off"
     }
 
     private static func normalized(_ value: String?) -> String? {

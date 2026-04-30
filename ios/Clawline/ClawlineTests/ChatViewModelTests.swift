@@ -2531,6 +2531,75 @@ struct ChatViewModelTests {
         #expect(status?.display.thinkingLevel == "high")
     }
 
+    @Test("Session status uses latest partial display metadata without resurrecting stale values")
+    @MainActor
+    func sessionStatusUsesLatestPartialDisplayMetadataWithoutResurrectingStaleValues() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "low",
+            fastMode: true,
+            queueDepth: 1
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey)?.display.model == "gpt-5.5" {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let firstFetchCount = chatService.fetchSessionStatusCallCount
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: nil,
+            model: nil,
+            thinkingLevel: nil,
+            fastMode: nil,
+            queueDepth: 0
+        )
+        chatService.emitServiceEvent(.typingStateChanged(false, sessionKey: personalSessionKey))
+
+        for _ in 0..<50 {
+            if chatService.fetchSessionStatusCallCount > firstFetchCount,
+               viewModel.sessionStatus(for: personalSessionKey)?.run.state == .idle {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let status = viewModel.sessionStatus(for: personalSessionKey)
+        #expect(status?.run.state == .idle)
+        #expect(status?.run.queueDepth == 0)
+        #expect(status?.display.provider == nil)
+        #expect(status?.display.model == nil)
+        #expect(status?.display.thinkingLevel == nil)
+        #expect(status?.display.fastMode == nil)
+    }
+
     @Test("Track candidates can be refreshed on demand")
     @MainActor
     func trackCandidatesRefreshOnDemand() async throws {
@@ -3728,6 +3797,7 @@ private func makeSessionStatus(
     provider: String?,
     model: String?,
     thinkingLevel: String?,
+    fastMode: Bool? = nil,
     queueDepth: Int
 ) -> SessionStatus {
     SessionStatus(
@@ -3739,7 +3809,7 @@ private func makeSessionStatus(
             harness: nil,
             reasoningLevel: nil,
             thinkingLevel: thinkingLevel,
-            fastMode: nil,
+            fastMode: fastMode,
             mode: nil,
             verbosity: nil
         ),
