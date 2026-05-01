@@ -12,4 +12,6 @@ extension Notification.Name {
     static let clawlineNavigateToNextStreamCommand = Notification.Name("clawline.navigateToNextStreamCommand")
     static let clawlineScrollDownCommand = Notification.Name("clawline.scrollDownCommand")
     static let clawlineScrollUpCommand = Notification.Name("clawline.scrollUpCommand")
+    static let clawlineScrollChatDownCommand = Notification.Name("clawline.scrollChatDownCommand")
+    static let clawlineScrollChatUpCommand = Notification.Name("clawline.scrollChatUpCommand")
 }

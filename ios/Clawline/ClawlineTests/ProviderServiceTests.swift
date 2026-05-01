@@ -832,6 +832,90 @@ struct ProviderServiceTests {
         #expect(!streams[1].adopted)
     }
 
+    @Test("Fetch session status uses provider status endpoint and decodes capabilities")
+    func fetchSessionStatusUsesProviderEndpoint() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let sessionKey = "agent:main:clawline:user:s_status"
+        defer { HTTPStubURLProtocol.requestHandler = nil }
+        HTTPStubURLProtocol.requestHandler = { request in
+            #expect(request.url?.path == "/api/session-status")
+            let queryItems = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+            #expect(queryItems?.first(where: { $0.name == "sessionKey" })?.value == sessionKey)
+            #expect(request.httpMethod == "GET")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer jwt")
+            let data = #"""
+            {
+              "sessionKey": "agent:main:clawline:user:s_status",
+              "display": {
+                "model": "claude-sonnet-4.6",
+                "fallbackModels": null,
+                "provider": "anthropic",
+                "harness": null,
+                "reasoningLevel": null,
+                "thinkingLevel": "high",
+                "fastMode": true,
+                "mode": null,
+                "verbosity": null
+              },
+              "run": {
+                "state": "running",
+                "runId": "run_1",
+                "messageId": "c_1",
+                "startedAt": 1700000000000,
+                "queueDepth": 2
+              },
+              "context": {
+                "available": false,
+                "compaction": null
+              },
+              "approval": {
+                "state": null
+              },
+              "capabilities": {
+                "cancelCurrentRun": { "supported": false, "reason": "provider_control_not_available" },
+                "setModel": { "supported": false, "reason": "provider_control_not_available" },
+                "setReasoning": { "supported": false, "reason": "provider_control_not_available" },
+                "setMode": { "supported": false, "reason": "provider_control_not_available" },
+                "setVerbosity": { "supported": false, "reason": "provider_control_not_available" }
+              }
+            }
+            """#.data(using: .utf8) ?? Data()
+            return (
+                HTTPURLResponse(
+                    url: request.url ?? baseURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPStubURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let streamAPIClient = StreamAPIClient(baseURLProvider: { baseURL }, session: urlSession)
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            authTokenProvider: { "jwt" },
+            streamAPIClient: streamAPIClient
+        )
+
+        let status = try await service.fetchSessionStatus(sessionKey: sessionKey)
+
+        #expect(status.sessionKey == sessionKey)
+        #expect(status.display.provider == "anthropic")
+        #expect(status.display.model == "claude-sonnet-4.6")
+        #expect(status.display.thinkingLevel == "high")
+        #expect(status.display.fastMode == true)
+        #expect(status.run.state == .running)
+        #expect(status.run.queueDepth == 2)
+        #expect(status.capabilities.cancelCurrentRun?.supported == false)
+    }
+
     @Test("Adopt stream request posts session key to provider")
     func adoptStreamPostsSessionKeyToProvider() async throws {
         let mockSocket = MockWebSocketClient()

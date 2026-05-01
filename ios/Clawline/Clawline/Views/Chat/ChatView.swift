@@ -661,8 +661,10 @@ struct ChatView: View {
         )
         .handleKeyboardScrollCommands(
             isEnabled: keyboardScrollShortcutEnabled,
-            onScrollDown: { scrollActiveSessionByPage(.down) },
-            onScrollUp: { scrollActiveSessionByPage(.up) }
+            onScrollDown: { scrollVisibleBubbleContents(.down) },
+            onScrollUp: { scrollVisibleBubbleContents(.up) },
+            onScrollChatDown: { scrollChatSurface(.down) },
+            onScrollChatUp: { scrollChatSurface(.up) }
         )
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
@@ -1439,6 +1441,7 @@ struct ChatView: View {
             },
             layoutCoordinator: layoutCoordinator,
             sessionKey: sessionKey,
+            sessionStatus: viewModel.sessionStatus(for: sessionKey),
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: handleDeferredMessageFlowScrollEvent
@@ -1590,6 +1593,7 @@ struct ChatView: View {
                 // Do not register prewarm shells as live session list views.
                 shouldRegisterWithLayoutCoordinator: false,
                 sessionKey: sessionKey,
+                sessionStatus: viewModel.sessionStatus(for: sessionKey),
                 forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
                 fontScaleChangeSequence: fontScaleChangeSequence,
                 onScrollEvent: nil
@@ -1719,7 +1723,12 @@ struct ChatView: View {
         return sessionKeys.first
     }
 
-    private func scrollActiveSessionByPage(_ direction: ChatScrollPageDirection) {
+    private func scrollVisibleBubbleContents(_ direction: ChatScrollPageDirection) {
+        guard let sessionKey = keyboardNavigationSessionKey else { return }
+        layoutCoordinator.scrollVisibleBubbleContents(sessionKey: sessionKey, direction: direction, animated: true)
+    }
+
+    private func scrollChatSurface(_ direction: ChatScrollPageDirection) {
         guard let sessionKey = keyboardNavigationSessionKey else { return }
         layoutCoordinator.scrollByPage(sessionKey: sessionKey, direction: direction, animated: true)
     }
@@ -2274,13 +2283,17 @@ private extension View {
     func handleKeyboardScrollCommands(
         isEnabled: Bool,
         onScrollDown: @escaping () -> Void,
-        onScrollUp: @escaping () -> Void
+        onScrollUp: @escaping () -> Void,
+        onScrollChatDown: @escaping () -> Void,
+        onScrollChatUp: @escaping () -> Void
     ) -> some View {
         modifier(
             KeyboardScrollCommandModifier(
                 isEnabled: isEnabled,
                 onScrollDown: onScrollDown,
-                onScrollUp: onScrollUp
+                onScrollUp: onScrollUp,
+                onScrollChatDown: onScrollChatDown,
+                onScrollChatUp: onScrollChatUp
             )
         )
     }
@@ -2330,6 +2343,8 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
     let isEnabled: Bool
     let onScrollDown: () -> Void
     let onScrollUp: () -> Void
+    let onScrollChatDown: () -> Void
+    let onScrollChatUp: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -2340,6 +2355,14 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollUpCommand)) { _ in
                 guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
                 onScrollUp()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatDownCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollChatDown()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatUpCommand)) { _ in
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                onScrollChatUp()
             }
     }
 }
@@ -2528,6 +2551,7 @@ enum PromptFocusShortcutConfiguration {
 
     static let keyCommandSpecs: [KeyCommandSpec] = [
         KeyCommandSpec(input: "/", modifierFlags: [], action: .openStreamPopup),
+        KeyCommandSpec(input: ";", modifierFlags: [], action: .openStreamPopup),
         KeyCommandSpec(input: " ", modifierFlags: [], action: .focusPromptInput),
         KeyCommandSpec(input: "\r", modifierFlags: [], action: .focusPromptInput)
     ]
@@ -2541,6 +2565,8 @@ enum ChatAppCommandShortcut {
         case navigateNextStream
         case scrollDown
         case scrollUp
+        case scrollChatDown
+        case scrollChatUp
 
         var selector: Selector {
             switch self {
@@ -2556,6 +2582,10 @@ enum ChatAppCommandShortcut {
                 return #selector(UIResponder.clawlineScrollDownCommand(_:))
             case .scrollUp:
                 return #selector(UIResponder.clawlineScrollUpCommand(_:))
+            case .scrollChatDown:
+                return #selector(UIResponder.clawlineScrollChatDownCommand(_:))
+            case .scrollChatUp:
+                return #selector(UIResponder.clawlineScrollChatUpCommand(_:))
             }
         }
     }
@@ -2571,8 +2601,10 @@ enum ChatAppCommandShortcut {
         KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
         KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
         KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream),
-        KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollDown),
-        KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollUp)
+        KeyCommandSpec(input: "j", modifierFlags: [.command], action: .scrollDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command], action: .scrollUp),
+        KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollChatDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollChatUp)
     ]
 }
 
@@ -2591,20 +2623,26 @@ enum ChatShortcutRouting {
         if modifierFlags == [.command], normalizedInput == "l" {
             return .appCommand
         }
-        if modifierFlags == [.command, .shift], ["h", "j", "k", "l"].contains(normalizedInput) {
+        if modifierFlags == [.command, .shift], ["h", "l"].contains(normalizedInput) {
+            return .appCommand
+        }
+        if modifierFlags == [.command], ["j", "k"].contains(normalizedInput) {
+            return .appCommand
+        }
+        if modifierFlags == [.command, .shift], ["j", "k"].contains(normalizedInput) {
             return .appCommand
         }
         if modifierFlags.contains(.command) {
             return .textInput
         }
-        return ["/", " ", "\r"].contains(input) ? .noTextResponder : .textInput
+        return ["/", ";", " ", "\r"].contains(input) ? .noTextResponder : .textInput
     }
 }
 
 enum PromptFocusTypingActivation {
     static func promptInsertionText(from insertedText: String) -> String? {
         guard !insertedText.isEmpty else { return nil }
-        guard !["/", " ", "\r", "\n"].contains(insertedText) else { return nil }
+        guard !["/", ";", " ", "\r", "\n"].contains(insertedText) else { return nil }
         guard insertedText.rangeOfCharacter(from: .controlCharacters) == nil else { return nil }
         return insertedText
     }
@@ -2649,6 +2687,14 @@ extension UIResponder {
 
     @objc func clawlineScrollUpCommand(_ sender: UIKeyCommand) {
         NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
+    }
+
+    @objc func clawlineScrollChatDownCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollChatDownCommand, object: nil)
+    }
+
+    @objc func clawlineScrollChatUpCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollChatUpCommand, object: nil)
     }
 }
 
@@ -3619,6 +3665,9 @@ private final class PreviewChatService: ChatServicing {
     func publishReadState(sessionKey: String, lastReadMessageId: String) async throws {}
     func fetchStreams() async throws -> [StreamSession] { [] }
     func fetchTrackableSessions() async throws -> [TrackableSession] { [] }
+    func fetchSessionStatus(sessionKey: String) async throws -> SessionStatus {
+        throw ProviderChatService.Error.notConnected
+    }
     func adoptStream(sessionKey: String) async throws -> StreamSession {
         StreamSession(
             sessionKey: sessionKey,
