@@ -74,6 +74,10 @@ function AttachmentCard({
   }
 
   if (kind === "terminal") {
+    if (expanded) {
+      return <TerminalAttachmentPlaceholder attachment={attachment} />;
+    }
+
     return (
       <TerminalAttachmentCard
         attachment={attachment}
@@ -233,6 +237,21 @@ function FileAttachmentCard({
         {isDownloading ? "Downloading…" : `Download ${attachmentFilename(attachment)}`}
       </button>
       {errorMessage ? <p className="field-error">{errorMessage}</p> : null}
+    </div>
+  );
+}
+
+function TerminalAttachmentPlaceholder({
+  attachment
+}: {
+  attachment: ServerAttachmentPayload;
+}) {
+  return (
+    <div className="message-attachment-card message-attachment-card--file">
+      <div className="message-attachment-copy">
+        <strong>{attachmentFilename(attachment)}</strong>
+        <span>Terminal session remains active in the message bubble.</span>
+      </div>
     </div>
   );
 }

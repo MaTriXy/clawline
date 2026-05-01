@@ -36,7 +36,7 @@ interface CreateTerminalSessionRuntimeOptions {
   webSocketFactory?: TerminalWebSocketFactory;
 }
 
-type CloseIntent = "disconnect" | "failure" | null;
+type CloseIntent = "disconnect" | "failure" | "terminal-exit" | null;
 
 const ENABLE_MESSAGES_DELAY_MS = 250;
 const DEFAULT_BACKFILL_LINES = 2000;
@@ -104,7 +104,11 @@ export function createTerminalSessionRuntime({
       };
       nextSocket.onclose = () => {
         cleanupSocket();
-        if (closeIntent === "disconnect" || closeIntent === "failure") {
+        if (
+          closeIntent === "disconnect" ||
+          closeIntent === "failure" ||
+          closeIntent === "terminal-exit"
+        ) {
           return;
         }
         onStateChange({
@@ -240,6 +244,9 @@ export function createTerminalSessionRuntime({
         scheduleEnableMessages();
         return true;
       case "terminal_exit":
+        closeIntent = "terminal-exit";
+        clearEnableMessagesTimer();
+        isReadyForInput = false;
         onStateChange({
           phase: "exited",
           exitCode: typeof payload.code === "number" ? payload.code : undefined

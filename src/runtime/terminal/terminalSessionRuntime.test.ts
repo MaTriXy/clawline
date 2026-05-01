@@ -116,6 +116,37 @@ describe("terminalSessionRuntime", () => {
     runtime.connect({ cols: 80, rows: 24 });
     expect(factory.sockets).toHaveLength(2);
   });
+
+  it("preserves terminal exit state when the socket closes afterward", () => {
+    const factory = new FakeTerminalWebSocketFactory();
+    const runtimeStates: TerminalRuntimeState[] = [];
+    const runtime = createTerminalSessionRuntime({
+      descriptor: sampleDescriptor(),
+      deviceId: "device-web-1",
+      onData() {},
+      onStateChange(state) {
+        runtimeStates.push(state);
+      },
+      serverUrl: "ws://127.0.0.1:18800/ws",
+      token: "chat-token",
+      webSocketFactory: factory.create
+    });
+
+    runtime.connect({ cols: 80, rows: 24 });
+    factory.sockets[0].emitOpen();
+    factory.sockets[0].emitMessage(
+      JSON.stringify({
+        type: "terminal_exit",
+        code: 0
+      })
+    );
+    factory.sockets[0].emitClose();
+
+    expect(runtimeStates.at(-1)).toEqual({
+      phase: "exited",
+      exitCode: 0
+    });
+  });
 });
 
 function sampleDescriptor() {

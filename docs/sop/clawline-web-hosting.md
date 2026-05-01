@@ -61,6 +61,16 @@ WantedBy=multi-user.target
 
 Use the static web server pattern for production. Use the preview-service pattern only for temporary/internal installs.
 
+## TARS artifact install
+
+On TARS, `scripts/deploy/clawline-web-tars.sh` builds the web client and installs only static artifacts under `~/Library/Application Support/ClawlineWeb` by default. It also writes a Caddyfile with SPA fallback so deep links under `/pair` and `/chat/...` resolve to `index.html`.
+
+The script does not write, load, unload, or restart LaunchAgents unless explicitly opted in:
+
+```bash
+scripts/deploy/clawline-web-tars.sh --manage-service
+```
+
 ## Local preview
 
 For development or temporary verification, serve this repo's built `dist/` using Vite preview or another static server from the web-client checkout. Keep that preview separate from the provider on `18800`.

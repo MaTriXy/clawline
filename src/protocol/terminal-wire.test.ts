@@ -57,6 +57,27 @@ describe("terminal-wire", () => {
     expect(descriptor && terminalDestinationLabel(descriptor)).toBe("Destination unknown");
   });
 
+  it("decodes UTF-8 descriptor JSON", () => {
+    const descriptor = decodeTerminalSessionDescriptor({
+      type: "document",
+      mimeType: TERMINAL_ATTACHMENT_MIME,
+      data: Buffer.from(
+        JSON.stringify({
+          version: 2,
+          terminalSessionId: "term_utf8",
+          title: "Résumé 🌊",
+          destination: {
+            address: "mike@東京"
+          }
+        }),
+        "utf8"
+      ).toString("base64")
+    });
+
+    expect(descriptor?.title).toBe("Résumé 🌊");
+    expect(descriptor && terminalDestinationLabel(descriptor)).toBe("mike@東京");
+  });
+
   it("ignores invalid or non-terminal attachments", () => {
     expect(
       isTerminalAttachment({

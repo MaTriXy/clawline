@@ -56,6 +56,26 @@ describe("interactive-html-wire", () => {
     expect(descriptor?.metadata?.height).toEqual({ kind: "auto" });
   });
 
+  it("decodes UTF-8 descriptor JSON", () => {
+    const descriptor = decodeInteractiveHtmlDescriptor({
+      type: "document",
+      mimeType: INTERACTIVE_HTML_ATTACHMENT_MIME,
+      data: Buffer.from(
+        JSON.stringify({
+          version: 1,
+          html: "<body><p>こんにちは 🌊</p></body>",
+          metadata: {
+            title: "Résumé 🌊"
+          }
+        }),
+        "utf8"
+      ).toString("base64")
+    });
+
+    expect(descriptor?.html).toBe("<body><p>こんにちは 🌊</p></body>");
+    expect(descriptor && interactiveHtmlTitle(descriptor)).toBe("Résumé 🌊");
+  });
+
   it("rejects invalid or non-interactive payloads", () => {
     expect(
       isInteractiveHtmlAttachment({

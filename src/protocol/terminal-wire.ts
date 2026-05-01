@@ -41,7 +41,7 @@ export function decodeTerminalSessionDescriptor(
   }
 
   try {
-    const decoded = atob(attachment.data);
+    const decoded = decodeBase64Utf8(attachment.data);
     const parsed = JSON.parse(decoded) as unknown;
     if (!parsed || typeof parsed !== "object") {
       return null;
@@ -141,4 +141,13 @@ function parseAuth(value: unknown) {
     mode: normalizedMode,
     terminalAccessToken
   };
+}
+
+function decodeBase64Utf8(value: string) {
+  const decoded = atob(value);
+  const bytes = new Uint8Array(decoded.length);
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index);
+  }
+  return new TextDecoder().decode(bytes);
 }
