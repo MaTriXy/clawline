@@ -188,10 +188,43 @@ struct PromptFocusShortcutActivationTests {
         )
 
         #expect(scrolled == 2)
-        #expect(first.contentOffset.y > 0)
-        #expect(second.contentOffset.y > 0)
+        #expect(first.contentOffset.y == ChatVisibleBubbleContentScroll.lineIncrement)
+        #expect(second.contentOffset.y == ChatVisibleBubbleContentScroll.lineIncrement)
         #expect(nested.contentOffset.y == 0)
         #expect(offscreen.contentOffset.y == 0)
+    }
+
+    @Test("Cmd-J/K bubble content scroller uses a line increment instead of a page increment")
+    @MainActor
+    func bubbleContentScrollerUsesLineIncrementInsteadOfPageIncrement() {
+        let viewport = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 240))
+        let root = UIView(frame: viewport.bounds)
+        viewport.addSubview(root)
+
+        let scrollView = makeVerticalScrollView(frame: CGRect(x: 0, y: 0, width: 220, height: 200), contentHeight: 1_000)
+        root.addSubview(scrollView)
+
+        let scrolledDown = ChatVisibleBubbleContentScroll.scrollVisibleScrollableContent(
+            in: root,
+            visibleIn: viewport,
+            direction: .down,
+            animated: false
+        )
+        let pageIncrement = max(80, scrollView.bounds.height * 0.82)
+
+        #expect(scrolledDown == 1)
+        #expect(scrollView.contentOffset.y == ChatVisibleBubbleContentScroll.lineIncrement)
+        #expect(scrollView.contentOffset.y < pageIncrement)
+
+        let scrolledUp = ChatVisibleBubbleContentScroll.scrollVisibleScrollableContent(
+            in: root,
+            visibleIn: viewport,
+            direction: .up,
+            animated: false
+        )
+
+        #expect(scrolledUp == 1)
+        #expect(scrollView.contentOffset.y == 0)
     }
 
     @Test("Scroll command responders post distinct bubble and chat notifications")
