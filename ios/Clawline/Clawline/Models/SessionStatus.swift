@@ -60,7 +60,9 @@ struct SessionStatus: Decodable, Equatable {
     struct Capabilities: Decodable, Equatable {
         let cancelCurrentRun: Capability?
         let setModel: Capability?
+        let setThinking: Capability?
         let setReasoning: Capability?
+        let setFastMode: Capability?
         let setMode: Capability?
         let setVerbosity: Capability?
         let canCancelCurrentRun: Bool?
@@ -75,4 +77,22 @@ struct SessionStatus: Decodable, Equatable {
         let supported: Bool
         let reason: String?
     }
+}
+
+enum SessionControlAction: String, Encodable, Equatable {
+    case setModel = "set_model"
+    case setThinking = "set_thinking"
+    case setReasoning = "set_reasoning"
+    case setFastMode = "set_fast_mode"
+    case setMode = "set_mode"
+}
+
+struct SessionControlResponse: Decodable, Equatable {
+    let ok: Bool
+    let sessionKey: String
+    let action: String
+    let code: String?
+    let message: String?
+    let status: SessionStatus?
+    let capabilities: SessionStatus.Capabilities?
 }

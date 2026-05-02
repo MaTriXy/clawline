@@ -2531,6 +2531,61 @@ struct ChatViewModelTests {
         #expect(status?.display.thinkingLevel == "high")
     }
 
+    @Test("Session control applies typed provider response without chat text")
+    @MainActor
+    func sessionControlAppliesTypedProviderResponse() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let updatedStatus = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "low",
+            fastMode: true
+        )
+        chatService.sessionControlResponse = SessionControlResponse(
+            ok: true,
+            sessionKey: personalSessionKey,
+            action: SessionControlAction.setFastMode.rawValue,
+            code: nil,
+            message: nil,
+            status: updatedStatus,
+            capabilities: updatedStatus.capabilities
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        viewModel.applySessionControl(
+            sessionKey: personalSessionKey,
+            action: .setFastMode,
+            enabled: true
+        )
+
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey)?.display.fastMode == true {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(chatService.lastSessionControl?.sessionKey == personalSessionKey)
+        #expect(chatService.lastSessionControl?.action == .setFastMode)
+        #expect(chatService.lastSessionControl?.enabled == true)
+        #expect(chatService.lastSentId == nil)
+        #expect(viewModel.sessionStatus(for: personalSessionKey)?.display.fastMode == true)
+    }
+
     @Test("Session status keeps sticky display metadata until real values arrive")
     @MainActor
     func sessionStatusKeepsStickyDisplayMetadataUntilRealValuesArrive() async throws {
@@ -3670,6 +3725,8 @@ private final class TestChatService: ChatServicing {
     var streams: [StreamSession] = []
     var trackableSessions: [TrackableSession] = []
     var sessionStatusBySessionKey: [String: SessionStatus] = [:]
+    var sessionControlResponse: SessionControlResponse?
+    private(set) var lastSessionControl: (sessionKey: String, action: SessionControlAction, value: String?, enabled: Bool?)?
     private(set) var fetchStreamsCallCount: Int = 0
     private(set) var fetchTrackableSessionsCallCount: Int = 0
     private(set) var fetchSessionStatusCallCount: Int = 0
@@ -3855,6 +3912,19 @@ private final class TestChatService: ChatServicing {
             return status
         }
         throw StreamAPIError(code: "stream_not_found", message: "not found", statusCode: 404)
+    }
+
+    func applySessionControl(
+        sessionKey: String,
+        action: SessionControlAction,
+        value: String?,
+        enabled: Bool?
+    ) async throws -> SessionControlResponse {
+        lastSessionControl = (sessionKey, action, value, enabled)
+        if let sessionControlResponse {
+            return sessionControlResponse
+        }
+        throw StreamAPIError(code: "unsupported", message: "unsupported", statusCode: 400)
     }
 
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
@@ -4074,7 +4144,9 @@ private func makeSessionStatus(
         capabilities: .init(
             cancelCurrentRun: .init(supported: false, reason: "provider_control_not_available"),
             setModel: .init(supported: false, reason: "provider_control_not_available"),
+            setThinking: .init(supported: true, reason: nil),
             setReasoning: .init(supported: false, reason: "provider_control_not_available"),
+            setFastMode: .init(supported: true, reason: nil),
             setMode: .init(supported: false, reason: "provider_control_not_available"),
             setVerbosity: .init(supported: false, reason: "provider_control_not_available"),
             canCancelCurrentRun: nil,

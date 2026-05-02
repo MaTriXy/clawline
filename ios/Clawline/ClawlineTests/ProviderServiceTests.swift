@@ -916,6 +916,109 @@ struct ProviderServiceTests {
         #expect(status.capabilities.cancelCurrentRun?.supported == false)
     }
 
+    @Test("Session control posts typed provider action")
+    func sessionControlPostsTypedProviderAction() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let sessionKey = "agent:main:clawline:user:s_status"
+        defer { HTTPStubURLProtocol.requestHandler = nil }
+        HTTPStubURLProtocol.requestHandler = { request in
+            #expect(request.url?.path == "/api/session-control")
+            #expect(request.httpMethod == "POST")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer jwt")
+            let body = try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
+            #expect(body?["sessionKey"] as? String == sessionKey)
+            #expect(body?["action"] as? String == "set_fast_mode")
+            #expect(body?["fastMode"] as? Bool == true)
+            #expect(body?["content"] == nil)
+            let data = #"""
+            {
+              "ok": true,
+              "sessionKey": "agent:main:clawline:user:s_status",
+              "action": "set_fast_mode",
+              "status": {
+                "sessionKey": "agent:main:clawline:user:s_status",
+                "display": {
+                  "model": "gpt-5.5",
+                  "fallbackModels": null,
+                  "provider": "openai",
+                  "harness": null,
+                  "reasoningLevel": null,
+                  "thinkingLevel": "high",
+                  "fastMode": true,
+                  "mode": "fast",
+                  "verbosity": null
+                },
+                "run": {
+                  "state": "idle",
+                  "runId": null,
+                  "messageId": null,
+                  "startedAt": null,
+                  "queueDepth": 0
+                },
+                "context": {
+                  "available": false,
+                  "compaction": null
+                },
+                "approval": {
+                  "state": null
+                },
+                "capabilities": {
+                  "cancelCurrentRun": { "supported": false, "reason": "provider_abort_seam_not_available" },
+                  "setModel": { "supported": false, "reason": "model_catalog_control_not_available" },
+                  "setThinking": { "supported": true },
+                  "setReasoning": { "supported": true },
+                  "setFastMode": { "supported": true },
+                  "setMode": { "supported": true },
+                  "setVerbosity": { "supported": true }
+                }
+              },
+              "capabilities": {
+                "cancelCurrentRun": { "supported": false, "reason": "provider_abort_seam_not_available" },
+                "setModel": { "supported": false, "reason": "model_catalog_control_not_available" },
+                "setThinking": { "supported": true },
+                "setReasoning": { "supported": true },
+                "setFastMode": { "supported": true },
+                "setMode": { "supported": true },
+                "setVerbosity": { "supported": true }
+              }
+            }
+            """#.data(using: .utf8) ?? Data()
+            return (
+                HTTPURLResponse(
+                    url: request.url ?? baseURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPStubURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let streamAPIClient = StreamAPIClient(baseURLProvider: { baseURL }, session: urlSession)
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            authTokenProvider: { "jwt" },
+            streamAPIClient: streamAPIClient
+        )
+
+        let response = try await service.applySessionControl(
+            sessionKey: sessionKey,
+            action: .setFastMode,
+            value: nil,
+            enabled: true
+        )
+
+        #expect(response.ok)
+        #expect(response.status?.display.fastMode == true)
+        #expect(response.capabilities?.setModel?.reason == "model_catalog_control_not_available")
+    }
+
     @Test("Adopt stream request posts session key to provider")
     func adoptStreamPostsSessionKeyToProvider() async throws {
         let mockSocket = MockWebSocketClient()

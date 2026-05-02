@@ -1444,7 +1444,15 @@ struct ChatView: View {
             sessionStatus: viewModel.sessionStatus(for: sessionKey),
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
             fontScaleChangeSequence: fontScaleChangeSequence,
-            onScrollEvent: handleDeferredMessageFlowScrollEvent
+            onScrollEvent: handleDeferredMessageFlowScrollEvent,
+            onSessionControlSelected: { sessionKey, action, value, enabled in
+                viewModel.applySessionControl(
+                    sessionKey: sessionKey,
+                    action: action,
+                    value: value,
+                    enabled: enabled
+                )
+            }
         )
         // We manage keyboard avoidance manually inside the collection view.
         // Prevent SwiftUI from shrinking the view and double-applying the keyboard height.
@@ -1596,7 +1604,8 @@ struct ChatView: View {
                 sessionStatus: viewModel.sessionStatus(for: sessionKey),
                 forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
                 fontScaleChangeSequence: fontScaleChangeSequence,
-                onScrollEvent: nil
+                onScrollEvent: nil,
+                onSessionControlSelected: nil
             )
             .hidden()
         }
@@ -3666,6 +3675,14 @@ private final class PreviewChatService: ChatServicing {
     func fetchStreams() async throws -> [StreamSession] { [] }
     func fetchTrackableSessions() async throws -> [TrackableSession] { [] }
     func fetchSessionStatus(sessionKey: String) async throws -> SessionStatus {
+        throw ProviderChatService.Error.notConnected
+    }
+    func applySessionControl(
+        sessionKey: String,
+        action: SessionControlAction,
+        value: String?,
+        enabled: Bool?
+    ) async throws -> SessionControlResponse {
         throw ProviderChatService.Error.notConnected
     }
     func adoptStream(sessionKey: String) async throws -> StreamSession {
