@@ -88,7 +88,12 @@ protocol ChatServicing: AnyObject {
     func fetchStreams() async throws -> [StreamSession]
     func fetchTrackableSessions() async throws -> [TrackableSession]
     func fetchSessionStatus(sessionKey: String) async throws -> SessionStatus
-    func cancelCurrentRun(sessionKey: String) async throws -> SessionControlResponse
+    func applySessionControl(
+        sessionKey: String,
+        action: SessionControlAction,
+        value: String?,
+        enabled: Bool?
+    ) async throws -> SessionControlResponse
     func adoptStream(sessionKey: String) async throws -> StreamSession
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession
     func renameStream(sessionKey: String, displayName: String) async throws -> StreamSession

@@ -169,7 +169,12 @@ final class StubChatService: ChatServicing {
         throw ProviderChatService.Error.notConnected
     }
 
-    func cancelCurrentRun(sessionKey: String) async throws -> SessionControlResponse {
+    func applySessionControl(
+        sessionKey: String,
+        action: SessionControlAction,
+        value: String?,
+        enabled: Bool?
+    ) async throws -> SessionControlResponse {
         throw ProviderChatService.Error.notConnected
     }
 

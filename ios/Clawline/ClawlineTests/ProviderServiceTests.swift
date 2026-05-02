@@ -916,36 +916,100 @@ struct ProviderServiceTests {
         #expect(status.capabilities.cancelCurrentRun?.supported == false)
     }
 
-    @Test("Cancel current run posts typed session control action")
-    func cancelCurrentRunPostsTypedSessionControlAction() async throws {
+    @Test("Session control posts typed provider actions")
+    func sessionControlPostsTypedProviderActions() async throws {
         let mockSocket = MockWebSocketClient()
         let connector = MockWebSocketConnector(client: mockSocket)
         let baseURL = URL(string: "https://example.com")!
         let sessionKey = "agent:main:clawline:user:s_status"
         defer { HTTPStubURLProtocol.requestHandler = nil }
+        var requestBodies: [[String: Any]] = []
         HTTPStubURLProtocol.requestHandler = { request in
             #expect(request.url?.path == "/api/session-control")
             #expect(request.httpMethod == "POST")
             #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer jwt")
-            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
-            #expect(body?["sessionKey"] as? String == sessionKey)
-            #expect(body?["action"] as? String == "cancel_current_run")
-            let data = #"""
-            {
-              "ok": false,
-              "sessionKey": "agent:main:clawline:user:s_status",
-              "action": "cancel_current_run",
-              "code": "unsupported",
-              "message": "The current Clawline provider dispatch path does not expose a per-session abort seam.",
-              "capabilities": {
-                "cancelCurrentRun": { "supported": false, "reason": "provider_abort_seam_not_available" },
-                "setModel": { "supported": false, "reason": "model_catalog_control_not_available" },
-                "setReasoning": { "supported": true, "reason": null },
-                "setMode": { "supported": true, "reason": null },
-                "setVerbosity": { "supported": true, "reason": null }
-              }
+            let body = try? JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
+            requestBodies.append(body ?? [:])
+            let action = body?["action"] as? String
+            let data: Data
+            if action == "cancel_current_run" {
+                #expect(body?["sessionKey"] as? String == sessionKey)
+                #expect(body?["content"] == nil)
+                data = #"""
+                {
+                  "ok": false,
+                  "sessionKey": "agent:main:clawline:user:s_status",
+                  "action": "cancel_current_run",
+                  "code": "unsupported",
+                  "message": "The current Clawline provider dispatch path does not expose a per-session abort seam.",
+                  "capabilities": {
+                    "cancelCurrentRun": { "supported": false, "reason": "provider_abort_seam_not_available" },
+                    "setModel": { "supported": false, "reason": "model_catalog_control_not_available" },
+                    "setReasoning": { "supported": true, "reason": null },
+                    "setMode": { "supported": true, "reason": null },
+                    "setVerbosity": { "supported": true, "reason": null }
+                  }
+                }
+                """#.data(using: .utf8) ?? Data()
+            } else {
+                #expect(action == "set_fast_mode")
+                #expect(body?["sessionKey"] as? String == sessionKey)
+                #expect(body?["fastMode"] as? Bool == true)
+                #expect(body?["content"] == nil)
+                data = #"""
+                {
+                  "ok": true,
+                  "sessionKey": "agent:main:clawline:user:s_status",
+                  "action": "set_fast_mode",
+                  "status": {
+                    "sessionKey": "agent:main:clawline:user:s_status",
+                    "display": {
+                      "model": "gpt-5.5",
+                      "fallbackModels": null,
+                      "provider": "openai",
+                      "harness": null,
+                      "reasoningLevel": null,
+                      "thinkingLevel": "high",
+                      "fastMode": true,
+                      "mode": "fast",
+                      "verbosity": null
+                    },
+                    "run": {
+                      "state": "idle",
+                      "runId": null,
+                      "messageId": null,
+                      "startedAt": null,
+                      "queueDepth": 0
+                    },
+                    "context": {
+                      "available": false,
+                      "compaction": null
+                    },
+                    "approval": {
+                      "state": null
+                    },
+                    "capabilities": {
+                      "cancelCurrentRun": { "supported": false, "reason": "provider_abort_seam_not_available" },
+                      "setModel": { "supported": false, "reason": "model_catalog_control_not_available" },
+                      "setThinking": { "supported": true },
+                      "setReasoning": { "supported": true },
+                      "setFastMode": { "supported": true },
+                      "setMode": { "supported": true },
+                      "setVerbosity": { "supported": true }
+                    }
+                  },
+                  "capabilities": {
+                    "cancelCurrentRun": { "supported": false, "reason": "provider_abort_seam_not_available" },
+                    "setModel": { "supported": false, "reason": "model_catalog_control_not_available" },
+                    "setThinking": { "supported": true },
+                    "setReasoning": { "supported": true },
+                    "setFastMode": { "supported": true },
+                    "setMode": { "supported": true },
+                    "setVerbosity": { "supported": true }
+                  }
+                }
+                """#.data(using: .utf8) ?? Data()
             }
-            """#.data(using: .utf8) ?? Data()
             return (
                 HTTPURLResponse(
                     url: request.url ?? baseURL,
@@ -968,13 +1032,32 @@ struct ProviderServiceTests {
             streamAPIClient: streamAPIClient
         )
 
-        let response = try await service.cancelCurrentRun(sessionKey: sessionKey)
+        let cancelResponse = try await service.applySessionControl(
+            sessionKey: sessionKey,
+            action: .cancelCurrentRun,
+            value: nil,
+            enabled: nil
+        )
+        let fastModeResponse = try await service.applySessionControl(
+            sessionKey: sessionKey,
+            action: .setFastMode,
+            value: nil,
+            enabled: true
+        )
 
-        #expect(response.ok == false)
-        #expect(response.sessionKey == sessionKey)
-        #expect(response.action == "cancel_current_run")
-        #expect(response.code == "unsupported")
-        #expect(response.capabilities?.cancelCurrentRun?.supported == false)
+        #expect(requestBodies.count == 2)
+        #expect(requestBodies.first?["action"] as? String == "cancel_current_run")
+        #expect(requestBodies.first?["fastMode"] == nil)
+        #expect(requestBodies.last?["action"] as? String == "set_fast_mode")
+        #expect(requestBodies.last?["fastMode"] as? Bool == true)
+        #expect(cancelResponse.ok == false)
+        #expect(cancelResponse.sessionKey == sessionKey)
+        #expect(cancelResponse.action == "cancel_current_run")
+        #expect(cancelResponse.code == "unsupported")
+        #expect(cancelResponse.capabilities?.cancelCurrentRun?.supported == false)
+        #expect(fastModeResponse.ok)
+        #expect(fastModeResponse.status?.display.fastMode == true)
+        #expect(fastModeResponse.capabilities?.setModel?.reason == "model_catalog_control_not_available")
     }
 
     @Test("Adopt stream request posts session key to provider")

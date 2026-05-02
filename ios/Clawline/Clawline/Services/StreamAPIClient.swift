@@ -65,7 +65,55 @@ final class StreamAPIClient {
 
     private struct SessionControlRequest: Encodable {
         let sessionKey: String
-        let action: String
+        let action: SessionControlAction
+        let model: String?
+        let thinkingLevel: String?
+        let reasoningLevel: String?
+        let fastMode: Bool?
+        let mode: String?
+
+        init(sessionKey: String, action: SessionControlAction, value: String?, enabled: Bool?) {
+            self.sessionKey = sessionKey
+            self.action = action
+            switch action {
+            case .cancelCurrentRun:
+                self.model = nil
+                self.thinkingLevel = nil
+                self.reasoningLevel = nil
+                self.fastMode = nil
+                self.mode = nil
+            case .setModel:
+                self.model = value
+                self.thinkingLevel = nil
+                self.reasoningLevel = nil
+                self.fastMode = nil
+                self.mode = nil
+            case .setThinking:
+                self.model = nil
+                self.thinkingLevel = value
+                self.reasoningLevel = nil
+                self.fastMode = nil
+                self.mode = nil
+            case .setReasoning:
+                self.model = nil
+                self.thinkingLevel = nil
+                self.reasoningLevel = value
+                self.fastMode = nil
+                self.mode = nil
+            case .setFastMode:
+                self.model = nil
+                self.thinkingLevel = nil
+                self.reasoningLevel = nil
+                self.fastMode = enabled
+                self.mode = nil
+            case .setMode:
+                self.model = nil
+                self.thinkingLevel = nil
+                self.reasoningLevel = nil
+                self.fastMode = nil
+                self.mode = value
+            }
+        }
     }
 
     private let baseURLProvider: () -> URL?
@@ -118,12 +166,23 @@ final class StreamAPIClient {
         )
     }
 
-    func cancelCurrentRun(sessionKey: String, token: String?) async throws -> SessionControlResponse {
+    func applySessionControl(
+        sessionKey: String,
+        action: SessionControlAction,
+        value: String?,
+        enabled: Bool?,
+        token: String?
+    ) async throws -> SessionControlResponse {
         try await sendRequest(
             method: "POST",
             path: "/api/session-control",
             token: token,
-            body: SessionControlRequest(sessionKey: sessionKey, action: "cancel_current_run")
+            body: SessionControlRequest(
+                sessionKey: sessionKey,
+                action: action,
+                value: value,
+                enabled: enabled
+            )
         )
     }
 

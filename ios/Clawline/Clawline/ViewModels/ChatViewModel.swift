@@ -385,6 +385,43 @@ final class ChatViewModel: ChatViewModelHosting {
         sessionStatusBySessionKey[sessionKey]
     }
 
+    func applySessionControl(
+        sessionKey: String,
+        action: SessionControlAction,
+        value: String? = nil,
+        enabled: Bool? = nil
+    ) {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let response = try await self.chatService.applySessionControl(
+                    sessionKey: normalizedSessionKey,
+                    action: action,
+                    value: value,
+                    enabled: enabled
+                )
+                if response.ok, let status = response.status {
+                    let displayStatus = self.sessionStatusByKeepingStickyDisplayFields(
+                        from: status,
+                        requestedSessionKey: normalizedSessionKey
+                    )
+                    self.sessionStatusBySessionKey[normalizedSessionKey] = displayStatus
+                    if displayStatus.sessionKey != normalizedSessionKey {
+                        self.sessionStatusBySessionKey[displayStatus.sessionKey] = displayStatus
+                    }
+                } else {
+                    self.toastManager.show(response.message ?? "This session control is not supported.")
+                    self.scheduleSessionStatusRefresh(for: normalizedSessionKey, reason: "sessionControlRejected")
+                }
+            } catch {
+                self.toastManager.show(error.localizedDescription)
+                self.scheduleSessionStatusRefresh(for: normalizedSessionKey, reason: "sessionControlFailed")
+            }
+        }
+    }
+
     nonisolated static func placeholderText(displayName: String, sessionKey: String) -> String {
         guard !sessionKey.isEmpty else { return displayName }
         return "\(displayName) — \(sessionKey)"
@@ -1088,7 +1125,12 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func performCurrentPromptCancellation(sessionKey: String) async {
         do {
-            let response = try await chatService.cancelCurrentRun(sessionKey: sessionKey)
+            let response = try await chatService.applySessionControl(
+                sessionKey: sessionKey,
+                action: .cancelCurrentRun,
+                value: nil,
+                enabled: nil
+            )
             if response.ok {
                 scheduleSessionStatusRefresh(for: sessionKey, reason: "cancelCurrentPrompt")
                 return

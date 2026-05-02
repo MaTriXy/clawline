@@ -127,6 +127,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var fontScaleChangeSequence: Int = 0
     var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     var onTypingIndicatorTap: (@MainActor () -> Void)?
+    var onSessionControlSelected: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
 
     func makeUIViewController(context: Context) -> MessageFlowCollectionViewController {
@@ -151,6 +152,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
+            onSessionControlSelected: onSessionControlSelected,
             isDark: isDark
         )
         if shouldRegisterWithLayoutCoordinator, let sessionKey {
@@ -179,6 +181,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
+            onSessionControlSelected: onSessionControlSelected,
             isDark: isDark
         )
         if shouldRegisterWithLayoutCoordinator, let sessionKey {
@@ -206,6 +209,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let fontScaleChangeSequence: Int
         let onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
         let onTypingIndicatorTap: (@MainActor () -> Void)?
+        let onSessionControlSelected: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)?
         let isDark: Bool?
     }
 
@@ -322,6 +326,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var onExpand: ((Message) -> Void)?
     private var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     private var onTypingIndicatorTap: (@MainActor () -> Void)?
+    private var onSessionControlSelected: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)?
     private let webBubbleCoordinator = WebBubbleCoordinator()
     private var lastMessages: [Message] = []
     private var lastEffectiveStream: ChatStream?
@@ -1082,6 +1087,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 sessionStatus: sessionStatus,
                 forceReReadGeneration: 0,
                 onScrollEvent: onScrollEvent,
+                onSessionControlSelected: onSessionControlSelected,
                 isDark: currentIsDark
             )
         }
@@ -1907,6 +1913,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sessionStatus: sessionStatus,
             forceReReadGeneration: 0,
             onScrollEvent: onScrollEvent,
+            onSessionControlSelected: onSessionControlSelected,
             isDark: currentIsDark
         )
     }
@@ -1933,6 +1940,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 sessionStatus: request.sessionStatus,
                 forceReReadGeneration: request.forceReReadGeneration,
                 onScrollEvent: request.onScrollEvent,
+                onSessionControlSelected: request.onSessionControlSelected,
                 isDark: request.isDark
             )
         }
@@ -1985,6 +1993,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         fontScaleChangeSequence: Int = 0,
         onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)? = nil,
         onTypingIndicatorTap: (@MainActor () -> Void)? = nil,
+        onSessionControlSelected: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)? = nil,
         isDark: Bool? = nil
     ) {
         let request = UpdateRequest(
@@ -2005,6 +2014,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
+            onSessionControlSelected: onSessionControlSelected,
             isDark: isDark
         )
         if isUpdatePassInFlight || isSnapshotApplyInFlight {
@@ -2041,6 +2051,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.truncationBottomInset = truncationBottomInset
         self.onScrollEvent = onScrollEvent
         self.onTypingIndicatorTap = onTypingIndicatorTap
+        self.onSessionControlSelected = onSessionControlSelected
 
         // Handle appearance change from SwiftUI colorScheme
         if let isDark = isDark, currentIsDark != isDark {
@@ -3304,7 +3315,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     withReuseIdentifier: SessionMetadataFooterCell.reuseIdentifier,
                     for: indexPath
                 ) as? SessionMetadataFooterCell
-                cell?.configure(status: self.sessionStatus, isDark: self.currentIsDark)
+                cell?.configure(
+                    status: self.sessionStatus,
+                    isDark: self.currentIsDark,
+                    onSelect: self.onSessionControlSelected
+                )
                 return cell
             }
 
@@ -5180,11 +5195,28 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
     static let bottomPadding: CGFloat = 18
     static let horizontalPadding: CGFloat = 12
 
-    private let label = UILabel()
+    private let stackView = UIStackView()
 
     private struct FooterItem {
         let text: String
-        let isMutable: Bool
+        let action: SessionControlAction?
+        let options: [FooterOption]
+        let unsupportedReason: String?
+    }
+
+    private struct FooterOption {
+        let title: String
+        let value: String?
+        let enabled: Bool?
+    }
+
+    private final class FooterButton: UIButton {
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            let minimumSide: CGFloat = 44
+            let horizontalInset = max(0, (minimumSide - bounds.width) / 2)
+            let verticalInset = max(0, (minimumSide - bounds.height) / 2)
+            return bounds.insetBy(dx: -horizontalInset, dy: -verticalInset).contains(point)
+        }
     }
 
     override init(frame: CGRect) {
@@ -5192,18 +5224,19 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         contentView.backgroundColor = .clear
         backgroundColor = .clear
 
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.textAlignment = .center
-        label.numberOfLines = 1
-        label.font = UIFont.clawline(.timestamp)
-        label.adjustsFontForContentSizeCategory = true
-        contentView.addSubview(label)
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        stackView.axis = .horizontal
+        stackView.alignment = .center
+        stackView.distribution = .equalCentering
+        stackView.spacing = 6
+        contentView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
-            label.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Self.horizontalPadding),
-            label.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Self.topPadding),
-            label.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Self.bottomPadding)
+            stackView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
+            stackView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -Self.horizontalPadding),
+            stackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Self.topPadding),
+            stackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Self.bottomPadding)
         ])
     }
 
@@ -5211,12 +5244,26 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(status: SessionStatus?, isDark: Bool) {
+    func configure(
+        status: SessionStatus?,
+        isDark: Bool,
+        onSelect: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)?
+    ) {
         let palette = ChatFlowUIKitTheme.palette(isDark: isDark)
-        label.textColor = palette.textMuted.withAlphaComponent(isDark ? 0.78 : 0.7)
-        label.text = Self.footerText(for: status)
-        accessibilityLabel = label.text
-        accessibilityTraits = .staticText
+        let textColor = palette.textMuted.withAlphaComponent(isDark ? 0.78 : 0.7)
+        stackView.arrangedSubviews.forEach { view in
+            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        let items = Self.footerItems(for: status)
+        for (index, item) in items.enumerated() {
+            if index > 0 {
+                stackView.addArrangedSubview(separatorLabel(color: textColor))
+            }
+            stackView.addArrangedSubview(button(for: item, status: status, color: textColor, onSelect: onSelect))
+        }
+        accessibilityLabel = Self.footerText(for: status)
+        accessibilityTraits = items.contains { $0.action != nil && !$0.options.isEmpty } ? .button : .staticText
     }
 
     static func height(for status: SessionStatus?) -> CGFloat {
@@ -5233,24 +5280,159 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
     private static func footerItems(for status: SessionStatus?) -> [FooterItem] {
         guard let status else { return [] }
         let display = status.display
+        let capabilities = status.capabilities
+        let modelCapability = capability(
+            capabilities.setModel,
+            legacySupported: capabilities.canChangeModel == true
+        )
+        let thinkingValue = normalized(display.thinkingLevel)
+        let reasoningValue = normalized(display.reasoningLevel)
+        let levelControl = levelControlAction(
+            capabilities: capabilities,
+            prefersThinking: thinkingValue != nil
+        )
+        let fastControl = fastModeControlAction(capabilities: capabilities)
         return [
             FooterItem(
                 text: normalized(display.model) ?? "Unknown model",
-                isMutable: capabilitySupported(status.capabilities.setModel) || status.capabilities.canChangeModel == true
+                action: modelCapability.isSupported ? .setModel : nil,
+                options: modelOptions(display: display),
+                unsupportedReason: modelCapability.reason ?? "model_catalog_control_not_available"
             ),
             FooterItem(
-                text: "Thinking \(normalized(display.thinkingLevel) ?? normalized(display.reasoningLevel) ?? "Unknown")",
-                isMutable: capabilitySupported(status.capabilities.setReasoning) || status.capabilities.canChangeReasoning == true
+                text: "Thinking \(thinkingValue ?? reasoningValue ?? "Unknown")",
+                action: levelControl.action,
+                options: levelOptions(current: thinkingValue ?? reasoningValue),
+                unsupportedReason: levelControl.reason
             ),
             FooterItem(
                 text: fastModeText(display.fastMode),
-                isMutable: status.capabilities.canChangeFastMode == true
+                action: fastControl.action,
+                options: fastModeOptions(current: display.fastMode, action: fastControl.action),
+                unsupportedReason: fastControl.reason
             )
         ]
     }
 
-    private static func capabilitySupported(_ capability: SessionStatus.Capability?) -> Bool {
-        capability?.supported == true
+    private static func capability(_ capability: SessionStatus.Capability?,
+                                   legacySupported: Bool) -> (isSupported: Bool, reason: String?) {
+        if let capability {
+            return (capability.supported, capability.reason)
+        }
+        return (legacySupported, nil)
+    }
+
+    private func button(
+        for item: FooterItem,
+        status: SessionStatus?,
+        color: UIColor,
+        onSelect: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)?
+    ) -> UIButton {
+        let button = FooterButton(type: .system)
+        var configuration = UIButton.Configuration.plain()
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 2)
+        configuration.title = item.text
+        configuration.baseForegroundColor = color
+        button.configuration = configuration
+        button.titleLabel?.font = UIFont.clawline(.timestamp)
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.tintColor = color
+        button.isEnabled = item.action != nil && !item.options.isEmpty
+        button.showsMenuAsPrimaryAction = button.isEnabled
+        button.accessibilityLabel = item.text
+        if !button.isEnabled, let reason = item.unsupportedReason {
+            button.accessibilityHint = reason
+        }
+        guard let sessionKey = status?.sessionKey, let action = item.action, button.isEnabled else {
+            return button
+        }
+        button.menu = UIMenu(children: item.options.map { option in
+            UIAction(title: option.title) { _ in
+                Task { @MainActor in
+                    onSelect?(sessionKey, action, option.value, option.enabled)
+                }
+            }
+        })
+        return button
+    }
+
+    private func separatorLabel(color: UIColor) -> UILabel {
+        let label = UILabel()
+        label.text = "·"
+        label.textColor = color.withAlphaComponent(0.7)
+        label.font = UIFont.clawline(.timestamp)
+        label.adjustsFontForContentSizeCategory = true
+        return label
+    }
+
+    private static func modelOptions(display: SessionStatus.Display) -> [FooterOption] {
+        let current = normalized(display.model)
+        let models = ([current] + (display.fallbackModels ?? []).map { normalized($0) }).compactMap { $0 }
+        let uniqueModels = Array(NSOrderedSet(array: models)) as? [String] ?? models
+        return uniqueModels.map { model in
+            FooterOption(title: model == current ? "\(model) (Current)" : model, value: model, enabled: nil)
+        }
+    }
+
+    private static func levelOptions(current: String?) -> [FooterOption] {
+        ["low", "medium", "high", "xhigh"].map { level in
+            FooterOption(
+                title: level == current ? "\(level) (Current)" : level,
+                value: level,
+                enabled: nil
+            )
+        }
+    }
+
+    private static func fastModeOptions(current: Bool?, action: SessionControlAction?) -> [FooterOption] {
+        guard action != .setMode else {
+            return [
+                FooterOption(title: current == true ? "On (Current)" : "On", value: "fast", enabled: nil),
+                FooterOption(title: current == false ? "Off (Current)" : "Off", value: "normal", enabled: nil)
+            ]
+        }
+        return [
+            FooterOption(title: current == true ? "On (Current)" : "On", value: nil, enabled: true),
+            FooterOption(title: current == false ? "Off (Current)" : "Off", value: nil, enabled: false)
+        ]
+    }
+
+    private static func levelControlAction(
+        capabilities: SessionStatus.Capabilities,
+        prefersThinking: Bool
+    ) -> (action: SessionControlAction?, reason: String?) {
+        let thinkingCapability = capability(capabilities.setThinking, legacySupported: false)
+        let reasoningCapability = capability(
+            capabilities.setReasoning,
+            legacySupported: capabilities.canChangeReasoning == true
+        )
+        if prefersThinking, thinkingCapability.isSupported {
+            return (.setThinking, nil)
+        }
+        if reasoningCapability.isSupported {
+            return (.setReasoning, nil)
+        }
+        if thinkingCapability.isSupported {
+            return (.setThinking, nil)
+        }
+        return (nil, thinkingCapability.reason ?? reasoningCapability.reason)
+    }
+
+    private static func fastModeControlAction(
+        capabilities: SessionStatus.Capabilities
+    ) -> (action: SessionControlAction?, reason: String?) {
+        let fastModeCapability = capability(
+            capabilities.setFastMode,
+            legacySupported: capabilities.canChangeFastMode == true
+        )
+        let modeCapability = capability(capabilities.setMode, legacySupported: false)
+        if fastModeCapability.isSupported {
+            return (.setFastMode, nil)
+        }
+        if modeCapability.isSupported {
+            return (.setMode, nil)
+        }
+        return (nil, fastModeCapability.reason ?? modeCapability.reason)
     }
 
     private static func fastModeText(_ fastMode: Bool?) -> String {
@@ -5263,10 +5445,6 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func prefixed(_ prefix: String, _ value: String?) -> String? {
-        guard let normalized = normalized(value) else { return nil }
-        return "\(prefix) \(normalized)"
-    }
 }
 
 private final class MessageFlowLayout: UICollectionViewFlowLayout {
