@@ -126,6 +126,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var forceReReadGeneration: Int = 0
     var fontScaleChangeSequence: Int = 0
     var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
+    var onTypingIndicatorTap: (@MainActor () -> Void)?
     @Environment(\.colorScheme) private var colorScheme
 
     func makeUIViewController(context: Context) -> MessageFlowCollectionViewController {
@@ -149,6 +150,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             forceReReadGeneration: forceReReadGeneration,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
+            onTypingIndicatorTap: onTypingIndicatorTap,
             isDark: isDark
         )
         if shouldRegisterWithLayoutCoordinator, let sessionKey {
@@ -176,6 +178,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             forceReReadGeneration: forceReReadGeneration,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
+            onTypingIndicatorTap: onTypingIndicatorTap,
             isDark: isDark
         )
         if shouldRegisterWithLayoutCoordinator, let sessionKey {
@@ -202,6 +205,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let forceReReadGeneration: Int
         let fontScaleChangeSequence: Int
         let onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
+        let onTypingIndicatorTap: (@MainActor () -> Void)?
         let isDark: Bool?
     }
 
@@ -317,6 +321,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var currentFontScaleChangeSequence: Int = 0
     private var onExpand: ((Message) -> Void)?
     private var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
+    private var onTypingIndicatorTap: (@MainActor () -> Void)?
     private let webBubbleCoordinator = WebBubbleCoordinator()
     private var lastMessages: [Message] = []
     private var lastEffectiveStream: ChatStream?
@@ -1979,6 +1984,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         forceReReadGeneration: Int = 0,
         fontScaleChangeSequence: Int = 0,
         onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)? = nil,
+        onTypingIndicatorTap: (@MainActor () -> Void)? = nil,
         isDark: Bool? = nil
     ) {
         let request = UpdateRequest(
@@ -1998,6 +2004,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             forceReReadGeneration: forceReReadGeneration,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
+            onTypingIndicatorTap: onTypingIndicatorTap,
             isDark: isDark
         )
         if isUpdatePassInFlight || isSnapshotApplyInFlight {
@@ -2033,6 +2040,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
         self.onScrollEvent = onScrollEvent
+        self.onTypingIndicatorTap = onTypingIndicatorTap
 
         // Handle appearance change from SwiftUI colorScheme
         if let isDark = isDark, currentIsDark != isDark {
@@ -3284,7 +3292,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     presentation: presentation,
                     isCompact: self.isCompact,
                     maxWidth: maxWidth,
-                    isDark: self.currentIsDark
+                    isDark: self.currentIsDark,
+                    onTap: self.onTypingIndicatorTap
                 )
                 cell?.startAnimating()
                 return cell

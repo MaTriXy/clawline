@@ -76,3 +76,13 @@ struct SessionStatus: Decodable, Equatable {
         let reason: String?
     }
 }
+
+struct SessionControlResponse: Decodable, Equatable {
+    let ok: Bool
+    let sessionKey: String
+    let action: String
+    let code: String?
+    let message: String?
+    let status: SessionStatus?
+    let capabilities: SessionStatus.Capabilities?
+}

@@ -169,6 +169,10 @@ final class StubChatService: ChatServicing {
         throw ProviderChatService.Error.notConnected
     }
 
+    func cancelCurrentRun(sessionKey: String) async throws -> SessionControlResponse {
+        throw ProviderChatService.Error.notConnected
+    }
+
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
         let now = Date()
         let stream = StreamSession(

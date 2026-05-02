@@ -63,6 +63,11 @@ final class StreamAPIClient {
         let idempotencyKey: String?
     }
 
+    private struct SessionControlRequest: Encodable {
+        let sessionKey: String
+        let action: String
+    }
+
     private let baseURLProvider: () -> URL?
     private let session: URLSession
     private let encoder: JSONEncoder
@@ -110,6 +115,15 @@ final class StreamAPIClient {
             queryItems: [URLQueryItem(name: "sessionKey", value: sessionKey)],
             token: token,
             body: Optional<String>.none
+        )
+    }
+
+    func cancelCurrentRun(sessionKey: String, token: String?) async throws -> SessionControlResponse {
+        try await sendRequest(
+            method: "POST",
+            path: "/api/session-control",
+            token: token,
+            body: SessionControlRequest(sessionKey: sessionKey, action: "cancel_current_run")
         )
     }
 

@@ -178,6 +178,7 @@ struct ChatView: View {
     @State private var streamPopupRouteController = StreamPopupRouteController()
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
+    @State private var isCancelCurrentPromptDialogPresented = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var focusRequestID = 0
     @State private var shouldRestoreFocusAfterPicker = false
@@ -982,6 +983,13 @@ struct ChatView: View {
                 }
             )
         )
+        .modifier(
+            CancelCurrentPromptConfirmationModifier(
+                isPresented: $isCancelCurrentPromptDialogPresented,
+                canCancel: viewModel.canCancelCurrentPrompt,
+                onConfirm: { viewModel.requestCurrentPromptCancellation() }
+            )
+        )
 #if DEBUG
         .overlay(alignment: .topTrailing) {
             lifecycleDebugOverlay(
@@ -1444,7 +1452,8 @@ struct ChatView: View {
             sessionStatus: viewModel.sessionStatus(for: sessionKey),
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
             fontScaleChangeSequence: fontScaleChangeSequence,
-            onScrollEvent: handleDeferredMessageFlowScrollEvent
+            onScrollEvent: handleDeferredMessageFlowScrollEvent,
+            onTypingIndicatorTap: presentCancelCurrentPromptDialog
         )
         // We manage keyboard avoidance manually inside the collection view.
         // Prevent SwiftUI from shrinking the view and double-applying the keyboard height.
@@ -1596,7 +1605,8 @@ struct ChatView: View {
                 sessionStatus: viewModel.sessionStatus(for: sessionKey),
                 forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
                 fontScaleChangeSequence: fontScaleChangeSequence,
-                onScrollEvent: nil
+                onScrollEvent: nil,
+                onTypingIndicatorTap: nil
             )
             .hidden()
         }
@@ -1781,6 +1791,14 @@ struct ChatView: View {
         typingActivityResetTask?.cancel()
         typingActivityResetTask = nil
         isTypingActive = false
+    }
+
+    private func presentCancelCurrentPromptDialog() {
+        guard viewModel.canCancelCurrentPrompt else {
+            isCancelCurrentPromptDialogPresented = false
+            return
+        }
+        isCancelCurrentPromptDialogPresented = true
     }
 
     private func insertPromptTextFromNoTextOwner(_ text: String) {
@@ -2363,6 +2381,39 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatUpCommand)) { _ in
                 guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
                 onScrollChatUp()
+            }
+    }
+}
+
+private struct CancelCurrentPromptConfirmationModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    let canCancel: Bool
+    let onConfirm: () -> Void
+
+    private var command: CancelCurrentPromptCommand? {
+        guard canCancel else { return nil }
+        return CancelCurrentPromptCommand {
+            isPresented = true
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: canCancel) { _, newValue in
+                if !newValue {
+                    isPresented = false
+                }
+            }
+            .focusedSceneValue(\.cancelCurrentPromptCommand, command)
+            .alert("Cancel current prompt?", isPresented: $isPresented) {
+                Button("Cancel Prompt", role: .destructive) {
+                    onConfirm()
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Keep Running", role: .cancel) {}
+                    .keyboardShortcut(.cancelAction)
+            } message: {
+                Text("Stop the current in-flight prompt?")
             }
     }
 }
@@ -3666,6 +3717,9 @@ private final class PreviewChatService: ChatServicing {
     func fetchStreams() async throws -> [StreamSession] { [] }
     func fetchTrackableSessions() async throws -> [TrackableSession] { [] }
     func fetchSessionStatus(sessionKey: String) async throws -> SessionStatus {
+        throw ProviderChatService.Error.notConnected
+    }
+    func cancelCurrentRun(sessionKey: String) async throws -> SessionControlResponse {
         throw ProviderChatService.Error.notConnected
     }
     func adoptStream(sessionKey: String) async throws -> StreamSession {

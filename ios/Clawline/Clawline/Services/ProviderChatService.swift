@@ -297,6 +297,17 @@ final class ProviderChatService: ChatServicing {
         }
     }
 
+    func cancelCurrentRun(sessionKey: String) async throws -> SessionControlResponse {
+        guard let token = await resolveControlPlaneToken() else {
+            throw Error.notConnected
+        }
+        do {
+            return try await streamAPIClient.cancelCurrentRun(sessionKey: sessionKey, token: token)
+        } catch {
+            throw mapStreamAPIError(error)
+        }
+    }
+
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
         guard let token = await resolveControlPlaneToken() else {
             throw Error.notConnected

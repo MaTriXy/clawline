@@ -916,6 +916,67 @@ struct ProviderServiceTests {
         #expect(status.capabilities.cancelCurrentRun?.supported == false)
     }
 
+    @Test("Cancel current run posts typed session control action")
+    func cancelCurrentRunPostsTypedSessionControlAction() async throws {
+        let mockSocket = MockWebSocketClient()
+        let connector = MockWebSocketConnector(client: mockSocket)
+        let baseURL = URL(string: "https://example.com")!
+        let sessionKey = "agent:main:clawline:user:s_status"
+        defer { HTTPStubURLProtocol.requestHandler = nil }
+        HTTPStubURLProtocol.requestHandler = { request in
+            #expect(request.url?.path == "/api/session-control")
+            #expect(request.httpMethod == "POST")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer jwt")
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
+            #expect(body?["sessionKey"] as? String == sessionKey)
+            #expect(body?["action"] as? String == "cancel_current_run")
+            let data = #"""
+            {
+              "ok": false,
+              "sessionKey": "agent:main:clawline:user:s_status",
+              "action": "cancel_current_run",
+              "code": "unsupported",
+              "message": "The current Clawline provider dispatch path does not expose a per-session abort seam.",
+              "capabilities": {
+                "cancelCurrentRun": { "supported": false, "reason": "provider_abort_seam_not_available" },
+                "setModel": { "supported": false, "reason": "model_catalog_control_not_available" },
+                "setReasoning": { "supported": true, "reason": null },
+                "setMode": { "supported": true, "reason": null },
+                "setVerbosity": { "supported": true, "reason": null }
+              }
+            }
+            """#.data(using: .utf8) ?? Data()
+            return (
+                HTTPURLResponse(
+                    url: request.url ?? baseURL,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                data
+            )
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPStubURLProtocol.self]
+        let urlSession = URLSession(configuration: configuration)
+        let streamAPIClient = StreamAPIClient(baseURLProvider: { baseURL }, session: urlSession)
+        let service = ProviderChatService(
+            connector: connector,
+            deviceId: "device_123",
+            baseURLProvider: { baseURL },
+            authTokenProvider: { "jwt" },
+            streamAPIClient: streamAPIClient
+        )
+
+        let response = try await service.cancelCurrentRun(sessionKey: sessionKey)
+
+        #expect(response.ok == false)
+        #expect(response.sessionKey == sessionKey)
+        #expect(response.action == "cancel_current_run")
+        #expect(response.code == "unsupported")
+        #expect(response.capabilities?.cancelCurrentRun?.supported == false)
+    }
+
     @Test("Adopt stream request posts session key to provider")
     func adoptStreamPostsSessionKeyToProvider() async throws {
         let mockSocket = MockWebSocketClient()
