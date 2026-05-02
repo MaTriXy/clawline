@@ -120,7 +120,7 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
             id: "s_long_1",
             role: "assistant",
             content: longContent,
-            timestamp: new Date("2026-04-01T17:12:00.000Z").getTime(),
+            timestamp: Date.now() - 24 * 60 * 60 * 1000,
             streaming: false,
             sessionKey,
             attachments: []
