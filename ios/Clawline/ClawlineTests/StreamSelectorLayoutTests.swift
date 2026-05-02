@@ -170,6 +170,76 @@ struct StreamSelectorLayoutTests {
         #expect(filtered.first?.displayName == "Research Notes")
     }
 
+    @Test("Container height never exceeds the caller's budget, even when the budget is below the preferred minimum")
+    func containerHeightRespectsBudgetBelowMinimum() {
+        // A very short spatial window can produce a budget that is smaller than
+        // minimumPopoverHeight. The helper must clamp to the budget so we never ask the
+        // popover system for more height than it can actually allocate — which is exactly
+        // the condition that caused the cropping symptom.
+        let height = StreamSelectorLayout.containerHeight(
+            itemCount: 5,
+            showsCreateInlineRow: false,
+            rowHeight: CGFloat(52),
+            rowSpacing: CGFloat(2),
+            functionBarHeight: CGFloat(72),
+            outerVerticalPadding: CGFloat(20),
+            maxAvailableHeight: CGFloat(90),
+            minimumPopoverHeight: CGFloat(140)
+        )
+
+        #expect(height == CGFloat(90))
+    }
+
+    @Test("Container height falls back to the preferred minimum when content is smaller and budget allows it")
+    func containerHeightFallsBackToMinimumWhenContentIsSmall() {
+        // With tiny content (single row) and plenty of budget, the container should expand
+        // to the preferred minimum so the popup does not look visually collapsed.
+        let height = StreamSelectorLayout.containerHeight(
+            itemCount: 1,
+            showsCreateInlineRow: false,
+            rowHeight: CGFloat(20),
+            rowSpacing: CGFloat(0),
+            functionBarHeight: CGFloat(40),
+            outerVerticalPadding: CGFloat(0),
+            maxAvailableHeight: CGFloat(640),
+            minimumPopoverHeight: CGFloat(140)
+        )
+
+        #expect(height == CGFloat(140))
+    }
+
+    @Test("List viewport height subtracts the action bar reserve from the container")
+    func listViewportHeightSubtractsActionBar() {
+        let viewport = StreamSelectorLayout.listViewportHeight(
+            containerHeight: CGFloat(320),
+            actionBarReservedHeight: CGFloat(72)
+        )
+
+        #expect(viewport == CGFloat(248))
+    }
+
+    @Test("List viewport height shrinks when the popover allocates less than the ideal")
+    func listViewportHeightShrinksWhenContainerIsConstrained() {
+        // Simulate the popover system giving us less vertical space than cappedContainerHeight.
+        // The viewport must shrink so the list stays inside the visible popup bounds.
+        let viewport = StreamSelectorLayout.listViewportHeight(
+            containerHeight: CGFloat(180),
+            actionBarReservedHeight: CGFloat(72)
+        )
+
+        #expect(viewport == CGFloat(108))
+    }
+
+    @Test("List viewport height clamps to zero when the container is smaller than the action bar")
+    func listViewportHeightClampsToZero() {
+        let viewport = StreamSelectorLayout.listViewportHeight(
+            containerHeight: CGFloat(40),
+            actionBarReservedHeight: CGFloat(72)
+        )
+
+        #expect(viewport == CGFloat(0))
+    }
+
     @Test("Blank stream filter returns all streams")
     func blankStreamFilterReturnsAll() {
         let streams = [
