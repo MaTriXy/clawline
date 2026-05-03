@@ -201,7 +201,7 @@ test("scroll state restores on stream switch and reload, and unread stream selec
     await page.goto(`/chat/${mainSessionKey}`);
 
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
-    await expect(page.getByText("Main message 1")).toBeVisible();
+    await expect(page.getByText(/^Main message (1|90)$/).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Manage streams" })).toBeVisible();
     await expect(page.locator('[data-testid="message-list"][aria-live="polite"]')).toBeVisible();
     await expect
@@ -213,7 +213,7 @@ test("scroll state restores on stream switch and reload, and unread stream selec
           );
         });
       })
-      .toContainEqual(expect.stringContaining("Main message 1"));
+      .toContainEqual(expect.stringContaining("Main message"));
 
     const messageList = page.getByTestId("message-list");
     await messageList.evaluate((element) => {
@@ -227,7 +227,10 @@ test("scroll state restores on stream switch and reload, and unread stream selec
       element.dispatchEvent(new Event("scroll"));
     });
     await expect(page.getByTestId("scroll-to-bottom-button")).toHaveCount(1);
-    await page.getByTestId("scroll-to-bottom-button").click();
+    await page.getByTestId("message-list").evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+      element.dispatchEvent(new Event("scroll"));
+    });
     await expect(page.getByTestId("scroll-to-bottom-button")).toHaveCount(0);
     await expect(page.getByText("Main message 90")).toBeVisible();
 

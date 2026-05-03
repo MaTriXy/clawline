@@ -180,6 +180,7 @@ export function ChatRoute() {
         }
         provisionedSessionKeys={chatState.provisionedSessionKeys}
         streamDotStateBySessionKey={streamDotStateBySessionKey}
+        unreadBySessionKey={chatState.unreadBySessionKey}
         streams={chatState.streams}
         transportPhase={transportState.phase}
       />

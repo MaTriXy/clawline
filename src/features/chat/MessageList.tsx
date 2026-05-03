@@ -66,7 +66,7 @@ export function MessageList({
   const [isTypingIndicatorVisible, setIsTypingIndicatorVisible] = useState(
     shouldShowTypingIndicator
   );
-  const restoredSessionKeyRef = useRef<string | null>(null);
+  const restoredScrollStateKeyRef = useRef<string | null>(null);
   const consumedUnreadAnchorRef = useRef<string | null>(null);
   const touchScrollActiveRef = useRef(false);
   const touchScrollReleaseTimeoutRef = useRef<number | null>(null);
@@ -104,14 +104,14 @@ export function MessageList({
       return;
     }
 
-    if (restoredSessionKeyRef.current !== sessionKey) {
+    if (!restoredScrollStateKeyRef.current?.startsWith(`${sessionKey}:`)) {
       return;
     }
 
     onRememberScrollState({
       offsetTop: scrollTop,
       sessionKey,
-      stickToBottom: isAtBottom
+      stickToBottom: isAtBottom || isAtBottomRef.current
     });
   }, [isAtBottom, onRememberScrollState, scrollTop, sessionKey]);
 
@@ -120,15 +120,28 @@ export function MessageList({
       return;
     }
 
-    if (restoredSessionKeyRef.current === sessionKey) {
+    const restoreKey = `${sessionKey}:${rememberedScrollState?.stickToBottom ? "bottom" : rememberedScrollState ? rememberedScrollState.offsetTop : "none"}`;
+
+    if (restoredScrollStateKeyRef.current === restoreKey) {
       return;
     }
 
-    restoredSessionKeyRef.current = sessionKey;
+    restoredScrollStateKeyRef.current = restoreKey;
+
 
     if (rememberedScrollState?.stickToBottom) {
       scrollToBottom();
-      return;
+      let secondFrame = 0;
+      const firstFrame = window.requestAnimationFrame(() => {
+        scrollToBottom();
+        secondFrame = window.requestAnimationFrame(() => scrollToBottom());
+      });
+      return () => {
+        window.cancelAnimationFrame(firstFrame);
+        if (secondFrame !== 0) {
+          window.cancelAnimationFrame(secondFrame);
+        }
+      };
     }
 
     if (rememberedScrollState) {
@@ -159,9 +172,25 @@ export function MessageList({
       return;
     }
 
-    consumedUnreadAnchorRef.current = unreadAnchorKey;
-    onUnreadAnchorConsumed?.(unreadAnchorMessageId);
+    const consumeTimer = window.setTimeout(() => {
+      if (scrollToMessage(unreadAnchorMessageId, "center")) {
+        consumedUnreadAnchorRef.current = unreadAnchorKey;
+        onUnreadAnchorConsumed?.(unreadAnchorMessageId);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(consumeTimer);
   }, [onUnreadAnchorConsumed, scrollToMessage, sessionKey, unreadAnchorMessageId]);
+
+  useEffect(() => {
+    if (!sessionKey || !rememberedScrollState?.stickToBottom) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => scrollToBottom());
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [rememberedScrollState?.stickToBottom, scrollToBottom, sessionKey, totalHeight]);
 
   useEffect(() => {
     if (viewportInsetBottom <= 0) {
@@ -308,12 +337,21 @@ export function MessageList({
           ) : null}
         </div>
       </section>
-      {!isAtBottom ? (
+      {!isAtBottom && !isAtBottomRef.current ? (
         <div className="message-list-affordance-bar">
           <button
             className="button-secondary message-list-jump-button"
             data-testid="scroll-to-bottom-button"
-            onClick={() => scrollToBottom()}
+            onClick={() => {
+              scrollToBottom();
+              if (sessionKey && onRememberScrollState) {
+                onRememberScrollState({
+                  offsetTop: Number.MAX_SAFE_INTEGER,
+                  sessionKey,
+                  stickToBottom: true
+                });
+              }
+            }}
             type="button"
           >
             Jump to latest

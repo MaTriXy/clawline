@@ -34,6 +34,7 @@ export function ChatShell({
   uiSelectedSessionKey,
   selectedUnreadAnchorMessageId,
   streamDotStateBySessionKey,
+  unreadBySessionKey,
   streams,
   transportPhase
 }: {
@@ -67,6 +68,7 @@ export function ChatShell({
   uiSelectedSessionKey?: string;
   selectedUnreadAnchorMessageId?: string | null;
   streamDotStateBySessionKey: Record<string, StreamDotState>;
+  unreadBySessionKey: Record<string, number>;
   streams: StreamRecord[];
   transportPhase: TransportPhase;
 }) {
@@ -147,6 +149,7 @@ export function ChatShell({
         onSelectSession={onPopupSessionSelect}
         provisionedSessionKeys={provisionedSessionKeys}
         streamDotStateBySessionKey={streamDotStateBySessionKey}
+        unreadBySessionKey={unreadBySessionKey}
         streams={streams}
         transportPhase={transportPhase}
       />
