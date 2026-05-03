@@ -1035,6 +1035,8 @@ describe("MessageList rich rendering", () => {
     });
 
     const list = screen.getByTestId("message-list");
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 24_000 });
+    Object.defineProperty(list, "clientHeight", { configurable: true, value: 800 });
     fireEvent.scroll(list, { target: { scrollTop: 20_000 } });
 
     expect(await screen.findByTestId("scroll-to-bottom-button")).toBeInTheDocument();

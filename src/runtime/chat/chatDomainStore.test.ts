@@ -699,7 +699,7 @@ describe("chatDomainStore", () => {
         stickToBottom: false
       },
       "agent:main:clawline:user_1:side": {
-        offsetTop: 0,
+        offsetTop: Number.MAX_SAFE_INTEGER,
         stickToBottom: true
       }
     });
@@ -715,7 +715,7 @@ describe("chatDomainStore", () => {
         stickToBottom: false
       },
       "agent:main:clawline:user_1:side": {
-        offsetTop: 0,
+        offsetTop: Number.MAX_SAFE_INTEGER,
         stickToBottom: true
       }
     });
