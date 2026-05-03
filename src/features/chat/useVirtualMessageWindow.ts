@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { ChatMessageRecord } from "../../runtime/chat/chatDomainStore";
 import { analyzeMessagePresentation, getMessageSenderLabel } from "./messagePresentation";
 import { shouldOfferExpandedMessage } from "./RichMessageBody";
@@ -7,6 +7,22 @@ const BOTTOM_THRESHOLD_PX = 32;
 const DEFAULT_CONTAINER_WIDTH = 820;
 const DEFAULT_MESSAGE_HEIGHT = 96;
 const DEFAULT_VIEWPORT_HEIGHT = 720;
+function getInitialContainerWidth() {
+  if (typeof window === "undefined") {
+    return DEFAULT_CONTAINER_WIDTH;
+  }
+
+  const estimatedInlinePadding = window.innerWidth <= 720 ? 28 : 0;
+  return Math.max(BUBBLE_MIN_WIDTH, window.innerWidth - estimatedInlinePadding);
+}
+
+function getInitialViewportHeight() {
+  if (typeof window === "undefined") {
+    return DEFAULT_VIEWPORT_HEIGHT;
+  }
+
+  return window.innerHeight || DEFAULT_VIEWPORT_HEIGHT;
+}
 const OVERSCAN_PX = 1_000;
 const BUBBLE_MIN_WIDTH = 120;
 const BUBBLE_PADDING_HORIZONTAL = 40;
@@ -45,11 +61,11 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
   const shouldStickToBottomRef = useRef(false);
   const isAtBottomRef = useRef(true);
   const [scrollTop, setScrollTop] = useState(0);
-  const [containerWidth, setContainerWidth] = useState(DEFAULT_CONTAINER_WIDTH);
-  const [viewportHeight, setViewportHeight] = useState(DEFAULT_VIEWPORT_HEIGHT);
+  const [containerWidth, setContainerWidth] = useState(getInitialContainerWidth);
+  const [viewportHeight, setViewportHeight] = useState(getInitialViewportHeight);
   const [measuredSizes, setMeasuredSizes] = useState<Record<string, { height: number; width: number }>>({});
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;
@@ -208,14 +224,19 @@ function buildVirtualLayout(
   const messageLayouts = messages.map((message, index) => {
     const measuredSize = measuredSizes[message.id];
     const presentation = analyzeMessagePresentation(message, shouldOfferExpandedMessage);
-    const width =
-      measuredSize?.width ??
-      estimateBubbleWidth(message, presentation, availableWidth);
+    const estimatedWidth = estimateBubbleWidth(message, presentation, availableWidth);
+    const shouldUseEstimatedWidth =
+      availableWidth <= 500
+      && !presentation.isWide
+      && !presentation.isTruncated
+      && (presentation.sizeClass === "short" || presentation.sizeClass === "medium");
+    const width = shouldUseEstimatedWidth ? estimatedWidth : measuredSize?.width ?? estimatedWidth;
     const height = measuredSize?.height ?? DEFAULT_MESSAGE_HEIGHT;
     const shouldForceOwnRow =
       presentation.isWide
       || presentation.isTruncated
-      || presentation.sizeClass === "long";
+      || presentation.sizeClass === "long"
+      || (availableWidth <= 500 && presentation.sizeClass === "medium");
 
     if (shouldForceOwnRow && offsetLeft > 0) {
       offsetTop += currentRowHeight + gapPx;
@@ -319,8 +340,12 @@ function estimateBubbleWidth(
   } else if (presentation.sizeClass === "long") {
     width = maxAllowedWidth;
   } else if (presentation.sizeClass === "short") {
+    const shortMinimumWidth =
+      containerWidth <= 500
+        ? Math.min(BUBBLE_MIN_WIDTH, maxAllowedWidth)
+        : minimumChromeWidth;
     width = clamp(
-      minimumChromeWidth,
+      shortMinimumWidth,
       measureSingleLineWidth(message.content, 22, 600) + BUBBLE_PADDING_HORIZONTAL,
       maxAllowedWidth
     );
