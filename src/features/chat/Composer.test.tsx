@@ -154,6 +154,55 @@ describe("Composer", () => {
     });
   });
 
+  it("submits on primary pointer-down while focused without waiting for click", async () => {
+    const { sendMessage } = renderComposer();
+    const textarea = screen.getByLabelText("Message");
+    const sendButton = screen.getByRole("button", { name: "Send" });
+
+    textarea.focus();
+    fireEvent.change(textarea, { target: { value: "Hello from round send" } });
+    fireEvent.pointerDown(sendButton, { button: 0, pointerType: "touch" });
+    fireEvent.click(sendButton);
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(sendMessage).toHaveBeenCalledWith({
+        attachments: [],
+        content: "Hello from round send",
+        id: expect.stringMatching(/^c_/),
+        sessionKey: "agent:main:clawline:user_1:main"
+      });
+    });
+    expect(textarea).toHaveFocus();
+  });
+
+  it("does not swallow a later click when the pointer-down activation has no trailing click", async () => {
+    const { sendMessage } = renderComposer();
+    const textarea = screen.getByLabelText("Message");
+    const sendButton = screen.getByRole("button", { name: "Send" });
+
+    fireEvent.change(textarea, { target: { value: "Pointer send" } });
+    fireEvent.pointerDown(sendButton, { button: 0, pointerType: "touch" });
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+    fireEvent.change(textarea, { target: { value: "Later click send" } });
+    fireEvent.click(sendButton);
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(2);
+      expect(sendMessage).toHaveBeenLastCalledWith({
+        attachments: [],
+        content: "Later click send",
+        id: expect.stringMatching(/^c_/),
+        sessionKey: "agent:main:clawline:user_1:main"
+      });
+    });
+  });
+
   it("shows reconnecting and disconnected send button states", () => {
     const reconnecting = renderComposer({ phase: "recovering" });
     expect(screen.getByRole("button", { name: "Reconnecting" }))

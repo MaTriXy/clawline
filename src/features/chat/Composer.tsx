@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type PointerEvent
+} from "react";
 import { Plus, RefreshCw, SendHorizontal } from "lucide-react";
 import type { SessionProvisioningState } from "../streams/provisioning";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
@@ -35,6 +42,8 @@ export function Composer({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const sendClickSuppressionTimeoutRef = useRef<number | null>(null);
+  const suppressNextSendClickRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const sendState = projectComposerSendState({
@@ -46,6 +55,14 @@ export function Composer({
     stagedAttachmentCount: stagedAttachments.length,
     transportPhase: transportState.phase
   });
+
+  useEffect(() => {
+    return () => {
+      if (sendClickSuppressionTimeoutRef.current != null) {
+        window.clearTimeout(sendClickSuppressionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -154,7 +171,7 @@ export function Composer({
     void submit();
   }
 
-  function handleSendButtonClick() {
+  function activateSendButton() {
     if (sendState.sendAction === "reconnect") {
       transportStore.retryNow();
       return;
@@ -163,6 +180,36 @@ export function Composer({
     if (sendState.sendAction === "send") {
       void submit();
     }
+  }
+
+  function handleSendButtonPointerDown(event: PointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0 || !sendState.isSendButtonEnabled) {
+      return;
+    }
+
+    event.preventDefault();
+    suppressNextSendClickRef.current = true;
+    if (sendClickSuppressionTimeoutRef.current != null) {
+      window.clearTimeout(sendClickSuppressionTimeoutRef.current);
+    }
+    sendClickSuppressionTimeoutRef.current = window.setTimeout(() => {
+      suppressNextSendClickRef.current = false;
+      sendClickSuppressionTimeoutRef.current = null;
+    }, 0);
+    activateSendButton();
+  }
+
+  function handleSendButtonClick() {
+    if (suppressNextSendClickRef.current) {
+      suppressNextSendClickRef.current = false;
+      if (sendClickSuppressionTimeoutRef.current != null) {
+        window.clearTimeout(sendClickSuppressionTimeoutRef.current);
+        sendClickSuppressionTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    activateSendButton();
   }
 
   return (
@@ -281,6 +328,7 @@ export function Composer({
           data-connection-state={sendState.connectionState}
           disabled={!sendState.isSendButtonEnabled}
           onClick={handleSendButtonClick}
+          onPointerDown={handleSendButtonPointerDown}
           type="button"
         >
           {isSubmitting ? (
