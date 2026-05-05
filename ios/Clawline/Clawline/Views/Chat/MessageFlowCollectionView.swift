@@ -1087,6 +1087,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 sessionStatus: sessionStatus,
                 forceReReadGeneration: 0,
                 onScrollEvent: onScrollEvent,
+                onTypingIndicatorTap: onTypingIndicatorTap,
                 onSessionControlSelected: onSessionControlSelected,
                 isDark: currentIsDark
             )
@@ -1913,6 +1914,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sessionStatus: sessionStatus,
             forceReReadGeneration: 0,
             onScrollEvent: onScrollEvent,
+            onTypingIndicatorTap: onTypingIndicatorTap,
             onSessionControlSelected: onSessionControlSelected,
             isDark: currentIsDark
         )
@@ -1940,6 +1942,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 sessionStatus: request.sessionStatus,
                 forceReReadGeneration: request.forceReReadGeneration,
                 onScrollEvent: request.onScrollEvent,
+                onTypingIndicatorTap: request.onTypingIndicatorTap,
                 onSessionControlSelected: request.onSessionControlSelected,
                 isDark: request.isDark
             )
