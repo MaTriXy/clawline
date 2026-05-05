@@ -113,15 +113,16 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
   );
 
   function handleScroll() {
-    if (!containerRef.current) {
+    const container = containerRef.current;
+    if (!container) {
       return;
     }
 
-    const nextScrollTop = containerRef.current.scrollTop;
-    const maxScrollTop = Math.max(
-      0,
-      containerRef.current.scrollHeight - containerRef.current.clientHeight
-    );
+    const nextScrollTop = clampContainerScrollTop(container, container.scrollTop);
+    if (container.scrollTop !== nextScrollTop) {
+      container.scrollTop = nextScrollTop;
+    }
+    const maxScrollTop = maxContainerScrollTop(container);
     isAtBottomRef.current = maxScrollTop - nextScrollTop <= BOTTOM_THRESHOLD_PX;
     shouldStickToBottomRef.current = isAtBottomRef.current;
     setScrollTop(nextScrollTop);
@@ -133,8 +134,10 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
       return;
     }
 
-    container.scrollTop = container.scrollHeight;
-    setScrollTop(container.scrollTop);
+    const maxScrollTop = maxContainerScrollTop(container);
+    const nextScrollTop = Number.isFinite(maxScrollTop) ? maxScrollTop : container.scrollHeight;
+    container.scrollTop = nextScrollTop;
+    setScrollTop(nextScrollTop);
   }, [layout.totalHeight]);
 
   return {
@@ -166,9 +169,11 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
       }
 
       shouldStickToBottomRef.current = true;
-      container.scrollTop = container.scrollHeight;
+      const maxScrollTop = maxContainerScrollTop(container);
+      const nextScrollTop = Number.isFinite(maxScrollTop) ? maxScrollTop : container.scrollHeight;
+      container.scrollTop = nextScrollTop;
       isAtBottomRef.current = true;
-      setScrollTop(container.scrollTop);
+      setScrollTop(nextScrollTop);
     },
     scrollToMessage(messageId, alignment = "start") {
       const container = containerRef.current;
@@ -188,10 +193,12 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
             )
           : messageLayout.offsetTop;
 
-      shouldStickToBottomRef.current = false;
-      container.scrollTop = nextOffset;
-      isAtBottomRef.current = false;
-      setScrollTop(container.scrollTop);
+      const clampedOffset = clampContainerScrollTop(container, nextOffset);
+      const isAtBottom = maxContainerScrollTop(container) - clampedOffset <= BOTTOM_THRESHOLD_PX;
+      shouldStickToBottomRef.current = isAtBottom;
+      container.scrollTop = clampedOffset;
+      isAtBottomRef.current = isAtBottom;
+      setScrollTop(clampedOffset);
       return true;
     },
     scrollToOffset(offsetTop) {
@@ -200,13 +207,27 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
         return;
       }
 
-      shouldStickToBottomRef.current = false;
-      container.scrollTop = Math.max(0, offsetTop);
-      isAtBottomRef.current = false;
-      setScrollTop(container.scrollTop);
+      const clampedOffset = clampContainerScrollTop(container, offsetTop);
+      const isAtBottom = maxContainerScrollTop(container) - clampedOffset <= BOTTOM_THRESHOLD_PX;
+      shouldStickToBottomRef.current = isAtBottom;
+      container.scrollTop = clampedOffset;
+      isAtBottomRef.current = isAtBottom;
+      setScrollTop(clampedOffset);
     },
     totalHeight: layout.totalHeight
   };
+}
+
+function maxContainerScrollTop(container: HTMLElement) {
+  if (container.scrollHeight <= 0 && container.clientHeight <= 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return Math.max(0, container.scrollHeight - container.clientHeight);
+}
+
+function clampContainerScrollTop(container: HTMLElement, scrollTop: number) {
+  return Math.min(maxContainerScrollTop(container), Math.max(0, scrollTop));
 }
 
 function buildVirtualLayout(

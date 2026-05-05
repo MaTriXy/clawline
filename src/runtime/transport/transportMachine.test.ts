@@ -709,6 +709,7 @@ describe("transportMachine", () => {
     createTransportMachine({
       authSessionStore: authStore,
       chatDomainStore: chatStore,
+      selectedSessionKeySource: () => "agent:main:clawline:user_1:main",
       webSocketFactory: factory.create
     });
 
@@ -717,12 +718,53 @@ describe("transportMachine", () => {
 
     expect(JSON.parse(factory.sockets[0].sentTexts[0])).toMatchObject({
       type: "auth",
-      lastMessageId: "s_side_1",
+      lastMessageId: "s_main_1",
       replayCursorsBySessionKey: {
         "agent:main:clawline:user_1:main": "s_main_1",
         "agent:main:clawline:user_1:side": "s_side_1"
       }
     });
+  });
+
+  it("does not send a global legacy replay cursor for streams without their own cursor", async () => {
+    const authStore = seedSession();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    chatStore.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_main_1",
+        role: "assistant",
+        content: "Main",
+        timestamp: 100,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "replay"
+    });
+    const factory = new FakeWebSocketFactory();
+    createTransportMachine({
+      authSessionStore: authStore,
+      chatDomainStore: chatStore,
+      selectedSessionKeySource: () => "agent:main:clawline:user_1:side",
+      webSocketFactory: factory.create
+    });
+
+    await waitForSocket(factory);
+    factory.sockets[0].emitOpen();
+
+    const payload = JSON.parse(factory.sockets[0].sentTexts[0]);
+    expect(payload).toMatchObject({
+      type: "auth",
+      replayCursorsBySessionKey: {
+        "agent:main:clawline:user_1:main": "s_main_1"
+      }
+    });
+    expect(payload.lastMessageId).toBeNull();
   });
 
   it("starts re-pair auth from an empty replay context after in-session logout", async () => {
@@ -755,7 +797,7 @@ describe("transportMachine", () => {
     await waitForSocket(factory);
     factory.sockets[0].emitOpen();
     expect(JSON.parse(factory.sockets[0].sentTexts[0])).toMatchObject({
-      lastMessageId: "s_before_logout",
+      lastMessageId: null,
       replayCursorsBySessionKey: {
         "agent:main:clawline:user_1:main": "s_before_logout"
       }
@@ -1345,7 +1387,7 @@ describe("transportMachine", () => {
 
     factory.sockets[0].emitOpen();
     expect(JSON.parse(factory.sockets[0].sentTexts[0])).toMatchObject({
-      lastMessageId: "s_101"
+      lastMessageId: null
     });
   });
 });

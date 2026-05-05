@@ -244,21 +244,25 @@ export function createTransportMachine({
         phase: "authenticating"
       }));
 
+      const chatState = chatDomainStore.getState();
+      const selectedReplaySessionKey = selectedSessionKeySource?.() ?? selectedSessionKey;
+
       nextSocket.send(
         serializeAuthPayload({
           type: "auth",
           protocolVersion: 1,
           token: session.token,
           deviceId: session.deviceId,
-          lastMessageId: chatDomainStore.getState().lastServerEventId,
+          lastMessageId: legacyReplayCursorForSession(
+            chatState.replayCursorsBySessionKey,
+            selectedReplaySessionKey
+          ),
           clientFeatures: resolvedClientFeatures,
           client: {
             id: WEB_CLIENT_ID,
             features: resolvedClientFeatures
           },
-          replayCursorsBySessionKey: toReplayCursorPayload(
-            chatDomainStore.getState().replayCursorsBySessionKey
-          )
+          replayCursorsBySessionKey: toReplayCursorPayload(chatState.replayCursorsBySessionKey)
         })
       );
     };
@@ -611,6 +615,22 @@ function toReplayCursorPayload(
   );
 
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function legacyReplayCursorForSession(
+  replayCursorsBySessionKey: ChatDomainStore["getState"] extends () => infer State
+    ? State extends { replayCursorsBySessionKey: infer ReplayCursors }
+      ? ReplayCursors
+      : never
+    : never,
+  sessionKey: string | undefined
+) {
+  if (!sessionKey) {
+    return null;
+  }
+
+  const cursor = replayCursorsBySessionKey[sessionKey]?.lastServerEventId;
+  return typeof cursor === "string" && cursor.length > 0 ? cursor : null;
 }
 
 export function TransportMachineProvider({

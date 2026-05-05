@@ -267,15 +267,17 @@ test("scroll state restores on stream switch and reload, and unread stream selec
     await expect(page.getByText("Main message 90")).toBeVisible();
     await expect(page.getByTestId("scroll-to-bottom-button")).toHaveCount(0);
 
-    await page.reload();
+    await page.reload({ waitUntil: "domcontentloaded" });
 
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
     await expect(page.getByRole("button", { name: "Manage streams" })).toBeVisible();
     await expect(page.getByText("Main message 90")).toBeVisible();
   } finally {
+    await page.close();
     for (const client of sockets) {
       client.terminate();
     }
+    server.closeAllConnections();
     await new Promise<void>((resolve, reject) => {
       wss.close((error) => {
         if (error) {
