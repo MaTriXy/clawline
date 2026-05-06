@@ -385,6 +385,47 @@ final class ChatViewModel: ChatViewModelHosting {
         sessionStatusBySessionKey[sessionKey]
     }
 
+    func applySessionControl(
+        sessionKey: String,
+        action: SessionControlAction,
+        value: String? = nil,
+        enabled: Bool? = nil
+    ) {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let response = try await self.chatService.applySessionControl(
+                    sessionKey: normalizedSessionKey,
+                    action: action,
+                    value: value,
+                    enabled: enabled
+                )
+                if response.ok {
+                    if let status = response.status {
+                        let displayStatus = self.sessionStatusByKeepingStickyDisplayFields(
+                            from: status,
+                            requestedSessionKey: normalizedSessionKey
+                        )
+                        self.sessionStatusBySessionKey[normalizedSessionKey] = displayStatus
+                        if displayStatus.sessionKey != normalizedSessionKey {
+                            self.sessionStatusBySessionKey[displayStatus.sessionKey] = displayStatus
+                        }
+                    } else {
+                        self.scheduleSessionStatusRefresh(for: normalizedSessionKey, reason: "sessionControlApplied")
+                    }
+                } else {
+                    self.toastManager.show(response.message ?? "This session control is not supported.")
+                    self.scheduleSessionStatusRefresh(for: normalizedSessionKey, reason: "sessionControlRejected")
+                }
+            } catch {
+                self.toastManager.show(error.localizedDescription)
+                self.scheduleSessionStatusRefresh(for: normalizedSessionKey, reason: "sessionControlFailed")
+            }
+        }
+    }
+
     nonisolated static func placeholderText(displayName: String, sessionKey: String) -> String {
         guard !sessionKey.isEmpty else { return displayName }
         return "\(displayName) — \(sessionKey)"
@@ -1075,6 +1116,95 @@ final class ChatViewModel: ChatViewModelHosting {
         return true
     }
 
+    var canCancelCurrentPrompt: Bool {
+        currentCancellablePromptSessionKey != nil
+    }
+
+    func canCancelCurrentPrompt(in sessionKey: String) -> Bool {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty,
+              let status = sessionStatusBySessionKey[normalizedSessionKey] else { return false }
+        return sessionCanCancelCurrentRun(status)
+    }
+
+    private var currentCancellablePromptSessionKey: String? {
+        let candidates = [
+            uiSelectedSessionKey,
+            typingSessionKey,
+            engineActiveSessionKey
+        ]
+        var seen: Set<String> = []
+        for candidate in candidates {
+            let sessionKey = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !sessionKey.isEmpty, seen.insert(sessionKey).inserted else { continue }
+            guard let status = sessionStatusBySessionKey[sessionKey],
+                  sessionCanCancelCurrentRun(status) else { continue }
+            return sessionKey
+        }
+        return nil
+    }
+
+    private func sessionCanCancelCurrentRun(_ status: SessionStatus) -> Bool {
+        switch status.run.state {
+        case .running, .queued:
+            break
+        case .idle, .unknown:
+            return false
+        }
+        if status.capabilities.readOnlyStatus == true { return false }
+        if let capability = status.capabilities.cancelCurrentRun {
+            return capability.supported
+        }
+        if let legacy = status.capabilities.canCancelCurrentRun {
+            return legacy
+        }
+        return false
+    }
+
+    func requestCurrentPromptCancellation(sessionKey requestedSessionKey: String? = nil) {
+        let sessionKey: String?
+        if let requestedSessionKey {
+            let normalizedSessionKey = requestedSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            sessionKey = canCancelCurrentPrompt(in: normalizedSessionKey) ? normalizedSessionKey : nil
+        } else {
+            sessionKey = currentCancellablePromptSessionKey
+        }
+        guard let sessionKey else { return }
+        Task { [weak self] in
+            await self?.performCurrentPromptCancellation(sessionKey: sessionKey)
+        }
+    }
+
+    private func performCurrentPromptCancellation(sessionKey: String) async {
+        do {
+            let response = try await chatService.applySessionControl(
+                sessionKey: sessionKey,
+                action: .cancelCurrentRun,
+                value: nil,
+                enabled: nil
+            )
+            if response.ok {
+                scheduleSessionStatusRefresh(for: sessionKey, reason: "cancelCurrentPrompt")
+                return
+            }
+            let fallback = response.code == "unsupported"
+                ? "Prompt cancellation is not supported by this provider."
+                : "Could not cancel current prompt."
+            toastManager.show(response.message ?? fallback)
+            if let status = response.status {
+                sessionStatusBySessionKey[sessionKey] = status
+                if status.sessionKey != sessionKey {
+                    sessionStatusBySessionKey[status.sessionKey] = status
+                }
+            } else {
+                scheduleSessionStatusRefresh(for: sessionKey, reason: "cancelCurrentPromptUnsupported")
+            }
+        } catch {
+            toastManager.show(error.localizedDescription)
+            scheduleSessionStatusRefresh(for: sessionKey, reason: "cancelCurrentPromptFailed")
+        }
+    }
+
     func send() {
         guard !isSending else { return }
         let referencedIds = Set(inputContent.pendingAttachmentIds())
@@ -1164,7 +1294,8 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func beginSend(content: String,
                            pendingAttachments: [PendingAttachment],
-                           sessionKey: String) {
+                           sessionKey: String,
+                           clearInputOnSuccess: Bool = true) {
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
 #if DEBUG
@@ -1193,7 +1324,8 @@ final class ChatViewModel: ChatViewModelHosting {
                 clientId: clientId,
                 content: content,
                 pendingAttachments: pendingAttachments,
-                sessionKey: sessionKey
+                sessionKey: sessionKey,
+                clearInputOnSuccess: clearInputOnSuccess
             )
         }
     }
@@ -2049,7 +2181,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private func performSend(clientId: String,
                              content: String,
                              pendingAttachments: [PendingAttachment],
-                             sessionKey: String?) async {
+                             sessionKey: String?,
+                             clearInputOnSuccess: Bool = true) async {
         defer { sendTask = nil }
         do {
             let wireAttachments = try await buildWireAttachments(from: pendingAttachments, content: content)
@@ -2064,7 +2197,9 @@ final class ChatViewModel: ChatViewModelHosting {
 #if DEBUG
                 self.recordImageSendDebugEvent(.sendResult, detail: "success localId=\(clientId)")
 #endif
-                clearInput()
+                if clearInputOnSuccess {
+                    clearInput()
+                }
                 isSending = false
                 activeClientMessageId = nil
             }
@@ -2496,10 +2631,12 @@ final class ChatViewModel: ChatViewModelHosting {
             if isTyping {
                 self.isAssistantTyping = true
                 self.typingSessionKey = sessionKey
+                self.scheduleSessionStatusRefresh(for: sessionKey, reason: "typingStarted")
             } else if self.typingSessionKey == sessionKey {
                 // Only clear if the stop event is for the same session we're tracking
                 self.isAssistantTyping = false
                 self.typingSessionKey = nil
+                self.scheduleSessionStatusRefresh(for: sessionKey, reason: "typingStopped")
             }
         case .streamSnapshot(let streams):
             hasResolvedProvisioningCapability = true
@@ -2770,9 +2907,23 @@ final class ChatViewModel: ChatViewModelHosting {
         let cached = sessionStatusBySessionKey[incoming.sessionKey] ?? sessionStatusBySessionKey[requestedSessionKey]
         guard let cached else { return incoming }
         let incomingThinkingLevel = realDisplayString(incoming.display.thinkingLevel)
-            ?? realDisplayString(incoming.display.reasoningLevel)
         let incomingReasoningLevel = realDisplayString(incoming.display.reasoningLevel)
-            ?? realDisplayString(incoming.display.thinkingLevel)
+        let resolvedThinkingLevel: String?
+        let resolvedReasoningLevel: String?
+        switch (incomingThinkingLevel, incomingReasoningLevel) {
+        case (.some(let thinking), .some(let reasoning)):
+            resolvedThinkingLevel = thinking
+            resolvedReasoningLevel = reasoning
+        case (.some(let thinking), .none):
+            resolvedThinkingLevel = thinking
+            resolvedReasoningLevel = nil
+        case (.none, .some(let reasoning)):
+            resolvedThinkingLevel = nil
+            resolvedReasoningLevel = reasoning
+        case (.none, .none):
+            resolvedThinkingLevel = cached.display.thinkingLevel
+            resolvedReasoningLevel = cached.display.reasoningLevel
+        }
 
         return SessionStatus(
             sessionKey: incoming.sessionKey,
@@ -2781,8 +2932,8 @@ final class ChatViewModel: ChatViewModelHosting {
                 fallbackModels: incoming.display.fallbackModels,
                 provider: incoming.display.provider,
                 harness: incoming.display.harness,
-                reasoningLevel: incomingReasoningLevel ?? cached.display.reasoningLevel,
-                thinkingLevel: incomingThinkingLevel ?? cached.display.thinkingLevel,
+                reasoningLevel: resolvedReasoningLevel,
+                thinkingLevel: resolvedThinkingLevel,
                 fastMode: incoming.display.fastMode ?? cached.display.fastMode,
                 mode: incoming.display.mode,
                 verbosity: incoming.display.verbosity

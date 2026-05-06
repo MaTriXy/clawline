@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ClawlineAppCommands: Commands {
     let settingsManager: SettingsManager
+    @FocusedValue(\.cancelCurrentPromptCommand) private var cancelCurrentPromptCommand
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
@@ -55,6 +56,14 @@ struct ClawlineAppCommands: Commands {
                 NotificationCenter.default.post(name: .clawlineNavigateToNextStreamCommand, object: nil)
             }
             .keyboardShortcut("l", modifiers: [.command, .shift])
+
+            Button("Cancel Current Prompt") {
+                cancelCurrentPromptCommand?.presentConfirmation()
+            }
+            .keyboardShortcut(".", modifiers: .command)
+            .disabled(cancelCurrentPromptCommand == nil)
+
+            Divider()
 
             Button("Scroll Bubble Contents Down") {
                 NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)

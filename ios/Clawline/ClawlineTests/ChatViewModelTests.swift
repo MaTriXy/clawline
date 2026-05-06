@@ -498,6 +498,290 @@ struct ChatViewModelTests {
         #expect(messages.contains("That message is too large to send."))
     }
 
+    @Test("Current prompt cancellation calls typed control API for active cancellable run")
+    @MainActor
+    func currentPromptCancellationCallsTypedControlAPIForActiveCancellableRun() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0,
+            canCancelCurrentRun: true
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey) != nil { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        viewModel.inputContent = NSAttributedString(string: "draft")
+        for _ in 0..<50 {
+            if viewModel.canCancelCurrentPrompt { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        viewModel.requestCurrentPromptCancellation()
+        for _ in 0..<50 {
+            if chatService.cancelCurrentRunCallCount == 1 { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(chatService.cancelCurrentRunCallCount == 1)
+        #expect(chatService.lastCancelledSessionKey == personalSessionKey)
+        #expect(chatService.lastSentId == nil)
+        #expect(chatService.lastSentContent == nil)
+        #expect(viewModel.inputContent.string == "draft")
+    }
+
+    @Test("Current prompt cancellation targets visible stream during pager switch debounce")
+    @MainActor
+    func currentPromptCancellationTargetsVisibleStreamDuringPagerSwitchDebounce() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let researchSessionKey = "agent:main:clawline:user:s_research"
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: researchSessionKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0,
+            canCancelCurrentRun: true
+        )
+        chatService.sessionStatusBySessionKey[researchSessionKey] = makeSessionStatus(
+            sessionKey: researchSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0,
+            canCancelCurrentRun: true
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey) != nil,
+               viewModel.sessionStatus(for: researchSessionKey) != nil {
+                break
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+        viewModel.setActiveSessionKeyForTesting(personalSessionKey)
+        viewModel.requestStreamSwitch(to: researchSessionKey, source: .pager)
+
+        viewModel.requestCurrentPromptCancellation()
+        for _ in 0..<50 {
+            if chatService.cancelCurrentRunCallCount == 1 { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(chatService.cancelCurrentRunCallCount == 1)
+        #expect(chatService.lastCancelledSessionKey == researchSessionKey)
+    }
+
+    @Test("Current prompt cancellation with explicit session does not fall back to another stream")
+    @MainActor
+    func currentPromptCancellationWithExplicitSessionDoesNotFallBackToAnotherStream() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let researchSessionKey = "agent:main:clawline:user:s_research"
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: researchSessionKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0,
+            canCancelCurrentRun: true
+        )
+        chatService.sessionStatusBySessionKey[researchSessionKey] = makeSessionStatus(
+            sessionKey: researchSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey) != nil,
+               viewModel.sessionStatus(for: researchSessionKey) != nil {
+                break
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(viewModel.canCancelCurrentPrompt == true)
+        #expect(viewModel.canCancelCurrentPrompt(in: researchSessionKey) == false)
+        viewModel.requestCurrentPromptCancellation(sessionKey: researchSessionKey)
+        try await Task.sleep(forDuration: .milliseconds(20))
+
+        #expect(chatService.cancelCurrentRunCallCount == 0)
+    }
+
+    @Test("Current prompt cancellation reports unsupported typed control response")
+    @MainActor
+    func currentPromptCancellationReportsUnsupportedTypedControlResponse() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0,
+            canCancelCurrentRun: true
+        )
+        chatService.sessionControlResponse = SessionControlResponse(
+            ok: false,
+            sessionKey: personalSessionKey,
+            action: "cancel_current_run",
+            code: "unsupported",
+            message: "The current Clawline provider dispatch path does not expose a per-session abort seam.",
+            status: nil,
+            capabilities: nil
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey) != nil { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+        chatService.emitServiceEvent(.typingStateChanged(isTyping: true, sessionKey: personalSessionKey))
+        for _ in 0..<50 {
+            if viewModel.canCancelCurrentPrompt { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        viewModel.requestCurrentPromptCancellation()
+        for _ in 0..<50 {
+            if toastManager.debugMessages.contains("The current Clawline provider dispatch path does not expose a per-session abort seam.") {
+                break
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(chatService.cancelCurrentRunCallCount == 1)
+        #expect(toastManager.debugMessages.contains("The current Clawline provider dispatch path does not expose a per-session abort seam."))
+    }
+
+    @Test("Current prompt cancellation is disabled when session status marks cancel unsupported")
+    @MainActor
+    func currentPromptCancellationDisabledWhenStatusMarksCancelUnsupported() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey) != nil { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+        chatService.emitServiceEvent(.typingStateChanged(isTyping: true, sessionKey: personalSessionKey))
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey) != nil { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(viewModel.canCancelCurrentPrompt == false)
+        viewModel.requestCurrentPromptCancellation()
+        try await Task.sleep(forDuration: .milliseconds(20))
+        #expect(chatService.cancelCurrentRunCallCount == 0)
+    }
+
     @Test("Connection interruptions update send button state without passive toast")
     @MainActor
     func connectionInterruptionTriggersAlert() async throws {
@@ -2531,6 +2815,118 @@ struct ChatViewModelTests {
         #expect(status?.display.thinkingLevel == "high")
     }
 
+    @Test("Session control applies typed provider response without chat text")
+    @MainActor
+    func sessionControlAppliesTypedProviderResponse() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let updatedStatus = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "low",
+            fastMode: true,
+            queueDepth: 0
+        )
+        chatService.sessionControlResponse = SessionControlResponse(
+            ok: true,
+            sessionKey: personalSessionKey,
+            action: SessionControlAction.setFastMode.rawValue,
+            code: nil,
+            message: nil,
+            status: updatedStatus,
+            capabilities: updatedStatus.capabilities
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        viewModel.applySessionControl(
+            sessionKey: personalSessionKey,
+            action: .setFastMode,
+            enabled: true
+        )
+
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey)?.display.fastMode == true {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(chatService.lastSessionControl?.sessionKey == personalSessionKey)
+        #expect(chatService.lastSessionControl?.action == .setFastMode)
+        #expect(chatService.lastSessionControl?.enabled == true)
+        #expect(chatService.lastSentId == nil)
+        #expect(viewModel.sessionStatus(for: personalSessionKey)?.display.fastMode == true)
+    }
+
+    @Test("Session control treats ok response without status as success and refreshes")
+    @MainActor
+    func sessionControlTreatsOkResponseWithoutStatusAsSuccessAndRefreshes() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        chatService.sessionControlResponse = SessionControlResponse(
+            ok: true,
+            sessionKey: personalSessionKey,
+            action: SessionControlAction.setFastMode.rawValue,
+            code: nil,
+            message: nil,
+            status: nil,
+            capabilities: nil
+        )
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "medium",
+            fastMode: true,
+            queueDepth: 0
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        viewModel.applySessionControl(
+            sessionKey: personalSessionKey,
+            action: .setFastMode,
+            enabled: true
+        )
+
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey)?.display.fastMode == true {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(chatService.lastSessionControl?.action == .setFastMode)
+        #expect(chatService.fetchSessionStatusCallCount > 0)
+        #expect(viewModel.sessionStatus(for: personalSessionKey)?.display.fastMode == true)
+        #expect(toastManager.debugMessages.isEmpty)
+    }
+
     @Test("Session status keeps sticky display metadata until real values arrive")
     @MainActor
     func sessionStatusKeepsStickyDisplayMetadataUntilRealValuesArrive() async throws {
@@ -2650,7 +3046,7 @@ struct ChatViewModelTests {
 
         let reasoningStatus = viewModel.sessionStatus(for: personalSessionKey)
         #expect(reasoningStatus?.display.model == "gpt-5.4")
-        #expect(reasoningStatus?.display.thinkingLevel == "medium")
+        #expect(reasoningStatus?.display.thinkingLevel == nil)
         #expect(reasoningStatus?.display.reasoningLevel == "medium")
         #expect(reasoningStatus?.display.fastMode == false)
     }
@@ -2776,7 +3172,7 @@ struct ChatViewModelTests {
         #expect(personalStatusAfterResearchUpdate?.display.thinkingLevel == "low")
         #expect(personalStatusAfterResearchUpdate?.display.fastMode == true)
         #expect(researchUpdatedStatus?.display.model == "gpt-5.3")
-        #expect(researchUpdatedStatus?.display.thinkingLevel == "medium")
+        #expect(researchUpdatedStatus?.display.thinkingLevel == nil)
         #expect(researchUpdatedStatus?.display.reasoningLevel == "medium")
         #expect(researchUpdatedStatus?.display.fastMode == true)
     }
@@ -3658,6 +4054,7 @@ private final class TestChatService: ChatServicing {
     private var replayCursorBySessionKey: [String: String] = [:]
     private(set) var lastSentAttachments: [WireAttachment] = []
     private(set) var lastSentId: String?
+    private(set) var lastSentContent: String?
     private(set) var lastSessionKey: String?
     var lastPublishedReadState: (sessionKey: String, lastReadMessageId: String)?
     private(set) var connectCallCount: Int = 0
@@ -3670,9 +4067,21 @@ private final class TestChatService: ChatServicing {
     var streams: [StreamSession] = []
     var trackableSessions: [TrackableSession] = []
     var sessionStatusBySessionKey: [String: SessionStatus] = [:]
+    var sessionControlResponse: SessionControlResponse? = SessionControlResponse(
+        ok: true,
+        sessionKey: personalSessionKey,
+        action: SessionControlAction.cancelCurrentRun.rawValue,
+        code: nil,
+        message: nil,
+        status: nil,
+        capabilities: nil
+    )
+    private(set) var lastSessionControl: (sessionKey: String, action: SessionControlAction, value: String?, enabled: Bool?)?
     private(set) var fetchStreamsCallCount: Int = 0
     private(set) var fetchTrackableSessionsCallCount: Int = 0
     private(set) var fetchSessionStatusCallCount: Int = 0
+    private(set) var cancelCurrentRunCallCount: Int = 0
+    private(set) var lastCancelledSessionKey: String?
     private(set) var deleteStreamCallCount: Int = 0
     private(set) var lastDeletedSessionKey: String?
     private(set) var renameStreamCallCount: Int = 0
@@ -3777,6 +4186,7 @@ private final class TestChatService: ChatServicing {
             throw sendError
         }
         lastSentId = id
+        lastSentContent = content
         lastSentAttachments = attachments
         lastSessionKey = sessionKey
     }
@@ -3855,6 +4265,21 @@ private final class TestChatService: ChatServicing {
             return status
         }
         throw StreamAPIError(code: "stream_not_found", message: "not found", statusCode: 404)
+    }
+
+    func applySessionControl(
+        sessionKey: String,
+        action: SessionControlAction,
+        value: String?,
+        enabled: Bool?
+    ) async throws -> SessionControlResponse {
+        cancelCurrentRunCallCount += action == .cancelCurrentRun ? 1 : 0
+        lastCancelledSessionKey = action == .cancelCurrentRun ? sessionKey : lastCancelledSessionKey
+        lastSessionControl = (sessionKey, action, value, enabled)
+        if let sessionControlResponse {
+            return sessionControlResponse
+        }
+        throw StreamAPIError(code: "unsupported", message: "unsupported", statusCode: 400)
     }
 
     func createStream(displayName: String, idempotencyKey: String) async throws -> StreamSession {
@@ -4047,7 +4472,8 @@ private func makeSessionStatus(
     reasoningLevel: String? = nil,
     thinkingLevel: String?,
     fastMode: Bool? = nil,
-    queueDepth: Int
+    queueDepth: Int,
+    canCancelCurrentRun: Bool = false
 ) -> SessionStatus {
     SessionStatus(
         sessionKey: sessionKey,
@@ -4072,9 +4498,14 @@ private func makeSessionStatus(
         context: .init(available: false, compaction: nil),
         approval: .init(state: nil),
         capabilities: .init(
-            cancelCurrentRun: .init(supported: false, reason: "provider_control_not_available"),
+            cancelCurrentRun: .init(
+                supported: canCancelCurrentRun,
+                reason: canCancelCurrentRun ? nil : "provider_control_not_available"
+            ),
             setModel: .init(supported: false, reason: "provider_control_not_available"),
+            setThinking: .init(supported: true, reason: nil),
             setReasoning: .init(supported: false, reason: "provider_control_not_available"),
+            setFastMode: .init(supported: true, reason: nil),
             setMode: .init(supported: false, reason: "provider_control_not_available"),
             setVerbosity: .init(supported: false, reason: "provider_control_not_available"),
             canCancelCurrentRun: nil,
