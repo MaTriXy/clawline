@@ -2592,10 +2592,12 @@ final class ChatViewModel: ChatViewModelHosting {
             if isTyping {
                 self.isAssistantTyping = true
                 self.typingSessionKey = sessionKey
+                self.scheduleSessionStatusRefresh(for: sessionKey, reason: "typingStarted")
             } else if self.typingSessionKey == sessionKey {
                 // Only clear if the stop event is for the same session we're tracking
                 self.isAssistantTyping = false
                 self.typingSessionKey = nil
+                self.scheduleSessionStatusRefresh(for: sessionKey, reason: "typingStopped")
             }
         case .streamSnapshot(let streams):
             hasResolvedProvisioningCapability = true

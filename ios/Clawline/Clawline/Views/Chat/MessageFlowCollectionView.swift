@@ -5381,7 +5381,7 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         let levels: [String]
         switch action {
         case .setThinking:
-            levels = ["low", "medium", "high", "xhigh"]
+            levels = ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max"]
         case .setReasoning:
             levels = ["off", "on", "stream"]
         default:
