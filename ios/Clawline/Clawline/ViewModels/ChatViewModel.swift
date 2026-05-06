@@ -1118,7 +1118,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     var canCancelCurrentPrompt: Bool {
         guard isAssistantTyping, let sessionKey = typingSessionKey, !sessionKey.isEmpty else { return false }
-        guard let status = sessionStatusBySessionKey[sessionKey] else { return true }
+        guard let status = sessionStatusBySessionKey[sessionKey] else { return false }
         if status.capabilities.readOnlyStatus == true { return false }
         if let capability = status.capabilities.cancelCurrentRun {
             return capability.supported
@@ -1126,7 +1126,7 @@ final class ChatViewModel: ChatViewModelHosting {
         if let legacy = status.capabilities.canCancelCurrentRun {
             return legacy
         }
-        return true
+        return false
     }
 
     func requestCurrentPromptCancellation() {

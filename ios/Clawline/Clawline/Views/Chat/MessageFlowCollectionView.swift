@@ -5305,7 +5305,7 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
             FooterItem(
                 text: "Thinking \(thinkingValue ?? reasoningValue ?? "Unknown")",
                 action: levelControl.action,
-                options: levelOptions(current: thinkingValue ?? reasoningValue),
+                options: levelOptions(current: thinkingValue ?? reasoningValue, action: levelControl.action),
                 unsupportedReason: levelControl.reason
             ),
             FooterItem(
@@ -5377,8 +5377,17 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         }
     }
 
-    private static func levelOptions(current: String?) -> [FooterOption] {
-        ["low", "medium", "high", "xhigh"].map { level in
+    private static func levelOptions(current: String?, action: SessionControlAction?) -> [FooterOption] {
+        let levels: [String]
+        switch action {
+        case .setThinking:
+            levels = ["low", "medium", "high", "xhigh"]
+        case .setReasoning:
+            levels = ["off", "on", "stream"]
+        default:
+            return []
+        }
+        return levels.map { level in
             FooterOption(
                 title: level == current ? "\(level) (Current)" : level,
                 value: level,

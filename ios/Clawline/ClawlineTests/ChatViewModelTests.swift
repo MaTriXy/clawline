@@ -518,6 +518,10 @@ struct ChatViewModelTests {
 
         await viewModel.onAppear()
         try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey) != nil { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
 
         viewModel.inputContent = NSAttributedString(string: "draft")
         #expect(viewModel.canCancelCurrentPrompt == false)
@@ -552,6 +556,15 @@ struct ChatViewModelTests {
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
         let toastManager = ToastManager()
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0,
+            canCancelCurrentRun: true
+        )
         chatService.sessionControlResponse = SessionControlResponse(
             ok: false,
             sessionKey: personalSessionKey,
@@ -574,6 +587,10 @@ struct ChatViewModelTests {
 
         await viewModel.onAppear()
         try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey) != nil { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
         chatService.emitServiceEvent(.typingStateChanged(isTyping: true, sessionKey: personalSessionKey))
         for _ in 0..<50 {
             if viewModel.canCancelCurrentPrompt { break }
@@ -4329,7 +4346,8 @@ private func makeSessionStatus(
     reasoningLevel: String? = nil,
     thinkingLevel: String?,
     fastMode: Bool? = nil,
-    queueDepth: Int
+    queueDepth: Int,
+    canCancelCurrentRun: Bool = false
 ) -> SessionStatus {
     SessionStatus(
         sessionKey: sessionKey,
@@ -4354,7 +4372,10 @@ private func makeSessionStatus(
         context: .init(available: false, compaction: nil),
         approval: .init(state: nil),
         capabilities: .init(
-            cancelCurrentRun: .init(supported: false, reason: "provider_control_not_available"),
+            cancelCurrentRun: .init(
+                supported: canCancelCurrentRun,
+                reason: canCancelCurrentRun ? nil : "provider_control_not_available"
+            ),
             setModel: .init(supported: false, reason: "provider_control_not_available"),
             setThinking: .init(supported: true, reason: nil),
             setReasoning: .init(supported: false, reason: "provider_control_not_available"),
