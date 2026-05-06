@@ -5292,7 +5292,8 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         let reasoningValue = normalized(display.reasoningLevel)
         let levelControl = levelControlAction(
             capabilities: capabilities,
-            prefersThinking: thinkingValue != nil
+            hasThinkingValue: thinkingValue != nil,
+            hasReasoningValue: reasoningValue != nil
         )
         let fastControl = fastModeControlAction(capabilities: capabilities)
         return [
@@ -5411,21 +5412,25 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
 
     private static func levelControlAction(
         capabilities: SessionStatus.Capabilities,
-        prefersThinking: Bool
+        hasThinkingValue: Bool,
+        hasReasoningValue: Bool
     ) -> (action: SessionControlAction?, reason: String?) {
         let thinkingCapability = capability(capabilities.setThinking, legacySupported: false)
         let reasoningCapability = capability(
             capabilities.setReasoning,
             legacySupported: capabilities.canChangeReasoning == true
         )
-        if prefersThinking, thinkingCapability.isSupported {
+        if hasThinkingValue, thinkingCapability.isSupported {
             return (.setThinking, nil)
         }
-        if reasoningCapability.isSupported {
+        if hasReasoningValue, reasoningCapability.isSupported {
             return (.setReasoning, nil)
         }
         if thinkingCapability.isSupported {
             return (.setThinking, nil)
+        }
+        if reasoningCapability.isSupported {
+            return (.setReasoning, nil)
         }
         return (nil, thinkingCapability.reason ?? reasoningCapability.reason)
     }

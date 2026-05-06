@@ -1122,9 +1122,9 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private var currentCancellablePromptSessionKey: String? {
         let candidates = [
+            uiSelectedSessionKey,
             typingSessionKey,
-            engineActiveSessionKey,
-            uiSelectedSessionKey
+            engineActiveSessionKey
         ]
         var seen: Set<String> = []
         for candidate in candidates {
