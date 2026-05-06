@@ -615,6 +615,65 @@ struct ChatViewModelTests {
         #expect(chatService.lastCancelledSessionKey == researchSessionKey)
     }
 
+    @Test("Current prompt cancellation with explicit session does not fall back to another stream")
+    @MainActor
+    func currentPromptCancellationWithExplicitSessionDoesNotFallBackToAnotherStream() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let researchSessionKey = "agent:main:clawline:user:s_research"
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: researchSessionKey, displayName: "Research", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0,
+            canCancelCurrentRun: true
+        )
+        chatService.sessionStatusBySessionKey[researchSessionKey] = makeSessionStatus(
+            sessionKey: researchSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "high",
+            queueDepth: 0
+        )
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: personalSessionKey) != nil,
+               viewModel.sessionStatus(for: researchSessionKey) != nil {
+                break
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(viewModel.canCancelCurrentPrompt == true)
+        #expect(viewModel.canCancelCurrentPrompt(in: researchSessionKey) == false)
+        viewModel.requestCurrentPromptCancellation(sessionKey: researchSessionKey)
+        try await Task.sleep(forDuration: .milliseconds(20))
+
+        #expect(chatService.cancelCurrentRunCallCount == 0)
+    }
+
     @Test("Current prompt cancellation reports unsupported typed control response")
     @MainActor
     func currentPromptCancellationReportsUnsupportedTypedControlResponse() async throws {

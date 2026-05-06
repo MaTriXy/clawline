@@ -179,6 +179,7 @@ struct ChatView: View {
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
     @State private var isCancelCurrentPromptDialogPresented = false
+    @State private var cancelCurrentPromptSessionKey: String?
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var focusRequestID = 0
     @State private var shouldRestoreFocusAfterPicker = false
@@ -832,6 +833,9 @@ struct ChatView: View {
             && activeSheet == nil
             && !isPhotosPickerPresented
             && !isFileImporterPresented
+        let cancelCurrentPromptDialogCanCancel = cancelCurrentPromptSessionKey.map { sessionKey in
+            viewModel.canCancelCurrentPrompt(in: sessionKey)
+        } ?? viewModel.canCancelCurrentPrompt
 
         let messageLayer: AnyView = AnyView(
             pagedStreamView(
@@ -986,8 +990,13 @@ struct ChatView: View {
         .modifier(
             CancelCurrentPromptConfirmationModifier(
                 isPresented: $isCancelCurrentPromptDialogPresented,
-                canCancel: viewModel.canCancelCurrentPrompt,
-                onConfirm: { viewModel.requestCurrentPromptCancellation() }
+                canCancel: cancelCurrentPromptDialogCanCancel,
+                canPresentCommand: viewModel.canCancelCurrentPrompt,
+                onPresentCommand: { presentCancelCurrentPromptDialog() },
+                onConfirm: {
+                    viewModel.requestCurrentPromptCancellation(sessionKey: cancelCurrentPromptSessionKey)
+                    cancelCurrentPromptSessionKey = nil
+                }
             )
         )
 #if DEBUG
@@ -1453,7 +1462,7 @@ struct ChatView: View {
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: handleDeferredMessageFlowScrollEvent,
-            onTypingIndicatorTap: presentCancelCurrentPromptDialog,
+            onTypingIndicatorTap: { presentCancelCurrentPromptDialog(sessionKey: sessionKey) },
             onSessionControlSelected: { sessionKey, action, value, enabled in
                 viewModel.applySessionControl(
                     sessionKey: sessionKey,
@@ -1802,10 +1811,21 @@ struct ChatView: View {
         isTypingActive = false
     }
 
-    private func presentCancelCurrentPromptDialog() {
-        guard viewModel.canCancelCurrentPrompt else {
-            isCancelCurrentPromptDialogPresented = false
-            return
+    private func presentCancelCurrentPromptDialog(sessionKey: String? = nil) {
+        if let sessionKey {
+            guard viewModel.canCancelCurrentPrompt(in: sessionKey) else {
+                cancelCurrentPromptSessionKey = nil
+                isCancelCurrentPromptDialogPresented = false
+                return
+            }
+            cancelCurrentPromptSessionKey = sessionKey
+        } else {
+            guard viewModel.canCancelCurrentPrompt else {
+                cancelCurrentPromptSessionKey = nil
+                isCancelCurrentPromptDialogPresented = false
+                return
+            }
+            cancelCurrentPromptSessionKey = nil
         }
         isCancelCurrentPromptDialogPresented = true
     }
@@ -2397,12 +2417,14 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
 private struct CancelCurrentPromptConfirmationModifier: ViewModifier {
     @Binding var isPresented: Bool
     let canCancel: Bool
+    let canPresentCommand: Bool
+    let onPresentCommand: () -> Void
     let onConfirm: () -> Void
 
     private var command: CancelCurrentPromptCommand? {
-        guard canCancel else { return nil }
+        guard canPresentCommand else { return nil }
         return CancelCurrentPromptCommand {
-            isPresented = true
+            onPresentCommand()
         }
     }
 

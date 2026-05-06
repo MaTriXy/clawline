@@ -1120,6 +1120,13 @@ final class ChatViewModel: ChatViewModelHosting {
         currentCancellablePromptSessionKey != nil
     }
 
+    func canCancelCurrentPrompt(in sessionKey: String) -> Bool {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty,
+              let status = sessionStatusBySessionKey[normalizedSessionKey] else { return false }
+        return sessionCanCancelCurrentRun(status)
+    }
+
     private var currentCancellablePromptSessionKey: String? {
         let candidates = [
             uiSelectedSessionKey,
@@ -1154,8 +1161,15 @@ final class ChatViewModel: ChatViewModelHosting {
         return false
     }
 
-    func requestCurrentPromptCancellation() {
-        guard let sessionKey = currentCancellablePromptSessionKey else { return }
+    func requestCurrentPromptCancellation(sessionKey requestedSessionKey: String? = nil) {
+        let sessionKey: String?
+        if let requestedSessionKey {
+            let normalizedSessionKey = requestedSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            sessionKey = canCancelCurrentPrompt(in: normalizedSessionKey) ? normalizedSessionKey : nil
+        } else {
+            sessionKey = currentCancellablePromptSessionKey
+        }
+        guard let sessionKey else { return }
         Task { [weak self] in
             await self?.performCurrentPromptCancellation(sessionKey: sessionKey)
         }
