@@ -402,14 +402,18 @@ final class ChatViewModel: ChatViewModelHosting {
                     value: value,
                     enabled: enabled
                 )
-                if response.ok, let status = response.status {
-                    let displayStatus = self.sessionStatusByKeepingStickyDisplayFields(
-                        from: status,
-                        requestedSessionKey: normalizedSessionKey
-                    )
-                    self.sessionStatusBySessionKey[normalizedSessionKey] = displayStatus
-                    if displayStatus.sessionKey != normalizedSessionKey {
-                        self.sessionStatusBySessionKey[displayStatus.sessionKey] = displayStatus
+                if response.ok {
+                    if let status = response.status {
+                        let displayStatus = self.sessionStatusByKeepingStickyDisplayFields(
+                            from: status,
+                            requestedSessionKey: normalizedSessionKey
+                        )
+                        self.sessionStatusBySessionKey[normalizedSessionKey] = displayStatus
+                        if displayStatus.sessionKey != normalizedSessionKey {
+                            self.sessionStatusBySessionKey[displayStatus.sessionKey] = displayStatus
+                        }
+                    } else {
+                        self.scheduleSessionStatusRefresh(for: normalizedSessionKey, reason: "sessionControlApplied")
                     }
                 } else {
                     self.toastManager.show(response.message ?? "This session control is not supported.")
@@ -1113,7 +1117,16 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     var canCancelCurrentPrompt: Bool {
-        isAssistantTyping && typingSessionKey?.isEmpty == false
+        guard isAssistantTyping, let sessionKey = typingSessionKey, !sessionKey.isEmpty else { return false }
+        guard let status = sessionStatusBySessionKey[sessionKey] else { return true }
+        if status.capabilities.readOnlyStatus == true { return false }
+        if let capability = status.capabilities.cancelCurrentRun {
+            return capability.supported
+        }
+        if let legacy = status.capabilities.canCancelCurrentRun {
+            return legacy
+        }
+        return true
     }
 
     func requestCurrentPromptCancellation() {
