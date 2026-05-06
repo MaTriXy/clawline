@@ -1117,8 +1117,33 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     var canCancelCurrentPrompt: Bool {
-        guard isAssistantTyping, let sessionKey = typingSessionKey, !sessionKey.isEmpty else { return false }
-        guard let status = sessionStatusBySessionKey[sessionKey] else { return false }
+        currentCancellablePromptSessionKey != nil
+    }
+
+    private var currentCancellablePromptSessionKey: String? {
+        let candidates = [
+            typingSessionKey,
+            engineActiveSessionKey,
+            uiSelectedSessionKey
+        ]
+        var seen: Set<String> = []
+        for candidate in candidates {
+            let sessionKey = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !sessionKey.isEmpty, seen.insert(sessionKey).inserted else { continue }
+            guard let status = sessionStatusBySessionKey[sessionKey],
+                  sessionCanCancelCurrentRun(status) else { continue }
+            return sessionKey
+        }
+        return nil
+    }
+
+    private func sessionCanCancelCurrentRun(_ status: SessionStatus) -> Bool {
+        switch status.run.state {
+        case .running, .queued:
+            break
+        case .idle, .unknown:
+            return false
+        }
         if status.capabilities.readOnlyStatus == true { return false }
         if let capability = status.capabilities.cancelCurrentRun {
             return capability.supported
@@ -1130,7 +1155,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func requestCurrentPromptCancellation() {
-        guard canCancelCurrentPrompt, let sessionKey = typingSessionKey else { return }
+        guard let sessionKey = currentCancellablePromptSessionKey else { return }
         Task { [weak self] in
             await self?.performCurrentPromptCancellation(sessionKey: sessionKey)
         }
@@ -2868,9 +2893,23 @@ final class ChatViewModel: ChatViewModelHosting {
         let cached = sessionStatusBySessionKey[incoming.sessionKey] ?? sessionStatusBySessionKey[requestedSessionKey]
         guard let cached else { return incoming }
         let incomingThinkingLevel = realDisplayString(incoming.display.thinkingLevel)
-            ?? realDisplayString(incoming.display.reasoningLevel)
         let incomingReasoningLevel = realDisplayString(incoming.display.reasoningLevel)
-            ?? realDisplayString(incoming.display.thinkingLevel)
+        let resolvedThinkingLevel: String?
+        let resolvedReasoningLevel: String?
+        switch (incomingThinkingLevel, incomingReasoningLevel) {
+        case (.some(let thinking), .some(let reasoning)):
+            resolvedThinkingLevel = thinking
+            resolvedReasoningLevel = reasoning
+        case (.some(let thinking), .none):
+            resolvedThinkingLevel = thinking
+            resolvedReasoningLevel = nil
+        case (.none, .some(let reasoning)):
+            resolvedThinkingLevel = nil
+            resolvedReasoningLevel = reasoning
+        case (.none, .none):
+            resolvedThinkingLevel = cached.display.thinkingLevel
+            resolvedReasoningLevel = cached.display.reasoningLevel
+        }
 
         return SessionStatus(
             sessionKey: incoming.sessionKey,
@@ -2879,8 +2918,8 @@ final class ChatViewModel: ChatViewModelHosting {
                 fallbackModels: incoming.display.fallbackModels,
                 provider: incoming.display.provider,
                 harness: incoming.display.harness,
-                reasoningLevel: incomingReasoningLevel ?? cached.display.reasoningLevel,
-                thinkingLevel: incomingThinkingLevel ?? cached.display.thinkingLevel,
+                reasoningLevel: resolvedReasoningLevel,
+                thinkingLevel: resolvedThinkingLevel,
                 fastMode: incoming.display.fastMode ?? cached.display.fastMode,
                 mode: incoming.display.mode,
                 verbosity: incoming.display.verbosity

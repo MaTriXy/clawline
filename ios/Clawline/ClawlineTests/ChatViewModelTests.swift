@@ -498,9 +498,9 @@ struct ChatViewModelTests {
         #expect(messages.contains("That message is too large to send."))
     }
 
-    @Test("Current prompt cancellation calls typed control API only while assistant is typing")
+    @Test("Current prompt cancellation calls typed control API for active cancellable run")
     @MainActor
-    func currentPromptCancellationCallsTypedControlAPIOnlyWhileAssistantIsTyping() async throws {
+    func currentPromptCancellationCallsTypedControlAPIForActiveCancellableRun() async throws {
         resetChatPersistence()
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
@@ -533,12 +533,6 @@ struct ChatViewModelTests {
         }
 
         viewModel.inputContent = NSAttributedString(string: "draft")
-        #expect(viewModel.canCancelCurrentPrompt == false)
-        viewModel.requestCurrentPromptCancellation()
-        #expect(chatService.lastSentId == nil)
-        #expect(chatService.cancelCurrentRunCallCount == 0)
-
-        chatService.emitServiceEvent(.typingStateChanged(isTyping: true, sessionKey: personalSessionKey))
         for _ in 0..<50 {
             if viewModel.canCancelCurrentPrompt { break }
             try await Task.sleep(forDuration: .milliseconds(20))
@@ -2929,7 +2923,7 @@ struct ChatViewModelTests {
 
         let reasoningStatus = viewModel.sessionStatus(for: personalSessionKey)
         #expect(reasoningStatus?.display.model == "gpt-5.4")
-        #expect(reasoningStatus?.display.thinkingLevel == "medium")
+        #expect(reasoningStatus?.display.thinkingLevel == nil)
         #expect(reasoningStatus?.display.reasoningLevel == "medium")
         #expect(reasoningStatus?.display.fastMode == false)
     }
@@ -3055,7 +3049,7 @@ struct ChatViewModelTests {
         #expect(personalStatusAfterResearchUpdate?.display.thinkingLevel == "low")
         #expect(personalStatusAfterResearchUpdate?.display.fastMode == true)
         #expect(researchUpdatedStatus?.display.model == "gpt-5.3")
-        #expect(researchUpdatedStatus?.display.thinkingLevel == "medium")
+        #expect(researchUpdatedStatus?.display.thinkingLevel == nil)
         #expect(researchUpdatedStatus?.display.reasoningLevel == "medium")
         #expect(researchUpdatedStatus?.display.fastMode == true)
     }
