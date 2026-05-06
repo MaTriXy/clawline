@@ -235,9 +235,7 @@ export function createTerminalSessionRuntime({
     switch (payload.type) {
       case "terminal_ready":
         onStateChange({ phase: "ready" });
-        if (requestedBackfillLines === 0) {
-          scheduleEnableMessages();
-        }
+        scheduleEnableMessages();
         return true;
       case "terminal_backfill_end":
         sawBackfillEnd = true;
@@ -275,10 +273,6 @@ export function createTerminalSessionRuntime({
 
   function scheduleEnableMessages() {
     if (enableMessagesTimer != null) {
-      return;
-    }
-
-    if (!sawBackfillEnd && requestedBackfillLines > 0) {
       return;
     }
 

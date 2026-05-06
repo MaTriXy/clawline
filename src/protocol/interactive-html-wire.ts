@@ -1,5 +1,5 @@
 import type { ServerAttachmentPayload } from "./chat-wire";
-import { attachmentMimeType } from "./attachment-api";
+import { normalizedAttachmentMimeType } from "./attachment-api";
 
 export const INTERACTIVE_HTML_ATTACHMENT_MIME =
   "application/vnd.clawline.interactive-html+json";
@@ -18,7 +18,7 @@ export interface InteractiveHtmlDescriptor {
 }
 
 export function isInteractiveHtmlAttachment(attachment: ServerAttachmentPayload) {
-  return attachmentMimeType(attachment) === INTERACTIVE_HTML_ATTACHMENT_MIME;
+  return normalizedAttachmentMimeType(attachment) === INTERACTIVE_HTML_ATTACHMENT_MIME;
 }
 
 export function decodeInteractiveHtmlDescriptor(

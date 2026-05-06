@@ -78,6 +78,15 @@ describe("terminal-wire", () => {
     expect(descriptor && terminalDestinationLabel(descriptor)).toBe("mike@東京");
   });
 
+  it("accepts parameterized and case-varied terminal MIME types", () => {
+    expect(
+      isTerminalAttachment({
+        type: "document",
+        mimeType: "Application/Vnd.Clawline.Terminal-Session+Json; charset=utf-8"
+      })
+    ).toBe(true);
+  });
+
   it("ignores invalid or non-terminal attachments", () => {
     expect(
       isTerminalAttachment({

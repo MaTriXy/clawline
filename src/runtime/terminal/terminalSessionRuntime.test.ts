@@ -84,6 +84,35 @@ describe("terminalSessionRuntime", () => {
     expect(runtimeStates.at(-1)).toEqual({ phase: "disconnected" });
   });
 
+  it("enables input after terminal_ready when the provider omits backfill end", async () => {
+    const factory = new FakeTerminalWebSocketFactory();
+    const runtime = createTerminalSessionRuntime({
+      descriptor: sampleDescriptor(),
+      deviceId: "device-web-1",
+      onData() {},
+      onStateChange() {},
+      serverUrl: "ws://127.0.0.1:18800/ws",
+      token: "chat-token",
+      webSocketFactory: factory.create
+    });
+
+    runtime.connect({ cols: 100, rows: 28 });
+    const socket = factory.sockets[0];
+    socket.emitOpen();
+    socket.emitMessage(JSON.stringify({ type: "terminal_ready" }));
+    await vi.advanceTimersByTimeAsync(250);
+
+    runtime.resize(132, 40);
+    runtime.sendInput("pwd\n");
+
+    expect(JSON.parse(String(socket.sentPayloads[1]))).toEqual({
+      type: "terminal_resize",
+      cols: 132,
+      rows: 40
+    });
+    expect(ArrayBuffer.isView(socket.sentPayloads[2])).toBe(true);
+  });
+
   it("surfaces terminal_closed reasons and reconnects cleanly", () => {
     const factory = new FakeTerminalWebSocketFactory();
     const runtimeStates: TerminalRuntimeState[] = [];

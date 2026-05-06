@@ -266,6 +266,9 @@ test("scroll state restores on stream switch and reload, and unread stream selec
     await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
     await expect(page.getByText("Main message 90")).toBeVisible();
     await expect(page.getByTestId("scroll-to-bottom-button")).toHaveCount(0);
+    await expect
+      .poll(async () => readPersistedScrollState(page, mainSessionKey))
+      .toMatchObject({ stickToBottom: true });
 
     await page.reload({ waitUntil: "domcontentloaded" });
 
@@ -298,4 +301,37 @@ test("scroll state restores on stream switch and reload, and unread stream selec
 
 function escapeForRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function readPersistedScrollState(
+  page: import("@playwright/test").Page,
+  sessionKey: string
+) {
+  return await page.evaluate(async (key) => {
+    const scopeId = window.sessionStorage.getItem("clawline-web:tab-runtime-scope");
+    if (!scopeId) {
+      return null;
+    }
+
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = window.indexedDB.open("clawline-web");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+
+    try {
+      const snapshot = await new Promise<{
+        scrollStateBySessionKey?: Record<string, { stickToBottom: boolean }>;
+      } | null>((resolve, reject) => {
+        const transaction = database.transaction("chatSnapshots", "readonly");
+        const request = transaction.objectStore("chatSnapshots").get(`chat-snapshot:${scopeId}`);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result ?? null);
+      });
+
+      return snapshot?.scrollStateBySessionKey?.[key] ?? null;
+    } finally {
+      database.close();
+    }
+  }, sessionKey);
 }

@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+  type ReactNode
+} from "react";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
 import type {
@@ -23,6 +30,7 @@ import { useVirtualMessageWindow } from "./useVirtualMessageWindow";
 const TYPING_INDICATOR_HEIGHT = 90;
 const TYPING_INDICATOR_GAP = 14;
 const TYPING_ACTIVITY_SETTLE_MS = 180;
+const BOTTOM_RESTORE_SETTLE_FRAMES = 8;
 
 export function MessageList({
   messages,
@@ -67,6 +75,7 @@ export function MessageList({
     shouldShowTypingIndicator
   );
   const restoredScrollStateKeyRef = useRef<string | null>(null);
+  const isRestoringScrollRef = useRef(false);
   const consumedUnreadAnchorRef = useRef<string | null>(null);
   const touchScrollActiveRef = useRef(false);
   const touchScrollReleaseTimeoutRef = useRef<number | null>(null);
@@ -99,8 +108,8 @@ export function MessageList({
     };
   }, [shouldShowTypingIndicator]);
 
-  useEffect(() => {
-    if (!sessionKey || !onRememberScrollState) {
+  useLayoutEffect(() => {
+    if (!sessionKey || !onRememberScrollState || isRestoringScrollRef.current) {
       return;
     }
 
@@ -113,7 +122,7 @@ export function MessageList({
       sessionKey,
       stickToBottom: isAtBottom || isAtBottomRef.current
     });
-  }, [isAtBottom, onRememberScrollState, scrollTop, sessionKey]);
+  }, [isAtBottom, isAtBottomRef, onRememberScrollState, scrollTop, sessionKey]);
 
   useEffect(() => {
     if (!sessionKey) {
@@ -127,30 +136,62 @@ export function MessageList({
     }
 
     restoredScrollStateKeyRef.current = restoreKey;
+    const activeSessionKey = sessionKey;
 
+    function rememberBottomIfSettled(offsetTop: number) {
+      if (isAtBottomRef.current) {
+        onRememberScrollState?.({
+          offsetTop,
+          sessionKey: activeSessionKey,
+          stickToBottom: true
+        });
+      }
+    }
 
     if (rememberedScrollState?.stickToBottom) {
+      isRestoringScrollRef.current = true;
       scrollToBottom();
-      let secondFrame = 0;
-      const firstFrame = window.requestAnimationFrame(() => {
+      let frame = 0;
+      let remainingFrames = BOTTOM_RESTORE_SETTLE_FRAMES;
+      const settleBottom = () => {
         scrollToBottom();
-        secondFrame = window.requestAnimationFrame(() => scrollToBottom());
-      });
+        onRememberScrollState?.({
+          offsetTop: Number.MAX_SAFE_INTEGER,
+          sessionKey: activeSessionKey,
+          stickToBottom: true
+        });
+        remainingFrames -= 1;
+        if (remainingFrames > 0) {
+          frame = window.requestAnimationFrame(settleBottom);
+          return;
+        }
+        isRestoringScrollRef.current = false;
+      };
+      frame = window.requestAnimationFrame(settleBottom);
       return () => {
-        window.cancelAnimationFrame(firstFrame);
-        if (secondFrame !== 0) {
-          window.cancelAnimationFrame(secondFrame);
+        isRestoringScrollRef.current = false;
+        if (frame !== 0) {
+          window.cancelAnimationFrame(frame);
         }
       };
     }
 
     if (rememberedScrollState) {
       scrollToOffset(rememberedScrollState.offsetTop);
-      return;
+      const frame = window.requestAnimationFrame(() => {
+        rememberBottomIfSettled(rememberedScrollState.offsetTop);
+      });
+      return () => window.cancelAnimationFrame(frame);
     }
 
     scrollToOffset(0);
+    const frame = window.requestAnimationFrame(() => {
+      rememberBottomIfSettled(0);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [
+    isAtBottomRef,
+    onRememberScrollState,
     rememberedScrollState,
     scrollToBottom,
     scrollToOffset,
@@ -187,9 +228,23 @@ export function MessageList({
       return;
     }
 
-    const frame = window.requestAnimationFrame(() => scrollToBottom());
+    let frame = 0;
+    let remainingFrames = BOTTOM_RESTORE_SETTLE_FRAMES;
+    const settleBottom = () => {
+      scrollToBottom();
+      remainingFrames -= 1;
+      if (remainingFrames > 0) {
+        frame = window.requestAnimationFrame(settleBottom);
+      }
+    };
 
-    return () => window.cancelAnimationFrame(frame);
+    frame = window.requestAnimationFrame(settleBottom);
+
+    return () => {
+      if (frame !== 0) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
   }, [rememberedScrollState?.stickToBottom, scrollToBottom, sessionKey, totalHeight]);
 
   useEffect(() => {

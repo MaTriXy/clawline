@@ -390,10 +390,6 @@ export function createChatDomainStore(options?: {
           stickToBottom: input.stickToBottom
         };
 
-        if (currentScrollState?.stickToBottom && !nextScrollState.stickToBottom) {
-          return current;
-        }
-
         if (
           currentScrollState?.offsetTop === nextScrollState.offsetTop &&
           currentScrollState?.stickToBottom === nextScrollState.stickToBottom

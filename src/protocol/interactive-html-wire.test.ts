@@ -76,6 +76,15 @@ describe("interactive-html-wire", () => {
     expect(descriptor && interactiveHtmlTitle(descriptor)).toBe("Résumé 🌊");
   });
 
+  it("accepts parameterized and case-varied interactive HTML MIME types", () => {
+    expect(
+      isInteractiveHtmlAttachment({
+        type: "document",
+        mimeType: "Application/Vnd.Clawline.Interactive-Html+Json; charset=utf-8"
+      })
+    ).toBe(true);
+  });
+
   it("rejects invalid or non-interactive payloads", () => {
     expect(
       isInteractiveHtmlAttachment({

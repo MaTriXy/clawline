@@ -1,5 +1,5 @@
 import type { ServerAttachmentPayload } from "./chat-wire";
-import { attachmentMimeType } from "./attachment-api";
+import { normalizedAttachmentMimeType } from "./attachment-api";
 
 export const TERMINAL_ATTACHMENT_MIME = "application/vnd.clawline.terminal-session+json";
 
@@ -30,7 +30,7 @@ export interface TerminalSessionDescriptor {
 }
 
 export function isTerminalAttachment(attachment: ServerAttachmentPayload) {
-  return attachmentMimeType(attachment) === TERMINAL_ATTACHMENT_MIME;
+  return normalizedAttachmentMimeType(attachment) === TERMINAL_ATTACHMENT_MIME;
 }
 
 export function decodeTerminalSessionDescriptor(
