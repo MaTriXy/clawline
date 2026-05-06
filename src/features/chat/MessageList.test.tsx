@@ -138,7 +138,6 @@ function renderMessageList(messages: ChatMessageRecord[]) {
     async publishReadState() {},
     retryNow() {},
     async sendInteractiveCallback() {},
-    setSelectedSessionKey() {},
     async sendMessage() {},
     subscribe() {
       return () => {};
@@ -198,7 +197,6 @@ function renderMessageListWithProps(input: {
     async publishReadState() {},
     retryNow() {},
     async sendInteractiveCallback() {},
-    setSelectedSessionKey() {},
     async sendMessage() {},
     subscribe() {
       return () => {};
@@ -539,7 +537,6 @@ describe("MessageList rich rendering", () => {
       async publishReadState() {},
       retryNow,
       async sendInteractiveCallback() {},
-      setSelectedSessionKey() {},
       sendMessage,
       subscribe() {
         return () => {};
@@ -552,6 +549,10 @@ describe("MessageList rich rendering", () => {
       serverUrl: "ws://127.0.0.1:18800/ws",
       token: "jwt-token",
       userId: "user_1"
+    });
+    chatStore.applySessionInfo({
+      type: "session_info",
+      sessionKeys: ["agent:main:clawline:flynn:main"]
     });
 
     chatStore.enqueueOptimisticMessage({
@@ -591,6 +592,76 @@ describe("MessageList rich rendering", () => {
     ).toBe("pending");
   });
 
+  it("does not resend a failed optimistic send for an unprovisioned session", async () => {
+    const authStore = createAuthSessionStore();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const retryNow = vi.fn();
+    const transportState = {
+      failureReason: null,
+      isBrowserOnline: true,
+      phase: "live" as const,
+      retryAttempt: 0
+    };
+    const transportStore: TransportMachine = {
+      getState() {
+        return transportState;
+      },
+      async publishReadState() {},
+      retryNow,
+      async sendInteractiveCallback() {},
+      sendMessage,
+      subscribe() {
+        return () => {};
+      }
+    };
+
+    authStore.storePairingSession({
+      claimedName: "Desk Browser",
+      deviceId: "browser-device-1",
+      serverUrl: "ws://127.0.0.1:18800/ws",
+      token: "jwt-token",
+      userId: "user_1"
+    });
+    chatStore.applySessionInfo({
+      type: "session_info",
+      sessionKeys: ["agent:main:clawline:flynn:main"]
+    });
+
+    chatStore.enqueueOptimisticMessage({
+      attachments: [],
+      content: "Do not retry me",
+      deviceId: "browser-device-1",
+      id: "c_failed_unprovisioned",
+      sessionKey: "agent:main:clawline:flynn:side",
+      timestamp: 1_764_201_200_075,
+      wireAttachments: []
+    });
+    chatStore.markMessageFailed("c_failed_unprovisioned");
+
+    render(
+      <AuthSessionStoreProvider value={authStore}>
+        <ChatDomainStoreProvider value={chatStore}>
+          <TransportMachineProvider value={transportStore}>
+            <MessageList
+              messages={chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:side"]}
+            />
+          </TransportMachineProvider>
+        </ChatDomainStoreProvider>
+      </AuthSessionStoreProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(retryNow).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:side"][0].delivery
+    ).toBe("failed");
+  });
+
   it("routes failed-send retry through reconnect when transport is not live", async () => {
     const authStore = createAuthSessionStore();
     const chatStore = createChatDomainStore({
@@ -611,7 +682,6 @@ describe("MessageList rich rendering", () => {
       async publishReadState() {},
       retryNow,
       async sendInteractiveCallback() {},
-      setSelectedSessionKey() {},
       sendMessage,
       subscribe() {
         return () => {};
@@ -624,6 +694,10 @@ describe("MessageList rich rendering", () => {
       serverUrl: "ws://127.0.0.1:18800/ws",
       token: "jwt-token",
       userId: "user_1"
+    });
+    chatStore.applySessionInfo({
+      type: "session_info",
+      sessionKeys: ["agent:main:clawline:flynn:main"]
     });
 
     chatStore.enqueueOptimisticMessage({
@@ -655,6 +729,72 @@ describe("MessageList rich rendering", () => {
     expect(sendMessage).not.toHaveBeenCalled();
     expect(
       chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:main"][0].delivery
+    ).toBe("failed");
+  });
+
+  it("does not reconnect for a failed optimistic send in an unprovisioned session", async () => {
+    const authStore = createAuthSessionStore();
+    const chatStore = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const retryNow = vi.fn();
+    const transportState = {
+      failureReason: null,
+      isBrowserOnline: true,
+      phase: "recovering" as const,
+      retryAttempt: 0
+    };
+    const transportStore: TransportMachine = {
+      getState() {
+        return transportState;
+      },
+      async publishReadState() {},
+      retryNow,
+      async sendInteractiveCallback() {},
+      sendMessage,
+      subscribe() {
+        return () => {};
+      }
+    };
+
+    authStore.storePairingSession({
+      claimedName: "Desk Browser",
+      deviceId: "browser-device-1",
+      serverUrl: "ws://127.0.0.1:18800/ws",
+      token: "jwt-token",
+      userId: "user_1"
+    });
+
+    chatStore.enqueueOptimisticMessage({
+      attachments: [],
+      content: "Do not reconnect me",
+      deviceId: "browser-device-1",
+      id: "c_failed_unprovisioned_recovering",
+      sessionKey: "agent:main:clawline:flynn:side",
+      timestamp: 1_764_201_200_085,
+      wireAttachments: []
+    });
+    chatStore.markMessageFailed("c_failed_unprovisioned_recovering");
+
+    render(
+      <AuthSessionStoreProvider value={authStore}>
+        <ChatDomainStoreProvider value={chatStore}>
+          <TransportMachineProvider value={transportStore}>
+            <MessageList
+              messages={chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:side"]}
+            />
+          </TransportMachineProvider>
+        </ChatDomainStoreProvider>
+      </AuthSessionStoreProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(retryNow).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:flynn:side"][0].delivery
     ).toBe("failed");
   });
 
@@ -974,7 +1114,6 @@ describe("MessageList rich rendering", () => {
       async publishReadState() {},
       retryNow() {},
       async sendInteractiveCallback() {},
-      setSelectedSessionKey() {},
       async sendMessage() {},
       subscribe() {
         return () => {};

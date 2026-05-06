@@ -20,7 +20,6 @@ function makeTransportStore(sendInteractiveCallback = vi.fn(async () => {})): Tr
     retryNow() {},
     async publishReadState() {},
     sendInteractiveCallback,
-    setSelectedSessionKey() {},
     async sendMessage() {},
     subscribe() {
       return () => {};

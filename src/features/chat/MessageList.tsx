@@ -297,6 +297,12 @@ export function MessageList({
       return;
     }
 
+    if (
+      !chatStore.getState().provisionedSessionKeys.includes(pendingMessage.sessionKey)
+    ) {
+      return;
+    }
+
     if (retryState.action === "reconnect") {
       transportStore.retryNow();
       return;

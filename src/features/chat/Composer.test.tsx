@@ -14,16 +14,21 @@ import type {
   TransportPhase
 } from "../../runtime/transport/transportMachine";
 import { TransportMachineProvider } from "../../runtime/transport/transportMachine";
+import type { SessionProvisioningState } from "../streams/provisioning";
 import { Composer } from "./Composer";
 
 function renderComposer({
   phase = "live" as const,
+  provisioningState = "ready" as const,
   retryNow = vi.fn(),
-  sendMessage = vi.fn().mockResolvedValue(undefined)
+  sendMessage = vi.fn().mockResolvedValue(undefined),
+  sessionKey = "agent:main:clawline:user_1:main"
 }: {
   phase?: TransportPhase;
+  provisioningState?: SessionProvisioningState;
   retryNow?: TransportMachine["retryNow"];
   sendMessage?: TransportMachine["sendMessage"];
+  sessionKey?: string;
 } = {}) {
   const authStore = createAuthSessionStore();
   const chatStore = createChatDomainStore({
@@ -42,7 +47,6 @@ function renderComposer({
     async publishReadState() {},
     retryNow,
     async sendInteractiveCallback() {},
-    setSelectedSessionKey() {},
     sendMessage,
     subscribe() {
       return () => {};
@@ -57,22 +61,45 @@ function renderComposer({
     userId: "user_1"
   });
 
+  function renderTree(input: {
+    provisioningState: SessionProvisioningState;
+    sessionKey?: string;
+  }) {
+    return (
+      <AuthSessionStoreProvider value={authStore}>
+        <ChatDomainStoreProvider value={chatStore}>
+          <TransportMachineProvider value={transportStore}>
+            <Composer
+              provisioningState={input.provisioningState}
+              sessionKey={input.sessionKey}
+            />
+          </TransportMachineProvider>
+        </ChatDomainStoreProvider>
+      </AuthSessionStoreProvider>
+    );
+  }
+
   const renderResult = render(
-    <AuthSessionStoreProvider value={authStore}>
-      <ChatDomainStoreProvider value={chatStore}>
-        <TransportMachineProvider value={transportStore}>
-          <Composer
-            provisioningState="ready"
-            sessionKey="agent:main:clawline:user_1:main"
-          />
-        </TransportMachineProvider>
-      </ChatDomainStoreProvider>
-    </AuthSessionStoreProvider>
+    renderTree({
+      provisioningState,
+      sessionKey
+    })
   );
 
   return {
     chatStore,
     renderResult,
+    rerenderComposer(input: {
+      provisioningState?: SessionProvisioningState;
+      sessionKey?: string;
+    }) {
+      renderResult.rerender(
+        renderTree({
+          provisioningState: input.provisioningState ?? provisioningState,
+          sessionKey: input.sessionKey ?? sessionKey
+        })
+      );
+    },
     retryNow,
     sendMessage
   };
@@ -201,6 +228,67 @@ describe("Composer", () => {
         sessionKey: "agent:main:clawline:user_1:main"
       });
     });
+  });
+
+  it("does not submit from the keyboard before provisioning is ready", () => {
+    const { chatStore, sendMessage } = renderComposer({
+      provisioningState: "unavailable"
+    });
+    const textarea = screen.getByLabelText("Message");
+
+    fireEvent.change(textarea, { target: { value: "Blocked keyboard send" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(chatStore.getState().messagesBySessionKey).toEqual({});
+  });
+
+  it("does not finish a submit after provisioning changes during attachment preparation", async () => {
+    let resolveUpload: ((response: Response) => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveUpload = resolve;
+          })
+      )
+    );
+    const { chatStore, rerenderComposer, sendMessage } = renderComposer();
+    const fileInput = document.querySelector<HTMLInputElement>("input[type='file']");
+    expect(fileInput).not.toBeNull();
+
+    fireEvent.change(fileInput as HTMLInputElement, {
+      target: {
+        files: [new File(["upload"], "notes.txt", { type: "text/plain" })]
+      }
+    });
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "Attachment send" }
+    });
+    fireEvent.keyDown(screen.getByLabelText("Message"), { key: "Enter" });
+
+    await waitFor(() => {
+      expect(resolveUpload).toBeDefined();
+    });
+    rerenderComposer({ provisioningState: "unavailable" });
+    resolveUpload?.(
+      new Response(
+        JSON.stringify({
+          assetId: "asset_1",
+          mimeType: "text/plain",
+          size: 6
+        }),
+        {
+          headers: { "Content-Type": "application/json" },
+          status: 200
+        }
+      )
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(chatStore.getState().messagesBySessionKey).toEqual({});
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("shows reconnecting and disconnected send button states", () => {

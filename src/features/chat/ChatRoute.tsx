@@ -36,25 +36,23 @@ export function ChatRoute() {
     streams: chatState.streams,
     transportPhase: transportState.phase
   });
-  const engineActiveSessionKey = coordinator.engineActiveSessionKey;
-  const uiSelectedSessionKey =
-    coordinator.uiSelectedSessionKey ?? coordinator.engineActiveSessionKey;
+  const activeSessionKey = coordinator.activeSessionKey;
   const activeStream = chatState.streams.find(
-    (stream) => stream.sessionKey === engineActiveSessionKey
+    (stream) => stream.sessionKey === activeSessionKey
   );
   const provisioningState = getSessionProvisioningState({
     hasStream: Boolean(activeStream),
     provisionedSessionKeys: chatState.provisionedSessionKeys,
-    sessionKey: engineActiveSessionKey,
+    sessionKey: activeSessionKey,
     transportPhase: transportState.phase
   });
 
   const selectedMessages = useMemo(
     () =>
-      engineActiveSessionKey
-        ? chatState.messagesBySessionKey[engineActiveSessionKey] ?? []
+      activeSessionKey
+        ? chatState.messagesBySessionKey[activeSessionKey] ?? []
         : [],
-    [chatState.messagesBySessionKey, engineActiveSessionKey]
+    [chatState.messagesBySessionKey, activeSessionKey]
   );
   const streamSessionKeySignature = useMemo(
     () => chatState.streams.map((stream) => stream.sessionKey).join("\u0000"),
@@ -80,10 +78,6 @@ export function ChatRoute() {
       networkRunStateBySessionKey
     ]
   );
-
-  useEffect(() => {
-    transportStore.setSelectedSessionKey(engineActiveSessionKey);
-  }, [engineActiveSessionKey, transportStore]);
 
   useEffect(() => {
     const token = authState.session?.token;
@@ -184,41 +178,45 @@ export function ChatRoute() {
   };
 
   const interactionCoordinator = useChatSessionInteractionCoordinator({
-    activeSessionKey: engineActiveSessionKey,
+    activeSessionKey,
     onSelectSession: handleSelectSession,
     orderedSessionKeys: chatState.streams.map((stream) => stream.sessionKey)
   });
 
   useEffect(() => {
-    if (!engineActiveSessionKey) {
+    if (!activeSessionKey) {
       return;
     }
 
     const unreadAnchor =
-      chatState.firstUnreadMessageIdBySessionKey[engineActiveSessionKey] ?? null;
+      chatState.firstUnreadMessageIdBySessionKey[activeSessionKey] ?? null;
 
     setSelectedUnreadAnchor((current) => {
       if (unreadAnchor) {
-        return current?.sessionKey === engineActiveSessionKey &&
+        return current?.sessionKey === activeSessionKey &&
           current.messageId === unreadAnchor
           ? current
           : {
               messageId: unreadAnchor,
-              sessionKey: engineActiveSessionKey
+              sessionKey: activeSessionKey
             };
       }
 
-      return current?.sessionKey === engineActiveSessionKey ? current : null;
+      return current?.sessionKey === activeSessionKey ? current : null;
     });
 
-    const lastReadMessageId = chatStore.markSessionRead(engineActiveSessionKey);
-    if (lastReadMessageId) {
-      void transportStore.publishReadState(engineActiveSessionKey, lastReadMessageId);
+    const lastReadMessageId = chatStore.markSessionRead(activeSessionKey);
+    if (
+      lastReadMessageId &&
+      chatState.provisionedSessionKeys.includes(activeSessionKey)
+    ) {
+      void transportStore.publishReadState(activeSessionKey, lastReadMessageId);
     }
   }, [
+    activeSessionKey,
     chatState.firstUnreadMessageIdBySessionKey,
+    chatState.provisionedSessionKeys,
     chatStore,
-    engineActiveSessionKey,
     transportStore
   ]);
 
@@ -228,20 +226,6 @@ export function ChatRoute() {
 
   if (!params.sessionKey && coordinator.firstProviderValidSessionKey) {
     return <Navigate replace to={`/chat/${coordinator.firstProviderValidSessionKey}`} />;
-  }
-
-  if (
-    coordinator.transition.bootRequestedSessionKey &&
-    params.sessionKey === coordinator.transition.bootRequestedSessionKey &&
-    transportState.phase === "live" &&
-    chatState.provisionedSessionKeys.length > 0 &&
-    !chatState.provisionedSessionKeys.includes(coordinator.transition.bootRequestedSessionKey)
-  ) {
-    return coordinator.firstProviderValidSessionKey ? (
-      <Navigate replace to={`/chat/${coordinator.firstProviderValidSessionKey}`} />
-    ) : (
-      <Navigate replace to="/chat" />
-    );
   }
 
   if (params.sessionKey && chatState.streams.length > 0 && !coordinator.routeSessionExists) {
@@ -255,7 +239,6 @@ export function ChatRoute() {
   return (
     <>
       <ChatShell
-        activeSessionKey={engineActiveSessionKey}
         chatLayoutStyle={interactionCoordinator.layoutStyle}
         keyboardInset={interactionCoordinator.keyboardInset}
         isSessionListOpen={coordinator.isSessionListOpen}
@@ -270,8 +253,8 @@ export function ChatRoute() {
         provisioningState={provisioningState}
         onUnreadAnchorConsumed={(messageId) => {
           if (
-            !engineActiveSessionKey ||
-            selectedUnreadAnchor?.sessionKey !== engineActiveSessionKey ||
+            !activeSessionKey ||
+            selectedUnreadAnchor?.sessionKey !== activeSessionKey ||
             selectedUnreadAnchor.messageId !== messageId
           ) {
             return;
@@ -280,15 +263,14 @@ export function ChatRoute() {
           setSelectedUnreadAnchor(null);
         }}
         rememberedScrollState={
-          engineActiveSessionKey
-            ? chatState.scrollStateBySessionKey[engineActiveSessionKey]
+          activeSessionKey
+            ? chatState.scrollStateBySessionKey[activeSessionKey]
             : undefined
         }
         selectedMessages={selectedMessages}
-        selectedSessionKey={engineActiveSessionKey}
-        uiSelectedSessionKey={uiSelectedSessionKey}
+        selectedSessionKey={activeSessionKey}
         selectedUnreadAnchorMessageId={
-          selectedUnreadAnchor?.sessionKey === engineActiveSessionKey
+          selectedUnreadAnchor?.sessionKey === activeSessionKey
             ? selectedUnreadAnchor?.messageId ?? null
             : null
         }
@@ -299,7 +281,7 @@ export function ChatRoute() {
         transportPhase={transportState.phase}
       />
       <StreamManagerDrawer
-        activeSessionKey={uiSelectedSessionKey}
+        activeSessionKey={activeSessionKey}
         isOpen={coordinator.isStreamManagerOpen}
         onClose={coordinator.closeStreamManager}
         onSelectSession={(sessionKey) => {

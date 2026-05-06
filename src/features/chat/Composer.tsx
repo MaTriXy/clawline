@@ -55,6 +55,18 @@ export function Composer({
     stagedAttachmentCount: stagedAttachments.length,
     transportPhase: transportState.phase
   });
+  const latestSubmitStateRef = useRef({
+    authToken: authState.session?.token,
+    provisioningState,
+    sessionKey,
+    transportPhase: transportState.phase
+  });
+  latestSubmitStateRef.current = {
+    authToken: authState.session?.token,
+    provisioningState,
+    sessionKey,
+    transportPhase: transportState.phase
+  };
 
   useEffect(() => {
     return () => {
@@ -76,7 +88,12 @@ export function Composer({
   }, [draft]);
 
   async function submit() {
-    if (!sessionKey || !authState.session) {
+    const submitSession = authState.session;
+    if (!sessionKey || !submitSession) {
+      return;
+    }
+
+    if (sendState.sendAction !== "send") {
       return;
     }
 
@@ -93,8 +110,8 @@ export function Composer({
       preparedAttachments = await prepareOutboundAttachments({
         content,
         files: stagedAttachments.map((attachment) => attachment.file),
-        serverUrl: authState.session.serverUrl,
-        token: authState.session.token
+        serverUrl: submitSession.serverUrl,
+        token: submitSession.token
       });
     } catch (error) {
       if (isUploadAuthFailure(error)) {
@@ -109,13 +126,24 @@ export function Composer({
       return;
     }
 
+    const latestSubmitState = latestSubmitStateRef.current;
+    if (
+      latestSubmitState.sessionKey !== sessionKey ||
+      latestSubmitState.provisioningState !== "ready" ||
+      latestSubmitState.transportPhase !== "live" ||
+      latestSubmitState.authToken !== submitSession.token
+    ) {
+      setSubmitting(false);
+      return;
+    }
+
     const id = `c_${generateUuidV4()}`;
     const timestamp = Date.now();
 
     chatStore.enqueueOptimisticMessage({
       attachments: preparedAttachments.optimisticAttachments,
       content,
-      deviceId: authState.session.deviceId,
+      deviceId: submitSession.deviceId,
       id,
       sessionKey,
       timestamp,

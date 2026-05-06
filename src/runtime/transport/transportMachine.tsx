@@ -55,7 +55,6 @@ export interface TransportMachine {
   subscribe(listener: () => void): () => void;
   publishReadState(sessionKey: string, lastReadMessageId: string): Promise<void>;
   retryNow(): void;
-  setSelectedSessionKey(sessionKey: string | undefined): void;
   sendMessage(input: SendMessageInput): Promise<void>;
 }
 
@@ -64,7 +63,9 @@ interface CreateTransportMachineOptions {
   chatDomainStore: ChatDomainStore;
   browserRuntime?: BrowserRuntime;
   clientFeatures?: string[];
-  selectedSessionKeySource?: () => string | undefined;
+  selectedSessionKeySource?: (
+    chatState: ReturnType<ChatDomainStore["getState"]>
+  ) => string | undefined;
   webSocketFactory?: WebSocketFactory;
 }
 
@@ -90,12 +91,44 @@ const SHOULD_WARN_ON_STREAM_SNAPSHOT =
   typeof process === "undefined" || process.env.NODE_ENV !== "production";
 const WEB_CLIENT_ID = "clawline-web";
 
+function readSelectedSessionKeyFromCurrentUrl(
+  chatState: ReturnType<ChatDomainStore["getState"]>
+) {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  const path = window.location.protocol === "file:" && window.location.hash.startsWith("#/")
+    ? window.location.hash.slice(1)
+    : window.location.pathname;
+  const match = /^\/chat\/([^/?#]+)/.exec(path);
+  if (!match) {
+    return undefined;
+  }
+
+  let routeSessionKey = match[1];
+  try {
+    routeSessionKey = decodeURIComponent(routeSessionKey);
+  } catch {
+    // Keep the raw route segment if the browser exposes a malformed escape.
+  }
+
+  const routeSessionExists = chatState.streams.some(
+    (stream) => stream.sessionKey === routeSessionKey
+  );
+  if (chatState.streams.length > 0 && !routeSessionExists) {
+    return undefined;
+  }
+
+  return routeSessionKey;
+}
+
 export function createTransportMachine({
   authSessionStore,
   chatDomainStore,
   browserRuntime = createBrowserRuntime(),
   clientFeatures,
-  selectedSessionKeySource,
+  selectedSessionKeySource = readSelectedSessionKeyFromCurrentUrl,
   webSocketFactory = createBrowserWebSocketFactory()
 }: CreateTransportMachineOptions): TransportMachine {
   const resolvedClientFeatures = clientFeatures ?? getWebClientFeatures();
@@ -103,7 +136,6 @@ export function createTransportMachine({
     ...INITIAL_STATE,
     isBrowserOnline: browserRuntime.isOnline()
   });
-  let selectedSessionKey: string | undefined;
   let socket: SocketLike | null = null;
   let reconnectTimer: number | null = null;
   let replayFlushTimer: number | null = null;
@@ -245,7 +277,7 @@ export function createTransportMachine({
       }));
 
       const chatState = chatDomainStore.getState();
-      const selectedReplaySessionKey = selectedSessionKeySource?.() ?? selectedSessionKey;
+      const selectedReplaySessionKey = selectedSessionKeySource(chatState);
 
       nextSocket.send(
         serializeAuthPayload({
@@ -323,7 +355,7 @@ export function createTransportMachine({
             const messageInput = {
               localDeviceId: authSessionStore.getState().session?.deviceId ?? "",
               message: payload,
-              selectedSessionKey: selectedSessionKeySource?.() ?? selectedSessionKey,
+              selectedSessionKey: selectedSessionKeySource(chatDomainStore.getState()),
               source
             };
             if (
@@ -531,9 +563,6 @@ export function createTransportMachine({
     },
     retryNow() {
       void connect("retry");
-    },
-    setSelectedSessionKey(sessionKey) {
-      selectedSessionKey = sessionKey;
     },
     async sendMessage(input) {
       if (baseStore.getState().phase !== "live" || !socket) {
