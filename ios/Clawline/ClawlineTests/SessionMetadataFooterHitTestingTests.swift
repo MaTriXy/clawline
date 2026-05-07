@@ -40,8 +40,11 @@ struct SessionMetadataFooterHitTestingTests {
         let buttons = try footerButtons(in: cell)
         let frames = buttons.map { $0.convert($0.bounds, to: cell) }
 
-        #expect(SessionMetadataFooterCell.topPadding == MessageInputBarMetrics.minInputBarHeight + StreamPageDotsView.controlHeight)
-        #expect(SessionMetadataFooterCell.height(for: makeStatus()) == 115)
+        #expect(SessionMetadataFooterCell.extraTopClearance == 20)
+        #expect(SessionMetadataFooterCell.topPadding == MessageInputBarMetrics.minInputBarHeight
+            + StreamPageDotsView.controlHeight
+            + SessionMetadataFooterCell.extraTopClearance)
+        #expect(SessionMetadataFooterCell.height(for: makeStatus()) == 135)
         #expect(frames.allSatisfy { abs($0.minY - SessionMetadataFooterCell.topPadding) <= 0.5 })
         #expect(frames.allSatisfy { abs($0.height - SessionMetadataFooterCell.actionRegionHeight) <= 0.5 })
     }

@@ -5194,7 +5194,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 final class SessionMetadataFooterCell: UICollectionViewCell {
     static let reuseIdentifier = "SessionMetadataFooterCell"
     static let itemId = "__session_metadata_footer__"
-    static let topPadding: CGFloat = MessageInputBarMetrics.minInputBarHeight + StreamPageDotsView.controlHeight
+    static let extraTopClearance: CGFloat = 20
+    static let topPadding: CGFloat = MessageInputBarMetrics.minInputBarHeight
+        + StreamPageDotsView.controlHeight
+        + extraTopClearance
     static let bottomPadding: CGFloat = 4
     static let horizontalPadding: CGFloat = 12
     static let actionRegionHeight: CGFloat = 44
