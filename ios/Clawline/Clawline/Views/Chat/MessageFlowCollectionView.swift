@@ -5346,16 +5346,13 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
     ) -> UIButton {
         let button = FooterButton(type: .system)
         var configuration = UIButton.Configuration.plain()
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4)
         configuration.attributedTitle = AttributedString(
             item.text,
             attributes: AttributeContainer([.font: Self.footerFont])
         )
         configuration.baseForegroundColor = color
-        configuration.background.cornerRadius = 8
-        configuration.background.strokeWidth = 1
-        configuration.background.strokeColor = color.withAlphaComponent(0.45)
-        configuration.background.backgroundColor = color.withAlphaComponent(0.05)
+        configuration.background.strokeWidth = 0
         button.configuration = configuration
         button.titleLabel?.font = Self.footerFont
         button.titleLabel?.adjustsFontForContentSizeCategory = true

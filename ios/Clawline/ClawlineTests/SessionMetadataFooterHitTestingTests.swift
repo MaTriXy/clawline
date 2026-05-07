@@ -4,8 +4,8 @@ import UIKit
 
 @MainActor
 struct SessionMetadataFooterHitTestingTests {
-    @Test("Footer bordered action regions are stable non-overlapping tap targets")
-    func footerBorderedActionRegionsAreStableNonOverlappingTapTargets() throws {
+    @Test("Footer action regions are stable non-overlapping tap targets")
+    func footerActionRegionsAreStableNonOverlappingTapTargets() throws {
         let cell = makeConfiguredCell()
         let buttons = try footerButtons(in: cell)
 
@@ -92,16 +92,19 @@ struct SessionMetadataFooterHitTestingTests {
         }
     }
 
-    @Test("Footer action regions draw visible button borders")
-    func footerActionRegionsDrawVisibleButtonBorders() throws {
+    @Test("Footer action regions keep compact borderless styling")
+    func footerActionRegionsKeepCompactBorderlessStyling() throws {
         let cell = makeConfiguredCell()
         let buttons = allSubviews(in: cell).compactMap { $0 as? UIButton }
         let thinkingButton = try #require(buttons.first { $0.accessibilityLabel == "Thinking high" })
         let configuration = try #require(thinkingButton.configuration)
 
-        #expect(configuration.background.strokeWidth == 1)
-        #expect(configuration.background.strokeColor != nil)
-        #expect(configuration.background.cornerRadius > 0)
+        #expect(configuration.contentInsets.top == 2)
+        #expect(configuration.contentInsets.bottom == 2)
+        #expect(configuration.contentInsets.leading == 4)
+        #expect(configuration.contentInsets.trailing == 4)
+        #expect(configuration.background.strokeWidth == 0)
+        #expect(configuration.background.backgroundColor?.cgColor.alpha == 0)
     }
 }
 
