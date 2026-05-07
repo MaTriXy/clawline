@@ -314,6 +314,7 @@ test("markdown messages render rich blocks and expand into an overlay", async ({
     for (const client of wss.clients) {
       client.terminate();
     }
+    server.closeAllConnections?.();
     await new Promise<void>((resolve, reject) => {
       wss.close((error) => {
         if (error) {
