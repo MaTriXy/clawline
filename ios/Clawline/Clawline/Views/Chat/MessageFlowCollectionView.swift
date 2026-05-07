@@ -5191,7 +5191,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 }
 
-private final class SessionMetadataFooterCell: UICollectionViewCell {
+final class SessionMetadataFooterCell: UICollectionViewCell {
     static let reuseIdentifier = "SessionMetadataFooterCell"
     static let itemId = "__session_metadata_footer__"
     static let topPadding: CGFloat = 8
@@ -5247,6 +5247,14 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let actionButtons = stackView.arrangedSubviews.compactMap { $0 as? FooterButton }
+        if let button = FooterActionHitTesting.hitView(at: point, in: self, candidates: actionButtons, event: event) {
+            return button
+        }
+        return super.hitTest(point, with: event)
     }
 
     func configure(
@@ -5481,6 +5489,31 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+}
+
+enum FooterActionHitTesting {
+    @MainActor
+    static func hitView(
+        at point: CGPoint,
+        in container: UIView,
+        candidates: [UIView],
+        event: UIEvent?
+    ) -> UIView? {
+        for candidate in candidates.reversed() {
+            guard !candidate.isHidden,
+                  candidate.isUserInteractionEnabled,
+                  candidate.alpha > 0.01
+            else { continue }
+            if let control = candidate as? UIControl, !control.isEnabled {
+                continue
+            }
+            let pointInCandidate = container.convert(point, to: candidate)
+            if candidate.point(inside: pointInCandidate, with: event) {
+                return candidate
+            }
+        }
+        return nil
+    }
 }
 
 private final class MessageFlowLayout: UICollectionViewFlowLayout {
