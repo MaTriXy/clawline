@@ -5238,13 +5238,16 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
         stackView.alignment = .fill
-        stackView.distribution = .fillEqually
-        stackView.spacing = 4
+        stackView.distribution = .fill
+        stackView.spacing = 2
+        stackView.setContentHuggingPriority(.required, for: .horizontal)
+        stackView.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         contentView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
-            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Self.horizontalPadding),
+            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
+            stackView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -Self.horizontalPadding),
+            stackView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             stackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             stackView.heightAnchor.constraint(equalToConstant: Self.actionRegionHeight)
         ])
@@ -5354,6 +5357,10 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         configuration.baseForegroundColor = color
         configuration.background.strokeWidth = 0
         button.configuration = configuration
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        let titleWidth = ceil((item.text as NSString).size(withAttributes: [.font: Self.footerFont]).width)
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: max(44, titleWidth + 8)).isActive = true
         button.titleLabel?.font = Self.footerFont
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.titleLabel?.lineBreakMode = .byTruncatingTail

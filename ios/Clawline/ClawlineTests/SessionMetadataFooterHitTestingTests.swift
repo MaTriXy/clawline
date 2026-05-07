@@ -8,21 +8,30 @@ struct SessionMetadataFooterHitTestingTests {
     func footerActionRegionsAreStableNonOverlappingTapTargets() throws {
         let cell = makeConfiguredCell()
         let buttons = try footerButtons(in: cell)
+        let frames = buttons.map { $0.convert($0.bounds, to: cell) }
 
-        for button in buttons {
-            let frame = button.convert(button.bounds, to: cell)
+        for frame in frames {
             #expect(frame.width >= 44)
             #expect(frame.height >= 44)
             #expect(cell.bounds.contains(frame))
         }
 
-        for firstIndex in buttons.indices {
-            for secondIndex in buttons.indices where firstIndex < secondIndex {
-                let firstFrame = buttons[firstIndex].convert(buttons[firstIndex].bounds, to: cell)
-                let secondFrame = buttons[secondIndex].convert(buttons[secondIndex].bounds, to: cell)
+        for firstIndex in frames.indices {
+            for secondIndex in frames.indices where firstIndex < secondIndex {
+                let firstFrame = frames[firstIndex]
+                let secondFrame = frames[secondIndex]
                 #expect(firstFrame.intersection(secondFrame).isNull)
             }
         }
+
+        for index in frames.indices.dropFirst() {
+            let gap = frames[index].minX - frames[index - 1].maxX
+            #expect(gap <= 2.5)
+            #expect(gap >= 0)
+        }
+
+        let occupiedWidth = frames.last!.maxX - frames.first!.minX
+        #expect(occupiedWidth < cell.bounds.width * 0.7)
     }
 
     @Test("Thinking action hit target includes off-glyph segment around compact label")
@@ -37,8 +46,7 @@ struct SessionMetadataFooterHitTestingTests {
             FooterActionHitTesting.actionRegions(for: buttons, in: cell)
                 .first { $0.view === thinkingButton }?.rect
         )
-        let offGlyphX = max(thinkingFrame.minX + 2, thinkingLabelFrame.minX - 2)
-        let offGlyphPoint = CGPoint(x: offGlyphX, y: thinkingRegion.midY)
+        let offGlyphPoint = CGPoint(x: thinkingLabelFrame.midX, y: thinkingFrame.minY + 1)
 
         #expect(thinkingRegion.width >= 44)
         #expect(thinkingFrame.contains(offGlyphPoint))
