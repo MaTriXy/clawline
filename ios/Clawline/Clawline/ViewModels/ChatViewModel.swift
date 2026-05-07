@@ -1117,17 +1117,15 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     var canCancelCurrentPrompt: Bool {
-        currentCancellablePromptSessionKey != nil
+        currentInFlightPromptSessionKey != nil
     }
 
     func canCancelCurrentPrompt(in sessionKey: String) -> Bool {
         let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedSessionKey.isEmpty,
-              let status = sessionStatusBySessionKey[normalizedSessionKey] else { return false }
-        return sessionCanCancelCurrentRun(status)
+        return promptIsInFlight(in: normalizedSessionKey)
     }
 
-    private var currentCancellablePromptSessionKey: String? {
+    private var currentInFlightPromptSessionKey: String? {
         let candidates = [
             uiSelectedSessionKey,
             typingSessionKey,
@@ -1137,28 +1135,25 @@ final class ChatViewModel: ChatViewModelHosting {
         for candidate in candidates {
             let sessionKey = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !sessionKey.isEmpty, seen.insert(sessionKey).inserted else { continue }
-            guard let status = sessionStatusBySessionKey[sessionKey],
-                  sessionCanCancelCurrentRun(status) else { continue }
-            return sessionKey
+            if promptIsInFlight(in: sessionKey) {
+                return sessionKey
+            }
         }
         return nil
     }
 
-    private func sessionCanCancelCurrentRun(_ status: SessionStatus) -> Bool {
+    private func promptIsInFlight(in sessionKey: String) -> Bool {
+        guard !sessionKey.isEmpty else { return false }
+        if isAssistantTyping, typingSessionKey == sessionKey {
+            return true
+        }
+        guard let status = sessionStatusBySessionKey[sessionKey] else { return false }
         switch status.run.state {
         case .running, .queued:
-            break
+            return true
         case .idle, .unknown:
             return false
         }
-        if status.capabilities.readOnlyStatus == true { return false }
-        if let capability = status.capabilities.cancelCurrentRun {
-            return capability.supported
-        }
-        if let legacy = status.capabilities.canCancelCurrentRun {
-            return legacy
-        }
-        return false
     }
 
     func requestCurrentPromptCancellation(sessionKey requestedSessionKey: String? = nil) {
@@ -1167,7 +1162,7 @@ final class ChatViewModel: ChatViewModelHosting {
             let normalizedSessionKey = requestedSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
             sessionKey = canCancelCurrentPrompt(in: normalizedSessionKey) ? normalizedSessionKey : nil
         } else {
-            sessionKey = currentCancellablePromptSessionKey
+            sessionKey = currentInFlightPromptSessionKey
         }
         guard let sessionKey else { return }
         Task { [weak self] in
