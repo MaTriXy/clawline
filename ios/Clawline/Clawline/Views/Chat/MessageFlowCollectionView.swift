@@ -5213,6 +5213,8 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         let enabled: Bool?
     }
 
+    private static let footerFont = UIFont.clawline(.timestamp)
+
     private final class FooterButton: UIButton {
         override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
             let minimumSide: CGFloat = 44
@@ -5271,7 +5273,7 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
 
     static func height(for status: SessionStatus?) -> CGFloat {
         guard footerText(for: status) != nil else { return 0 }
-        return ceil(UIFont.clawline(.timestamp).lineHeight + topPadding + bottomPadding)
+        return ceil(footerFont.lineHeight + topPadding + bottomPadding)
     }
 
     static func footerText(for status: SessionStatus?) -> String? {
@@ -5300,7 +5302,7 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
             FooterItem(
                 text: normalized(display.model) ?? "Unknown model",
                 action: modelCapability.isSupported ? .setModel : nil,
-                options: modelOptions(display: display),
+                options: modelOptions(display: display, catalog: status.modelCatalog),
                 unsupportedReason: modelCapability.reason ?? "model_catalog_control_not_available"
             ),
             FooterItem(
@@ -5335,10 +5337,13 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         let button = FooterButton(type: .system)
         var configuration = UIButton.Configuration.plain()
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 2)
-        configuration.title = item.text
+        configuration.attributedTitle = AttributedString(
+            item.text,
+            attributes: AttributeContainer([.font: Self.footerFont])
+        )
         configuration.baseForegroundColor = color
         button.configuration = configuration
-        button.titleLabel?.font = UIFont.clawline(.timestamp)
+        button.titleLabel?.font = Self.footerFont
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.tintColor = color
         button.isEnabled = item.action != nil && !item.options.isEmpty
@@ -5364,18 +5369,32 @@ private final class SessionMetadataFooterCell: UICollectionViewCell {
         let label = UILabel()
         label.text = "·"
         label.textColor = color.withAlphaComponent(0.7)
-        label.font = UIFont.clawline(.timestamp)
+        label.font = Self.footerFont
         label.adjustsFontForContentSizeCategory = true
         return label
     }
 
-    private static func modelOptions(display: SessionStatus.Display) -> [FooterOption] {
+    private static func modelOptions(display: SessionStatus.Display,
+                                     catalog: SessionStatus.ModelCatalog?) -> [FooterOption] {
         let current = normalized(display.model)
-        let models = ([current] + (display.fallbackModels ?? []).map { normalized($0) }).compactMap { $0 }
-        let uniqueModels = Array(NSOrderedSet(array: models)) as? [String] ?? models
+        if catalog?.available == true {
+            return catalog?.models.map { model in
+                let title = modelCatalogOptionTitle(model, current: current)
+                return FooterOption(title: title, value: model.ref, enabled: nil)
+            } ?? []
+        }
+        let fallbackModels = ([current] + (display.fallbackModels ?? []).map { normalized($0) }).compactMap { $0 }
+        let uniqueModels = Array(NSOrderedSet(array: fallbackModels)) as? [String] ?? fallbackModels
         return uniqueModels.map { model in
             FooterOption(title: model == current ? "\(model) (Current)" : model, value: model, enabled: nil)
         }
+    }
+
+    private static func modelCatalogOptionTitle(_ model: SessionStatus.ModelCatalog.Model,
+                                                current: String?) -> String {
+        let title = normalized(model.alias) ?? normalized(model.name) ?? normalized(model.ref) ?? model.ref
+        let isCurrent = current == normalized(model.id) || current == normalized(model.ref)
+        return isCurrent ? "\(title) (Current)" : title
     }
 
     private static func levelOptions(current: String?, action: SessionControlAction?) -> [FooterOption] {
