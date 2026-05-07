@@ -3246,6 +3246,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.allowsMultipleSelection = false
         collectionView.clipsToBounds = false  // Allow content to render past bounds during scroll
         collectionView.delegate = self
+        let typingIndicatorTap = UITapGestureRecognizer(target: self, action: #selector(handleCollectionViewTap(_:)))
+        typingIndicatorTap.cancelsTouchesInView = false
+        typingIndicatorTap.delaysTouchesBegan = false
+        typingIndicatorTap.delaysTouchesEnded = false
+        collectionView.addGestureRecognizer(typingIndicatorTap)
         collectionView.register(MessageBubbleUIKitCell.self, forCellWithReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier)
         collectionView.register(WebBubbleUIKitCell.self, forCellWithReuseIdentifier: WebBubbleUIKitCell.reuseIdentifier)
         collectionView.register(TypingIndicatorCell.self, forCellWithReuseIdentifier: TypingIndicatorCell.reuseIdentifier)
@@ -3254,6 +3259,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         view.addSubview(collectionView)
         // Frame will be set in viewDidLayoutSubviews to extend to window bounds
+    }
+
+    @objc private func handleCollectionViewTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended,
+              let onTypingIndicatorTap,
+              let typingIndexPath = dataSource.indexPath(for: TypingIndicatorCell.itemId),
+              let attributes = collectionView.layoutAttributesForItem(at: typingIndexPath) else { return }
+        let point = recognizer.location(in: collectionView)
+        guard attributes.frame.contains(point) else { return }
+        onTypingIndicatorTap()
     }
 
     private func configureDataSource() {
