@@ -28,17 +28,32 @@ struct SessionMetadataFooterHitTestingTests {
         let buttons = allSubviews(in: cell).compactMap { $0 as? UIButton }
         let thinkingButton = try #require(buttons.first { $0.accessibilityLabel == "Thinking high" })
         let thinkingFrame = thinkingButton.convert(thinkingButton.bounds, to: cell)
+        let thinkingLabel = try #require(thinkingButton.titleLabel)
+        let thinkingLabelFrame = thinkingLabel.convert(thinkingLabel.bounds, to: cell)
         let thinkingRegion = try #require(
             FooterActionHitTesting.actionRegions(for: buttons, in: cell)
                 .first { $0.view === thinkingButton }?.rect
         )
-        let offGlyphX = max(thinkingRegion.minX + 1, thinkingFrame.minX - 1)
+        let offGlyphX = max(thinkingFrame.minX + 2, thinkingLabelFrame.minX - 2)
         let offGlyphPoint = CGPoint(x: offGlyphX, y: thinkingRegion.midY)
 
         #expect(thinkingRegion.width >= 44)
-        #expect(thinkingFrame.contains(offGlyphPoint) == false)
+        #expect(thinkingFrame.contains(offGlyphPoint))
+        #expect(thinkingLabelFrame.contains(offGlyphPoint) == false)
         #expect(thinkingRegion.contains(offGlyphPoint))
         #expect(cell.hitTest(offGlyphPoint, with: nil) === thinkingButton)
+    }
+
+    @Test("Footer action regions draw visible button borders")
+    func footerActionRegionsDrawVisibleButtonBorders() throws {
+        let cell = makeConfiguredCell()
+        let buttons = allSubviews(in: cell).compactMap { $0 as? UIButton }
+        let thinkingButton = try #require(buttons.first { $0.accessibilityLabel == "Thinking high" })
+        let configuration = try #require(thinkingButton.configuration)
+
+        #expect(configuration.background.strokeWidth == 1)
+        #expect(configuration.background.strokeColor != nil)
+        #expect(configuration.background.cornerRadius > 0)
     }
 }
 

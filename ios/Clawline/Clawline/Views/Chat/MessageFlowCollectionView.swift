@@ -5232,8 +5232,8 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
         stackView.alignment = .center
-        stackView.distribution = .equalCentering
-        stackView.spacing = 6
+        stackView.distribution = .fillEqually
+        stackView.spacing = 4
         contentView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
@@ -5269,10 +5269,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
             view.removeFromSuperview()
         }
         let items = Self.footerItems(for: status)
-        for (index, item) in items.enumerated() {
-            if index > 0 {
-                stackView.addArrangedSubview(separatorLabel(color: textColor))
-            }
+        for item in items {
             stackView.addArrangedSubview(button(for: item, status: status, color: textColor, onSelect: onSelect))
         }
         accessibilityLabel = Self.footerText(for: status)
@@ -5344,15 +5341,20 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
     ) -> UIButton {
         let button = FooterButton(type: .system)
         var configuration = UIButton.Configuration.plain()
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 2, bottom: 0, trailing: 2)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
         configuration.attributedTitle = AttributedString(
             item.text,
             attributes: AttributeContainer([.font: Self.footerFont])
         )
         configuration.baseForegroundColor = color
+        configuration.background.cornerRadius = 8
+        configuration.background.strokeWidth = 1
+        configuration.background.strokeColor = color.withAlphaComponent(0.45)
+        configuration.background.backgroundColor = color.withAlphaComponent(0.05)
         button.configuration = configuration
         button.titleLabel?.font = Self.footerFont
         button.titleLabel?.adjustsFontForContentSizeCategory = true
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
         button.tintColor = color
         button.isEnabled = item.action != nil && !item.options.isEmpty
         button.showsMenuAsPrimaryAction = button.isEnabled
