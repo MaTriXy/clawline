@@ -5212,6 +5212,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         let title: String
         let value: String?
         let enabled: Bool?
+        let isCurrent: Bool
     }
 
     private static let footerFont = UIFont.clawline(.timestamp)
@@ -5375,7 +5376,11 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
             return button
         }
         button.menu = UIMenu(children: item.options.map { option in
-            UIAction(title: option.title) { _ in
+            UIAction(
+                title: option.title,
+                image: option.isCurrent ? UIImage(systemName: "checkmark") : nil,
+                discoverabilityTitle: option.isCurrent ? "\(option.title), Current" : option.title
+            ) { _ in
                 Task { @MainActor in
                     onSelect?(sessionKey, action, option.value, option.enabled)
                 }
@@ -5389,22 +5394,22 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         let current = normalized(display.model)
         if catalog?.available == true {
             return catalog?.models.map { model in
-                let title = modelCatalogOptionTitle(model, current: current)
-                return FooterOption(title: title, value: model.ref, enabled: nil)
+                let option = modelCatalogOption(model, current: current)
+                return FooterOption(title: option.title, value: model.ref, enabled: nil, isCurrent: option.isCurrent)
             } ?? []
         }
         let fallbackModels = ([current] + (display.fallbackModels ?? []).map { normalized($0) }).compactMap { $0 }
         let uniqueModels = Array(NSOrderedSet(array: fallbackModels)) as? [String] ?? fallbackModels
         return uniqueModels.map { model in
-            FooterOption(title: model == current ? "\(model) (Current)" : model, value: model, enabled: nil)
+            FooterOption(title: model, value: model, enabled: nil, isCurrent: model == current)
         }
     }
 
-    private static func modelCatalogOptionTitle(_ model: SessionStatus.ModelCatalog.Model,
-                                                current: String?) -> String {
+    private static func modelCatalogOption(_ model: SessionStatus.ModelCatalog.Model,
+                                           current: String?) -> (title: String, isCurrent: Bool) {
         let title = normalized(model.alias) ?? normalized(model.name) ?? normalized(model.ref) ?? model.ref
         let isCurrent = current == normalized(model.id) || current == normalized(model.ref)
-        return isCurrent ? "\(title) (Current)" : title
+        return (title, isCurrent)
     }
 
     private static func levelOptions(current: String?, action: SessionControlAction?) -> [FooterOption] {
@@ -5419,9 +5424,10 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         }
         return levels.map { level in
             FooterOption(
-                title: level == current ? "\(level) (Current)" : level,
+                title: level,
                 value: level,
-                enabled: nil
+                enabled: nil,
+                isCurrent: level == current
             )
         }
     }
@@ -5429,13 +5435,13 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
     private static func fastModeOptions(current: Bool?, action: SessionControlAction?) -> [FooterOption] {
         guard action != .setMode else {
             return [
-                FooterOption(title: current == true ? "On (Current)" : "On", value: "fast", enabled: nil),
-                FooterOption(title: current == false ? "Off (Current)" : "Off", value: "normal", enabled: nil)
+                FooterOption(title: "On", value: "fast", enabled: nil, isCurrent: current == true),
+                FooterOption(title: "Off", value: "normal", enabled: nil, isCurrent: current == false)
             ]
         }
         return [
-            FooterOption(title: current == true ? "On (Current)" : "On", value: nil, enabled: true),
-            FooterOption(title: current == false ? "Off (Current)" : "Off", value: nil, enabled: false)
+            FooterOption(title: "On", value: nil, enabled: true, isCurrent: current == true),
+            FooterOption(title: "Off", value: nil, enabled: false, isCurrent: current == false)
         ]
     }
 

@@ -114,6 +114,32 @@ struct SessionMetadataFooterHitTestingTests {
         #expect(configuration.background.strokeWidth == 0)
         #expect(configuration.background.backgroundColor?.cgColor.alpha == 0)
     }
+
+    @Test("Popup selectors mark current item with checkmark image instead of text")
+    func popupSelectorsMarkCurrentItemWithCheckmarkImageInsteadOfText() throws {
+        let cell = makeConfiguredCell()
+        let buttons = try footerButtons(in: cell)
+        let expectedCurrentTitlesByButton = [
+            "gpt-5.5": "gpt-5.5",
+            "Thinking high": "high",
+            "Fast on": "On"
+        ]
+
+        for button in buttons {
+            let actions = try #require(button.menu?.children.compactMap { $0 as? UIAction })
+            #expect(actions.allSatisfy { !$0.title.localizedCaseInsensitiveContains("(current)") })
+
+            let currentTitle = try #require(expectedCurrentTitlesByButton[button.accessibilityLabel ?? ""])
+            let currentAction = try #require(actions.first { $0.title == currentTitle })
+            #expect(currentAction.image != nil)
+            #expect(currentAction.discoverabilityTitle == "\(currentTitle), Current")
+
+            for action in actions where action.title != currentTitle {
+                #expect(action.image == nil)
+                #expect(action.discoverabilityTitle == action.title)
+            }
+        }
+    }
 }
 
 private func makeConfiguredCell() -> SessionMetadataFooterCell {
