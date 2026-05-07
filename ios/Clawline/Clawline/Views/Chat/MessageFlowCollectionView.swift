@@ -5194,7 +5194,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 final class SessionMetadataFooterCell: UICollectionViewCell {
     static let reuseIdentifier = "SessionMetadataFooterCell"
     static let itemId = "__session_metadata_footer__"
-    static let topPadding: CGFloat = 4
+    static let topPadding: CGFloat = 44
     static let bottomPadding: CGFloat = 4
     static let horizontalPadding: CGFloat = 12
     static let actionRegionHeight: CGFloat = 44
@@ -5249,7 +5249,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
             stackView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
             stackView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -Self.horizontalPadding),
             stackView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            stackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            stackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Self.topPadding),
             stackView.heightAnchor.constraint(equalToConstant: Self.actionRegionHeight)
         ])
     }

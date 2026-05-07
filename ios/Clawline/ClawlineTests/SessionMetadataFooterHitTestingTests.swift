@@ -34,6 +34,18 @@ struct SessionMetadataFooterHitTestingTests {
         #expect(occupiedWidth < cell.bounds.width * 0.7)
     }
 
+    @Test("Footer actions sit below expanded top clearance")
+    func footerActionsSitBelowExpandedTopClearance() throws {
+        let cell = makeConfiguredCell()
+        let buttons = try footerButtons(in: cell)
+        let frames = buttons.map { $0.convert($0.bounds, to: cell) }
+
+        #expect(SessionMetadataFooterCell.topPadding == 44)
+        #expect(SessionMetadataFooterCell.height(for: makeStatus()) == 92)
+        #expect(frames.allSatisfy { abs($0.minY - SessionMetadataFooterCell.topPadding) <= 0.5 })
+        #expect(frames.allSatisfy { abs($0.height - SessionMetadataFooterCell.actionRegionHeight) <= 0.5 })
+    }
+
     @Test("Thinking action hit target includes off-glyph segment around compact label")
     func thinkingActionHitTargetIncludesOffGlyphSegmentAroundCompactLabel() throws {
         let cell = makeConfiguredCell()
@@ -143,7 +155,23 @@ struct SessionMetadataFooterHitTestingTests {
 }
 
 private func makeConfiguredCell() -> SessionMetadataFooterCell {
-    let status = SessionStatus(
+    let status = makeStatus()
+    let cell = SessionMetadataFooterCell(
+        frame: CGRect(
+            x: 0,
+            y: 0,
+            width: 320,
+            height: SessionMetadataFooterCell.height(for: status)
+        )
+    )
+    cell.configure(status: status, isDark: false, onSelect: { _, _, _, _ in })
+    cell.setNeedsLayout()
+    cell.layoutIfNeeded()
+    return cell
+}
+
+private func makeStatus() -> SessionStatus {
+    SessionStatus(
         sessionKey: "agent:main:clawline:user:s_test",
         display: .init(
             model: "gpt-5.5",
@@ -182,18 +210,6 @@ private func makeConfiguredCell() -> SessionMetadataFooterCell {
         ),
         modelCatalog: nil
     )
-    let cell = SessionMetadataFooterCell(
-        frame: CGRect(
-            x: 0,
-            y: 0,
-            width: 320,
-            height: SessionMetadataFooterCell.height(for: status)
-        )
-    )
-    cell.configure(status: status, isDark: false, onSelect: { _, _, _, _ in })
-    cell.setNeedsLayout()
-    cell.layoutIfNeeded()
-    return cell
 }
 
 private func allSubviews(in view: UIView) -> [UIView] {

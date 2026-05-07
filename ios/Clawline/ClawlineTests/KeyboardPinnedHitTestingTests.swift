@@ -49,7 +49,7 @@ struct KeyboardPinnedHitTestingTests {
 
     @Test("Hidden scroll-bottom host does not intercept footer action taps")
     func hiddenScrollBottomHostDoesNotInterceptFooterActionTaps() throws {
-        let container = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 120))
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
         let footerCell = makeConfiguredFooterCell()
         footerCell.frame.origin.y = 60
         container.addSubview(footerCell)
@@ -75,7 +75,7 @@ struct KeyboardPinnedHitTestingTests {
 
     @Test("Visible scroll-bottom host still receives taps in its region")
     func visibleScrollBottomHostStillReceivesTapsInItsRegion() throws {
-        let container = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 120))
+        let container = UIView(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
         let footerCell = makeConfiguredFooterCell()
         footerCell.frame.origin.y = 60
         container.addSubview(footerCell)
