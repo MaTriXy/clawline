@@ -5194,9 +5194,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 final class SessionMetadataFooterCell: UICollectionViewCell {
     static let reuseIdentifier = "SessionMetadataFooterCell"
     static let itemId = "__session_metadata_footer__"
-    static let topPadding: CGFloat = 8
-    static let bottomPadding: CGFloat = 18
+    static let topPadding: CGFloat = 4
+    static let bottomPadding: CGFloat = 4
     static let horizontalPadding: CGFloat = 12
+    static let actionRegionHeight: CGFloat = 44
 
     private let stackView = UIStackView()
 
@@ -5231,17 +5232,16 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
 
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
-        stackView.alignment = .center
+        stackView.alignment = .fill
         stackView.distribution = .fillEqually
         stackView.spacing = 4
         contentView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            stackView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
-            stackView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -Self.horizontalPadding),
-            stackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Self.topPadding),
-            stackView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Self.bottomPadding)
+            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
+            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Self.horizontalPadding),
+            stackView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            stackView.heightAnchor.constraint(equalToConstant: Self.actionRegionHeight)
         ])
     }
 
@@ -5278,7 +5278,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
 
     static func height(for status: SessionStatus?) -> CGFloat {
         guard footerText(for: status) != nil else { return 0 }
-        return max(44, ceil(footerFont.lineHeight + topPadding + bottomPadding))
+        return ceil(actionRegionHeight + topPadding + bottomPadding)
     }
 
     static func footerText(for status: SessionStatus?) -> String? {
@@ -5373,15 +5373,6 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
             }
         })
         return button
-    }
-
-    private func separatorLabel(color: UIColor) -> UILabel {
-        let label = UILabel()
-        label.text = "·"
-        label.textColor = color.withAlphaComponent(0.7)
-        label.font = Self.footerFont
-        label.adjustsFontForContentSizeCategory = true
-        return label
     }
 
     private static func modelOptions(display: SessionStatus.Display,

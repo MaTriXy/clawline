@@ -4,22 +4,25 @@ import UIKit
 
 @MainActor
 struct SessionMetadataFooterHitTestingTests {
-    @Test("Model action hit target includes padded region outside compact label")
-    func modelActionHitTargetIncludesPaddedRegionOutsideCompactLabel() throws {
+    @Test("Footer bordered action regions are stable non-overlapping tap targets")
+    func footerBorderedActionRegionsAreStableNonOverlappingTapTargets() throws {
         let cell = makeConfiguredCell()
+        let buttons = try footerButtons(in: cell)
 
-        let modelButton = allSubviews(in: cell)
-            .compactMap { $0 as? UIButton }
-            .first { $0.accessibilityLabel == "gpt-5.5" }
-        let button = try #require(modelButton)
-        let buttonFrame = button.convert(button.bounds, to: cell)
-        let verticalExpansion = max(0, (44 - button.bounds.height) / 2)
-        let offset = max(1, min(8, verticalExpansion - 1))
-        let paddedPoint = CGPoint(x: buttonFrame.midX, y: buttonFrame.maxY + offset)
+        for button in buttons {
+            let frame = button.convert(button.bounds, to: cell)
+            #expect(frame.width >= 44)
+            #expect(frame.height >= 44)
+            #expect(cell.bounds.contains(frame))
+        }
 
-        #expect(buttonFrame.contains(paddedPoint) == false)
-        #expect(cell.bounds.contains(paddedPoint))
-        #expect(cell.hitTest(paddedPoint, with: nil) === button)
+        for firstIndex in buttons.indices {
+            for secondIndex in buttons.indices where firstIndex < secondIndex {
+                let firstFrame = buttons[firstIndex].convert(buttons[firstIndex].bounds, to: cell)
+                let secondFrame = buttons[secondIndex].convert(buttons[secondIndex].bounds, to: cell)
+                #expect(firstFrame.intersection(secondFrame).isNull)
+            }
+        }
     }
 
     @Test("Thinking action hit target includes off-glyph segment around compact label")
@@ -42,6 +45,32 @@ struct SessionMetadataFooterHitTestingTests {
         #expect(thinkingLabelFrame.contains(offGlyphPoint) == false)
         #expect(thinkingRegion.contains(offGlyphPoint))
         #expect(cell.hitTest(offGlyphPoint, with: nil) === thinkingButton)
+    }
+
+    @Test("Every sampled point inside each visible footer button resolves to that button")
+    func everySampledPointInsideEachVisibleFooterButtonResolvesToThatButton() throws {
+        let cell = makeConfiguredCell()
+        let buttons = try footerButtons(in: cell)
+
+        for button in buttons {
+            let frame = button.convert(button.bounds, to: cell)
+            let samplePoints = [
+                CGPoint(x: frame.midX, y: frame.midY),
+                CGPoint(x: frame.minX + 1, y: frame.midY),
+                CGPoint(x: frame.maxX - 1, y: frame.midY),
+                CGPoint(x: frame.midX, y: frame.minY + 1),
+                CGPoint(x: frame.midX, y: frame.maxY - 1),
+                CGPoint(x: frame.minX + 1, y: frame.minY + 1),
+                CGPoint(x: frame.maxX - 1, y: frame.minY + 1),
+                CGPoint(x: frame.minX + 1, y: frame.maxY - 1),
+                CGPoint(x: frame.maxX - 1, y: frame.maxY - 1)
+            ]
+
+            for point in samplePoints {
+                #expect(button.point(inside: cell.convert(point, to: button), with: nil))
+                #expect(cell.hitTest(point, with: nil) === button)
+            }
+        }
     }
 
     @Test("Footer action regions draw visible button borders")
@@ -113,4 +142,16 @@ private func makeConfiguredCell() -> SessionMetadataFooterCell {
 
 private func allSubviews(in view: UIView) -> [UIView] {
     view.subviews + view.subviews.flatMap { allSubviews(in: $0) }
+}
+
+@MainActor
+private func footerButtons(in cell: SessionMetadataFooterCell) throws -> [UIButton] {
+    let buttons = allSubviews(in: cell)
+        .compactMap { $0 as? UIButton }
+        .filter { $0.isEnabled }
+        .sorted {
+            $0.convert($0.bounds, to: cell).minX < $1.convert($1.bounds, to: cell).minX
+        }
+    #expect(buttons.map(\.accessibilityLabel) == ["gpt-5.5", "Thinking high", "Fast on"])
+    return try #require(buttons.count == 3 ? buttons : nil)
 }
