@@ -5229,8 +5229,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
             let minimumSide: CGFloat = 44
             let horizontalInset = max(0, (minimumSide - bounds.width) / 2)
-            let verticalInset = max(0, (minimumSide - bounds.height) / 2)
-            return bounds.insetBy(dx: -horizontalInset, dy: -verticalInset).contains(point)
+            return bounds.insetBy(dx: -horizontalInset, dy: 0).contains(point)
         }
     }
 
@@ -5241,7 +5240,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
 
         stackView.translatesAutoresizingMaskIntoConstraints = false
         stackView.axis = .horizontal
-        stackView.alignment = .fill
+        stackView.alignment = .center
         stackView.distribution = .fill
         stackView.spacing = 2
         stackView.setContentHuggingPriority(.required, for: .horizontal)
@@ -5564,9 +5563,9 @@ enum FooterActionHitTesting {
                 view: entry.view,
                 rect: CGRect(
                     x: minX,
-                    y: container.bounds.minY,
+                    y: entry.frame.minY,
                     width: max(0, maxX - minX),
-                    height: container.bounds.height
+                    height: entry.frame.height
                 )
             )
         }

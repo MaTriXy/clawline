@@ -12,7 +12,7 @@ struct SessionMetadataFooterHitTestingTests {
 
         for frame in frames {
             #expect(frame.width >= 44)
-            #expect(frame.height >= 44)
+            #expect(frame.height <= 24)
             #expect(cell.bounds.contains(frame))
         }
 
@@ -45,12 +45,16 @@ struct SessionMetadataFooterHitTestingTests {
             + StreamPageDotsView.controlHeight
             + SessionMetadataFooterCell.extraTopClearance)
         #expect(SessionMetadataFooterCell.height(for: makeStatus()) == 135)
-        #expect(frames.allSatisfy { abs($0.minY - SessionMetadataFooterCell.topPadding) <= 0.5 })
-        #expect(frames.allSatisfy { abs($0.height - SessionMetadataFooterCell.actionRegionHeight) <= 0.5 })
+        #expect(frames.allSatisfy {
+            let centeredY = SessionMetadataFooterCell.topPadding
+                + (SessionMetadataFooterCell.actionRegionHeight - $0.height) / 2
+            return abs($0.minY - centeredY) <= 0.5
+        })
+        #expect(frames.allSatisfy { $0.height <= 24 })
     }
 
-    @Test("Thinking action hit target includes off-glyph segment around compact label")
-    func thinkingActionHitTargetIncludesOffGlyphSegmentAroundCompactLabel() throws {
+    @Test("Thinking action hit target does not include off-glyph segment above compact label")
+    func thinkingActionHitTargetDoesNotIncludeOffGlyphSegmentAboveCompactLabel() throws {
         let cell = makeConfiguredCell()
         let buttons = allSubviews(in: cell).compactMap { $0 as? UIButton }
         let thinkingButton = try #require(buttons.first { $0.accessibilityLabel == "Thinking high" })
@@ -61,13 +65,13 @@ struct SessionMetadataFooterHitTestingTests {
             FooterActionHitTesting.actionRegions(for: buttons, in: cell)
                 .first { $0.view === thinkingButton }?.rect
         )
-        let offGlyphPoint = CGPoint(x: thinkingLabelFrame.midX, y: thinkingFrame.minY + 1)
+        let offGlyphPoint = CGPoint(x: thinkingLabelFrame.midX, y: thinkingFrame.minY - 1)
 
         #expect(thinkingRegion.width >= 44)
-        #expect(thinkingFrame.contains(offGlyphPoint))
+        #expect(thinkingFrame.contains(offGlyphPoint) == false)
         #expect(thinkingLabelFrame.contains(offGlyphPoint) == false)
-        #expect(thinkingRegion.contains(offGlyphPoint))
-        #expect(cell.hitTest(offGlyphPoint, with: nil) === thinkingButton)
+        #expect(thinkingRegion.contains(offGlyphPoint) == false)
+        #expect(cell.hitTest(offGlyphPoint, with: nil) !== thinkingButton)
     }
 
     @Test("Every sampled point inside each visible footer button resolves to that button")
