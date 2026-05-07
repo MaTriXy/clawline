@@ -73,6 +73,25 @@ struct SessionMetadataFooterHitTestingTests {
         }
     }
 
+    @Test("Direct label glyph taps resolve to the enabled footer button")
+    func directLabelGlyphTapsResolveToTheEnabledFooterButton() throws {
+        let cell = makeConfiguredCell()
+        let buttons = try footerButtons(in: cell)
+
+        for button in buttons {
+            let titleLabel = try #require(button.titleLabel)
+            let labelFrameInButton = titleLabel.convert(titleLabel.bounds, to: button)
+            let labelCenterInButton = CGPoint(x: labelFrameInButton.midX, y: labelFrameInButton.midY)
+            let labelCenterInCell = button.convert(labelCenterInButton, to: cell)
+
+            #expect(titleLabel.bounds.width > 0)
+            #expect(titleLabel.bounds.height > 0)
+            #expect(titleLabel.point(inside: titleLabel.convert(labelCenterInCell, from: cell), with: nil))
+            #expect(button.hitTest(labelCenterInButton, with: nil) === button)
+            #expect(cell.hitTest(labelCenterInCell, with: nil) === button)
+        }
+    }
+
     @Test("Footer action regions draw visible button borders")
     func footerActionRegionsDrawVisibleButtonBorders() throws {
         let cell = makeConfiguredCell()

@@ -5217,6 +5217,11 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
     private static let footerFont = UIFont.clawline(.timestamp)
 
     private final class FooterButton: UIButton {
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard self.point(inside: point, with: event) else { return nil }
+            return self
+        }
+
         override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
             let minimumSide: CGFloat = 44
             let horizontalInset = max(0, (minimumSide - bounds.width) / 2)
