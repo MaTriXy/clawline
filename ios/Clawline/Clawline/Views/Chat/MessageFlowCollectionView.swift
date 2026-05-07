@@ -5281,7 +5281,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
 
     static func height(for status: SessionStatus?) -> CGFloat {
         guard footerText(for: status) != nil else { return 0 }
-        return ceil(footerFont.lineHeight + topPadding + bottomPadding)
+        return max(44, ceil(footerFont.lineHeight + topPadding + bottomPadding))
     }
 
     static func footerText(for status: SessionStatus?) -> String? {
@@ -5499,20 +5499,66 @@ enum FooterActionHitTesting {
         candidates: [UIView],
         event: UIEvent?
     ) -> UIView? {
-        for candidate in candidates.reversed() {
+        let eligibleCandidates = candidates.filter { candidate in
             guard !candidate.isHidden,
                   candidate.isUserInteractionEnabled,
                   candidate.alpha > 0.01
-            else { continue }
+            else { return false }
             if let control = candidate as? UIControl, !control.isEnabled {
-                continue
+                return false
             }
+            return true
+        }
+        for candidate in eligibleCandidates.reversed() {
             let pointInCandidate = container.convert(point, to: candidate)
             if candidate.point(inside: pointInCandidate, with: event) {
                 return candidate
             }
         }
-        return nil
+
+        let orderedRegions = actionRegions(for: eligibleCandidates, in: container)
+        return orderedRegions.first { region in
+            region.rect.contains(point)
+        }?.view
+    }
+
+    @MainActor
+    static func actionRegions(for candidates: [UIView], in container: UIView) -> [(view: UIView, rect: CGRect)] {
+        let ordered = candidates
+            .filter { candidate in
+                guard !candidate.isHidden,
+                      candidate.isUserInteractionEnabled,
+                      candidate.alpha > 0.01
+                else { return false }
+                if let control = candidate as? UIControl, !control.isEnabled {
+                    return false
+                }
+                return true
+            }
+            .map { candidate in
+                (view: candidate, frame: candidate.convert(candidate.bounds, to: container))
+            }
+            .sorted { $0.frame.midX < $1.frame.midX }
+        guard !ordered.isEmpty else { return [] }
+
+        return ordered.enumerated().map { index, entry in
+            let previousFrame = index > 0 ? ordered[index - 1].frame : nil
+            let nextFrame = index < ordered.count - 1 ? ordered[index + 1].frame : nil
+            let horizontalPadding = max(0, (44 - entry.frame.width) / 2)
+            let minX = previousFrame.map { ($0.midX + entry.frame.midX) / 2 }
+                ?? max(container.bounds.minX, entry.frame.minX - horizontalPadding)
+            let maxX = nextFrame.map { (entry.frame.midX + $0.midX) / 2 }
+                ?? min(container.bounds.maxX, entry.frame.maxX + horizontalPadding)
+            return (
+                view: entry.view,
+                rect: CGRect(
+                    x: minX,
+                    y: container.bounds.minY,
+                    width: max(0, maxX - minX),
+                    height: container.bounds.height
+                )
+            )
+        }
     }
 }
 
