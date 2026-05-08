@@ -28,7 +28,7 @@ struct StreamPageDotsView: View {
         colorScheme == .dark ? 4.5 : 4.0
     }
     static func unreadEdgeBloomOpacity(colorScheme: ColorScheme) -> Double {
-        0.30
+        0.40
     }
 
     private var activeIndex: Int {

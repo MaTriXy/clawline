@@ -15,7 +15,7 @@ struct ChatPageBackgroundTests {
     func lightMessageFlowHostUsesDesignSystemChatSurface() {
         let color = MessageFlowCollectionViewController.chatPageBackgroundColor(isDark: false)
 
-        #expect(Self.rgba(color) == (240, 234, 224, 255))
+        #expect(Self.rgba(color) == (238, 240, 224, 255))
     }
 
     @Test("Dark message flow host stays transparent to preserve dark mode")
