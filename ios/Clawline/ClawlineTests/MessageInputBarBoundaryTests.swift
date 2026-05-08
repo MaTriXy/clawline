@@ -44,6 +44,11 @@ struct MessageInputBarBoundaryTests {
         #expect(darkColor == nil)
     }
 
+    @Test("Colored send button backing uses a soft blur")
+    func coloredSendButtonBackingUsesSoftBlur() {
+        #expect(MessageInputBar.sendButtonColoredBackingBlurRadius == 4)
+    }
+
     @Test("Rendered input field cap matches the regular-layout text width cap")
     func renderedInputFieldCapMatchesRegularFieldWidth() {
         let textWidth = ChatFlowTheme.maxLineWidth(bodyFont: UIFont.clawline(.bodyText))

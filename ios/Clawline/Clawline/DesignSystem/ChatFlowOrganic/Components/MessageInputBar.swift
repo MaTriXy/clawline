@@ -252,6 +252,8 @@ struct MessageInputBar: View {
             : nil
     }
 
+    static let sendButtonColoredBackingBlurRadius: CGFloat = 4
+
     private func handleEditorSubmitIntent() {
         guard Self.shouldDispatchEditorSubmitIntent(
             isSending: isSending,
@@ -585,6 +587,7 @@ private struct MessageSendControl: View {
                     .fill(bubbleColor)
                     .frame(width: sendButtonSize, height: sendButtonSize)
                     .scaleEffect(bubbleScale(at: context.date))
+                    .blur(radius: MessageInputBar.sendButtonColoredBackingBlurRadius)
             }
         }
 #if os(visionOS)
