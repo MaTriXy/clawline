@@ -196,9 +196,12 @@ struct StreamPageDotsViewTests {
         #expect(farParticipant > outside)
         #expect(outside == 1)
         #expect(primary > 3.0)
-        #expect(neighbor > 2.8)
-        #expect(outer > 2.4)
-        #expect(primary - neighbor > 0.15)
+        #expect(neighbor > 1.8)
+        #expect(neighbor < 2.5)
+        #expect(outer > 1.25)
+        #expect(outer < 1.7)
+        #expect(primary - neighbor > 0.9)
+        #expect((primary - neighbor) > (neighbor - outer))
     }
 
     @Test("T257: scrub magnification tracks continuous finger position")
@@ -222,8 +225,8 @@ struct StreamPageDotsViewTests {
         #expect(rightBiasNeighbor > rightBiasDot)
     }
 
-    @Test("T257: scrub magnification lifts large dots out of the dock")
-    func scrubMagnificationLiftsLargeDotsOutOfDock() {
+    @Test("T257: scrub magnification lifts the center dot without a group raise")
+    func scrubMagnificationLiftsCenterDotWithoutGroupRaise() {
         let metrics = StreamPageDotsView.scrubLayoutMetrics(
             totalSessionCount: 40,
             visibleDotCount: 11,
@@ -234,15 +237,9 @@ struct StreamPageDotsViewTests {
         let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
         let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
 
-        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: primary) < -15)
+        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: primary) < -20)
         #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: neighbor) < 0)
         #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: 1) == 0)
-    }
-
-    @Test("T257: scrub lifts the dot group above the finger")
-    func scrubLiftsDotGroupAboveFinger() {
-        #expect(StreamPageDotsView.scrubGroupVerticalOffset(isScrubbing: true) == -20)
-        #expect(StreamPageDotsView.scrubGroupVerticalOffset(isScrubbing: false) == 0)
     }
 
     @Test("Popup route controller owns popup search and track picker surfaces")

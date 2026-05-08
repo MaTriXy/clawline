@@ -36,7 +36,6 @@ struct StreamPageDotsView: View {
     private static let horizontalPadding: CGFloat = 12
     private static let minimumHitTargetHeight: CGFloat = 44
     private static let scrubTapSuppressionDuration: TimeInterval = 0.45
-    private static let scrubGroupLift: CGFloat = 20
     private static let scrubWaveLiftPerScalePoint: CGFloat = 10
     static let controlHeight: CGFloat = 23
     static func unreadEdgeBloomBlurRadius(colorScheme: ColorScheme) -> CGFloat {
@@ -296,7 +295,6 @@ struct StreamPageDotsView: View {
 
             dotRow
                 .frame(width: scrubFieldWidth, height: Self.controlHeight, alignment: .center)
-                .offset(y: Self.scrubGroupVerticalOffset(isScrubbing: isScrubbing))
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .frame(width: scrubFieldWidth, height: Self.minimumHitTargetHeight, alignment: .bottom)
@@ -625,18 +623,22 @@ struct StreamPageDotsView: View {
     ) -> CGFloat {
         guard let virtualIndex else { return 1 }
         let distance = abs(CGFloat(dotIndex) - virtualIndex)
-        guard distance < metrics.magnificationRadius else { return 1 }
-        let falloff = exp(-pow(distance / metrics.magnificationSigma, 2))
+        let falloff = scrubMagnificationFalloff(distance: distance, metrics: metrics)
         return 1 + ((metrics.maximumScale - 1) * falloff)
+    }
+
+    static func scrubMagnificationFalloff(distance: CGFloat, metrics: ScrubLayoutMetrics) -> CGFloat {
+        guard distance < metrics.magnificationRadius else { return 0 }
+        let narrowSigma = max(0.95, metrics.magnificationSigma * 0.30)
+        let centralSpike = exp(-pow(distance / narrowSigma, 2.6))
+        let edgeProgress = max(0, 1 - (distance / metrics.magnificationRadius))
+        let broadTail = pow(edgeProgress, 1.25)
+        return min(1, (0.72 * centralSpike) + (0.28 * broadTail))
     }
 
     static func scrubMagnificationVerticalOffset(scale: CGFloat) -> CGFloat {
         guard scale > 1 else { return 0 }
         return -(scale - 1) * scrubWaveLiftPerScalePoint
-    }
-
-    static func scrubGroupVerticalOffset(isScrubbing: Bool) -> CGFloat {
-        isScrubbing ? -scrubGroupLift : 0
     }
 }
 
