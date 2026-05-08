@@ -53,6 +53,7 @@ export interface VirtualMessageWindow {
   scrollToBottom: () => void;
   scrollToMessage: (messageId: string, alignment?: "center" | "start") => boolean;
   scrollToOffset: (offsetTop: number) => void;
+  suspendBottomFollow: () => void;
   totalHeight: number;
 }
 
@@ -213,6 +214,9 @@ export function useVirtualMessageWindow(messages: ChatMessageRecord[]): VirtualM
       container.scrollTop = clampedOffset;
       isAtBottomRef.current = isAtBottom;
       setScrollTop(clampedOffset);
+    },
+    suspendBottomFollow() {
+      shouldStickToBottomRef.current = false;
     },
     totalHeight: layout.totalHeight
   };
