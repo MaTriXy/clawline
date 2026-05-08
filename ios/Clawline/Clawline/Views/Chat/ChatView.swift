@@ -1500,6 +1500,7 @@ struct ChatView: View {
                 }
             )
             .presentationDetents([.medium, .large])
+            .presentationBackground(.clear)
         case .expandedMessage(let message):
             let metrics = ChatFlowTheme.Metrics(isCompact: horizontalSizeClass == .compact)
             let presentation = viewModel.presentation(for: message, metrics: metrics)
@@ -3824,58 +3825,80 @@ private struct AttachmentSourceSheet: View {
     @Environment(\.dismiss) private var dismiss
 #endif
 
+    private let popupCornerRadius: CGFloat = 20
+    private let popupMaxWidth: CGFloat = 380
     private var effectiveColorScheme: ColorScheme { colorScheme }
     var body: some View {
-        VStack(spacing: 24) {
-#if os(visionOS)
-            HStack {
-                Spacer()
-                Button("Close") {
-                    dismiss()
-                }
-                .font(.clawline(.uiLabel).weight(.semibold))
-                .foregroundStyle(.secondary)
-            }
-            .padding(.top, 8)
-            .padding(.horizontal, 16)
-#endif
-            Capsule()
-                .fill(.secondary.opacity(0.4))
-                .frame(width: 40, height: 4)
-                .padding(.top, 12)
-
-            Text("Add Attachment")
-                .font(.clawline(.subsectionHeader))
-                .foregroundStyle(ChatFlowTheme.warmBrown(effectiveColorScheme))
-
-            VStack(spacing: 12) {
-#if !os(visionOS)
-                AttachmentActionButton(
-                    title: "Camera",
-                    icon: "camera.fill",
-                    action: onCamera
-                )
-#endif
-
-                AttachmentActionButton(
-                    title: "Photos",
-                    icon: "photo.on.rectangle",
-                    action: onPhotos
-                )
-
-                AttachmentActionButton(
-                    title: "Files",
-                    icon: "doc.fill",
-                    action: onFiles
-                )
-            }
-            .padding(.horizontal, 24)
-
-            Spacer(minLength: 0)
-        }
-        .background {
+        ZStack {
             ChatFlowTheme.pageBackground(effectiveColorScheme)
                 .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+#if os(visionOS)
+                HStack {
+                    Spacer()
+                    Button("Close") {
+                        dismiss()
+                    }
+                    .font(.clawline(.uiLabel).weight(.semibold))
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.top, 8)
+                .padding(.horizontal, 16)
+#endif
+                Capsule()
+                    .fill(.secondary.opacity(0.4))
+                    .frame(width: 40, height: 4)
+                    .padding(.top, 12)
+
+                Text("Add Attachment")
+                    .font(.clawline(.subsectionHeader))
+                    .foregroundStyle(ChatFlowTheme.warmBrown(effectiveColorScheme))
+
+                VStack(spacing: 12) {
+#if !os(visionOS)
+                    AttachmentActionButton(
+                        title: "Camera",
+                        icon: "camera.fill",
+                        action: onCamera
+                    )
+#endif
+
+                    AttachmentActionButton(
+                        title: "Photos",
+                        icon: "photo.on.rectangle",
+                        action: onPhotos
+                    )
+
+                    AttachmentActionButton(
+                        title: "Files",
+                        icon: "doc.fill",
+                        action: onFiles
+                    )
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+            }
+            .frame(maxWidth: popupMaxWidth)
+            .background {
+                RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            }
+#if os(visionOS)
+            .background(
+                RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                    .fill(Color.white.opacity(effectiveColorScheme == .dark ? 0.08 : 0.28))
+            )
+#else
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
+#endif
+            .clipShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                    .allowsHitTesting(false)
+            )
+            .padding(.horizontal, 20)
         }
         .presentationDragIndicator(.visible)
     }

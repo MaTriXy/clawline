@@ -252,7 +252,7 @@ struct MessageInputBar: View {
             : nil
     }
 
-    static let sendButtonColoredBackingBlurRadius: CGFloat = 4
+    static let sendButtonColoredBackingBlurRadius: CGFloat = 7
 
     private func handleEditorSubmitIntent() {
         guard Self.shouldDispatchEditorSubmitIntent(

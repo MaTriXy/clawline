@@ -46,7 +46,7 @@ struct MessageInputBarBoundaryTests {
 
     @Test("Send button backing uses the same soft blur in every state")
     func sendButtonBackingUsesSoftBlur() {
-        #expect(MessageInputBar.sendButtonColoredBackingBlurRadius == 4)
+        #expect(MessageInputBar.sendButtonColoredBackingBlurRadius == 7)
     }
 
     @Test("Rendered input field cap matches the regular-layout text width cap")

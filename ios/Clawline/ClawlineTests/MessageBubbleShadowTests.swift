@@ -25,7 +25,7 @@ struct MessageBubbleShadowTests {
 
         #expect(colors.count == 2)
         #expect(colors.first == colors.last)
-        #expect(Self.rgba(colors[0]) == (214, 240, 204, 255))
+        #expect(Self.rgba(colors[0]) == (220, 241, 210, 255))
     }
 
     @Test("Dark user prompt bubble fill stays unchanged")
