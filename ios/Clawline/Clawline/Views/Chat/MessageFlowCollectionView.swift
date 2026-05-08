@@ -219,7 +219,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var flowLayout: MessageFlowLayout!
     private let uiKitBubbleSizer = MessageBubbleUIKitView(enableDataDetectors: false)
-    private var currentIsDark: Bool = false
+    private var currentIsDark: Bool = true
     private let bubbleSizingV2Enabled = BubbleSizingV2.isEnabled
     private let bubbleSizingV2MeasurementCache = BubbleSizingV2.LRUCache<BubbleSizingV2.CacheKey, BubbleSizingV2.Measurement>(maxEntries: 800)
     private let bubbleSizingV2LinkPreviewHeightCache = BubbleSizingV2.LinkPreviewHeightCache()
@@ -242,6 +242,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let previewRemeasureRestPollSeconds: TimeInterval = 0.06
     private static let bottomInsetHeightCapInvalidationDebounceSeconds: TimeInterval = 0.20
     private static let restoreMaxConfirmationRetries: Int = 3
+
+    static func chatPageBackgroundColor(isDark: Bool) -> UIColor {
+        isDark ? .clear : UIColor(ChatFlowTheme.pageBackgroundTopColor(.light))
+    }
 
     private var messagesById: [String: Message] = [:]
     private var dateSeparatorTextByItemId: [String: String] = [:]
@@ -831,10 +835,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
-        view.isOpaque = false
+        applyChatPageBackground(isDark: currentIsDark)
         view.clipsToBounds = false
         configureCollectionView()
+        applyChatPageBackground(isDark: currentIsDark)
         configureDataSource()
         webBubbleCoordinator.onItemsChanged = { [weak self] in
             self?.applySnapshotForWebBubbles()
@@ -2080,6 +2084,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 view.overrideUserInterfaceStyle = desiredStyle
                 collectionView?.overrideUserInterfaceStyle = desiredStyle
             }
+            applyChatPageBackground(isDark: isDark)
         }
 
         collectionView.accessibilityIdentifier = effectiveSessionKey
@@ -3316,7 +3321,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: flowLayout)
         collectionView.translatesAutoresizingMaskIntoConstraints = true
         collectionView.autoresizingMask = []
-        collectionView.backgroundColor = .clear
+        collectionView.backgroundColor = Self.chatPageBackgroundColor(isDark: currentIsDark)
+        collectionView.isOpaque = !currentIsDark
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
 #if !os(visionOS)
@@ -3339,6 +3345,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         view.addSubview(collectionView)
         // Frame will be set in viewDidLayoutSubviews to extend to window bounds
+    }
+
+    private func applyChatPageBackground(isDark: Bool) {
+        let color = Self.chatPageBackgroundColor(isDark: isDark)
+        view.backgroundColor = color
+        view.isOpaque = !isDark
+        collectionView?.backgroundColor = color
+        collectionView?.isOpaque = !isDark
     }
 
     @objc private func handleCollectionViewTap(_ recognizer: UITapGestureRecognizer) {

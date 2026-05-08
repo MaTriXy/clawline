@@ -66,15 +66,23 @@ enum ChatFlowTheme {
     }
 
     // MARK: - Gradients
+    static func pageBackgroundTopColor(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.110, green: 0.098, blue: 0.090)  // #1C1917
+            : Color(red: 0.204, green: 0.255, blue: 0.298)  // #34414C
+    }
+
+    static func pageBackgroundBottomColor(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.078, green: 0.071, blue: 0.063)  // #141210
+            : Color(red: 0.149, green: 0.184, blue: 0.220)  // #262F38
+    }
+
     static func pageBackground(_ scheme: ColorScheme) -> LinearGradient {
         // --bg-surface-gradient from design system: #1C1917 to #141210
-        scheme == .dark
-            ? LinearGradient(colors: [Color(red: 0.110, green: 0.098, blue: 0.090),  // #1C1917
-                                      Color(red: 0.078, green: 0.071, blue: 0.063)], // #141210
-                             startPoint: .top, endPoint: .bottom)
-            : LinearGradient(colors: [Color(red: 0.204, green: 0.255, blue: 0.298),  // #34414C
-                                      Color(red: 0.149, green: 0.184, blue: 0.220)], // #262F38
-                             startPoint: .top, endPoint: .bottom)
+        LinearGradient(colors: [pageBackgroundTopColor(scheme),
+                                pageBackgroundBottomColor(scheme)],
+                       startPoint: .top, endPoint: .bottom)
     }
 
     static func surfaceGradient(_ scheme: ColorScheme) -> LinearGradient {
