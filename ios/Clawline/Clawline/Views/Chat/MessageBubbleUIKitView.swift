@@ -16,7 +16,7 @@ enum MessageBubbleShadowStyle {
     static let offset = CGSize(width: 0, height: 5)
 
     static func opacity(isDark: Bool) -> Float {
-        isDark ? 0.25 : 0.32
+        isDark ? 0.25 : 0.24
     }
 }
 
@@ -2671,8 +2671,8 @@ enum ChatFlowUIKitTheme {
             adminAccent: UIColor(red: 0.141, green: 0.420, blue: 0.831, alpha: 1),
             ink: UIColor(red: 0.239, green: 0.204, blue: 0.161, alpha: 1),
             bubbleSelfGradient: [
-                UIColor(red: 0.867, green: 0.937, blue: 0.831, alpha: 1),
-                UIColor(red: 0.867, green: 0.937, blue: 0.831, alpha: 1)
+                UIColor(red: 0.839, green: 0.941, blue: 0.800, alpha: 1),
+                UIColor(red: 0.839, green: 0.941, blue: 0.800, alpha: 1)
             ],
             bubbleOtherGradient: [
                 UIColor(red: 1.0, green: 0.992, blue: 0.976, alpha: 1),

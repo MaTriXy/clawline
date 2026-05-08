@@ -13,7 +13,7 @@ import UIKit
 struct MessageBubbleShadowTests {
     @Test("Bubble shadows use the pre-canvas per-bubble opacity")
     func bubbleShadowsUsePreCanvasOpacity() {
-        #expect(MessageBubbleShadowStyle.opacity(isDark: false) == 0.32)
+        #expect(MessageBubbleShadowStyle.opacity(isDark: false) == 0.24)
         #expect(MessageBubbleShadowStyle.opacity(isDark: true) == 0.25)
         #expect(MessageBubbleShadowStyle.radius == 12)
         #expect(MessageBubbleShadowStyle.offset == CGSize(width: 0, height: 5))
@@ -25,7 +25,7 @@ struct MessageBubbleShadowTests {
 
         #expect(colors.count == 2)
         #expect(colors.first == colors.last)
-        #expect(Self.rgba(colors[0]) == (221, 239, 212, 255))
+        #expect(Self.rgba(colors[0]) == (214, 240, 204, 255))
     }
 
     @Test("Dark user prompt bubble fill stays unchanged")

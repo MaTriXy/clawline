@@ -100,8 +100,8 @@ enum ChatFlowTheme {
             ? LinearGradient(colors: [Color(red: 0.176, green: 0.231, blue: 0.165),
                                       Color(red: 0.141, green: 0.200, blue: 0.133)],
                              startPoint: .topLeading, endPoint: .bottomTrailing)
-            : LinearGradient(colors: [Color(red: 0.867, green: 0.937, blue: 0.831),
-                                      Color(red: 0.867, green: 0.937, blue: 0.831)],
+            : LinearGradient(colors: [Color(red: 0.839, green: 0.941, blue: 0.800),
+                                      Color(red: 0.839, green: 0.941, blue: 0.800)],
                              startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
