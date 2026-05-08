@@ -97,11 +97,11 @@ enum ChatFlowTheme {
 
     static func bubbleSelfGradient(_ scheme: ColorScheme) -> LinearGradient {
         scheme == .dark
-            ? LinearGradient(colors: [Color(red: 0.170, green: 0.238, blue: 0.155),
-                                      Color(red: 0.133, green: 0.207, blue: 0.122)],
+            ? LinearGradient(colors: [Color(red: 0.157, green: 0.220, blue: 0.143),
+                                      Color(red: 0.121, green: 0.188, blue: 0.111)],
                              startPoint: .topLeading, endPoint: .bottomTrailing)
-            : LinearGradient(colors: [Color(red: 0.847, green: 0.949, blue: 0.800),
-                                      Color(red: 0.847, green: 0.949, blue: 0.800)],
+            : LinearGradient(colors: [Color(red: 0.829, green: 0.943, blue: 0.776),
+                                      Color(red: 0.829, green: 0.943, blue: 0.776)],
                              startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
