@@ -68,6 +68,7 @@ export function MessageList({
     scrollToBottom,
     scrollToMessage,
     scrollToOffset,
+    suspendBottomFollow,
     totalHeight
   } = useVirtualMessageWindow(messages);
   const shouldShowTypingIndicator = hasStreamingAssistantMessage(messages);
@@ -77,8 +78,8 @@ export function MessageList({
   const restoredScrollStateKeyRef = useRef<string | null>(null);
   const isRestoringScrollRef = useRef(false);
   const consumedUnreadAnchorRef = useRef<string | null>(null);
-  const touchScrollActiveRef = useRef(false);
-  const touchScrollReleaseTimeoutRef = useRef<number | null>(null);
+  const userScrollActiveRef = useRef(false);
+  const userScrollReleaseTimeoutRef = useRef<number | null>(null);
   const expandedMessage = messages.find((message) => message.id === expandedMessageId) ?? null;
   const typingIndicatorOffsetTop = totalHeight + (messages.length > 0 ? TYPING_INDICATOR_GAP : 0);
   const virtualSurfaceHeight =
@@ -87,11 +88,30 @@ export function MessageList({
 
   useEffect(() => {
     return () => {
-      if (touchScrollReleaseTimeoutRef.current !== null) {
-        window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+      if (userScrollReleaseTimeoutRef.current !== null) {
+        window.clearTimeout(userScrollReleaseTimeoutRef.current);
       }
     };
   }, []);
+
+  function markUserScrollActive() {
+    if (userScrollReleaseTimeoutRef.current !== null) {
+      window.clearTimeout(userScrollReleaseTimeoutRef.current);
+      userScrollReleaseTimeoutRef.current = null;
+    }
+    userScrollActiveRef.current = true;
+    suspendBottomFollow();
+  }
+
+  function releaseUserScrollAfterSettling() {
+    if (userScrollReleaseTimeoutRef.current !== null) {
+      window.clearTimeout(userScrollReleaseTimeoutRef.current);
+    }
+    userScrollReleaseTimeoutRef.current = window.setTimeout(() => {
+      userScrollActiveRef.current = false;
+      userScrollReleaseTimeoutRef.current = null;
+    }, 180);
+  }
 
   useEffect(() => {
     if (shouldShowTypingIndicator) {
@@ -154,6 +174,10 @@ export function MessageList({
       let frame = 0;
       let remainingFrames = BOTTOM_RESTORE_SETTLE_FRAMES;
       const settleBottom = () => {
+        if (userScrollActiveRef.current) {
+          isRestoringScrollRef.current = false;
+          return;
+        }
         scrollToBottom();
         onRememberScrollState?.({
           offsetTop: Number.MAX_SAFE_INTEGER,
@@ -231,6 +255,9 @@ export function MessageList({
     let frame = 0;
     let remainingFrames = BOTTOM_RESTORE_SETTLE_FRAMES;
     const settleBottom = () => {
+      if (userScrollActiveRef.current) {
+        return;
+      }
       scrollToBottom();
       remainingFrames -= 1;
       if (remainingFrames > 0) {
@@ -257,7 +284,7 @@ export function MessageList({
       activeElement instanceof HTMLTextAreaElement &&
       activeElement.id === "composer-input";
 
-    if (!isComposerFocused || !isAtBottomRef.current || touchScrollActiveRef.current) {
+    if (!isComposerFocused || !isAtBottomRef.current || userScrollActiveRef.current) {
       return;
     }
 
@@ -338,28 +365,23 @@ export function MessageList({
         aria-live="polite"
         className="message-list"
         data-testid="message-list"
+        onWheel={() => {
+          markUserScrollActive();
+          releaseUserScrollAfterSettling();
+        }}
         onScroll={handleScroll}
         onTouchCancel={() => {
-          if (touchScrollReleaseTimeoutRef.current !== null) {
-            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
+          if (userScrollReleaseTimeoutRef.current !== null) {
+            window.clearTimeout(userScrollReleaseTimeoutRef.current);
+            userScrollReleaseTimeoutRef.current = null;
           }
-          touchScrollActiveRef.current = false;
+          userScrollActiveRef.current = false;
         }}
         onTouchEnd={() => {
-          if (touchScrollReleaseTimeoutRef.current !== null) {
-            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
-          }
-          touchScrollReleaseTimeoutRef.current = window.setTimeout(() => {
-            touchScrollActiveRef.current = false;
-            touchScrollReleaseTimeoutRef.current = null;
-          }, 180);
+          releaseUserScrollAfterSettling();
         }}
         onTouchStart={() => {
-          if (touchScrollReleaseTimeoutRef.current !== null) {
-            window.clearTimeout(touchScrollReleaseTimeoutRef.current);
-            touchScrollReleaseTimeoutRef.current = null;
-          }
-          touchScrollActiveRef.current = true;
+          markUserScrollActive();
         }}
         ref={containerRef}
       >

@@ -214,12 +214,17 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
+    private let typingCancelDiagnosticLogger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "T217TypingCancel")
+    private static var t217DiagnosticBuild: String {
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        return "T217-typing-cancel-\(build)"
+    }
     private var collectionView: UICollectionView!
     private var channelOverride: String?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var flowLayout: MessageFlowLayout!
     private let uiKitBubbleSizer = MessageBubbleUIKitView(enableDataDetectors: false)
-    private var currentIsDark: Bool = false
+    private var currentIsDark: Bool = true
     private let bubbleSizingV2Enabled = BubbleSizingV2.isEnabled
     private let bubbleSizingV2MeasurementCache = BubbleSizingV2.LRUCache<BubbleSizingV2.CacheKey, BubbleSizingV2.Measurement>(maxEntries: 800)
     private let bubbleSizingV2LinkPreviewHeightCache = BubbleSizingV2.LinkPreviewHeightCache()
@@ -243,6 +248,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let bottomInsetHeightCapInvalidationDebounceSeconds: TimeInterval = 0.20
     private static let restoreMaxConfirmationRetries: Int = 3
     private static let typingIndicatorTapTargetOutset: CGFloat = 16
+
+    static func chatPageBackgroundColor(isDark: Bool) -> UIColor {
+        isDark ? .clear : UIColor(ChatFlowTheme.pageBackgroundTopColor(.light))
+    }
 
     private var messagesById: [String: Message] = [:]
     private var dateSeparatorTextByItemId: [String: String] = [:]
@@ -832,10 +841,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
-        view.isOpaque = false
+        applyChatPageBackground(isDark: currentIsDark)
         view.clipsToBounds = false
         configureCollectionView()
+        applyChatPageBackground(isDark: currentIsDark)
         configureDataSource()
         webBubbleCoordinator.onItemsChanged = { [weak self] in
             self?.applySnapshotForWebBubbles()
@@ -1097,6 +1106,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         bubbleSizingV2LastScrollActivityTime = CFAbsoluteTimeGetCurrent()
+        updateVisibleFooterAlpha()
         guard let sessionKey = callbackSessionKey() else { return }
         handleUserScrolled(sessionKey: sessionKey)
         checkFirstUnreadCrossingIfNeeded(sessionKey: sessionKey)
@@ -1177,6 +1187,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // During morph, we intentionally drive the target cell's alpha from 0->1 in our own
         // `UIView.animate`. Don't let willDisplay stomp it back to 1 early.
         if id == morphTargetMessageId {
+            return
+        }
+        if id == SessionMetadataFooterCell.itemId {
+            cell.alpha = footerRevealAlpha()
+            cell.transform = .identity
             return
         }
         guard pendingEntranceAnimationIds.contains(id) else {
@@ -2075,6 +2090,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 view.overrideUserInterfaceStyle = desiredStyle
                 collectionView?.overrideUserInterfaceStyle = desiredStyle
             }
+            applyChatPageBackground(isDark: isDark)
         }
 
         collectionView.accessibilityIdentifier = effectiveSessionKey
@@ -2284,6 +2300,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             if self.isActiveSession {
                 viewModel.markEngineActivationRenderedIfNeeded(for: effectiveSessionKey)
             }
+            self.updateVisibleFooterAlpha()
         }
         // Spec requires explicit contentOffset compensation for tail->full prepend.
         // This anchor path captures (messageId, oldFrameMinY, oldContentOffsetY), then applies:
@@ -2427,6 +2444,49 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         !hasAuthoritativeRestoreTarget
     }
 
+    static func restingBottomContentHeight(
+        contentSizeHeight: CGFloat,
+        footerHeight: CGFloat,
+        hasFooter: Bool
+    ) -> CGFloat {
+        guard hasFooter else { return contentSizeHeight }
+        return max(0, contentSizeHeight - footerHeight)
+    }
+
+    static func bottomOffsetMaxY(
+        contentHeight: CGFloat,
+        boundsHeight: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat
+    ) -> CGFloat {
+        let minY = -topInset
+        return max(minY, contentHeight - boundsHeight + bottomInset)
+    }
+
+    static func footerRevealAlpha(
+        contentOffsetY: CGFloat,
+        restingBottomOffsetY: CGFloat,
+        trueBottomOffsetY: CGFloat,
+    ) -> CGFloat {
+        guard restingBottomOffsetY.isFinite, trueBottomOffsetY.isFinite else { return 0 }
+        let revealDistance = trueBottomOffsetY - restingBottomOffsetY
+        guard revealDistance > 0 else { return 0 }
+        let revealedDistance = contentOffsetY - restingBottomOffsetY
+        return min(1, max(0, revealedDistance / revealDistance))
+    }
+
+    static func initialFooterCellAlpha(
+        contentOffsetY: CGFloat,
+        restingBottomOffsetY: CGFloat,
+        trueBottomOffsetY: CGFloat
+    ) -> CGFloat {
+        footerRevealAlpha(
+            contentOffsetY: contentOffsetY,
+            restingBottomOffsetY: restingBottomOffsetY,
+            trueBottomOffsetY: trueBottomOffsetY
+        )
+    }
+
     private func isNonMessageItemID(_ id: String) -> Bool {
         id == TypingIndicatorCell.itemId
             || id == SessionMetadataFooterCell.itemId
@@ -2537,16 +2597,29 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func restingBottomContentHeight() -> CGFloat {
-        guard dataSource.indexPath(for: SessionMetadataFooterCell.itemId) != nil else {
-            return collectionView.contentSize.height
-        }
-        let footerClearance = SessionMetadataFooterCell.height(for: sessionStatus) + flowLayout.minimumLineSpacing
-        return max(0, collectionView.contentSize.height - footerClearance)
+        Self.restingBottomContentHeight(
+            contentSizeHeight: collectionView.contentSize.height,
+            footerHeight: SessionMetadataFooterCell.height(for: sessionStatus),
+            hasFooter: dataSource.indexPath(for: SessionMetadataFooterCell.itemId) != nil
+        )
     }
 
     private func restingBottomOffsetMaxY(bottomInset: CGFloat) -> CGFloat {
-        let minY = -collectionView.contentInset.top
-        return max(minY, restingBottomContentHeight() - collectionView.bounds.height + bottomInset)
+        Self.bottomOffsetMaxY(
+            contentHeight: restingBottomContentHeight(),
+            boundsHeight: collectionView.bounds.height,
+            topInset: collectionView.contentInset.top,
+            bottomInset: bottomInset
+        )
+    }
+
+    private func trueBottomOffsetMaxY(bottomInset: CGFloat) -> CGFloat {
+        Self.bottomOffsetMaxY(
+            contentHeight: collectionView.contentSize.height,
+            boundsHeight: collectionView.bounds.height,
+            topInset: collectionView.contentInset.top,
+            bottomInset: bottomInset
+        )
     }
 
     private func distanceFromBottomClamped() -> CGFloat {
@@ -2558,6 +2631,23 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let clampedOffsetY = min(max(offsetY, minY), maxY)
         let distance = max(0, maxY - clampedOffsetY)
         return distance.isFinite ? distance : .greatestFiniteMagnitude
+    }
+
+    private func footerRevealAlpha() -> CGFloat {
+        guard dataSource.indexPath(for: SessionMetadataFooterCell.itemId) != nil else { return 1 }
+        return Self.footerRevealAlpha(
+            contentOffsetY: collectionView.contentOffset.y,
+            restingBottomOffsetY: restingBottomOffsetMaxY(bottomInset: currentBottomInset),
+            trueBottomOffsetY: trueBottomOffsetMaxY(bottomInset: currentBottomInset)
+        )
+    }
+
+    private func updateVisibleFooterAlpha() {
+        guard let indexPath = dataSource.indexPath(for: SessionMetadataFooterCell.itemId),
+              let cell = collectionView.cellForItem(at: indexPath) else {
+            return
+        }
+        cell.alpha = footerRevealAlpha()
     }
 
     private func handleUserScrolled() {
@@ -3237,7 +3327,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: flowLayout)
         collectionView.translatesAutoresizingMaskIntoConstraints = true
         collectionView.autoresizingMask = []
-        collectionView.backgroundColor = .clear
+        collectionView.backgroundColor = Self.chatPageBackgroundColor(isDark: currentIsDark)
+        collectionView.isOpaque = !currentIsDark
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
 #if !os(visionOS)
@@ -3252,6 +3343,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         typingIndicatorTap.delaysTouchesBegan = false
         typingIndicatorTap.delaysTouchesEnded = false
         collectionView.addGestureRecognizer(typingIndicatorTap)
+        let diagnosticMessage = "T217DIAG collection_recognizer_installed build=\(Self.t217DiagnosticBuild) recognizerCount=\(self.collectionView.gestureRecognizers?.count ?? 0)"
+        print(diagnosticMessage)
+        typingCancelDiagnosticLogger.notice(
+            "T217DIAG collection_recognizer_installed build=\(Self.t217DiagnosticBuild, privacy: .public) recognizerCount=\(self.collectionView.gestureRecognizers?.count ?? 0, privacy: .public)"
+        )
         collectionView.register(MessageBubbleUIKitCell.self, forCellWithReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier)
         collectionView.register(WebBubbleUIKitCell.self, forCellWithReuseIdentifier: WebBubbleUIKitCell.reuseIdentifier)
         collectionView.register(TypingIndicatorCell.self, forCellWithReuseIdentifier: TypingIndicatorCell.reuseIdentifier)
@@ -3262,16 +3358,37 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Frame will be set in viewDidLayoutSubviews to extend to window bounds
     }
 
+    private func applyChatPageBackground(isDark: Bool) {
+        let color = Self.chatPageBackgroundColor(isDark: isDark)
+        view.backgroundColor = color
+        view.isOpaque = !isDark
+        collectionView?.backgroundColor = color
+        collectionView?.isOpaque = !isDark
+    }
+
     @objc private func handleCollectionViewTap(_ recognizer: UITapGestureRecognizer) {
+        let point = recognizer.location(in: collectionView)
+        let hasCallback = onTypingIndicatorTap != nil
+        let typingIndexPath = dataSource.indexPath(for: TypingIndicatorCell.itemId)
+        let attributes = typingIndexPath.flatMap { collectionView.layoutAttributesForItem(at: $0) }
+        let frame = if let typingIndexPath, let attributes {
+            typingIndicatorTapTargetFrame(for: typingIndexPath, layoutAttributes: attributes)
+        } else {
+            CGRect.null
+        }
+        let didHit = frame.contains(point)
+        let diagnosticMessage = "T217DIAG collection_tap build=\(Self.t217DiagnosticBuild) state=\(recognizer.state.rawValue) point=\(String(describing: point)) hasCallback=\(hasCallback) hasTypingIndexPath=\(typingIndexPath != nil) typingFrame=\(String(describing: frame)) didHit=\(didHit) contentOffset=\(String(describing: self.collectionView.contentOffset)) contentInset=\(String(describing: self.collectionView.contentInset))"
+        print(diagnosticMessage)
+        typingCancelDiagnosticLogger.notice(
+            "T217DIAG collection_tap build=\(Self.t217DiagnosticBuild, privacy: .public) state=\(recognizer.state.rawValue, privacy: .public) point=\(String(describing: point), privacy: .public) hasCallback=\(hasCallback, privacy: .public) hasTypingIndexPath=\(typingIndexPath != nil, privacy: .public) typingFrame=\(String(describing: frame), privacy: .public) didHit=\(didHit, privacy: .public) contentOffset=\(String(describing: self.collectionView.contentOffset), privacy: .public) contentInset=\(String(describing: self.collectionView.contentInset), privacy: .public)"
+        )
         guard recognizer.state == .ended,
               let onTypingIndicatorTap,
-              let typingIndexPath = dataSource.indexPath(for: TypingIndicatorCell.itemId),
-              let attributes = collectionView.layoutAttributesForItem(at: typingIndexPath) else { return }
-        let point = recognizer.location(in: collectionView)
-        guard typingIndicatorTapTargetFrame(
-            for: typingIndexPath,
-            layoutAttributes: attributes
-        ).contains(point) else { return }
+              didHit else { return }
+        print("T217DIAG collection_tap_invoking_callback build=\(Self.t217DiagnosticBuild) point=\(String(describing: point))")
+        typingCancelDiagnosticLogger.notice(
+            "T217DIAG collection_tap_invoking_callback build=\(Self.t217DiagnosticBuild, privacy: .public) point=\(String(describing: point), privacy: .public)"
+        )
         onTypingIndicatorTap()
     }
 
@@ -3358,6 +3475,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     isDark: self.currentIsDark,
                     onSelect: self.onSessionControlSelected
                 )
+                cell?.alpha = self.footerRevealAlpha()
                 return cell
             }
 
@@ -3589,6 +3707,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.contentInset.top = topInset
         collectionView.verticalScrollIndicatorInsets.top = topInset
         setBottomInset(currentBottomInset)
+        updateVisibleFooterAlpha()
 
         let contentWidth = effectiveContentWidth(metrics: metrics)
         let metricsFp = BubbleSizingV2.metricsFingerprint(
@@ -5113,7 +5232,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if !snapshotMessages.isEmpty, SessionMetadataFooterCell.footerText(for: sessionStatus) != nil {
             snapshot.appendItems([SessionMetadataFooterCell.itemId])
         }
-        dataSource.apply(snapshot, animatingDifferences: false)
+        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+            self?.updateVisibleFooterAlpha()
+        }
     }
 
     private func materializeMessagesForActiveStage(allMessages: [Message], sessionKey: String) -> [Message] {
@@ -5229,13 +5350,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 final class SessionMetadataFooterCell: UICollectionViewCell {
     static let reuseIdentifier = "SessionMetadataFooterCell"
     static let itemId = "__session_metadata_footer__"
-    static let extraTopClearance: CGFloat = 20
-    static let topPadding: CGFloat = MessageInputBarMetrics.minInputBarHeight
-        + StreamPageDotsView.controlHeight
-        + extraTopClearance
+    static let topPadding: CGFloat = 12
     static let bottomPadding: CGFloat = 4
     static let horizontalPadding: CGFloat = 12
     static let actionRegionHeight: CGFloat = 44
+    static let fadeRevealRange: CGFloat = topPadding + actionRegionHeight
 
     private let stackView = UIStackView()
 
@@ -5254,6 +5373,9 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
     }
 
     private static let footerFont = UIFont.clawline(.timestamp)
+    static func textAlpha(isDark: Bool) -> CGFloat {
+        isDark ? 0.90 : 0.84
+    }
 
     private final class FooterButton: UIButton {
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -5309,7 +5431,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         onSelect: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)?
     ) {
         let palette = ChatFlowUIKitTheme.palette(isDark: isDark)
-        let textColor = palette.textMuted.withAlphaComponent(isDark ? 0.78 : 0.7)
+        let textColor = palette.textMuted.withAlphaComponent(Self.textAlpha(isDark: isDark))
         stackView.arrangedSubviews.forEach { view in
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()

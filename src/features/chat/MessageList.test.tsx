@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MessageList } from "./MessageList";
 import { resetLinkCardMetadataCache } from "./linkCardMetadata";
@@ -1083,6 +1083,41 @@ describe("MessageList rich rendering", () => {
 
     expect(await screen.findByTestId("message-s_bulk_240")).toBeInTheDocument();
     expect(screen.queryByTestId("message-s_bulk_1")).not.toBeInTheDocument();
+  });
+
+  it("does not force bottom restoration while a user wheel scroll is active", async () => {
+    const animationFrames: FrameRequestCallback[] = [];
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      })
+    );
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    renderMessageListWithProps({
+      messages: Array.from({ length: 240 }, (_, index) => makeMessage(index + 1)),
+      rememberedScrollState: {
+        offsetTop: Number.MAX_SAFE_INTEGER,
+        stickToBottom: true
+      },
+      sessionKey: "agent:main:clawline:flynn:main"
+    });
+
+    const list = screen.getByTestId("message-list");
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 24_000 });
+    Object.defineProperty(list, "clientHeight", { configurable: true, value: 800 });
+    list.scrollTop = 18_000;
+
+    fireEvent.wheel(list, { deltaY: -700 });
+    fireEvent.scroll(list, { target: { scrollTop: 17_300 } });
+
+    await act(async () => {
+      animationFrames.splice(0).forEach((callback) => callback(0));
+    });
+
+    expect(list.scrollTop).toBe(17_300);
   });
 
   it("anchors to the first unread message before unread clears", async () => {

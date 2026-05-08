@@ -86,6 +86,163 @@ struct StreamPageDotsViewTests {
         )
     }
 
+    @Test("T257: scrub start maps touch position through the visible dot window")
+    func scrubStartMapsTouchPositionThroughVisibleWindow() {
+        let startIndex = StreamPageDotsView.scrubStartCandidateIndex(
+            startLocationX: 95,
+            controlWidth: 190,
+            visibleDotIndices: Array(15...25),
+            fallbackIndex: 20
+        )
+        let virtualIndex = StreamPageDotsView.scrubStartVirtualIndex(
+            startLocationX: 95,
+            controlWidth: 190,
+            visibleDotIndices: Array(15...25),
+            fallbackIndex: 20
+        )
+
+        #expect(startIndex == 20)
+        #expect(abs(virtualIndex - 20) < 0.001)
+    }
+
+    @Test("T257: scrub translation can reach dots truncated beyond both edges")
+    func scrubTranslationCanReachTruncatedEdges() {
+        let rightEdge = StreamPageDotsView.scrubCandidateIndex(
+            sessionCount: 40,
+            startIndex: 20,
+            translationWidth: 19 * 14
+        )
+        let leftEdge = StreamPageDotsView.scrubCandidateIndex(
+            sessionCount: 40,
+            startIndex: 20,
+            translationWidth: -20 * 14
+        )
+        let rightVirtualEdge = StreamPageDotsView.scrubVirtualIndex(
+            sessionCount: 40,
+            startVirtualIndex: 20,
+            startLocationX: 95,
+            currentLocationX: 95 + (19 * 14)
+        )
+        let leftVirtualEdge = StreamPageDotsView.scrubVirtualIndex(
+            sessionCount: 40,
+            startVirtualIndex: 20,
+            startLocationX: 95,
+            currentLocationX: 95 - (20 * 14)
+        )
+
+        #expect(rightEdge == 39)
+        #expect(leftEdge == 0)
+        #expect(rightVirtualEdge == 39)
+        #expect(leftVirtualEdge == 0)
+    }
+
+    @Test("T257: scrub haptic fires only when candidate changes after initial highlight")
+    func scrubHapticFiresOnlyForCandidateChangesAfterInitialHighlight() {
+        #expect(StreamPageDotsView.shouldEmitScrubCandidateHaptic(previousIndex: nil, candidateIndex: 10) == false)
+        #expect(StreamPageDotsView.shouldEmitScrubCandidateHaptic(previousIndex: 10, candidateIndex: 10) == false)
+        #expect(StreamPageDotsView.shouldEmitScrubCandidateHaptic(previousIndex: 10, candidateIndex: 11) == true)
+    }
+
+    @Test("T257: scrub candidate haptic strength follows existing dot visual state")
+    func scrubCandidateHapticStrengthFollowsDotVisualState() {
+        #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: false, dotState: .inactive) == .light)
+        #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: true, dotState: .inactive) == .strong)
+        #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: false, dotState: .unread) == .strong)
+        #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: false, dotState: .userTail) == .strong)
+    }
+
+    @Test("T257: scrub metrics temporarily widen dense dot lists")
+    func scrubMetricsTemporarilyWidenDenseDotLists() {
+        let rest = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: false
+        )
+        let active = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: true
+        )
+
+        #expect(rest.scrubFieldWidth == 190)
+        #expect(active.scrubFieldWidth > rest.scrubFieldWidth)
+        #expect(active.magnificationRadius > rest.magnificationRadius)
+        #expect(active.magnificationRadius > 9)
+        #expect(active.magnificationRadius < 10)
+        #expect(active.maximumScale > rest.maximumScale)
+    }
+
+    @Test("T257: scrub magnification uses a shorter tail with a wider central spike")
+    func scrubMagnificationFallsOffWithDistance() {
+        let metrics = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: true
+        )
+        let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
+        let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
+        let outer = StreamPageDotsView.scrubMagnificationScale(dotIndex: 12, virtualIndex: 10, metrics: metrics)
+        let farParticipant = StreamPageDotsView.scrubMagnificationScale(dotIndex: 18, virtualIndex: 10, metrics: metrics)
+        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 20, virtualIndex: 10, metrics: metrics)
+
+        #expect(primary > neighbor)
+        #expect(neighbor > outer)
+        #expect(outer > farParticipant)
+        #expect(farParticipant > outside)
+        #expect(outside == 1)
+        #expect(primary > 3.0)
+        #expect(neighbor > 2.8)
+        #expect(outer > 1.9)
+        #expect(outer < 2.2)
+        #expect(farParticipant < 1.1)
+        #expect(primary - neighbor < 0.5)
+        #expect((neighbor - outer) > (primary - neighbor))
+    }
+
+    @Test("T257: scrub magnification tracks continuous finger position")
+    func scrubMagnificationTracksContinuousFingerPosition() {
+        let metrics = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: true
+        )
+        let leftBiasDot = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10.25, metrics: metrics)
+        let leftBiasNeighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10.25, metrics: metrics)
+        let midpointLeft = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10.5, metrics: metrics)
+        let midpointRight = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10.5, metrics: metrics)
+        let rightBiasDot = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10.75, metrics: metrics)
+        let rightBiasNeighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10.75, metrics: metrics)
+
+        #expect(leftBiasDot > leftBiasNeighbor)
+        #expect(abs(midpointLeft - midpointRight) < 0.001)
+        #expect(rightBiasNeighbor > rightBiasDot)
+    }
+
+    @Test("T257: scrub magnification lifts the center dot without a group raise")
+    func scrubMagnificationLiftsCenterDotWithoutGroupRaise() {
+        let metrics = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: true
+        )
+        let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
+        let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
+
+        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: primary) < -40)
+        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: neighbor) < 0)
+        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: 1) == 0)
+    }
+
     @Test("Popup route controller owns popup search and track picker surfaces")
     func popupRouteControllerOwnsPopupAndTrackPickerSurfaces() {
         let routeController = StreamPopupRouteController()
@@ -164,6 +321,14 @@ struct StreamPageDotsViewTests {
         )
 
         #expect(Self.rgb(color) == Self.rgb(ChatFlowTheme.unreadIndicator(.light)))
+    }
+
+    @Test("Offscreen unread edge bloom is blurred behind the glass")
+    func offscreenUnreadEdgeBloomUsesBlur() {
+        #expect(StreamPageDotsView.unreadEdgeBloomOpacity(colorScheme: .light) == 0.40)
+        #expect(StreamPageDotsView.unreadEdgeBloomOpacity(colorScheme: .dark) == 0.40)
+        #expect(StreamPageDotsView.unreadEdgeBloomBlurRadius(colorScheme: .light) == 4.0)
+        #expect(StreamPageDotsView.unreadEdgeBloomBlurRadius(colorScheme: .dark) == 4.5)
     }
 
     private struct RGB: Equatable {

@@ -8,6 +8,7 @@
 import Testing
 import CoreGraphics
 import Foundation
+import SwiftUI
 import UIKit
 @testable import Clawline
 
@@ -32,6 +33,20 @@ struct MessageInputBarBoundaryTests {
     func reconnectBubbleRetainsRequestedSmallEndScale() {
         #expect(MessageInputBar.reconnectBubbleScale(phase: CGFloat(0)) == CGFloat(0.75))
         #expect(MessageInputBar.reconnectBubbleScale(phase: CGFloat(1)) == CGFloat(1.0))
+    }
+
+    @Test("Light disabled send button keeps an off-white backing circle")
+    func lightDisabledSendButtonKeepsBackingCircle() {
+        let lightColor = MessageInputBar.disabledSendButtonBackingColor(colorScheme: .light)
+        let darkColor = MessageInputBar.disabledSendButtonBackingColor(colorScheme: .dark)
+
+        #expect(lightColor != nil)
+        #expect(darkColor == nil)
+    }
+
+    @Test("Send button backing uses the same soft blur in every state")
+    func sendButtonBackingUsesSoftBlur() {
+        #expect(MessageInputBar.sendButtonColoredBackingBlurRadius == 7)
     }
 
     @Test("Rendered input field cap matches the regular-layout text width cap")

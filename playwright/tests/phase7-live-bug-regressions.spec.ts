@@ -267,6 +267,198 @@ test("live bug procedure: history replay, network status dots, and short-chat sc
   }
 });
 
+test("live bug procedure: ack-only sends survive reload, side send, and reconnect", async ({
+  context,
+  page
+}) => {
+  const port = 25_901 + Math.floor(Math.random() * 1_000);
+  const mainSessionKey = "agent:main:clawline:clawline_web_test:main";
+  const sideSessionKey = "agent:main:clawline:clawline_web_test:side";
+  const receivedMessages: Array<Record<string, unknown>> = [];
+  const authPayloads: Array<Record<string, unknown>> = [];
+
+  const streams = [
+    {
+      sessionKey: mainSessionKey,
+      displayName: "Main",
+      kind: "main",
+      orderIndex: 0,
+      isBuiltIn: true,
+      createdAt: 1_778_200_000_000,
+      updatedAt: 1_778_200_000_000
+    },
+    {
+      sessionKey: sideSessionKey,
+      displayName: "Side",
+      kind: "custom",
+      orderIndex: 1,
+      isBuiltIn: false,
+      createdAt: 1_778_200_000_100,
+      updatedAt: 1_778_200_000_100
+    }
+  ];
+
+  const server = createServer((request, response) => {
+    const corsHeaders = {
+      "Access-Control-Allow-Headers": "authorization,content-type",
+      "Access-Control-Allow-Methods": "GET,OPTIONS,POST",
+      "Access-Control-Allow-Origin": "*"
+    };
+    if (request.method === "OPTIONS") {
+      response.writeHead(204, corsHeaders);
+      response.end();
+      return;
+    }
+    response.writeHead(404, {
+      ...corsHeaders,
+      "Content-Type": "application/json"
+    });
+    response.end(JSON.stringify({ error: { code: "unexpected_path" } }));
+  });
+  const wss = new WebSocketServer({ server, path: "/ws" });
+
+  wss.on("connection", (socket) => {
+    socket.on("message", (buffer) => {
+      const payload = JSON.parse(buffer.toString()) as {
+        content?: string;
+        deviceId?: string;
+        id?: string;
+        sessionKey?: string;
+        type: string;
+      };
+
+      if (payload.type === "pair_request") {
+        socket.send(
+          JSON.stringify({
+            type: "pair_result",
+            success: true,
+            token: "jwt-clawline-web-test-token",
+            userId: "clawline_web_test"
+          })
+        );
+        return;
+      }
+
+      if (payload.type === "auth") {
+        authPayloads.push(payload as Record<string, unknown>);
+        socket.send(
+          JSON.stringify({
+            type: "auth_result",
+            success: true,
+            userId: "clawline_web_test",
+            isAdmin: true,
+            replayCount: 0,
+            replayTruncated: authPayloads.length > 1,
+            historyReset: authPayloads.length > 1,
+            sessionKeys: [mainSessionKey, sideSessionKey],
+            sessions: [
+              { stream: "main", sessionKey: mainSessionKey },
+              { stream: "side", sessionKey: sideSessionKey }
+            ]
+          })
+        );
+        socket.send(
+          JSON.stringify({
+            type: "session_info",
+            userId: "clawline_web_test",
+            isAdmin: true,
+            sessionKeys: [mainSessionKey, sideSessionKey]
+          })
+        );
+        socket.send(
+          JSON.stringify({
+            type: "stream_snapshot",
+            streams
+          })
+        );
+        socket.send(JSON.stringify({ type: "sync_complete" }));
+        return;
+      }
+
+      if (payload.type === "message" && payload.id) {
+        receivedMessages.push(payload as Record<string, unknown>);
+        socket.send(JSON.stringify({ type: "ack", id: payload.id }));
+      }
+    });
+  });
+
+  try {
+    await new Promise<void>((resolve) => {
+      server.listen(port, "127.0.0.1", () => resolve());
+    });
+
+    await page.goto("/pair");
+    await page.getByLabel("Name").fill("Web Integration Test");
+    await page.getByLabel("Provider address").fill(`ws://127.0.0.1:${port}/ws`);
+    await page.getByRole("button", { name: "Pair browser" }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
+
+    const mainMessage = "acked main survives reload";
+    await page.getByLabel("Message").fill(mainMessage);
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText(mainMessage)).toBeVisible();
+    await expect(page.getByText("Sending...")).toHaveCount(0);
+
+    await page.reload();
+    await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(mainSessionKey)}$`));
+    await expect(page.getByText(mainMessage)).toBeVisible();
+    await expect.poll(() => authPayloads.length).toBeGreaterThanOrEqual(2);
+
+    await page.getByRole("button", { name: "Manage streams" }).click();
+    await page.getByRole("button", { name: /^Side/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/chat/${escapeForRegExp(sideSessionKey)}$`));
+
+    const sideMessage = "acked side send";
+    await page.getByLabel("Message").fill(sideMessage);
+    await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+    await page.getByRole("button", { name: "Send" }).click();
+    await expect(page.getByText(sideMessage)).toBeVisible();
+
+    await page.goto(`/chat/${mainSessionKey}`);
+    await expect(page.getByText(mainMessage)).toBeVisible();
+
+    await context.setOffline(true);
+    await page.waitForTimeout(250);
+    await context.setOffline(false);
+    await page.waitForTimeout(1500);
+
+    await expect(page.getByText(mainMessage)).toHaveCount(1);
+    expect(receivedMessages).toEqual([
+      expect.objectContaining({
+        content: mainMessage,
+        sessionKey: mainSessionKey
+      }),
+      expect.objectContaining({
+        content: sideMessage,
+        sessionKey: sideSessionKey
+      })
+    ]);
+  } finally {
+    await context.setOffline(false).catch(() => {});
+    await page.goto("about:blank").catch(() => {});
+    for (const client of wss.clients) {
+      client.terminate();
+    }
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => {
+      wss.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        server.close((closeError) => {
+          if (closeError) {
+            reject(closeError);
+            return;
+          }
+          resolve();
+        });
+      });
+    });
+  }
+});
+
 function escapeForRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

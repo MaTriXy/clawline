@@ -34,17 +34,15 @@ struct SessionMetadataFooterHitTestingTests {
         #expect(occupiedWidth < cell.bounds.width * 0.7)
     }
 
-    @Test("Footer actions sit below expanded top clearance")
-    func footerActionsSitBelowExpandedTopClearance() throws {
+    @Test("Footer actions sit in compact reveal row")
+    func footerActionsSitInCompactRevealRow() throws {
         let cell = makeConfiguredCell()
         let buttons = try footerButtons(in: cell)
         let frames = buttons.map { $0.convert($0.bounds, to: cell) }
 
-        #expect(SessionMetadataFooterCell.extraTopClearance == 20)
-        #expect(SessionMetadataFooterCell.topPadding == MessageInputBarMetrics.minInputBarHeight
-            + StreamPageDotsView.controlHeight
-            + SessionMetadataFooterCell.extraTopClearance)
-        #expect(SessionMetadataFooterCell.height(for: makeStatus()) == 135)
+        #expect(SessionMetadataFooterCell.topPadding == 12)
+        #expect(SessionMetadataFooterCell.height(for: makeStatus()) == 60)
+        #expect(SessionMetadataFooterCell.fadeRevealRange == 56)
         #expect(frames.allSatisfy {
             let centeredY = SessionMetadataFooterCell.topPadding
                 + (SessionMetadataFooterCell.actionRegionHeight - $0.height) / 2
@@ -132,6 +130,18 @@ struct SessionMetadataFooterHitTestingTests {
         #expect(configuration.contentInsets.trailing == 4)
         #expect(configuration.background.strokeWidth == 0)
         #expect(configuration.background.backgroundColor?.cgColor.alpha == 0)
+    }
+
+    @Test("Footer text keeps readable opacity without changing reveal mechanics")
+    func footerTextKeepsReadableOpacity() throws {
+        let cell = makeConfiguredCell()
+        let buttons = allSubviews(in: cell).compactMap { $0 as? UIButton }
+        let modelButton = try #require(buttons.first { $0.accessibilityLabel == "gpt-5.5" })
+        let configuration = try #require(modelButton.configuration)
+        let foreground = try #require(configuration.baseForegroundColor)
+
+        #expect(foreground.cgColor.alpha == SessionMetadataFooterCell.textAlpha(isDark: false))
+        #expect(SessionMetadataFooterCell.fadeRevealRange == 56)
     }
 
     @Test("Popup selectors mark current item with checkmark image instead of text")

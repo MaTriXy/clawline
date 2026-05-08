@@ -415,6 +415,10 @@ export function createTransportMachine({
             return;
           case "event":
             return;
+          case "sync_complete":
+            replayMessagesRemaining = 0;
+            syncReplayProgress(trigger);
+            return;
           case "error":
             if (payload.messageId) {
               chatDomainStore.markMessageFailed(payload.messageId);
