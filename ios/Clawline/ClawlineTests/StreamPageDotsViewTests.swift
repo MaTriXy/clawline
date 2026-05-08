@@ -94,8 +94,15 @@ struct StreamPageDotsViewTests {
             visibleDotIndices: Array(15...25),
             fallbackIndex: 20
         )
+        let virtualIndex = StreamPageDotsView.scrubStartVirtualIndex(
+            startLocationX: 95,
+            controlWidth: 190,
+            visibleDotIndices: Array(15...25),
+            fallbackIndex: 20
+        )
 
         #expect(startIndex == 20)
+        #expect(abs(virtualIndex - 20) < 0.001)
     }
 
     @Test("T257: scrub translation can reach dots truncated beyond both edges")
@@ -110,31 +117,104 @@ struct StreamPageDotsViewTests {
             startIndex: 20,
             translationWidth: -20 * 14
         )
+        let rightVirtualEdge = StreamPageDotsView.scrubVirtualIndex(
+            sessionCount: 40,
+            startVirtualIndex: 20,
+            startLocationX: 95,
+            currentLocationX: 95 + (19 * 14)
+        )
+        let leftVirtualEdge = StreamPageDotsView.scrubVirtualIndex(
+            sessionCount: 40,
+            startVirtualIndex: 20,
+            startLocationX: 95,
+            currentLocationX: 95 - (20 * 14)
+        )
 
         #expect(rightEdge == 39)
         #expect(leftEdge == 0)
+        #expect(rightVirtualEdge == 39)
+        #expect(leftVirtualEdge == 0)
+    }
+
+    @Test("T257: scrub metrics temporarily widen dense dot lists")
+    func scrubMetricsTemporarilyWidenDenseDotLists() {
+        let rest = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: false
+        )
+        let active = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: true
+        )
+
+        #expect(rest.scrubFieldWidth == 190)
+        #expect(active.scrubFieldWidth > rest.scrubFieldWidth)
+        #expect(active.magnificationRadius > rest.magnificationRadius)
+        #expect(active.maximumScale > rest.maximumScale)
     }
 
     @Test("T257: scrub magnification falls off smoothly with candidate distance")
     func scrubMagnificationFallsOffWithDistance() {
-        let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, candidateIndex: 10)
-        let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, candidateIndex: 10)
-        let outer = StreamPageDotsView.scrubMagnificationScale(dotIndex: 12, candidateIndex: 10)
-        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 13, candidateIndex: 10)
+        let metrics = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: true
+        )
+        let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
+        let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
+        let outer = StreamPageDotsView.scrubMagnificationScale(dotIndex: 12, virtualIndex: 10, metrics: metrics)
+        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 15, virtualIndex: 10, metrics: metrics)
 
         #expect(primary > neighbor)
         #expect(neighbor > outer)
         #expect(outer > outside)
         #expect(outside == 1)
-        #expect(primary > 2.4)
-        #expect(neighbor < 1.6)
-        #expect(primary - neighbor > 0.9)
+        #expect(primary > 3.0)
+        #expect(neighbor > 2.1)
+        #expect(outer > 1.4)
+        #expect(primary - neighbor > 0.5)
+    }
+
+    @Test("T257: scrub magnification tracks continuous finger position")
+    func scrubMagnificationTracksContinuousFingerPosition() {
+        let metrics = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: true
+        )
+        let leftBiasDot = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10.25, metrics: metrics)
+        let leftBiasNeighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10.25, metrics: metrics)
+        let midpointLeft = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10.5, metrics: metrics)
+        let midpointRight = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10.5, metrics: metrics)
+        let rightBiasDot = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10.75, metrics: metrics)
+        let rightBiasNeighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10.75, metrics: metrics)
+
+        #expect(leftBiasDot > leftBiasNeighbor)
+        #expect(abs(midpointLeft - midpointRight) < 0.001)
+        #expect(rightBiasNeighbor > rightBiasDot)
     }
 
     @Test("T257: scrub magnification lifts large dots out of the dock")
     func scrubMagnificationLiftsLargeDotsOutOfDock() {
-        let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, candidateIndex: 10)
-        let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, candidateIndex: 10)
+        let metrics = StreamPageDotsView.scrubLayoutMetrics(
+            totalSessionCount: 40,
+            visibleDotCount: 11,
+            controlWidth: 190,
+            maxWidth: 190,
+            isScrubbing: true
+        )
+        let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
+        let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
 
         #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: primary) < -7)
         #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: neighbor) < 0)

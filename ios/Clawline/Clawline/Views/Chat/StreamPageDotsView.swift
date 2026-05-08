@@ -6,6 +6,9 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct StreamPageDotsView: View {
     @Environment(\.colorScheme) private var colorScheme
@@ -19,7 +22,9 @@ struct StreamPageDotsView: View {
     let onScrubCommit: (String) -> Void
     let onScrubCancel: () -> Void
 
-    @State private var scrubStartIndex: Int?
+    @State private var scrubStartLocationX: CGFloat?
+    @State private var scrubStartVirtualIndex: CGFloat?
+    @State private var scrubVirtualIndex: CGFloat?
     @State private var scrubCandidateIndex: Int?
     @State private var scrubTapSuppressionExpiresAt = Date.distantPast
 
@@ -42,8 +47,31 @@ struct StreamPageDotsView: View {
         sessionKeys.firstIndex(of: activeSessionKey) ?? 0
     }
 
-    private var maxVisibleDots: Int {
+    private var isScrubbing: Bool {
+        scrubStartVirtualIndex != nil || scrubVirtualIndex != nil
+    }
+
+    private var baseVisibleDotCount: Int {
         Self.fittingVisibleDotCount(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget)
+    }
+
+    private var maxVisibleDots: Int {
+        guard isScrubbing else { return baseVisibleDotCount }
+        return Self.fittingVisibleDotCount(totalSessionCount: sessionKeys.count, maxWidth: scrubMetrics.scrubFieldWidth)
+    }
+
+    private var baseControlWidth: CGFloat {
+        Self.renderedControlWidth(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget)
+    }
+
+    private var scrubMetrics: ScrubLayoutMetrics {
+        Self.scrubLayoutMetrics(
+            totalSessionCount: sessionKeys.count,
+            visibleDotCount: baseVisibleDotCount,
+            controlWidth: baseControlWidth,
+            maxWidth: maxWidth,
+            isScrubbing: isScrubbing
+        )
     }
 
     private var expandedWidthBudget: CGFloat? {
@@ -57,7 +85,7 @@ struct StreamPageDotsView: View {
     }
 
     private var visibleDotIndices: [Int] {
-        let centerIndex = scrubCandidateIndex ?? activeIndex
+        let centerIndex = Int((scrubVirtualIndex ?? CGFloat(activeIndex)).rounded())
         guard sessionKeys.count > maxVisibleDots else {
             return Array(sessionKeys.indices)
         }
@@ -152,13 +180,63 @@ struct StreamPageDotsView: View {
             )
     }
 
-    var body: some View {
-        Button(action: handleTap) {
-            controlBody
-                .contentShape(Rectangle())
+    struct ScrubLayoutMetrics: Equatable {
+        let scrubFieldWidth: CGFloat
+        let magnificationRadius: CGFloat
+        let magnificationSigma: CGFloat
+        let maximumScale: CGFloat
+    }
+
+    static func scrubLayoutMetrics(
+        totalSessionCount: Int,
+        visibleDotCount: Int,
+        controlWidth: CGFloat,
+        maxWidth: CGFloat?,
+        isScrubbing: Bool
+    ) -> ScrubLayoutMetrics {
+        guard totalSessionCount > 0 else {
+            return ScrubLayoutMetrics(
+                scrubFieldWidth: controlWidth,
+                magnificationRadius: 3.25,
+                magnificationSigma: 1.15,
+                maximumScale: 2.85
+            )
         }
-        .buttonStyle(.plain)
-        .simultaneousGesture(scrubGesture)
+
+        let visibleRatio = min(1, CGFloat(max(1, visibleDotCount)) / CGFloat(totalSessionCount))
+        let hiddenPressure = 1 - visibleRatio
+        let widthBudget = max(controlWidth, maxWidth ?? controlWidth)
+        let fullContentWidth = requiredControlWidth(
+            visibleDotCount: totalSessionCount,
+            includesOverflowIndicators: false
+        )
+        let edgeExpansion = isScrubbing
+            ? min(112, max(32, widthBudget * (0.12 + (0.28 * hiddenPressure))))
+            : 0
+        let scrubFieldWidth = min(fullContentWidth, controlWidth + (edgeExpansion * 2))
+        let widthGainRatio = max(0, (scrubFieldWidth - controlWidth) / max(controlWidth, 1))
+
+        // Dock equation: hidden pressure opens a wider temporary field, then field gain broadens
+        // the Gaussian radius and raises the peak. Small lists stay calm; dense lists get more
+        // neighboring participation and a larger finger-centered dot.
+        let magnificationRadius = min(5.25, max(3.25, 3.35 + (1.35 * hiddenPressure) + (0.35 * widthGainRatio)))
+        let magnificationSigma = max(1.15, magnificationRadius * 0.36)
+        let maximumScale = min(3.35, max(2.85, 2.88 + (0.34 * hiddenPressure) + (0.20 * widthGainRatio)))
+
+        return ScrubLayoutMetrics(
+            scrubFieldWidth: scrubFieldWidth,
+            magnificationRadius: magnificationRadius,
+            magnificationSigma: magnificationSigma,
+            maximumScale: maximumScale
+        )
+    }
+
+    var body: some View {
+        controlBody
+        .contentShape(Rectangle())
+        .overlay {
+            gestureLayer
+        }
         .onDisappear {
             cancelScrubIfNeeded()
         }
@@ -180,17 +258,38 @@ struct StreamPageDotsView: View {
         onTap()
     }
 
+    @ViewBuilder
+    private var gestureLayer: some View {
+#if canImport(UIKit)
+        StreamPageDotsGestureBridge(
+            onTap: handleTap,
+            onScrubBegan: beginScrub(at:),
+            onScrubChanged: updateScrub(at:),
+            onScrubEnded: endScrub(at:),
+            onScrubCancelled: cancelScrub
+        )
+        .frame(width: scrubMetrics.scrubFieldWidth, height: Self.minimumHitTargetHeight)
+#else
+        Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture(perform: handleTap)
+            .gesture(scrubGesture)
+            .frame(width: scrubMetrics.scrubFieldWidth, height: Self.minimumHitTargetHeight)
+#endif
+    }
+
     private var controlBody: some View {
-        let controlWidth = Self.renderedControlWidth(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget)
+        let controlWidth = baseControlWidth
+        let scrubFieldWidth = scrubMetrics.scrubFieldWidth
         return ZStack(alignment: .bottom) {
             dockChrome(controlWidth: controlWidth)
                 .frame(maxHeight: .infinity, alignment: .bottom)
 
             dotRow
-                .frame(width: controlWidth, height: Self.controlHeight, alignment: .center)
+                .frame(width: scrubFieldWidth, height: Self.controlHeight, alignment: .center)
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
-        .frame(width: controlWidth, height: Self.minimumHitTargetHeight, alignment: .bottom)
+        .frame(width: scrubFieldWidth, height: Self.minimumHitTargetHeight, alignment: .bottom)
     }
 
     private func dockChrome(controlWidth: CGFloat) -> some View {
@@ -221,10 +320,11 @@ struct StreamPageDotsView: View {
             .onChanged { value in
                 switch value {
                 case .first(true):
-                    beginScrubIfNeeded(startIndex: activeIndex, capturesStart: false)
+                    beginScrub(at: Self.locationX(forIndex: activeIndex))
                 case .second(true, let dragValue):
                     if let dragValue {
-                        updateScrubCandidate(with: dragValue)
+                        beginScrub(at: dragValue.startLocation.x)
+                        updateScrub(at: dragValue.location.x)
                     }
                 default:
                     break
@@ -236,7 +336,7 @@ struct StreamPageDotsView: View {
                     commitScrub()
                 case .second(true, let dragValue):
                     if let dragValue {
-                        updateScrubCandidate(with: dragValue)
+                        updateScrub(at: dragValue.location.x)
                     }
                     commitScrub()
                 default:
@@ -245,38 +345,53 @@ struct StreamPageDotsView: View {
             }
     }
 
-    private func beginScrubIfNeeded(startIndex: Int, capturesStart: Bool = true) {
+    private func beginScrub(at locationX: CGFloat) {
         guard !sessionKeys.isEmpty else { return }
+        guard scrubStartVirtualIndex == nil else { return }
         scrubTapSuppressionExpiresAt = Date().addingTimeInterval(Self.scrubTapSuppressionDuration)
-        if capturesStart, scrubStartIndex == nil {
-            scrubStartIndex = startIndex
-        }
-        updateScrubCandidate(index: scrubCandidateIndex ?? startIndex)
-    }
-
-    private func updateScrubCandidate(with value: DragGesture.Value) {
-        guard !sessionKeys.isEmpty else { return }
-        let controlWidth = Self.renderedControlWidth(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget)
-        let startIndex = scrubStartIndex ?? Self.scrubStartCandidateIndex(
-            startLocationX: value.startLocation.x,
+        let controlWidth = baseControlWidth
+        let dockLocationX = dockLocationX(fromScrubFieldLocationX: locationX)
+        let virtualIndex = Self.scrubStartVirtualIndex(
+            startLocationX: dockLocationX,
             controlWidth: controlWidth,
             visibleDotIndices: visibleDotIndices,
             fallbackIndex: activeIndex
         )
-        beginScrubIfNeeded(startIndex: startIndex)
-        let candidate = Self.scrubCandidateIndex(
-            sessionCount: sessionKeys.count,
-            startIndex: startIndex,
-            translationWidth: value.translation.width
-        )
-        updateScrubCandidate(index: candidate)
+        withAnimation(.spring(response: 0.18, dampingFraction: 0.86)) {
+            scrubStartLocationX = dockLocationX
+            scrubStartVirtualIndex = virtualIndex
+        }
+        updateScrubVirtualIndex(virtualIndex)
     }
 
-    private func updateScrubCandidate(index: Int) {
-        guard sessionKeys.indices.contains(index) else { return }
-        guard scrubCandidateIndex != index else { return }
-        scrubCandidateIndex = index
-        onScrubPreview(sessionKeys[index])
+    private func updateScrub(at locationX: CGFloat) {
+        guard !sessionKeys.isEmpty else { return }
+        if scrubStartVirtualIndex == nil {
+            beginScrub(at: locationX)
+        }
+        guard let startVirtualIndex = scrubStartVirtualIndex, let startLocationX = scrubStartLocationX else { return }
+        let dockLocationX = dockLocationX(fromScrubFieldLocationX: locationX)
+        let virtualIndex = Self.scrubVirtualIndex(
+            sessionCount: sessionKeys.count,
+            startVirtualIndex: startVirtualIndex,
+            startLocationX: startLocationX,
+            currentLocationX: dockLocationX
+        )
+        updateScrubVirtualIndex(virtualIndex)
+    }
+
+    private func endScrub(at locationX: CGFloat) {
+        updateScrub(at: locationX)
+        commitScrub()
+    }
+
+    private func updateScrubVirtualIndex(_ virtualIndex: CGFloat) {
+        guard sessionKeys.indices.contains(Self.scrubCandidateIndex(sessionCount: sessionKeys.count, virtualIndex: virtualIndex)) else { return }
+        scrubVirtualIndex = virtualIndex
+        let candidateIndex = Self.scrubCandidateIndex(sessionCount: sessionKeys.count, virtualIndex: virtualIndex)
+        guard scrubCandidateIndex != candidateIndex else { return }
+        scrubCandidateIndex = candidateIndex
+        onScrubPreview(sessionKeys[candidateIndex])
     }
 
     private func commitScrub() {
@@ -294,16 +409,21 @@ struct StreamPageDotsView: View {
         onScrubCancel()
     }
 
+    private func dockLocationX(fromScrubFieldLocationX locationX: CGFloat) -> CGFloat {
+        let fieldExtra = max(0, scrubMetrics.scrubFieldWidth - baseControlWidth)
+        return locationX - (fieldExtra / 2)
+    }
+
     private func cancelScrubIfNeeded() {
-        guard scrubStartIndex != nil || scrubCandidateIndex != nil else { return }
+        guard scrubStartVirtualIndex != nil || scrubCandidateIndex != nil || scrubVirtualIndex != nil else { return }
         cancelScrub()
     }
 
     private func resetScrubState() {
-        var transaction = Transaction()
-        transaction.animation = nil
-        withTransaction(transaction) {
-            scrubStartIndex = nil
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.86)) {
+            scrubStartLocationX = nil
+            scrubStartVirtualIndex = nil
+            scrubVirtualIndex = nil
             scrubCandidateIndex = nil
         }
     }
@@ -322,7 +442,8 @@ struct StreamPageDotsView: View {
                 let dotState = dotStatesBySession[sessionKey] ?? .inactive
                 let scale = Self.scrubMagnificationScale(
                     dotIndex: index,
-                    candidateIndex: scrubCandidateIndex
+                    virtualIndex: scrubVirtualIndex,
+                    metrics: scrubMetrics
                 )
                 let verticalOffset = Self.scrubMagnificationVerticalOffset(scale: scale)
                 Circle()
@@ -403,6 +524,21 @@ struct StreamPageDotsView: View {
         return visibleDotIndices[min(max(0, visibleOffset), visibleDotIndices.count - 1)]
     }
 
+    static func scrubStartVirtualIndex(
+        startLocationX: CGFloat,
+        controlWidth: CGFloat,
+        visibleDotIndices: [Int],
+        fallbackIndex: Int
+    ) -> CGFloat {
+        guard let first = visibleDotIndices.first, !visibleDotIndices.isEmpty else {
+            return CGFloat(fallbackIndex)
+        }
+        guard visibleDotIndices.count > 1 else { return CGFloat(first) }
+        let usableWidth = max(1, controlWidth - (horizontalPadding * 2))
+        let normalized = min(1, max(0, (startLocationX - horizontalPadding) / usableWidth))
+        return CGFloat(first) + (normalized * CGFloat(visibleDotIndices.count - 1))
+    }
+
     static func scrubCandidateIndex(
         sessionCount: Int,
         startIndex: Int,
@@ -414,13 +550,55 @@ struct StreamPageDotsView: View {
         return min(max(0, startIndex + delta), sessionCount - 1)
     }
 
+    static func scrubVirtualIndex(
+        sessionCount: Int,
+        startVirtualIndex: CGFloat,
+        startLocationX: CGFloat,
+        currentLocationX: CGFloat
+    ) -> CGFloat {
+        guard sessionCount > 0 else { return 0 }
+        let step = dotDiameter + dotSpacing
+        let delta = (currentLocationX - startLocationX) / step
+        return min(max(0, startVirtualIndex + delta), CGFloat(sessionCount - 1))
+    }
+
+    static func scrubCandidateIndex(sessionCount: Int, virtualIndex: CGFloat) -> Int {
+        guard sessionCount > 0 else { return 0 }
+        return min(max(0, Int(virtualIndex.rounded())), sessionCount - 1)
+    }
+
+    static func locationX(forIndex index: Int) -> CGFloat {
+        horizontalPadding + (CGFloat(index) * (dotDiameter + dotSpacing))
+    }
+
     static func scrubMagnificationScale(dotIndex: Int, candidateIndex: Int?) -> CGFloat {
         guard let candidateIndex else { return 1 }
-        let distance = CGFloat(abs(dotIndex - candidateIndex))
-        let radius: CGFloat = 3
-        guard distance < radius else { return 1 }
-        let falloff = exp(-pow(distance / 0.9, 2))
-        return 1 + (1.55 * falloff)
+        return scrubMagnificationScale(
+            dotIndex: dotIndex,
+            virtualIndex: CGFloat(candidateIndex),
+            metrics: scrubLayoutMetrics(
+                totalSessionCount: collapsedMaxVisibleDots,
+                visibleDotCount: collapsedMaxVisibleDots,
+                controlWidth: requiredControlWidth(
+                    visibleDotCount: collapsedMaxVisibleDots,
+                    includesOverflowIndicators: false
+                ),
+                maxWidth: nil,
+                isScrubbing: true
+            )
+        )
+    }
+
+    static func scrubMagnificationScale(
+        dotIndex: Int,
+        virtualIndex: CGFloat?,
+        metrics: ScrubLayoutMetrics
+    ) -> CGFloat {
+        guard let virtualIndex else { return 1 }
+        let distance = abs(CGFloat(dotIndex) - virtualIndex)
+        guard distance < metrics.magnificationRadius else { return 1 }
+        let falloff = exp(-pow(distance / metrics.magnificationSigma, 2))
+        return 1 + ((metrics.maximumScale - 1) * falloff)
     }
 
     static func scrubMagnificationVerticalOffset(scale: CGFloat) -> CGFloat {
@@ -428,3 +606,66 @@ struct StreamPageDotsView: View {
         return -(scale - 1) * 5
     }
 }
+
+#if canImport(UIKit)
+private struct StreamPageDotsGestureBridge: UIViewRepresentable {
+    let onTap: () -> Void
+    let onScrubBegan: (CGFloat) -> Void
+    let onScrubChanged: (CGFloat) -> Void
+    let onScrubEnded: (CGFloat) -> Void
+    let onScrubCancelled: () -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = true
+
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.28
+        longPress.allowableMovement = 18
+        tap.require(toFail: longPress)
+
+        view.addGestureRecognizer(tap)
+        view.addGestureRecognizer(longPress)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    final class Coordinator: NSObject {
+        var parent: StreamPageDotsGestureBridge
+
+        init(parent: StreamPageDotsGestureBridge) {
+            self.parent = parent
+        }
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended else { return }
+            parent.onTap()
+        }
+
+        @objc func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
+            let locationX = recognizer.location(in: recognizer.view).x
+            switch recognizer.state {
+            case .began:
+                parent.onScrubBegan(locationX)
+            case .changed:
+                parent.onScrubChanged(locationX)
+            case .ended:
+                parent.onScrubEnded(locationX)
+            case .cancelled, .failed:
+                parent.onScrubCancelled()
+            default:
+                break
+            }
+        }
+    }
+}
+#endif
