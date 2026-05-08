@@ -242,6 +242,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let previewRemeasureRestPollSeconds: TimeInterval = 0.06
     private static let bottomInsetHeightCapInvalidationDebounceSeconds: TimeInterval = 0.20
     private static let restoreMaxConfirmationRetries: Int = 3
+    private static let typingIndicatorTapTargetOutset: CGFloat = 16
 
     private var messagesById: [String: Message] = [:]
     private var dateSeparatorTextByItemId: [String: String] = [:]
@@ -3267,8 +3268,27 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
               let typingIndexPath = dataSource.indexPath(for: TypingIndicatorCell.itemId),
               let attributes = collectionView.layoutAttributesForItem(at: typingIndexPath) else { return }
         let point = recognizer.location(in: collectionView)
-        guard attributes.frame.contains(point) else { return }
+        guard typingIndicatorTapTargetFrame(
+            for: typingIndexPath,
+            layoutAttributes: attributes
+        ).contains(point) else { return }
         onTypingIndicatorTap()
+    }
+
+    private func typingIndicatorTapTargetFrame(
+        for indexPath: IndexPath,
+        layoutAttributes: UICollectionViewLayoutAttributes
+    ) -> CGRect {
+        let visibleFrame: CGRect
+        if let cell = collectionView.cellForItem(at: indexPath) as? TypingIndicatorCell {
+            visibleFrame = cell.convert(cell.bounds, to: collectionView)
+        } else {
+            visibleFrame = layoutAttributes.frame
+        }
+        return visibleFrame.insetBy(
+            dx: -Self.typingIndicatorTapTargetOutset,
+            dy: -Self.typingIndicatorTapTargetOutset
+        )
     }
 
     private func configureDataSource() {
