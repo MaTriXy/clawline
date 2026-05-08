@@ -1710,6 +1710,15 @@ struct ChatView: View {
             onSelectStream: { sessionKey in
                 selectStream(sessionKey, source: .programmatic)
             },
+            onPreviewScrubStream: { sessionKey in
+                previewScrubStream(sessionKey, viewModel: viewModel)
+            },
+            onCommitScrubStream: { sessionKey in
+                selectStream(sessionKey, source: .programmatic)
+            },
+            onCancelScrub: {
+                streamToastManager.hide()
+            },
             onPrepareForTrackPicker: {
                 prepareForAttachmentPicker()
             },
@@ -1722,6 +1731,21 @@ struct ChatView: View {
     private func selectStream(_ sessionKey: String, source: ChatViewModel.StreamSwitchSource) {
         StreamSwitchTiming.log("selectStream_called", sessionKey: sessionKey)
         viewModel.requestStreamSwitch(to: sessionKey, source: source)
+    }
+
+    private func previewScrubStream(_ sessionKey: String, viewModel: ChatViewModel) {
+        let streamDisplayName = viewModel.stream(for: sessionKey)?.displayName ?? sessionKey
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+            streamToastManager.show(
+                displayName: streamDisplayName,
+                sessionKey: sessionKey,
+                isBusy: false,
+                autoDismiss: false
+            )
+        }
+        streamToastBusySince = nil
+        streamToastBusyClearTask?.cancel()
+        streamToastBusyClearTask = nil
     }
 
     private var supportsKeyboardNavigationShortcuts: Bool {
@@ -2200,6 +2224,9 @@ private struct StreamPopupTrigger: View {
     let maxAvailableHeight: CGFloat
     let maxAvailableWidth: CGFloat
     let onSelectStream: (String) -> Void
+    let onPreviewScrubStream: (String) -> Void
+    let onCommitScrubStream: (String) -> Void
+    let onCancelScrub: () -> Void
     let onPrepareForTrackPicker: () -> Void
     let onTrackPickerDismiss: () -> Void
 
@@ -2211,7 +2238,10 @@ private struct StreamPopupTrigger: View {
             maxWidth: maxWidth,
             onTap: {
                 routeController.openPopup(focusSearch: false)
-            }
+            },
+            onScrubPreview: onPreviewScrubStream,
+            onScrubCommit: onCommitScrubStream,
+            onScrubCancel: onCancelScrub
         )
         .popover(
             isPresented: popupPresentationBinding,

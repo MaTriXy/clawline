@@ -15,6 +15,13 @@ struct StreamPageDotsView: View {
     let dotStatesBySession: [String: StreamDotState]
     let maxWidth: CGFloat?
     let onTap: () -> Void
+    let onScrubPreview: (String) -> Void
+    let onScrubCommit: (String) -> Void
+    let onScrubCancel: () -> Void
+
+    @State private var scrubStartIndex: Int?
+    @State private var scrubCandidateIndex: Int?
+    @State private var scrubTapSuppressionExpiresAt = Date.distantPast
 
     private static let collapsedMaxVisibleDots = 11
     private static let dotDiameter: CGFloat = 7
@@ -44,22 +51,19 @@ struct StreamPageDotsView: View {
         return maxWidth
     }
 
-    private var targetControlWidth: CGFloat? {
-        Self.targetControlWidth(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget)
-    }
-
     private var shouldExpandToMaxWidth: Bool {
         guard maxWidth != nil else { return false }
         return sessionKeys.count > Self.collapsedMaxVisibleDots
     }
 
     private var visibleDotIndices: [Int] {
+        let centerIndex = scrubCandidateIndex ?? activeIndex
         guard sessionKeys.count > maxVisibleDots else {
             return Array(sessionKeys.indices)
         }
         let halfWindow = maxVisibleDots / 2
         let maxStart = sessionKeys.count - maxVisibleDots
-        let start = min(max(0, activeIndex - halfWindow), maxStart)
+        let start = min(max(0, centerIndex - halfWindow), maxStart)
         return Array(start..<(start + maxVisibleDots))
     }
 
@@ -149,17 +153,103 @@ struct StreamPageDotsView: View {
     }
 
     var body: some View {
-        Button(action: onTap) {
-            controlBody
-                .frame(minHeight: Self.minimumHitTargetHeight, alignment: .bottom)
-                .contentShape(Rectangle())
+        controlBody
+            .frame(minHeight: Self.minimumHitTargetHeight, alignment: .bottom)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard Date() >= scrubTapSuppressionExpiresAt else { return }
+                onTap()
+            }
+            .highPriorityGesture(scrubGesture)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: Text("Open stream manager"), onTap)
+            .accessibilityLabel("Manage streams")
+            .accessibilityValue("Stream \(activeIndex + 1) of \(sessionKeys.count)")
+            .accessibilityHint("Tap to open stream manager. Long press and drag to preview streams.")
+    }
+
+    private var scrubGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.28, maximumDistance: 24)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+            .onChanged { value in
+                switch value {
+                case .first(true):
+                    beginScrubIfNeeded(startIndex: activeIndex, capturesStart: false)
+                case .second(true, let dragValue):
+                    if let dragValue {
+                        updateScrubCandidate(with: dragValue)
+                    }
+                default:
+                    break
+                }
+            }
+            .onEnded { value in
+                switch value {
+                case .first(true):
+                    commitScrub()
+                case .second(true, let dragValue):
+                    if let dragValue {
+                        updateScrubCandidate(with: dragValue)
+                    }
+                    commitScrub()
+                default:
+                    cancelScrub()
+                }
+            }
+    }
+
+    private func beginScrubIfNeeded(startIndex: Int, capturesStart: Bool = true) {
+        guard !sessionKeys.isEmpty else { return }
+        scrubTapSuppressionExpiresAt = Date().addingTimeInterval(0.45)
+        if capturesStart, scrubStartIndex == nil {
+            scrubStartIndex = startIndex
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: Text("Open stream manager"), onTap)
-        .accessibilityLabel("Manage streams")
-        .accessibilityValue("Stream \(activeIndex + 1) of \(sessionKeys.count)")
-        .accessibilityHint("Opens stream manager")
+        updateScrubCandidate(index: scrubCandidateIndex ?? startIndex)
+    }
+
+    private func updateScrubCandidate(with value: DragGesture.Value) {
+        guard !sessionKeys.isEmpty else { return }
+        let controlWidth = Self.renderedControlWidth(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget)
+        let startIndex = scrubStartIndex ?? Self.scrubStartCandidateIndex(
+            startLocationX: value.startLocation.x,
+            controlWidth: controlWidth,
+            visibleDotIndices: visibleDotIndices,
+            fallbackIndex: activeIndex
+        )
+        beginScrubIfNeeded(startIndex: startIndex)
+        let candidate = Self.scrubCandidateIndex(
+            sessionCount: sessionKeys.count,
+            startIndex: startIndex,
+            translationWidth: value.translation.width
+        )
+        updateScrubCandidate(index: candidate)
+    }
+
+    private func updateScrubCandidate(index: Int) {
+        guard sessionKeys.indices.contains(index) else { return }
+        guard scrubCandidateIndex != index else { return }
+        scrubCandidateIndex = index
+        onScrubPreview(sessionKeys[index])
+    }
+
+    private func commitScrub() {
+        guard let index = scrubCandidateIndex, sessionKeys.indices.contains(index) else {
+            cancelScrub()
+            return
+        }
+        let sessionKey = sessionKeys[index]
+        resetScrubState()
+        onScrubCommit(sessionKey)
+    }
+
+    private func cancelScrub() {
+        resetScrubState()
+        onScrubCancel()
+    }
+
+    private func resetScrubState() {
+        scrubStartIndex = nil
+        scrubCandidateIndex = nil
     }
 
     private var controlBody: some View {
@@ -172,7 +262,12 @@ struct StreamPageDotsView: View {
             ForEach(visibleDotIndices, id: \.self) { index in
                 let sessionKey = sessionKeys[index]
                 let isActive = index == activeIndex
+                let isCandidate = index == scrubCandidateIndex
                 let dotState = dotStatesBySession[sessionKey] ?? .inactive
+                let scale = Self.scrubMagnificationScale(
+                    dotIndex: index,
+                    candidateIndex: scrubCandidateIndex
+                )
                 Circle()
                     .fill(
                         StreamDotColor.resolve(
@@ -181,14 +276,23 @@ struct StreamPageDotsView: View {
                             colorScheme: colorScheme
                         )
                     )
-                    .frame(width: 7, height: 7)
+                    .frame(width: Self.dotDiameter, height: Self.dotDiameter)
+                    .overlay {
+                        if isCandidate && !isActive {
+                            Circle()
+                                .stroke(StreamDotColor.activeGlow(colorScheme: colorScheme).opacity(0.85), lineWidth: 1.2)
+                                .scaleEffect(1.16)
+                        }
+                    }
+                    .scaleEffect(scale)
+                    .zIndex(scale)
                     .shadow(
-                        color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
-                        radius: isActive ? StreamDotColor.activeOuterGlowRadius(colorScheme: colorScheme) : 0
+                        color: (isActive || isCandidate) ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                        radius: (isActive || isCandidate) ? StreamDotColor.activeOuterGlowRadius(colorScheme: colorScheme) : 0
                     )
                     .shadow(
-                        color: isActive ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
-                        radius: isActive ? StreamDotColor.activeInnerGlowRadius(colorScheme: colorScheme) : 0
+                        color: (isActive || isCandidate) ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                        radius: (isActive || isCandidate) ? StreamDotColor.activeInnerGlowRadius(colorScheme: colorScheme) : 0
                     )
             }
             if showsTrailingOverflow {
@@ -201,7 +305,7 @@ struct StreamPageDotsView: View {
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, Self.horizontalPadding)
         .padding(.vertical, Self.verticalPadding)
-        .frame(width: targetControlWidth)
+        .frame(width: Self.renderedControlWidth(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget))
         .background {
             unreadEdgeBloomOverlay
                 .mask(Capsule())
@@ -242,5 +346,41 @@ struct StreamPageDotsView: View {
         }
         .frame(width: 20, height: 18)
         .offset(x: edge == .leading ? -4 : 4)
+    }
+
+    static func scrubStartCandidateIndex(
+        startLocationX: CGFloat,
+        controlWidth: CGFloat,
+        visibleDotIndices: [Int],
+        fallbackIndex: Int
+    ) -> Int {
+        guard let first = visibleDotIndices.first, !visibleDotIndices.isEmpty else {
+            return fallbackIndex
+        }
+        guard visibleDotIndices.count > 1 else { return first }
+        let usableWidth = max(1, controlWidth - (horizontalPadding * 2))
+        let normalized = min(1, max(0, (startLocationX - horizontalPadding) / usableWidth))
+        let visibleOffset = Int((normalized * CGFloat(visibleDotIndices.count - 1)).rounded())
+        return visibleDotIndices[min(max(0, visibleOffset), visibleDotIndices.count - 1)]
+    }
+
+    static func scrubCandidateIndex(
+        sessionCount: Int,
+        startIndex: Int,
+        translationWidth: CGFloat
+    ) -> Int {
+        guard sessionCount > 0 else { return 0 }
+        let step = dotDiameter + dotSpacing
+        let delta = Int((translationWidth / step).rounded())
+        return min(max(0, startIndex + delta), sessionCount - 1)
+    }
+
+    static func scrubMagnificationScale(dotIndex: Int, candidateIndex: Int?) -> CGFloat {
+        guard let candidateIndex else { return 1 }
+        let distance = CGFloat(abs(dotIndex - candidateIndex))
+        let radius: CGFloat = 3
+        guard distance < radius else { return 1 }
+        let falloff = (cos((distance / radius) * .pi) + 1) / 2
+        return 1 + (0.82 * falloff)
     }
 }

@@ -86,6 +86,48 @@ struct StreamPageDotsViewTests {
         )
     }
 
+    @Test("T257: scrub start maps touch position through the visible dot window")
+    func scrubStartMapsTouchPositionThroughVisibleWindow() {
+        let startIndex = StreamPageDotsView.scrubStartCandidateIndex(
+            startLocationX: 95,
+            controlWidth: 190,
+            visibleDotIndices: Array(15...25),
+            fallbackIndex: 20
+        )
+
+        #expect(startIndex == 20)
+    }
+
+    @Test("T257: scrub translation can reach dots truncated beyond both edges")
+    func scrubTranslationCanReachTruncatedEdges() {
+        let rightEdge = StreamPageDotsView.scrubCandidateIndex(
+            sessionCount: 40,
+            startIndex: 20,
+            translationWidth: 19 * 14
+        )
+        let leftEdge = StreamPageDotsView.scrubCandidateIndex(
+            sessionCount: 40,
+            startIndex: 20,
+            translationWidth: -20 * 14
+        )
+
+        #expect(rightEdge == 39)
+        #expect(leftEdge == 0)
+    }
+
+    @Test("T257: scrub magnification falls off smoothly with candidate distance")
+    func scrubMagnificationFallsOffWithDistance() {
+        let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, candidateIndex: 10)
+        let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, candidateIndex: 10)
+        let outer = StreamPageDotsView.scrubMagnificationScale(dotIndex: 12, candidateIndex: 10)
+        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 13, candidateIndex: 10)
+
+        #expect(primary > neighbor)
+        #expect(neighbor > outer)
+        #expect(outer > outside)
+        #expect(outside == 1)
+    }
+
     @Test("Popup route controller owns popup search and track picker surfaces")
     func popupRouteControllerOwnsPopupAndTrackPickerSurfaces() {
         let routeController = StreamPopupRouteController()
