@@ -1848,10 +1848,12 @@ struct ChatView: View {
 
     private func presentCancelCurrentPromptDialog(sessionKey: String? = nil) {
         if let sessionKey {
+            print("T217DIAG present_request build=\(Self.t217DiagnosticBuild) explicitSession=\(sessionKey) canCancelExplicit=\(viewModel.canCancelCurrentPrompt(in: sessionKey)) canCancelAny=\(viewModel.canCancelCurrentPrompt)")
             logger.notice(
                 "T217DIAG present_request build=\(Self.t217DiagnosticBuild, privacy: .public) explicitSession=\(sessionKey, privacy: .public) canCancelExplicit=\(viewModel.canCancelCurrentPrompt(in: sessionKey), privacy: .public) canCancelAny=\(viewModel.canCancelCurrentPrompt, privacy: .public)"
             )
             guard viewModel.canCancelCurrentPrompt(in: sessionKey) else {
+                print("T217DIAG present_result build=\(Self.t217DiagnosticBuild) result=suppressed explicitSession=\(sessionKey)")
                 logger.notice(
                     "T217DIAG present_result build=\(Self.t217DiagnosticBuild, privacy: .public) result=suppressed explicitSession=\(sessionKey, privacy: .public)"
                 )
@@ -1861,10 +1863,12 @@ struct ChatView: View {
             }
             cancelCurrentPromptSessionKey = sessionKey
         } else {
+            print("T217DIAG present_request build=\(Self.t217DiagnosticBuild) explicitSession=nil canCancelAny=\(viewModel.canCancelCurrentPrompt)")
             logger.notice(
                 "T217DIAG present_request build=\(Self.t217DiagnosticBuild, privacy: .public) explicitSession=nil canCancelAny=\(viewModel.canCancelCurrentPrompt, privacy: .public)"
             )
             guard viewModel.canCancelCurrentPrompt else {
+                print("T217DIAG present_result build=\(Self.t217DiagnosticBuild) result=suppressed explicitSession=nil")
                 logger.notice(
                     "T217DIAG present_result build=\(Self.t217DiagnosticBuild, privacy: .public) result=suppressed explicitSession=nil"
                 )
@@ -1875,6 +1879,7 @@ struct ChatView: View {
             cancelCurrentPromptSessionKey = nil
         }
         isCancelCurrentPromptDialogPresented = true
+        print("T217DIAG present_result build=\(Self.t217DiagnosticBuild) result=presented storedSession=\(cancelCurrentPromptSessionKey ?? "nil")")
         logger.notice(
             "T217DIAG present_result build=\(Self.t217DiagnosticBuild, privacy: .public) result=presented storedSession=\(cancelCurrentPromptSessionKey ?? "nil", privacy: .public)"
         )

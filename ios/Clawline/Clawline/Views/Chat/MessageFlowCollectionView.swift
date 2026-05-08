@@ -3342,6 +3342,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         typingIndicatorTap.delaysTouchesBegan = false
         typingIndicatorTap.delaysTouchesEnded = false
         collectionView.addGestureRecognizer(typingIndicatorTap)
+        let diagnosticMessage = "T217DIAG collection_recognizer_installed build=\(Self.t217DiagnosticBuild) recognizerCount=\(self.collectionView.gestureRecognizers?.count ?? 0)"
+        print(diagnosticMessage)
         typingCancelDiagnosticLogger.notice(
             "T217DIAG collection_recognizer_installed build=\(Self.t217DiagnosticBuild, privacy: .public) recognizerCount=\(self.collectionView.gestureRecognizers?.count ?? 0, privacy: .public)"
         )
@@ -3370,6 +3372,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let attributes = typingIndexPath.flatMap { collectionView.layoutAttributesForItem(at: $0) }
         let frame = attributes?.frame ?? .null
         let didHit = attributes?.frame.contains(point) == true
+        let diagnosticMessage = "T217DIAG collection_tap build=\(Self.t217DiagnosticBuild) state=\(recognizer.state.rawValue) point=\(String(describing: point)) hasCallback=\(hasCallback) hasTypingIndexPath=\(typingIndexPath != nil) typingFrame=\(String(describing: frame)) didHit=\(didHit) contentOffset=\(String(describing: self.collectionView.contentOffset)) contentInset=\(String(describing: self.collectionView.contentInset))"
+        print(diagnosticMessage)
         typingCancelDiagnosticLogger.notice(
             "T217DIAG collection_tap build=\(Self.t217DiagnosticBuild, privacy: .public) state=\(recognizer.state.rawValue, privacy: .public) point=\(String(describing: point), privacy: .public) hasCallback=\(hasCallback, privacy: .public) hasTypingIndexPath=\(typingIndexPath != nil, privacy: .public) typingFrame=\(String(describing: frame), privacy: .public) didHit=\(didHit, privacy: .public) contentOffset=\(String(describing: self.collectionView.contentOffset), privacy: .public) contentInset=\(String(describing: self.collectionView.contentInset), privacy: .public)"
         )
@@ -3377,6 +3381,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
               let onTypingIndicatorTap,
               attributes != nil,
               didHit else { return }
+        print("T217DIAG collection_tap_invoking_callback build=\(Self.t217DiagnosticBuild) point=\(String(describing: point))")
         typingCancelDiagnosticLogger.notice(
             "T217DIAG collection_tap_invoking_callback build=\(Self.t217DiagnosticBuild, privacy: .public) point=\(String(describing: point), privacy: .public)"
         )

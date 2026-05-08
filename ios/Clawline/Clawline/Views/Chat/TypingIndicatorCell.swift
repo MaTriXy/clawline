@@ -53,6 +53,8 @@ final class TypingIndicatorCell: UICollectionViewCell {
                    isDark: Bool? = nil,
                    onTap: (() -> Void)? = nil) {
         self.onTap = onTap
+        let diagnosticMessage = "T217DIAG cell_configure build=\(Self.diagnosticBuild) session=\(message.sessionKey) hasCallback=\(onTap != nil) bounds=\(String(describing: self.bounds)) frame=\(String(describing: self.frame)) maxWidth=\(maxWidth)"
+        print(diagnosticMessage)
         diagnosticLogger.notice(
             "T217DIAG cell_configure build=\(Self.diagnosticBuild, privacy: .public) session=\(message.sessionKey, privacy: .public) hasCallback=\(onTap != nil, privacy: .public) bounds=\(String(describing: self.bounds), privacy: .public) frame=\(String(describing: self.frame), privacy: .public) maxWidth=\(maxWidth, privacy: .public)"
         )
@@ -87,6 +89,8 @@ final class TypingIndicatorCell: UICollectionViewCell {
     }
 
     @objc private func handleTap() {
+        let diagnosticMessage = "T217DIAG cell_tap build=\(Self.diagnosticBuild) hasCallback=\(self.onTap != nil) bounds=\(String(describing: self.bounds)) frame=\(String(describing: self.frame))"
+        print(diagnosticMessage)
         diagnosticLogger.notice(
             "T217DIAG cell_tap build=\(Self.diagnosticBuild, privacy: .public) hasCallback=\(self.onTap != nil, privacy: .public) bounds=\(String(describing: self.bounds), privacy: .public) frame=\(String(describing: self.frame), privacy: .public)"
         )
