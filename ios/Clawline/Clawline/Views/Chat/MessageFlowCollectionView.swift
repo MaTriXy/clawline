@@ -2453,13 +2453,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     static func footerRevealAlpha(
         contentOffsetY: CGFloat,
+        restingBottomOffsetY: CGFloat,
         trueBottomOffsetY: CGFloat,
-        revealRange: CGFloat
     ) -> CGFloat {
-        guard trueBottomOffsetY.isFinite else { return 1 }
-        guard revealRange > 0 else { return 1 }
-        let distance = max(0, trueBottomOffsetY - contentOffsetY)
-        return min(1, max(0, 1 - (distance / revealRange)))
+        guard restingBottomOffsetY.isFinite, trueBottomOffsetY.isFinite else { return 0 }
+        let revealDistance = trueBottomOffsetY - restingBottomOffsetY
+        guard revealDistance > 0 else { return 0 }
+        let revealedDistance = contentOffsetY - restingBottomOffsetY
+        return min(1, max(0, revealedDistance / revealDistance))
     }
 
     private func isNonMessageItemID(_ id: String) -> Bool {
@@ -2612,8 +2613,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard dataSource.indexPath(for: SessionMetadataFooterCell.itemId) != nil else { return 1 }
         return Self.footerRevealAlpha(
             contentOffsetY: collectionView.contentOffset.y,
-            trueBottomOffsetY: trueBottomOffsetMaxY(bottomInset: currentBottomInset),
-            revealRange: SessionMetadataFooterCell.fadeRevealRange
+            restingBottomOffsetY: restingBottomOffsetMaxY(bottomInset: currentBottomInset),
+            trueBottomOffsetY: trueBottomOffsetMaxY(bottomInset: currentBottomInset)
         )
     }
 

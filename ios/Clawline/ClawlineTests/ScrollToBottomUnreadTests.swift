@@ -143,30 +143,40 @@ struct ScrollToBottomUnreadTests {
         #expect(trueBottom - restingBottom == footerHeight)
         #expect(MessageFlowCollectionViewController.footerRevealAlpha(
             contentOffsetY: restingBottom,
+            restingBottomOffsetY: restingBottom,
             trueBottomOffsetY: trueBottom,
-            revealRange: SessionMetadataFooterCell.fadeRevealRange
+        ) == 0)
+        #expect(MessageFlowCollectionViewController.footerRevealAlpha(
+            contentOffsetY: restingBottom - 1,
+            restingBottomOffsetY: restingBottom,
+            trueBottomOffsetY: trueBottom
         ) == 0)
     }
 
     @Test("User scroll past SBB resting bottom reveals footer")
     func userScrollPastSBBRestingBottomRevealsFooter() {
+        let restingBottom: CGFloat = 440
         let trueBottom: CGFloat = 500
-        let revealRange = SessionMetadataFooterCell.fadeRevealRange
 
         #expect(MessageFlowCollectionViewController.footerRevealAlpha(
-            contentOffsetY: trueBottom - revealRange,
+            contentOffsetY: restingBottom,
+            restingBottomOffsetY: restingBottom,
             trueBottomOffsetY: trueBottom,
-            revealRange: revealRange
         ) == 0)
         #expect(MessageFlowCollectionViewController.footerRevealAlpha(
-            contentOffsetY: trueBottom - (revealRange / 2),
+            contentOffsetY: restingBottom + 1,
+            restingBottomOffsetY: restingBottom,
+            trueBottomOffsetY: trueBottom
+        ) > 0)
+        #expect(MessageFlowCollectionViewController.footerRevealAlpha(
+            contentOffsetY: (restingBottom + trueBottom) / 2,
+            restingBottomOffsetY: restingBottom,
             trueBottomOffsetY: trueBottom,
-            revealRange: revealRange
         ) == 0.5)
         #expect(MessageFlowCollectionViewController.footerRevealAlpha(
             contentOffsetY: trueBottom,
-            trueBottomOffsetY: trueBottom,
-            revealRange: revealRange
+            restingBottomOffsetY: restingBottom,
+            trueBottomOffsetY: trueBottom
         ) == 1)
     }
 }
