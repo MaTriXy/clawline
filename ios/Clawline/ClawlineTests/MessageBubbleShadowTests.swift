@@ -25,5 +25,28 @@ struct MessageBubbleShadowTests {
 
         #expect(colors.count == 2)
         #expect(colors.first == colors.last)
+        #expect(Self.rgba(colors[0]) == (221, 239, 212, 255))
+    }
+
+    @Test("Dark user prompt bubble fill stays unchanged")
+    func darkUserPromptBubbleFillStaysUnchanged() {
+        let colors = ChatFlowUIKitTheme.palette(isDark: true).bubbleSelfGradient
+
+        #expect(Self.rgba(colors[0]) == (45, 59, 42, 255))
+        #expect(Self.rgba(colors[1]) == (36, 51, 34, 255))
+    }
+
+    private static func rgba(_ color: UIColor) -> (r: Int, g: Int, b: Int, a: Int) {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return (
+            Int((red * 255).rounded()),
+            Int((green * 255).rounded()),
+            Int((blue * 255).rounded()),
+            Int((alpha * 255).rounded())
+        )
     }
 }

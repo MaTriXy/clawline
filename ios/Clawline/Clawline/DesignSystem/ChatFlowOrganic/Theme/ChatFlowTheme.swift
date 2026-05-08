@@ -69,13 +69,13 @@ enum ChatFlowTheme {
     static func pageBackgroundTopColor(_ scheme: ColorScheme) -> Color {
         scheme == .dark
             ? Color(red: 0.110, green: 0.098, blue: 0.090)  // #1C1917
-            : Color(red: 0.933, green: 0.941, blue: 0.878)  // #EEF0E0
+            : Color(red: 0.941, green: 0.918, blue: 0.878)  // #F0EAE0
     }
 
     static func pageBackgroundBottomColor(_ scheme: ColorScheme) -> Color {
         scheme == .dark
             ? Color(red: 0.078, green: 0.071, blue: 0.063)  // #141210
-            : Color(red: 0.902, green: 0.910, blue: 0.831)  // #E6E8D4
+            : Color(red: 0.910, green: 0.878, blue: 0.831)  // #E8E0D4
     }
 
     static func pageBackground(_ scheme: ColorScheme) -> LinearGradient {
@@ -90,8 +90,8 @@ enum ChatFlowTheme {
             ? LinearGradient(colors: [Color(red: 0.110, green: 0.098, blue: 0.090),
                                       Color(red: 0.078, green: 0.071, blue: 0.063)],
                              startPoint: .top, endPoint: .bottom)
-            : LinearGradient(colors: [Color(red: 0.933, green: 0.941, blue: 0.878),
-                                      Color(red: 0.902, green: 0.910, blue: 0.831)],
+            : LinearGradient(colors: [Color(red: 0.941, green: 0.918, blue: 0.878),
+                                      Color(red: 0.910, green: 0.878, blue: 0.831)],
                              startPoint: .top, endPoint: .bottom)
     }
 
@@ -100,8 +100,8 @@ enum ChatFlowTheme {
             ? LinearGradient(colors: [Color(red: 0.176, green: 0.231, blue: 0.165),
                                       Color(red: 0.141, green: 0.200, blue: 0.133)],
                              startPoint: .topLeading, endPoint: .bottomTrailing)
-            : LinearGradient(colors: [Color(red: 0.886, green: 0.933, blue: 0.859),
-                                      Color(red: 0.886, green: 0.933, blue: 0.859)],
+            : LinearGradient(colors: [Color(red: 0.867, green: 0.937, blue: 0.831),
+                                      Color(red: 0.867, green: 0.937, blue: 0.831)],
                              startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
