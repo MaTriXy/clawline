@@ -2432,6 +2432,36 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         !hasAuthoritativeRestoreTarget
     }
 
+    static func restingBottomContentHeight(
+        contentSizeHeight: CGFloat,
+        footerHeight: CGFloat,
+        hasFooter: Bool
+    ) -> CGFloat {
+        guard hasFooter else { return contentSizeHeight }
+        return max(0, contentSizeHeight - footerHeight)
+    }
+
+    static func bottomOffsetMaxY(
+        contentHeight: CGFloat,
+        boundsHeight: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat
+    ) -> CGFloat {
+        let minY = -topInset
+        return max(minY, contentHeight - boundsHeight + bottomInset)
+    }
+
+    static func footerRevealAlpha(
+        contentOffsetY: CGFloat,
+        trueBottomOffsetY: CGFloat,
+        revealRange: CGFloat
+    ) -> CGFloat {
+        guard trueBottomOffsetY.isFinite else { return 1 }
+        guard revealRange > 0 else { return 1 }
+        let distance = max(0, trueBottomOffsetY - contentOffsetY)
+        return min(1, max(0, 1 - (distance / revealRange)))
+    }
+
     private func isNonMessageItemID(_ id: String) -> Bool {
         id == TypingIndicatorCell.itemId
             || id == SessionMetadataFooterCell.itemId
@@ -2542,12 +2572,29 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func restingBottomContentHeight() -> CGFloat {
-        collectionView.contentSize.height
+        Self.restingBottomContentHeight(
+            contentSizeHeight: collectionView.contentSize.height,
+            footerHeight: SessionMetadataFooterCell.height(for: sessionStatus),
+            hasFooter: dataSource.indexPath(for: SessionMetadataFooterCell.itemId) != nil
+        )
     }
 
     private func restingBottomOffsetMaxY(bottomInset: CGFloat) -> CGFloat {
-        let minY = -collectionView.contentInset.top
-        return max(minY, restingBottomContentHeight() - collectionView.bounds.height + bottomInset)
+        Self.bottomOffsetMaxY(
+            contentHeight: restingBottomContentHeight(),
+            boundsHeight: collectionView.bounds.height,
+            topInset: collectionView.contentInset.top,
+            bottomInset: bottomInset
+        )
+    }
+
+    private func trueBottomOffsetMaxY(bottomInset: CGFloat) -> CGFloat {
+        Self.bottomOffsetMaxY(
+            contentHeight: collectionView.contentSize.height,
+            boundsHeight: collectionView.bounds.height,
+            topInset: collectionView.contentInset.top,
+            bottomInset: bottomInset
+        )
     }
 
     private func distanceFromBottomClamped() -> CGFloat {
@@ -2563,12 +2610,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func footerRevealAlpha() -> CGFloat {
         guard dataSource.indexPath(for: SessionMetadataFooterCell.itemId) != nil else { return 1 }
-        let maxY = restingBottomOffsetMaxY(bottomInset: currentBottomInset)
-        guard maxY.isFinite else { return 1 }
-        let revealRange = SessionMetadataFooterCell.fadeRevealRange
-        guard revealRange > 0 else { return 1 }
-        let distance = max(0, maxY - collectionView.contentOffset.y)
-        return min(1, max(0, 1 - (distance / revealRange)))
+        return Self.footerRevealAlpha(
+            contentOffsetY: collectionView.contentOffset.y,
+            trueBottomOffsetY: trueBottomOffsetMaxY(bottomInset: currentBottomInset),
+            revealRange: SessionMetadataFooterCell.fadeRevealRange
+        )
     }
 
     private func updateVisibleFooterAlpha() {

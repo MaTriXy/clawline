@@ -1,4 +1,5 @@
 import Testing
+import CoreGraphics
 @testable import Clawline
 
 struct ScrollToBottomUnreadTests {
@@ -110,5 +111,62 @@ struct ScrollToBottomUnreadTests {
             hasAuthoritativeRestoreTarget: true
         )
         #expect(shouldCompensate == false)
+    }
+
+    @Test("SBB resting bottom excludes footer reveal range")
+    func sbbRestingBottomExcludesFooterRevealRange() {
+        let contentHeight: CGFloat = 1_200
+        let boundsHeight: CGFloat = 700
+        let topInset: CGFloat = 40
+        let bottomInset: CGFloat = 180
+        let footerHeight = SessionMetadataFooterCell.topPadding
+            + SessionMetadataFooterCell.actionRegionHeight
+            + SessionMetadataFooterCell.bottomPadding
+        let restingContentHeight = MessageFlowCollectionViewController.restingBottomContentHeight(
+            contentSizeHeight: contentHeight,
+            footerHeight: footerHeight,
+            hasFooter: true
+        )
+        let restingBottom = MessageFlowCollectionViewController.bottomOffsetMaxY(
+            contentHeight: restingContentHeight,
+            boundsHeight: boundsHeight,
+            topInset: topInset,
+            bottomInset: bottomInset
+        )
+        let trueBottom = MessageFlowCollectionViewController.bottomOffsetMaxY(
+            contentHeight: contentHeight,
+            boundsHeight: boundsHeight,
+            topInset: topInset,
+            bottomInset: bottomInset
+        )
+
+        #expect(trueBottom - restingBottom == footerHeight)
+        #expect(MessageFlowCollectionViewController.footerRevealAlpha(
+            contentOffsetY: restingBottom,
+            trueBottomOffsetY: trueBottom,
+            revealRange: SessionMetadataFooterCell.fadeRevealRange
+        ) == 0)
+    }
+
+    @Test("User scroll past SBB resting bottom reveals footer")
+    func userScrollPastSBBRestingBottomRevealsFooter() {
+        let trueBottom: CGFloat = 500
+        let revealRange = SessionMetadataFooterCell.fadeRevealRange
+
+        #expect(MessageFlowCollectionViewController.footerRevealAlpha(
+            contentOffsetY: trueBottom - revealRange,
+            trueBottomOffsetY: trueBottom,
+            revealRange: revealRange
+        ) == 0)
+        #expect(MessageFlowCollectionViewController.footerRevealAlpha(
+            contentOffsetY: trueBottom - (revealRange / 2),
+            trueBottomOffsetY: trueBottom,
+            revealRange: revealRange
+        ) == 0.5)
+        #expect(MessageFlowCollectionViewController.footerRevealAlpha(
+            contentOffsetY: trueBottom,
+            trueBottomOffsetY: trueBottom,
+            revealRange: revealRange
+        ) == 1)
     }
 }
