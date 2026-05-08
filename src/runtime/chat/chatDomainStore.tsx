@@ -298,14 +298,14 @@ export function createChatDomainStore(options?: {
     resetForAuthoritativeReplay() {
       baseStore.setState((current) => {
         hydrationEpoch += 1;
-        const acceptedLocalMessagesBySessionKey = acceptedLocalMessagesFrom(current);
+        const preservedMessagesBySessionKey = replayResetPreservedMessagesFrom(current);
         const nextState = {
           ...EMPTY_STATE,
           hydrated: current.hydrated,
-          messagesBySessionKey: acceptedLocalMessagesBySessionKey,
+          messagesBySessionKey: preservedMessagesBySessionKey,
           pendingMessages: acceptedPendingMessagesFrom(
             current,
-            acceptedLocalMessagesBySessionKey
+            preservedMessagesBySessionKey
           )
         };
 
@@ -529,16 +529,17 @@ function mergeHydratedState(
   };
 }
 
-function acceptedLocalMessagesFrom(state: ChatDomainState) {
+function replayResetPreservedMessagesFrom(state: ChatDomainState) {
   return Object.fromEntries(
     Object.entries(state.messagesBySessionKey).flatMap(([sessionKey, messages]) => {
-      const acceptedMessages = messages.filter(
+      const preservedMessages = messages.filter(
         (message) =>
-          message.role === "user" &&
-          message.delivery === "acked" &&
-          message.id.startsWith("c_")
+          message.delivery === "server" ||
+          (message.role === "user" &&
+            message.delivery === "acked" &&
+            message.id.startsWith("c_"))
       );
-      return acceptedMessages.length > 0 ? [[sessionKey, acceptedMessages] as const] : [];
+      return preservedMessages.length > 0 ? [[sessionKey, preservedMessages] as const] : [];
     })
   );
 }
