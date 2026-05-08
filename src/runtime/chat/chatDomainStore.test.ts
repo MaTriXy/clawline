@@ -784,4 +784,86 @@ describe("chatDomainStore", () => {
       unreadBySessionKey: {}
     });
   });
+
+  it("preserves accepted local user sends across authoritative replay reset until server echo", () => {
+    const store = createChatDomainStore({
+      persistence: createMemoryChatPersistence()
+    });
+
+    store.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_old",
+        role: "assistant",
+        content: "Stale history",
+        timestamp: 90,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    });
+    store.enqueueOptimisticMessage({
+      attachments: [],
+      content: "Accepted but not echoed",
+      deviceId: "browser-device-1",
+      id: "c_accepted",
+      sessionKey: "agent:main:clawline:user_1:main",
+      timestamp: 100,
+      wireAttachments: []
+    });
+    store.markMessageAcked("c_accepted");
+    store.enqueueOptimisticMessage({
+      attachments: [],
+      content: "Still pending",
+      deviceId: "browser-device-1",
+      id: "c_pending",
+      sessionKey: "agent:main:clawline:user_1:main",
+      timestamp: 101,
+      wireAttachments: []
+    });
+
+    store.resetForAuthoritativeReplay();
+
+    expect(
+      store.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toEqual([
+      expect.objectContaining({
+        content: "Accepted but not echoed",
+        delivery: "acked",
+        id: "c_accepted"
+      })
+    ]);
+    expect(Object.keys(store.getState().pendingMessages)).toEqual(["c_accepted"]);
+
+    store.applyIncomingMessage({
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_accepted",
+        role: "user",
+        content: "Accepted but not echoed",
+        timestamp: 102,
+        streaming: false,
+        deviceId: "browser-device-1",
+        sessionKey: "agent:main:clawline:user_1:main",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "replay"
+    });
+
+    expect(
+      store.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toEqual([
+      expect.objectContaining({
+        content: "Accepted but not echoed",
+        delivery: "server",
+        id: "s_accepted"
+      })
+    ]);
+    expect(store.getState().pendingMessages).toEqual({});
+  });
 });

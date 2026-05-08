@@ -298,9 +298,15 @@ export function createChatDomainStore(options?: {
     resetForAuthoritativeReplay() {
       baseStore.setState((current) => {
         hydrationEpoch += 1;
+        const acceptedLocalMessagesBySessionKey = acceptedLocalMessagesFrom(current);
         const nextState = {
           ...EMPTY_STATE,
-          hydrated: current.hydrated
+          hydrated: current.hydrated,
+          messagesBySessionKey: acceptedLocalMessagesBySessionKey,
+          pendingMessages: acceptedPendingMessagesFrom(
+            current,
+            acceptedLocalMessagesBySessionKey
+          )
         };
 
         persist(nextState);
@@ -521,6 +527,35 @@ function mergeHydratedState(
       ...liveState.unreadBySessionKey
     }
   };
+}
+
+function acceptedLocalMessagesFrom(state: ChatDomainState) {
+  return Object.fromEntries(
+    Object.entries(state.messagesBySessionKey).flatMap(([sessionKey, messages]) => {
+      const acceptedMessages = messages.filter(
+        (message) =>
+          message.role === "user" &&
+          message.delivery === "acked" &&
+          message.id.startsWith("c_")
+      );
+      return acceptedMessages.length > 0 ? [[sessionKey, acceptedMessages] as const] : [];
+    })
+  );
+}
+
+function acceptedPendingMessagesFrom(
+  state: ChatDomainState,
+  acceptedLocalMessagesBySessionKey: Record<string, ChatMessageRecord[]>
+) {
+  const acceptedIds = new Set(
+    Object.values(acceptedLocalMessagesBySessionKey)
+      .flat()
+      .map((message) => message.id)
+  );
+
+  return Object.fromEntries(
+    Object.entries(state.pendingMessages).filter(([messageId]) => acceptedIds.has(messageId))
+  );
 }
 
 export function resolveStreamDotStateMap(
