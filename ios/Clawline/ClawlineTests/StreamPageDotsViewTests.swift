@@ -171,7 +171,7 @@ struct StreamPageDotsViewTests {
         #expect(rest.scrubFieldWidth == 190)
         #expect(active.scrubFieldWidth > rest.scrubFieldWidth)
         #expect(active.magnificationRadius > rest.magnificationRadius)
-        #expect(active.magnificationRadius > 9)
+        #expect(active.magnificationRadius > 18)
         #expect(active.maximumScale > rest.maximumScale)
     }
 
@@ -187,8 +187,8 @@ struct StreamPageDotsViewTests {
         let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
         let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
         let outer = StreamPageDotsView.scrubMagnificationScale(dotIndex: 12, virtualIndex: 10, metrics: metrics)
-        let farParticipant = StreamPageDotsView.scrubMagnificationScale(dotIndex: 18, virtualIndex: 10, metrics: metrics)
-        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 20, virtualIndex: 10, metrics: metrics)
+        let farParticipant = StreamPageDotsView.scrubMagnificationScale(dotIndex: 26, virtualIndex: 10, metrics: metrics)
+        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 30, virtualIndex: 10, metrics: metrics)
 
         #expect(primary > neighbor)
         #expect(neighbor > outer)
@@ -237,7 +237,7 @@ struct StreamPageDotsViewTests {
         let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
         let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
 
-        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: primary) < -20)
+        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: primary) < -40)
         #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: neighbor) < 0)
         #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: 1) == 0)
     }

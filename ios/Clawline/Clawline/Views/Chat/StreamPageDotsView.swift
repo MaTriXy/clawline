@@ -36,7 +36,7 @@ struct StreamPageDotsView: View {
     private static let horizontalPadding: CGFloat = 12
     private static let minimumHitTargetHeight: CGFloat = 44
     private static let scrubTapSuppressionDuration: TimeInterval = 0.45
-    private static let scrubWaveLiftPerScalePoint: CGFloat = 10
+    private static let scrubWaveLiftPerScalePoint: CGFloat = 20
     static let controlHeight: CGFloat = 23
     static func unreadEdgeBloomBlurRadius(colorScheme: ColorScheme) -> CGFloat {
         colorScheme == .dark ? 4.5 : 4.0
@@ -224,11 +224,11 @@ struct StreamPageDotsView: View {
         let widthGainRatio = max(0, (scrubFieldWidth - controlWidth) / max(controlWidth, 1))
 
         // Dock equation: hidden pressure opens a wider temporary field, then field gain broadens
-        // the Gaussian radius and raises the peak. Small lists stay calm; dense lists get more
-        // neighboring participation and a larger finger-centered dot.
+        // the influence radius and raises the peak. The radius carries the wide tail; sigma stays
+        // narrower so the center remains spiky instead of flattening into a sine-like wave.
         let baseMagnificationRadius = min(5.25, max(3.25, 3.35 + (1.35 * hiddenPressure) + (0.35 * widthGainRatio)))
-        let magnificationRadius = baseMagnificationRadius * 2
-        let magnificationSigma = max(2.3, magnificationRadius * 0.36)
+        let magnificationRadius = baseMagnificationRadius * 4
+        let magnificationSigma = max(2.3, magnificationRadius * 0.18)
         let maximumScale = min(3.35, max(2.85, 2.88 + (0.34 * hiddenPressure) + (0.20 * widthGainRatio)))
 
         return ScrubLayoutMetrics(
