@@ -126,6 +126,19 @@ struct StreamPageDotsViewTests {
         #expect(neighbor > outer)
         #expect(outer > outside)
         #expect(outside == 1)
+        #expect(primary > 2.4)
+        #expect(neighbor < 1.6)
+        #expect(primary - neighbor > 0.9)
+    }
+
+    @Test("T257: scrub magnification lifts large dots out of the dock")
+    func scrubMagnificationLiftsLargeDotsOutOfDock() {
+        let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, candidateIndex: 10)
+        let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, candidateIndex: 10)
+
+        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: primary) < -7)
+        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: neighbor) < 0)
+        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: 1) == 0)
     }
 
     @Test("Popup route controller owns popup search and track picker surfaces")

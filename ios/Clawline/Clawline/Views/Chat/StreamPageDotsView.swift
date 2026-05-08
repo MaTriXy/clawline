@@ -28,8 +28,8 @@ struct StreamPageDotsView: View {
     private static let overflowDotDiameter: CGFloat = 4
     private static let dotSpacing: CGFloat = 7
     private static let horizontalPadding: CGFloat = 12
-    private static let verticalPadding: CGFloat = 8
     private static let minimumHitTargetHeight: CGFloat = 44
+    private static let scrubTapSuppressionDuration: TimeInterval = 0.45
     static let controlHeight: CGFloat = 23
     static func unreadEdgeBloomBlurRadius(colorScheme: ColorScheme) -> CGFloat {
         colorScheme == .dark ? 4.5 : 4.0
@@ -153,19 +153,66 @@ struct StreamPageDotsView: View {
     }
 
     var body: some View {
-        controlBody
-            .frame(minHeight: Self.minimumHitTargetHeight, alignment: .bottom)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard Date() >= scrubTapSuppressionExpiresAt else { return }
-                onTap()
+        Button(action: handleTap) {
+            controlBody
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(scrubGesture)
+        .onDisappear {
+            cancelScrubIfNeeded()
+        }
+        .onChange(of: activeSessionKey) { _, _ in
+            resetScrubState()
+        }
+        .onChange(of: sessionKeys) { _, _ in
+            resetScrubState()
+        }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: Text("Open stream manager"), onTap)
+        .accessibilityLabel("Manage streams")
+        .accessibilityValue("Stream \(activeIndex + 1) of \(sessionKeys.count)")
+        .accessibilityHint("Tap to open stream manager. Long press and drag to preview streams.")
+    }
+
+    private func handleTap() {
+        guard Date() >= scrubTapSuppressionExpiresAt else { return }
+        onTap()
+    }
+
+    private var controlBody: some View {
+        let controlWidth = Self.renderedControlWidth(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget)
+        return ZStack(alignment: .bottom) {
+            dockChrome(controlWidth: controlWidth)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+
+            dotRow
+                .frame(width: controlWidth, height: Self.controlHeight, alignment: .center)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+        .frame(width: controlWidth, height: Self.minimumHitTargetHeight, alignment: .bottom)
+    }
+
+    private func dockChrome(controlWidth: CGFloat) -> some View {
+        Color.clear
+            .frame(width: controlWidth, height: Self.controlHeight)
+            .background {
+                unreadEdgeBloomOverlay
+                    .mask(Capsule())
+                    .blur(radius: Self.unreadEdgeBloomBlurRadius(colorScheme: colorScheme))
+                    .allowsHitTesting(false)
             }
-            .highPriorityGesture(scrubGesture)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction(named: Text("Open stream manager"), onTap)
-            .accessibilityLabel("Manage streams")
-            .accessibilityValue("Stream \(activeIndex + 1) of \(sessionKeys.count)")
-            .accessibilityHint("Tap to open stream manager. Long press and drag to preview streams.")
+#if !os(visionOS)
+            .glassEffect(.regular.interactive(), in: Capsule())
+#else
+            .background(.regularMaterial, in: Capsule())
+#endif
+#if os(visionOS)
+            .overlay {
+                Capsule()
+                    .stroke(Color.white.opacity(0.5), lineWidth: 1)
+            }
+#endif
     }
 
     private var scrubGesture: some Gesture {
@@ -200,7 +247,7 @@ struct StreamPageDotsView: View {
 
     private func beginScrubIfNeeded(startIndex: Int, capturesStart: Bool = true) {
         guard !sessionKeys.isEmpty else { return }
-        scrubTapSuppressionExpiresAt = Date().addingTimeInterval(0.45)
+        scrubTapSuppressionExpiresAt = Date().addingTimeInterval(Self.scrubTapSuppressionDuration)
         if capturesStart, scrubStartIndex == nil {
             scrubStartIndex = startIndex
         }
@@ -247,12 +294,21 @@ struct StreamPageDotsView: View {
         onScrubCancel()
     }
 
-    private func resetScrubState() {
-        scrubStartIndex = nil
-        scrubCandidateIndex = nil
+    private func cancelScrubIfNeeded() {
+        guard scrubStartIndex != nil || scrubCandidateIndex != nil else { return }
+        cancelScrub()
     }
 
-    private var controlBody: some View {
+    private func resetScrubState() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            scrubStartIndex = nil
+            scrubCandidateIndex = nil
+        }
+    }
+
+    private var dotRow: some View {
         HStack(spacing: 7) {
             if showsLeadingOverflow {
                 Circle()
@@ -268,6 +324,7 @@ struct StreamPageDotsView: View {
                     dotIndex: index,
                     candidateIndex: scrubCandidateIndex
                 )
+                let verticalOffset = Self.scrubMagnificationVerticalOffset(scale: scale)
                 Circle()
                     .fill(
                         StreamDotColor.resolve(
@@ -285,6 +342,7 @@ struct StreamPageDotsView: View {
                         }
                     }
                     .scaleEffect(scale)
+                    .offset(y: verticalOffset)
                     .zIndex(scale)
                     .shadow(
                         color: (isActive || isCandidate) ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
@@ -302,27 +360,8 @@ struct StreamPageDotsView: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, Self.horizontalPadding)
-        .padding(.vertical, Self.verticalPadding)
-        .frame(width: Self.renderedControlWidth(totalSessionCount: sessionKeys.count, maxWidth: expandedWidthBudget))
-        .background {
-            unreadEdgeBloomOverlay
-                .mask(Capsule())
-                .blur(radius: Self.unreadEdgeBloomBlurRadius(colorScheme: colorScheme))
-                .allowsHitTesting(false)
-        }
-#if !os(visionOS)
-        .glassEffect(.regular.interactive(), in: Capsule())
-#else
-        .background(.regularMaterial, in: Capsule())
-#endif
-#if os(visionOS)
-        .overlay {
-            Capsule()
-                .stroke(Color.white.opacity(0.5), lineWidth: 1)
-        }
-#endif
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var unreadEdgeBloomOverlay: some View {
@@ -380,7 +419,12 @@ struct StreamPageDotsView: View {
         let distance = CGFloat(abs(dotIndex - candidateIndex))
         let radius: CGFloat = 3
         guard distance < radius else { return 1 }
-        let falloff = (cos((distance / radius) * .pi) + 1) / 2
-        return 1 + (0.82 * falloff)
+        let falloff = exp(-pow(distance / 0.9, 2))
+        return 1 + (1.55 * falloff)
+    }
+
+    static func scrubMagnificationVerticalOffset(scale: CGFloat) -> CGFloat {
+        guard scale > 1 else { return 0 }
+        return -(scale - 1) * 5
     }
 }
