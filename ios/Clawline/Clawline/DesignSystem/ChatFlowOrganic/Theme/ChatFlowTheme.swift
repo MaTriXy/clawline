@@ -69,13 +69,13 @@ enum ChatFlowTheme {
     static func pageBackgroundTopColor(_ scheme: ColorScheme) -> Color {
         scheme == .dark
             ? Color(red: 0.110, green: 0.098, blue: 0.090)  // #1C1917
-            : Color(red: 0.204, green: 0.255, blue: 0.298)  // #34414C
+            : Color(red: 0.933, green: 0.902, blue: 0.855)  // #EEE6DA
     }
 
     static func pageBackgroundBottomColor(_ scheme: ColorScheme) -> Color {
         scheme == .dark
             ? Color(red: 0.078, green: 0.071, blue: 0.063)  // #141210
-            : Color(red: 0.149, green: 0.184, blue: 0.220)  // #262F38
+            : Color(red: 0.894, green: 0.851, blue: 0.796)  // #E4D9CB
     }
 
     static func pageBackground(_ scheme: ColorScheme) -> LinearGradient {
