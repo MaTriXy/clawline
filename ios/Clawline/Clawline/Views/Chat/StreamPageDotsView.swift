@@ -447,7 +447,12 @@ struct StreamPageDotsView: View {
     }
 
     private var dotRow: some View {
-        HStack(spacing: 7) {
+        let selectionRingIndex = Self.selectionRingIndex(
+            activeIndex: activeIndex,
+            scrubCandidateIndex: scrubCandidateIndex,
+            sessionCount: sessionKeys.count
+        )
+        return HStack(spacing: 7) {
             if showsLeadingOverflow {
                 Circle()
                     .fill(StreamDotColor.inactive(colorScheme: colorScheme))
@@ -457,6 +462,7 @@ struct StreamPageDotsView: View {
                 let sessionKey = sessionKeys[index]
                 let isActive = index == activeIndex
                 let isCandidate = index == scrubCandidateIndex
+                let showsSelectionRing = index == selectionRingIndex
                 let dotState = dotStatesBySession[sessionKey] ?? .inactive
                 let scale = Self.scrubMagnificationScale(
                     dotIndex: index,
@@ -474,7 +480,7 @@ struct StreamPageDotsView: View {
                     )
                     .frame(width: Self.dotDiameter, height: Self.dotDiameter)
                     .overlay {
-                        if isCandidate && !isActive {
+                        if showsSelectionRing {
                             ZStack {
                                 Circle()
                                     .stroke(StreamDotColor.activeGlow(colorScheme: colorScheme).opacity(0.85), lineWidth: 1.2)
@@ -489,12 +495,12 @@ struct StreamPageDotsView: View {
                     .offset(y: verticalOffset)
                     .zIndex(scale)
                     .shadow(
-                        color: (isActive || isCandidate) ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
-                        radius: (isActive || isCandidate) ? StreamDotColor.activeOuterGlowRadius(colorScheme: colorScheme) : 0
+                        color: (isActive || isCandidate || showsSelectionRing) ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                        radius: (isActive || isCandidate || showsSelectionRing) ? StreamDotColor.activeOuterGlowRadius(colorScheme: colorScheme) : 0
                     )
                     .shadow(
-                        color: (isActive || isCandidate) ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
-                        radius: (isActive || isCandidate) ? StreamDotColor.activeInnerGlowRadius(colorScheme: colorScheme) : 0
+                        color: (isActive || isCandidate || showsSelectionRing) ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                        radius: (isActive || isCandidate || showsSelectionRing) ? StreamDotColor.activeInnerGlowRadius(colorScheme: colorScheme) : 0
                     )
             }
             if showsTrailingOverflow {
@@ -593,6 +599,14 @@ struct StreamPageDotsView: View {
     static func shouldEmitScrubCandidateHaptic(previousIndex: Int?, candidateIndex: Int) -> Bool {
         guard let previousIndex else { return false }
         return previousIndex != candidateIndex
+    }
+
+    static func selectionRingIndex(activeIndex: Int, scrubCandidateIndex: Int?, sessionCount: Int) -> Int? {
+        guard sessionCount > 0 else { return nil }
+        if let scrubCandidateIndex, (0..<sessionCount).contains(scrubCandidateIndex) {
+            return scrubCandidateIndex
+        }
+        return min(max(0, activeIndex), sessionCount - 1)
     }
 
     static func scrubCandidateHapticStyle(isActive: Bool, dotState: StreamDotState) -> ScrubCandidateHapticStyle {

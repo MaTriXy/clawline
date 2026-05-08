@@ -143,6 +143,31 @@ struct StreamPageDotsViewTests {
         #expect(StreamPageDotsView.shouldEmitScrubCandidateHaptic(previousIndex: 10, candidateIndex: 11) == true)
     }
 
+    @Test("T276: selection ring resolves to the active dot unless scrub has a valid candidate")
+    func selectionRingFollowsResolvedSelectedDot() {
+        #expect(
+            StreamPageDotsView.selectionRingIndex(
+                activeIndex: 3,
+                scrubCandidateIndex: nil,
+                sessionCount: 8
+            ) == 3
+        )
+        #expect(
+            StreamPageDotsView.selectionRingIndex(
+                activeIndex: 3,
+                scrubCandidateIndex: 5,
+                sessionCount: 8
+            ) == 5
+        )
+        #expect(
+            StreamPageDotsView.selectionRingIndex(
+                activeIndex: 3,
+                scrubCandidateIndex: 12,
+                sessionCount: 8
+            ) == 3
+        )
+    }
+
     @Test("T257: scrub candidate haptic strength follows existing dot visual state")
     func scrubCandidateHapticStrengthFollowsDotVisualState() {
         #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: false, dotState: .inactive) == .light)
