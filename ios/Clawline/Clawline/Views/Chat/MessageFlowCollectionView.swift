@@ -214,6 +214,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
+    private let typingCancelDiagnosticLogger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "T217TypingCancel")
+    private static var t217DiagnosticBuild: String {
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        return "T217-typing-cancel-\(build)"
+    }
     private var collectionView: UICollectionView!
     private var channelOverride: String?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
@@ -3337,6 +3342,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         typingIndicatorTap.delaysTouchesBegan = false
         typingIndicatorTap.delaysTouchesEnded = false
         collectionView.addGestureRecognizer(typingIndicatorTap)
+        typingCancelDiagnosticLogger.notice(
+            "T217DIAG collection_recognizer_installed build=\(Self.t217DiagnosticBuild, privacy: .public) recognizerCount=\(self.collectionView.gestureRecognizers?.count ?? 0, privacy: .public)"
+        )
         collectionView.register(MessageBubbleUIKitCell.self, forCellWithReuseIdentifier: MessageBubbleUIKitCell.reuseIdentifier)
         collectionView.register(WebBubbleUIKitCell.self, forCellWithReuseIdentifier: WebBubbleUIKitCell.reuseIdentifier)
         collectionView.register(TypingIndicatorCell.self, forCellWithReuseIdentifier: TypingIndicatorCell.reuseIdentifier)
@@ -3356,12 +3364,22 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     @objc private func handleCollectionViewTap(_ recognizer: UITapGestureRecognizer) {
+        let point = recognizer.location(in: collectionView)
+        let hasCallback = onTypingIndicatorTap != nil
+        let typingIndexPath = dataSource.indexPath(for: TypingIndicatorCell.itemId)
+        let attributes = typingIndexPath.flatMap { collectionView.layoutAttributesForItem(at: $0) }
+        let frame = attributes?.frame ?? .null
+        let didHit = attributes?.frame.contains(point) == true
+        typingCancelDiagnosticLogger.notice(
+            "T217DIAG collection_tap build=\(Self.t217DiagnosticBuild, privacy: .public) state=\(recognizer.state.rawValue, privacy: .public) point=\(String(describing: point), privacy: .public) hasCallback=\(hasCallback, privacy: .public) hasTypingIndexPath=\(typingIndexPath != nil, privacy: .public) typingFrame=\(String(describing: frame), privacy: .public) didHit=\(didHit, privacy: .public) contentOffset=\(String(describing: self.collectionView.contentOffset), privacy: .public) contentInset=\(String(describing: self.collectionView.contentInset), privacy: .public)"
+        )
         guard recognizer.state == .ended,
               let onTypingIndicatorTap,
-              let typingIndexPath = dataSource.indexPath(for: TypingIndicatorCell.itemId),
-              let attributes = collectionView.layoutAttributesForItem(at: typingIndexPath) else { return }
-        let point = recognizer.location(in: collectionView)
-        guard attributes.frame.contains(point) else { return }
+              attributes != nil,
+              didHit else { return }
+        typingCancelDiagnosticLogger.notice(
+            "T217DIAG collection_tap_invoking_callback build=\(Self.t217DiagnosticBuild, privacy: .public) point=\(String(describing: point), privacy: .public)"
+        )
         onTypingIndicatorTap()
     }
 

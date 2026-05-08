@@ -154,6 +154,10 @@ final class StreamPopupRouteController {
 }
 
 struct ChatView: View {
+    private static var t217DiagnosticBuild: String {
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        return "T217-typing-cancel-\(build)"
+    }
 
     @Bindable var viewModel: ChatViewModel
     let toastManager: ToastManager
@@ -1844,14 +1848,26 @@ struct ChatView: View {
 
     private func presentCancelCurrentPromptDialog(sessionKey: String? = nil) {
         if let sessionKey {
+            logger.notice(
+                "T217DIAG present_request build=\(Self.t217DiagnosticBuild, privacy: .public) explicitSession=\(sessionKey, privacy: .public) canCancelExplicit=\(viewModel.canCancelCurrentPrompt(in: sessionKey), privacy: .public) canCancelAny=\(viewModel.canCancelCurrentPrompt, privacy: .public)"
+            )
             guard viewModel.canCancelCurrentPrompt(in: sessionKey) else {
+                logger.notice(
+                    "T217DIAG present_result build=\(Self.t217DiagnosticBuild, privacy: .public) result=suppressed explicitSession=\(sessionKey, privacy: .public)"
+                )
                 cancelCurrentPromptSessionKey = nil
                 isCancelCurrentPromptDialogPresented = false
                 return
             }
             cancelCurrentPromptSessionKey = sessionKey
         } else {
+            logger.notice(
+                "T217DIAG present_request build=\(Self.t217DiagnosticBuild, privacy: .public) explicitSession=nil canCancelAny=\(viewModel.canCancelCurrentPrompt, privacy: .public)"
+            )
             guard viewModel.canCancelCurrentPrompt else {
+                logger.notice(
+                    "T217DIAG present_result build=\(Self.t217DiagnosticBuild, privacy: .public) result=suppressed explicitSession=nil"
+                )
                 cancelCurrentPromptSessionKey = nil
                 isCancelCurrentPromptDialogPresented = false
                 return
@@ -1859,6 +1875,9 @@ struct ChatView: View {
             cancelCurrentPromptSessionKey = nil
         }
         isCancelCurrentPromptDialogPresented = true
+        logger.notice(
+            "T217DIAG present_result build=\(Self.t217DiagnosticBuild, privacy: .public) result=presented storedSession=\(cancelCurrentPromptSessionKey ?? "nil", privacy: .public)"
+        )
     }
 
     private func insertPromptTextFromNoTextOwner(_ text: String) {
