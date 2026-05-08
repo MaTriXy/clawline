@@ -246,6 +246,12 @@ struct MessageInputBar: View {
         return 0.75 + (0.25 * clampedPhase)
     }
 
+    static func disabledSendButtonBackingColor(colorScheme: ColorScheme) -> Color? {
+        colorScheme == .light
+            ? Color(red: 0.925, green: 0.922, blue: 0.890)
+            : nil
+    }
+
     private func handleEditorSubmitIntent() {
         guard Self.shouldDispatchEditorSubmitIntent(
             isSending: isSending,
@@ -568,6 +574,12 @@ private struct MessageSendControl: View {
         }
         .frame(width: sendButtonSize, height: sendButtonSize)
         .background {
+            if bubbleVisualState == .ghost,
+               let backingColor = MessageInputBar.disabledSendButtonBackingColor(colorScheme: uiColorScheme) {
+                Circle()
+                    .fill(backingColor)
+                    .frame(width: sendButtonSize, height: sendButtonSize)
+            }
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isReconnecting)) { context in
                 Circle()
                     .fill(bubbleColor)
