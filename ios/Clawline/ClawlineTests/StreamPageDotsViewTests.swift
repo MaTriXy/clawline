@@ -221,6 +221,12 @@ struct StreamPageDotsViewTests {
         #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: 1) == 0)
     }
 
+    @Test("T257: scrub lifts the dot group above the finger")
+    func scrubLiftsDotGroupAboveFinger() {
+        #expect(StreamPageDotsView.scrubGroupVerticalOffset(isScrubbing: true) == -20)
+        #expect(StreamPageDotsView.scrubGroupVerticalOffset(isScrubbing: false) == 0)
+    }
+
     @Test("Popup route controller owns popup search and track picker surfaces")
     func popupRouteControllerOwnsPopupAndTrackPickerSurfaces() {
         let routeController = StreamPopupRouteController()

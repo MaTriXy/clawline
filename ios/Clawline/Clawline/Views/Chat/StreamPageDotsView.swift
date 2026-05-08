@@ -35,6 +35,7 @@ struct StreamPageDotsView: View {
     private static let horizontalPadding: CGFloat = 12
     private static let minimumHitTargetHeight: CGFloat = 44
     private static let scrubTapSuppressionDuration: TimeInterval = 0.45
+    private static let scrubGroupLift: CGFloat = 20
     static let controlHeight: CGFloat = 23
     static func unreadEdgeBloomBlurRadius(colorScheme: ColorScheme) -> CGFloat {
         colorScheme == .dark ? 4.5 : 4.0
@@ -287,6 +288,7 @@ struct StreamPageDotsView: View {
 
             dotRow
                 .frame(width: scrubFieldWidth, height: Self.controlHeight, alignment: .center)
+                .offset(y: Self.scrubGroupVerticalOffset(isScrubbing: isScrubbing))
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .frame(width: scrubFieldWidth, height: Self.minimumHitTargetHeight, alignment: .bottom)
@@ -604,6 +606,10 @@ struct StreamPageDotsView: View {
     static func scrubMagnificationVerticalOffset(scale: CGFloat) -> CGFloat {
         guard scale > 1 else { return 0 }
         return -(scale - 1) * 5
+    }
+
+    static func scrubGroupVerticalOffset(isScrubbing: Bool) -> CGFloat {
+        isScrubbing ? -scrubGroupLift : 0
     }
 }
 
