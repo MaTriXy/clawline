@@ -66,10 +66,12 @@ struct MessageInputBar: View {
     let bottomSafeAreaInset: CGFloat
     /// Keyboard visibility state owned by parent view to survive geometry changes.
     let isKeyboardVisible: Bool
+    @Binding var isAttachmentMenuPresented: Bool
     let onSend: () -> Void
     let onCancel: () -> Void
     let onReconnect: () -> Void
     let onAdd: () -> Void
+    let attachmentMenuContent: () -> AnyView
     let onFocusChange: (Bool) -> Void
     let onTextEditActivity: () -> Void
     var onPasteImages: (([UIImage]) -> Void)?
@@ -319,6 +321,15 @@ struct MessageInputBar: View {
 #endif
             .accessibilityLabel("Add attachment")
             .disabled(isSending)
+            .popover(
+                isPresented: $isAttachmentMenuPresented,
+                attachmentAnchor: .rect(.bounds),
+                arrowEdge: .bottom
+            ) {
+                attachmentMenuContent()
+                    .presentationCompactAdaptation(.popover)
+                    .presentationBackground(.clear)
+            }
 
             MessageEditorChrome(
                 content: $content,
@@ -631,10 +642,12 @@ private struct MessageSendControl: View {
                 focusTrigger: 0,
                 bottomSafeAreaInset: 34,
                 isKeyboardVisible: false,
+                isAttachmentMenuPresented: .constant(false),
                 onSend: {},
                 onCancel: {},
                 onReconnect: {},
                 onAdd: {},
+                attachmentMenuContent: { AnyView(EmptyView()) },
                 onFocusChange: { _ in },
                 onTextEditActivity: {},
                 onPasteImages: nil,

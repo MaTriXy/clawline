@@ -175,6 +175,7 @@ struct ChatView: View {
     @State private var pendingInputInsertions: [PendingAttachment] = []
     @State private var inputBarSendButtonConnectionState = SendButtonConnectionStateStore()
     @State private var activeSheet: ChatSheet?
+    @State private var isAttachmentMenuPresented = false
     @State private var streamPopupRouteController = StreamPopupRouteController()
     @State private var isPhotosPickerPresented = false
     @State private var isFileImporterPresented = false
@@ -250,14 +251,11 @@ struct ChatView: View {
     }
 
     private enum ChatSheet: Identifiable {
-        case attachmentMenu
         case expandedMessage(Message)
         case camera
 
         var id: String {
             switch self {
-            case .attachmentMenu:
-                return "attachmentMenu"
             case .expandedMessage(let message):
                 return "expandedMessage-\(message.id)"
             case .camera:
@@ -831,6 +829,7 @@ struct ChatView: View {
         let promptFocusShortcutEnabled = !isInputFocused
             && streamPopupRouteController.route == .closed
             && activeSheet == nil
+            && !isAttachmentMenuPresented
             && !isPhotosPickerPresented
             && !isFileImporterPresented
         let cancelCurrentPromptDialogCanCancel = cancelCurrentPromptSessionKey.map { sessionKey in
@@ -1379,6 +1378,7 @@ struct ChatView: View {
                 focusTrigger: focusRequestID,
                 bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
                 isKeyboardVisible: isKeyboardVisible,
+                isAttachmentMenuPresented: $isAttachmentMenuPresented,
                 onSend: {
                     clearTypingActivity()
                     viewModel.send()
@@ -1386,7 +1386,25 @@ struct ChatView: View {
                 onCancel: { viewModel.cancelSend() },
                 onReconnect: { viewModel.reconnect() },
                 onAdd: {
-                    activeSheet = .attachmentMenu
+                    isAttachmentMenuPresented = true
+                },
+                attachmentMenuContent: {
+                    AnyView(
+                        AttachmentSourceSheet(
+                            onCamera: {
+                                isAttachmentMenuPresented = false
+                                presentCamera()
+                            },
+                            onPhotos: {
+                                isAttachmentMenuPresented = false
+                                presentPhotoPicker()
+                            },
+                            onFiles: {
+                                isAttachmentMenuPresented = false
+                                presentFileImporter()
+                            }
+                        )
+                    )
                 },
                 // ⚠️ This callback is how focus state survives view recreation.
                 // DO NOT replace with @Binding or try to use @FocusState directly.
@@ -1487,20 +1505,6 @@ struct ChatView: View {
     @ViewBuilder
     private func sheetView(_ sheet: ChatSheet) -> some View {
         switch sheet {
-        case .attachmentMenu:
-            AttachmentSourceSheet(
-                onCamera: {
-                    presentCamera()
-                },
-                onPhotos: {
-                    presentPhotoPicker()
-                },
-                onFiles: {
-                    presentFileImporter()
-                }
-            )
-            .presentationDetents([.medium, .large])
-            .presentationBackground(.clear)
         case .expandedMessage(let message):
             let metrics = ChatFlowTheme.Metrics(isCompact: horizontalSizeClass == .compact)
             let presentation = viewModel.presentation(for: message, metrics: metrics)
@@ -1736,7 +1740,7 @@ struct ChatView: View {
         ChatKeyboardScrollRouting.isEnabled(
             platformSupportsKeyboardNavigation: supportsKeyboardNavigationShortcuts,
             streamPopupRoute: streamPopupRouteController.route,
-            activeSheetPresented: activeSheet != nil,
+            activeSheetPresented: activeSheet != nil || isAttachmentMenuPresented,
             photosPickerPresented: isPhotosPickerPresented,
             fileImporterPresented: isFileImporterPresented
         )
@@ -3825,82 +3829,84 @@ private struct AttachmentSourceSheet: View {
     @Environment(\.dismiss) private var dismiss
 #endif
 
+    private let rowHeight: CGFloat = 52
+    private let rowSpacing: CGFloat = 2
+    private let rowHorizontalInset: CGFloat = 12
+    private let outerVerticalPadding: CGFloat = 20
     private let popupCornerRadius: CGFloat = 20
-    private let popupMaxWidth: CGFloat = 380
+    private let minimumPopoverWidth: CGFloat = 280
+    private let idealPopoverWidth: CGFloat = 320
+    private let maximumPopoverWidth: CGFloat = 360
+
+    private var rowCount: Int {
+#if os(visionOS)
+        3
+#else
+        3
+#endif
+    }
+
+    private var popoverHeight: CGFloat {
+        (CGFloat(rowCount) * rowHeight)
+            + (CGFloat(max(0, rowCount - 1)) * rowSpacing)
+            + (outerVerticalPadding * 2)
+    }
+
     private var effectiveColorScheme: ColorScheme { colorScheme }
     var body: some View {
-        ZStack {
-            ChatFlowTheme.pageBackground(effectiveColorScheme)
-                .ignoresSafeArea()
-
-            VStack(spacing: 24) {
+        VStack(spacing: rowSpacing) {
 #if os(visionOS)
-                HStack {
-                    Spacer()
-                    Button("Close") {
-                        dismiss()
-                    }
-                    .font(.clawline(.uiLabel).weight(.semibold))
-                    .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Close") {
+                    dismiss()
                 }
-                .padding(.top, 8)
-                .padding(.horizontal, 16)
+                .font(.clawline(.uiLabel).weight(.semibold))
+                .foregroundStyle(.secondary)
+            }
+            .frame(height: rowHeight, alignment: .center)
+            .padding(.horizontal, rowHorizontalInset)
 #endif
-                Capsule()
-                    .fill(.secondary.opacity(0.4))
-                    .frame(width: 40, height: 4)
-                    .padding(.top, 12)
-
-                Text("Add Attachment")
-                    .font(.clawline(.subsectionHeader))
-                    .foregroundStyle(ChatFlowTheme.warmBrown(effectiveColorScheme))
-
-                VStack(spacing: 12) {
 #if !os(visionOS)
-                    AttachmentActionButton(
-                        title: "Camera",
-                        icon: "camera.fill",
-                        action: onCamera
-                    )
+            AttachmentActionButton(
+                title: "Camera",
+                icon: "camera.fill",
+                action: onCamera,
+                rowHeight: rowHeight,
+                horizontalInset: rowHorizontalInset
+            )
 #endif
 
-                    AttachmentActionButton(
-                        title: "Photos",
-                        icon: "photo.on.rectangle",
-                        action: onPhotos
-                    )
+            AttachmentActionButton(
+                title: "Photos",
+                icon: "photo.on.rectangle",
+                action: onPhotos,
+                rowHeight: rowHeight,
+                horizontalInset: rowHorizontalInset
+            )
 
-                    AttachmentActionButton(
-                        title: "Files",
-                        icon: "doc.fill",
-                        action: onFiles
-                    )
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
-            }
-            .frame(maxWidth: popupMaxWidth)
-            .background {
-                RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
-            }
-#if os(visionOS)
-            .background(
-                RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
-                    .fill(Color.white.opacity(effectiveColorScheme == .dark ? 0.08 : 0.28))
+            AttachmentActionButton(
+                title: "Files",
+                icon: "doc.fill",
+                action: onFiles,
+                rowHeight: rowHeight,
+                horizontalInset: rowHorizontalInset
             )
-#else
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
-#endif
-            .clipShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
-                    .allowsHitTesting(false)
-            )
-            .padding(.horizontal, 20)
         }
-        .presentationDragIndicator(.visible)
+        .padding(.vertical, outerVerticalPadding)
+        .frame(
+            minWidth: minimumPopoverWidth,
+            idealWidth: idealPopoverWidth,
+            maxWidth: maximumPopoverWidth
+        )
+        .frame(height: popoverHeight, alignment: .top)
+        .background(Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                .allowsHitTesting(false)
+        )
     }
 }
 
@@ -3908,6 +3914,8 @@ private struct AttachmentActionButton: View {
     let title: String
     let icon: String
     let action: () -> Void
+    let rowHeight: CGFloat
+    let horizontalInset: CGFloat
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isPressed = false
@@ -3918,12 +3926,12 @@ private struct AttachmentActionButton: View {
         Button(action: action) {
             HStack(spacing: 14) {
                 Image(systemName: icon)
-                    .font(.clawline(.subsectionHeader))
+                    .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(ChatFlowTheme.sage(effectiveColorScheme))
-                    .frame(width: 28)
+                    .frame(width: 24)
 
                 Text(title)
-                    .font(.clawline(.mediumMessage).weight(.semibold))
+                    .font(.clawline(.subsectionHeader).weight(.regular))
                     .foregroundStyle(ChatFlowTheme.warmBrown(effectiveColorScheme))
 
                 Spacer()
@@ -3932,20 +3940,9 @@ private struct AttachmentActionButton: View {
                     .font(.clawline(.uiLabel).weight(.semibold))
                     .foregroundStyle(ChatFlowTheme.warmBrown(effectiveColorScheme).opacity(0.4))
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(.ultraThinMaterial)
-            }
-#if os(visionOS)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(effectiveColorScheme == .dark ? 0.08 : 0.3))
-            )
-#else
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-#endif
+            .padding(.horizontal, horizontalInset)
+            .frame(height: rowHeight, alignment: .center)
+            .background(rowBackground)
             .scaleEffect(isPressed ? 0.97 : 1)
             .animation(.easeOut(duration: 0.15), value: isPressed)
         }
@@ -3955,6 +3952,11 @@ private struct AttachmentActionButton: View {
                 .onChanged { _ in isPressed = true }
                 .onEnded { _ in isPressed = false }
         )
+    }
+
+    private var rowBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.primary.opacity(isPressed ? (effectiveColorScheme == .dark ? 0.10 : 0.06) : 0))
     }
 }
 
