@@ -1096,6 +1096,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         bubbleSizingV2LastScrollActivityTime = CFAbsoluteTimeGetCurrent()
+        updateVisibleFooterAlpha()
         guard let sessionKey = callbackSessionKey() else { return }
         handleUserScrolled(sessionKey: sessionKey)
         checkFirstUnreadCrossingIfNeeded(sessionKey: sessionKey)
@@ -1176,6 +1177,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // During morph, we intentionally drive the target cell's alpha from 0->1 in our own
         // `UIView.animate`. Don't let willDisplay stomp it back to 1 early.
         if id == morphTargetMessageId {
+            return
+        }
+        if id == SessionMetadataFooterCell.itemId {
+            cell.alpha = footerRevealAlpha()
+            cell.transform = .identity
             return
         }
         guard pendingEntranceAnimationIds.contains(id) else {
@@ -2536,11 +2542,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func restingBottomContentHeight() -> CGFloat {
-        guard dataSource.indexPath(for: SessionMetadataFooterCell.itemId) != nil else {
-            return collectionView.contentSize.height
-        }
-        let footerClearance = SessionMetadataFooterCell.height(for: sessionStatus) + flowLayout.minimumLineSpacing
-        return max(0, collectionView.contentSize.height - footerClearance)
+        collectionView.contentSize.height
     }
 
     private func restingBottomOffsetMaxY(bottomInset: CGFloat) -> CGFloat {
@@ -2557,6 +2559,24 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let clampedOffsetY = min(max(offsetY, minY), maxY)
         let distance = max(0, maxY - clampedOffsetY)
         return distance.isFinite ? distance : .greatestFiniteMagnitude
+    }
+
+    private func footerRevealAlpha() -> CGFloat {
+        guard dataSource.indexPath(for: SessionMetadataFooterCell.itemId) != nil else { return 1 }
+        let maxY = restingBottomOffsetMaxY(bottomInset: currentBottomInset)
+        guard maxY.isFinite else { return 1 }
+        let revealRange = SessionMetadataFooterCell.fadeRevealRange
+        guard revealRange > 0 else { return 1 }
+        let distance = max(0, maxY - collectionView.contentOffset.y)
+        return min(1, max(0, 1 - (distance / revealRange)))
+    }
+
+    private func updateVisibleFooterAlpha() {
+        guard let indexPath = dataSource.indexPath(for: SessionMetadataFooterCell.itemId),
+              let cell = collectionView.cellForItem(at: indexPath) else {
+            return
+        }
+        cell.alpha = footerRevealAlpha()
     }
 
     private func handleUserScrolled() {
@@ -3569,6 +3589,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.contentInset.top = topInset
         collectionView.verticalScrollIndicatorInsets.top = topInset
         setBottomInset(currentBottomInset)
+        updateVisibleFooterAlpha()
 
         let contentWidth = effectiveContentWidth(metrics: metrics)
         let metricsFp = BubbleSizingV2.metricsFingerprint(
@@ -5209,13 +5230,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 final class SessionMetadataFooterCell: UICollectionViewCell {
     static let reuseIdentifier = "SessionMetadataFooterCell"
     static let itemId = "__session_metadata_footer__"
-    static let extraTopClearance: CGFloat = 20
-    static let topPadding: CGFloat = MessageInputBarMetrics.minInputBarHeight
-        + StreamPageDotsView.controlHeight
-        + extraTopClearance
+    static let topPadding: CGFloat = 12
     static let bottomPadding: CGFloat = 4
     static let horizontalPadding: CGFloat = 12
     static let actionRegionHeight: CGFloat = 44
+    static let fadeRevealRange: CGFloat = topPadding + actionRegionHeight
 
     private let stackView = UIStackView()
 
