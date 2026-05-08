@@ -581,6 +581,7 @@ private struct MessageSendControl: View {
                 Circle()
                     .fill(backingColor)
                     .frame(width: sendButtonSize, height: sendButtonSize)
+                    .blur(radius: MessageInputBar.sendButtonColoredBackingBlurRadius)
             }
             TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isReconnecting)) { context in
                 Circle()

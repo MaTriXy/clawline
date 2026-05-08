@@ -44,8 +44,8 @@ struct MessageInputBarBoundaryTests {
         #expect(darkColor == nil)
     }
 
-    @Test("Colored send button backing uses a soft blur")
-    func coloredSendButtonBackingUsesSoftBlur() {
+    @Test("Send button backing uses the same soft blur in every state")
+    func sendButtonBackingUsesSoftBlur() {
         #expect(MessageInputBar.sendButtonColoredBackingBlurRadius == 4)
     }
 
