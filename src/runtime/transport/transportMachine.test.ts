@@ -1071,6 +1071,10 @@ describe("transportMachine", () => {
       "agent:main:clawline:user_1:main",
       "agent:main:clawline:user_1:custom"
     ]);
+    expect(chatStore.getState().provisionedSessionKeys).toEqual([
+      "agent:main:clawline:user_1:main",
+      "agent:main:clawline:user_1:custom"
+    ]);
 
     factory.sockets[0].emitMessage(
       JSON.stringify({

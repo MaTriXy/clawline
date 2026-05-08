@@ -378,6 +378,10 @@ describe("chatDomainStore", () => {
       adopted: true,
       orderIndex: 3
     });
+    expect(store.getState().provisionedSessionKeys).toEqual([
+      "agent:main:clawline:user_1:main",
+      "agent:main:clawline:user_1:side"
+    ]);
   });
 
   it("hydrates snapshots without generating unread state or replay duplicates", async () => {

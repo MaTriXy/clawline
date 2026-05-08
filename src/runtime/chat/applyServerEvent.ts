@@ -249,8 +249,15 @@ export function applyStreamUpdate(
   stream: StreamSessionPayload
 ) {
   const mergedStreams = mergeStreams(state.streams, [toStreamRecord(stream)]);
+  const provisionedSessionKeys = state.provisionedSessionKeys.includes(
+    stream.sessionKey
+  )
+    ? state.provisionedSessionKeys
+    : [...state.provisionedSessionKeys, stream.sessionKey];
+
   return {
     ...state,
+    provisionedSessionKeys,
     streams: mergedStreams
   };
 }
