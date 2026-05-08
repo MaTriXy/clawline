@@ -11,6 +11,35 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+struct MessageBubbleShadowDescriptor: Equatable {
+    let frame: CGRect
+    let cornerRadius: CGFloat
+    let opacity: Float
+    let radius: CGFloat
+    let offset: CGSize
+}
+
+enum MessageBubbleShadowStyle {
+    static let cornerRadius: CGFloat = 18
+    static let radius: CGFloat = 12
+    static let offset = CGSize(width: 0, height: 5)
+
+    static func opacity(isDark: Bool) -> Float {
+        isDark ? 0.25 : 0.32
+    }
+}
+
+struct MessageBubbleMetadataDebugState {
+    let senderText: String?
+    let senderLineBreakMode: NSLineBreakMode
+    let senderCompressionResistance: UILayoutPriority
+    let timestampCompressionResistance: UILayoutPriority
+    let timestampHidden: Bool
+    let timestampAlpha: CGFloat
+    let headerWidth: CGFloat
+    let metadataNeededWidth: CGFloat
+}
+
 private final class BubbleSafeAreaNeutralScrollView: UIScrollView {
     override var safeAreaInsets: UIEdgeInsets { .zero }
 
@@ -476,10 +505,27 @@ final class MessageBubbleUIKitContainerView: UIView {
     func bubbleFrameInContainer() -> CGRect {
         bubbleView.frame
     }
+
+    func bubbleShadowDescriptor(in targetView: UIView, isDark: Bool) -> MessageBubbleShadowDescriptor? {
+        guard bubbleView.rendersBubbleShadow else { return nil }
+        let frame = convert(bubbleView.frame, to: targetView)
+        guard frame.width > 1, frame.height > 1 else { return nil }
+        return MessageBubbleShadowDescriptor(
+            frame: frame,
+            cornerRadius: MessageBubbleShadowStyle.cornerRadius,
+            opacity: MessageBubbleShadowStyle.opacity(isDark: isDark),
+            radius: MessageBubbleShadowStyle.radius,
+            offset: MessageBubbleShadowStyle.offset
+        )
+    }
 }
 
 final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private static let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "BubbleTheme")
+    static func timestampTextAlpha(isDark: Bool) -> CGFloat {
+        isDark ? 0.76 : 0.68
+    }
+
     override var safeAreaInsets: UIEdgeInsets { .zero }
     private let enableDataDetectors: Bool
     private var terminalConnectionPool: TerminalSessionConnectionPool?
@@ -551,6 +597,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var allowSwipeUpExpandForSingleLink = false
     private var timestampDate: Date?
     private var timestampRefreshTimer: Timer?
+    var rendersBubbleShadow: Bool {
+        !isChromeless
+    }
 
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -677,6 +726,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         headerStack.setContentCompressionResistancePriority(.required, for: .vertical)
 
         senderLabel.numberOfLines = 1
+        senderLabel.lineBreakMode = .byClipping
         senderLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         senderLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
 
@@ -684,8 +734,8 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         senderTimestampSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         timestampLabel.numberOfLines = 1
-        timestampLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        timestampLabel.setContentHuggingPriority(.required, for: .horizontal)
+        timestampLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        timestampLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         headerStack.addArrangedSubview(avatarView)
         headerStack.addArrangedSubview(senderLabel)
@@ -829,6 +879,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        bubbleBackgroundView.layoutIfNeeded()
+        contentStack.layoutIfNeeded()
+        headerStack.layoutIfNeeded()
 
         // Hide timestamp if it would compress the sender name
         if !headerStack.isHidden, let timestampText = timestampLabel.attributedText, !timestampText.string.isEmpty {
@@ -838,7 +891,11 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             let timestampSize = timestampLabel.intrinsicContentSize.width
             let availableWidth = headerStack.bounds.width
             let needed = avatarWidth + senderSize + spacerMin + timestampSize
-            timestampLabel.isHidden = needed > availableWidth
+            if needed > availableWidth {
+                timestampLabel.isHidden = true
+            } else {
+                timestampLabel.isHidden = false
+            }
         }
         gradientLayer.frame = bubbleBackgroundView.bounds
         maskLayer.frame = bubbleBackgroundView.bounds
@@ -971,7 +1028,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         senderLabel.text = message.displayName
         timestampLabel.font = UIFont.clawline(.timestamp)
         timestampLabel.adjustsFontForContentSizeCategory = true
-        timestampLabel.textColor = palette.textMuted.withAlphaComponent(0.4)
+        timestampLabel.textColor = palette.textMuted.withAlphaComponent(Self.timestampTextAlpha(isDark: palette.isDark))
         timestampLabel.textAlignment = message.role == .user ? .right : .left
         timestampDate = message.timestamp
         refreshTimestampDisplay()
@@ -1453,20 +1510,20 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fadeView.setFadeStartLocation(nil)
 #endif
 
-        // Soft shadow
+        // Bubble shadows are composited by the collection-level shadow canvas so they stay behind
+        // the whole bubble stack instead of rendering over adjacent cells.
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
-        shadowContainerView.layer.shadowRadius = 12
-        shadowContainerView.layer.shadowOffset = CGSize(width: 0, height: 5)
-        let shadowOpacity: Float = palette.isDark ? 0.25 : 0.32
-        shadowContainerView.layer.shadowOpacity = shadowOpacity
+        shadowContainerView.layer.shadowRadius = MessageBubbleShadowStyle.radius
+        shadowContainerView.layer.shadowOffset = MessageBubbleShadowStyle.offset
+        shadowContainerView.layer.shadowOpacity = 0
 
         // Chromeless mode: hide bubble chrome but keep padding
         isChromeless = hasTerminalSessions || isSingleImageOnly || presentation.isChromeless
         gradientLayer.isHidden = isChromeless
         borderGradientLayer.isHidden = isChromeless
         topHighlightLayer.isHidden = isChromeless
-        shadowContainerView.isHidden = isChromeless
-        shadowContainerView.layer.shadowOpacity = isChromeless ? 0 : shadowOpacity
+        shadowContainerView.isHidden = true
+        shadowContainerView.layer.shadowOpacity = 0
 
         // Update border colors for light/dark mode
         updateBorderColors(isDark: palette.isDark)
@@ -1672,7 +1729,7 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         // Update sender label color
         let senderColor = (currentStream == .admin) ? palette.adminAccent : palette.warmBrown
         senderLabel.textColor = senderColor.withAlphaComponent(currentStream == .admin ? 1.0 : 0.7)
-        timestampLabel.textColor = palette.textMuted.withAlphaComponent(0.4)
+        timestampLabel.textColor = palette.textMuted.withAlphaComponent(Self.timestampTextAlpha(isDark: palette.isDark))
 
         // Update body text color - must update attributed string since textColor is ignored for attributed text
         if let attributedText = bodyLabel.attributedText, attributedText.length > 0 {
@@ -1696,9 +1753,10 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
 
         // Update shadow (on separate shadow container view)
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
-        shadowContainerView.layer.shadowRadius = 12
-        let shadowOpacity: Float = palette.isDark ? 0.25 : 0.32
-        shadowContainerView.layer.shadowOpacity = isChromeless ? 0 : shadowOpacity
+        shadowContainerView.layer.shadowRadius = MessageBubbleShadowStyle.radius
+        shadowContainerView.layer.shadowOffset = MessageBubbleShadowStyle.offset
+        shadowContainerView.layer.shadowOpacity = 0
+        shadowContainerView.isHidden = true
 
         // Update border colors for light/dark mode
         updateBorderColors(isDark: palette.isDark)
@@ -1865,7 +1923,34 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
             timestampLabel.isHidden = true
             return
         }
+        if !headerStack.isHidden, headerStack.bounds.width > 0 {
+            if metadataNeededWidth() > headerStack.bounds.width {
+                timestampLabel.isHidden = true
+                return
+            }
+        }
         timestampLabel.isHidden = false
+    }
+
+    func debugMetadataStateForTests() -> MessageBubbleMetadataDebugState {
+        MessageBubbleMetadataDebugState(
+            senderText: senderLabel.text,
+            senderLineBreakMode: senderLabel.lineBreakMode,
+            senderCompressionResistance: senderLabel.contentCompressionResistancePriority(for: .horizontal),
+            timestampCompressionResistance: timestampLabel.contentCompressionResistancePriority(for: .horizontal),
+            timestampHidden: timestampLabel.isHidden,
+            timestampAlpha: timestampLabel.textColor.cgColor.alpha,
+            headerWidth: headerStack.bounds.width,
+            metadataNeededWidth: metadataNeededWidth()
+        )
+    }
+
+    private func metadataNeededWidth() -> CGFloat {
+        avatarView.bounds.width
+            + headerStack.spacing
+            + senderLabel.intrinsicContentSize.width
+            + 8
+            + timestampLabel.intrinsicContentSize.width
     }
 
     private func scheduleTimestampRefreshIfNeeded(now: Date) {
@@ -2776,6 +2861,10 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             onInteractiveCallback: onInteractiveCallback,
             onResend: onResend
         )
+    }
+
+    func bubbleShadowDescriptor(in targetView: UIView, isDark: Bool) -> MessageBubbleShadowDescriptor? {
+        containerView.bubbleShadowDescriptor(in: targetView, isDark: isDark)
     }
 
     override func prepareForReuse() {

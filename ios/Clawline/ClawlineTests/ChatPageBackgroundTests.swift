@@ -11,11 +11,11 @@ import UIKit
 
 @MainActor
 struct ChatPageBackgroundTests {
-    @Test("Light message flow host paints the actual subtly darker page background")
-    func lightMessageFlowHostUsesSubtlyDarkerPageBackground() {
+    @Test("Light message flow host paints the actual original page background")
+    func lightMessageFlowHostUsesOriginalPageBackground() {
         let color = MessageFlowCollectionViewController.chatPageBackgroundColor(isDark: false)
 
-        #expect(Self.rgba(color) == (238, 230, 218, 255))
+        #expect(Self.rgba(color) == (240, 234, 224, 255))
     }
 
     @Test("Dark message flow host stays transparent to preserve dark mode")

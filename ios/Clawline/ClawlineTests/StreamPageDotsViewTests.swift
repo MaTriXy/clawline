@@ -166,6 +166,12 @@ struct StreamPageDotsViewTests {
         #expect(Self.rgb(color) == Self.rgb(ChatFlowTheme.unreadIndicator(.light)))
     }
 
+    @Test("Offscreen unread edge bloom is blurred behind the glass")
+    func offscreenUnreadEdgeBloomUsesBlur() {
+        #expect(StreamPageDotsView.unreadEdgeBloomBlurRadius(colorScheme: .light) > 0)
+        #expect(StreamPageDotsView.unreadEdgeBloomBlurRadius(colorScheme: .dark) > 0)
+    }
+
     private struct RGB: Equatable {
         let red: CGFloat
         let green: CGFloat

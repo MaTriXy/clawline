@@ -24,6 +24,9 @@ struct StreamPageDotsView: View {
     private static let verticalPadding: CGFloat = 8
     private static let minimumHitTargetHeight: CGFloat = 44
     static let controlHeight: CGFloat = 23
+    static func unreadEdgeBloomBlurRadius(colorScheme: ColorScheme) -> CGFloat {
+        colorScheme == .dark ? 7 : 8
+    }
 
     private var activeIndex: Int {
         sessionKeys.firstIndex(of: activeSessionKey) ?? 0
@@ -196,16 +199,17 @@ struct StreamPageDotsView: View {
         .padding(.horizontal, Self.horizontalPadding)
         .padding(.vertical, Self.verticalPadding)
         .frame(width: targetControlWidth)
+        .background {
+            unreadEdgeBloomOverlay
+                .mask(Capsule())
+                .blur(radius: Self.unreadEdgeBloomBlurRadius(colorScheme: colorScheme))
+                .allowsHitTesting(false)
+        }
 #if !os(visionOS)
         .glassEffect(.regular.interactive(), in: Capsule())
 #else
         .background(.regularMaterial, in: Capsule())
 #endif
-        .overlay {
-            unreadEdgeBloomOverlay
-                .mask(Capsule())
-                .allowsHitTesting(false)
-        }
 #if os(visionOS)
         .overlay {
             Capsule()

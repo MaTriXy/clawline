@@ -132,6 +132,18 @@ struct SessionMetadataFooterHitTestingTests {
         #expect(configuration.background.backgroundColor?.cgColor.alpha == 0)
     }
 
+    @Test("Footer text keeps readable opacity without changing reveal mechanics")
+    func footerTextKeepsReadableOpacity() throws {
+        let cell = makeConfiguredCell()
+        let buttons = allSubviews(in: cell).compactMap { $0 as? UIButton }
+        let modelButton = try #require(buttons.first { $0.accessibilityLabel == "gpt-5.5" })
+        let configuration = try #require(modelButton.configuration)
+        let foreground = try #require(configuration.baseForegroundColor)
+
+        #expect(foreground.cgColor.alpha == SessionMetadataFooterCell.textAlpha(isDark: false))
+        #expect(SessionMetadataFooterCell.fadeRevealRange == 56)
+    }
+
     @Test("Popup selectors mark current item with checkmark image instead of text")
     func popupSelectorsMarkCurrentItemWithCheckmarkImageInsteadOfText() throws {
         let cell = makeConfiguredCell()
