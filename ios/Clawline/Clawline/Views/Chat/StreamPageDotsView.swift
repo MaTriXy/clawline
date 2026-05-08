@@ -21,6 +21,7 @@ struct StreamPageDotsView: View {
     let onScrubPreview: (String) -> Void
     let onScrubCommit: (String) -> Void
     let onScrubCancel: () -> Void
+    let onScrubCandidateHaptic: (ScrubCandidateHapticStyle) -> Void
 
     @State private var scrubStartLocationX: CGFloat?
     @State private var scrubStartVirtualIndex: CGFloat?
@@ -36,6 +37,7 @@ struct StreamPageDotsView: View {
     private static let minimumHitTargetHeight: CGFloat = 44
     private static let scrubTapSuppressionDuration: TimeInterval = 0.45
     private static let scrubGroupLift: CGFloat = 20
+    private static let scrubWaveLiftPerScalePoint: CGFloat = 10
     static let controlHeight: CGFloat = 23
     static func unreadEdgeBloomBlurRadius(colorScheme: ColorScheme) -> CGFloat {
         colorScheme == .dark ? 4.5 : 4.0
@@ -188,6 +190,11 @@ struct StreamPageDotsView: View {
         let maximumScale: CGFloat
     }
 
+    enum ScrubCandidateHapticStyle: Equatable {
+        case light
+        case strong
+    }
+
     static func scrubLayoutMetrics(
         totalSessionCount: Int,
         visibleDotCount: Int,
@@ -198,8 +205,8 @@ struct StreamPageDotsView: View {
         guard totalSessionCount > 0 else {
             return ScrubLayoutMetrics(
                 scrubFieldWidth: controlWidth,
-                magnificationRadius: 3.25,
-                magnificationSigma: 1.15,
+                magnificationRadius: 6.5,
+                magnificationSigma: 2.3,
                 maximumScale: 2.85
             )
         }
@@ -220,8 +227,9 @@ struct StreamPageDotsView: View {
         // Dock equation: hidden pressure opens a wider temporary field, then field gain broadens
         // the Gaussian radius and raises the peak. Small lists stay calm; dense lists get more
         // neighboring participation and a larger finger-centered dot.
-        let magnificationRadius = min(5.25, max(3.25, 3.35 + (1.35 * hiddenPressure) + (0.35 * widthGainRatio)))
-        let magnificationSigma = max(1.15, magnificationRadius * 0.36)
+        let baseMagnificationRadius = min(5.25, max(3.25, 3.35 + (1.35 * hiddenPressure) + (0.35 * widthGainRatio)))
+        let magnificationRadius = baseMagnificationRadius * 2
+        let magnificationSigma = max(2.3, magnificationRadius * 0.36)
         let maximumScale = min(3.35, max(2.85, 2.88 + (0.34 * hiddenPressure) + (0.20 * widthGainRatio)))
 
         return ScrubLayoutMetrics(
@@ -391,9 +399,19 @@ struct StreamPageDotsView: View {
         guard sessionKeys.indices.contains(Self.scrubCandidateIndex(sessionCount: sessionKeys.count, virtualIndex: virtualIndex)) else { return }
         scrubVirtualIndex = virtualIndex
         let candidateIndex = Self.scrubCandidateIndex(sessionCount: sessionKeys.count, virtualIndex: virtualIndex)
-        guard scrubCandidateIndex != candidateIndex else { return }
+        let previousIndex = scrubCandidateIndex
+        guard previousIndex != candidateIndex else { return }
         scrubCandidateIndex = candidateIndex
         onScrubPreview(sessionKeys[candidateIndex])
+        if Self.shouldEmitScrubCandidateHaptic(previousIndex: previousIndex, candidateIndex: candidateIndex) {
+            let sessionKey = sessionKeys[candidateIndex]
+            onScrubCandidateHaptic(
+                Self.scrubCandidateHapticStyle(
+                    isActive: candidateIndex == activeIndex,
+                    dotState: dotStatesBySession[sessionKey] ?? .inactive
+                )
+            )
+        }
     }
 
     private func commitScrub() {
@@ -569,6 +587,15 @@ struct StreamPageDotsView: View {
         return min(max(0, Int(virtualIndex.rounded())), sessionCount - 1)
     }
 
+    static func shouldEmitScrubCandidateHaptic(previousIndex: Int?, candidateIndex: Int) -> Bool {
+        guard let previousIndex else { return false }
+        return previousIndex != candidateIndex
+    }
+
+    static func scrubCandidateHapticStyle(isActive: Bool, dotState: StreamDotState) -> ScrubCandidateHapticStyle {
+        StreamDotColor.kind(isActive: isActive, dotState: dotState) == .inactive ? .light : .strong
+    }
+
     static func locationX(forIndex index: Int) -> CGFloat {
         horizontalPadding + (CGFloat(index) * (dotDiameter + dotSpacing))
     }
@@ -605,7 +632,7 @@ struct StreamPageDotsView: View {
 
     static func scrubMagnificationVerticalOffset(scale: CGFloat) -> CGFloat {
         guard scale > 1 else { return 0 }
-        return -(scale - 1) * 5
+        return -(scale - 1) * scrubWaveLiftPerScalePoint
     }
 
     static func scrubGroupVerticalOffset(isScrubbing: Bool) -> CGFloat {

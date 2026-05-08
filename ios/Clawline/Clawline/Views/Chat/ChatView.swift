@@ -2241,7 +2241,20 @@ private struct StreamPopupTrigger: View {
             },
             onScrubPreview: onPreviewScrubStream,
             onScrubCommit: onCommitScrubStream,
-            onScrubCancel: onCancelScrub
+            onScrubCancel: onCancelScrub,
+            onScrubCandidateHaptic: { style in
+                #if !os(visionOS)
+                let feedbackStyle: UIImpactFeedbackGenerator.FeedbackStyle
+                switch style {
+                case .light:
+                    feedbackStyle = .light
+                case .strong:
+                    feedbackStyle = .rigid
+                }
+                let generator = UIImpactFeedbackGenerator(style: feedbackStyle)
+                generator.impactOccurred()
+                #endif
+            }
         )
         .popover(
             isPresented: popupPresentationBinding,

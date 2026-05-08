@@ -136,6 +136,21 @@ struct StreamPageDotsViewTests {
         #expect(leftVirtualEdge == 0)
     }
 
+    @Test("T257: scrub haptic fires only when candidate changes after initial highlight")
+    func scrubHapticFiresOnlyForCandidateChangesAfterInitialHighlight() {
+        #expect(StreamPageDotsView.shouldEmitScrubCandidateHaptic(previousIndex: nil, candidateIndex: 10) == false)
+        #expect(StreamPageDotsView.shouldEmitScrubCandidateHaptic(previousIndex: 10, candidateIndex: 10) == false)
+        #expect(StreamPageDotsView.shouldEmitScrubCandidateHaptic(previousIndex: 10, candidateIndex: 11) == true)
+    }
+
+    @Test("T257: scrub candidate haptic strength follows existing dot visual state")
+    func scrubCandidateHapticStrengthFollowsDotVisualState() {
+        #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: false, dotState: .inactive) == .light)
+        #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: true, dotState: .inactive) == .strong)
+        #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: false, dotState: .unread) == .strong)
+        #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: false, dotState: .userTail) == .strong)
+    }
+
     @Test("T257: scrub metrics temporarily widen dense dot lists")
     func scrubMetricsTemporarilyWidenDenseDotLists() {
         let rest = StreamPageDotsView.scrubLayoutMetrics(
@@ -156,10 +171,11 @@ struct StreamPageDotsViewTests {
         #expect(rest.scrubFieldWidth == 190)
         #expect(active.scrubFieldWidth > rest.scrubFieldWidth)
         #expect(active.magnificationRadius > rest.magnificationRadius)
+        #expect(active.magnificationRadius > 9)
         #expect(active.maximumScale > rest.maximumScale)
     }
 
-    @Test("T257: scrub magnification falls off smoothly with candidate distance")
+    @Test("T257: scrub magnification falls off smoothly across doubled side area")
     func scrubMagnificationFallsOffWithDistance() {
         let metrics = StreamPageDotsView.scrubLayoutMetrics(
             totalSessionCount: 40,
@@ -171,16 +187,18 @@ struct StreamPageDotsViewTests {
         let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
         let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
         let outer = StreamPageDotsView.scrubMagnificationScale(dotIndex: 12, virtualIndex: 10, metrics: metrics)
-        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 15, virtualIndex: 10, metrics: metrics)
+        let farParticipant = StreamPageDotsView.scrubMagnificationScale(dotIndex: 18, virtualIndex: 10, metrics: metrics)
+        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 20, virtualIndex: 10, metrics: metrics)
 
         #expect(primary > neighbor)
         #expect(neighbor > outer)
-        #expect(outer > outside)
+        #expect(outer > farParticipant)
+        #expect(farParticipant > outside)
         #expect(outside == 1)
         #expect(primary > 3.0)
-        #expect(neighbor > 2.1)
-        #expect(outer > 1.4)
-        #expect(primary - neighbor > 0.5)
+        #expect(neighbor > 2.8)
+        #expect(outer > 2.4)
+        #expect(primary - neighbor > 0.15)
     }
 
     @Test("T257: scrub magnification tracks continuous finger position")
@@ -216,7 +234,7 @@ struct StreamPageDotsViewTests {
         let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
         let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
 
-        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: primary) < -7)
+        #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: primary) < -15)
         #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: neighbor) < 0)
         #expect(StreamPageDotsView.scrubMagnificationVerticalOffset(scale: 1) == 0)
     }
