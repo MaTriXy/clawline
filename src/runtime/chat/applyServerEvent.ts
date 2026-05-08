@@ -21,7 +21,11 @@ export function applyServerMessage(
 ) {
   const { localDeviceId, message, selectedSessionKey, source } = input;
   const sessionKey = message.sessionKey ?? state.streams[0]?.sessionKey ?? "unassigned";
-  const currentMessages = state.messagesBySessionKey[sessionKey] ?? [];
+  const currentMessages = shouldReplacePreservedServerRowsOnReplay(state, sessionKey, source)
+    ? (state.messagesBySessionKey[sessionKey] ?? []).filter(
+        (entry) => entry.delivery !== "server"
+      )
+    : state.messagesBySessionKey[sessionKey] ?? [];
   const nextStreamTailStateBySessionKey =
     message.id.startsWith("s_")
       ? {
@@ -165,6 +169,29 @@ export function applyServerMessage(
           }
         : state.unreadBySessionKey
   };
+}
+
+function shouldReplacePreservedServerRowsOnReplay(
+  state: ChatDomainState,
+  sessionKey: string,
+  source: IncomingMessageSource
+) {
+  if (source !== "replay") {
+    return false;
+  }
+
+  if (state.lastServerEventId !== null) {
+    return false;
+  }
+
+  const cursor = state.replayCursorsBySessionKey[sessionKey];
+  if (cursor?.lastServerEventId) {
+    return false;
+  }
+
+  return (state.messagesBySessionKey[sessionKey] ?? []).some(
+    (entry) => entry.delivery === "server"
+  );
 }
 
 function shouldMarkUnread(

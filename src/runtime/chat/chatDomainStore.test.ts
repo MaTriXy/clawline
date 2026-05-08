@@ -749,7 +749,7 @@ describe("chatDomainStore", () => {
     });
   });
 
-  it("drops persisted/local transcript state on authoritative replay reset", async () => {
+  it("preserves authoritative transcript rows and drops stale local state on replay reset", async () => {
     const store = createChatDomainStore({
       persistence: createMemoryChatPersistence({
         ...phase1TranscriptFixture,
@@ -780,7 +780,7 @@ describe("chatDomainStore", () => {
     expect(store.getState()).toMatchObject({
       hydrated: true,
       lastServerEventId: null,
-      messagesBySessionKey: {},
+      messagesBySessionKey: phase1TranscriptFixture.messagesBySessionKey,
       pendingMessages: {},
       provisionedSessionKeys: [],
       replayCursorsBySessionKey: {},
@@ -789,7 +789,7 @@ describe("chatDomainStore", () => {
     });
   });
 
-  it("preserves accepted local user sends across authoritative replay reset until server echo", () => {
+  it("preserves accepted local user sends and server rows across authoritative replay reset until server echo", () => {
     const store = createChatDomainStore({
       persistence: createMemoryChatPersistence()
     });
@@ -834,6 +834,11 @@ describe("chatDomainStore", () => {
     expect(
       store.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
     ).toEqual([
+      expect.objectContaining({
+        content: "Stale history",
+        delivery: "server",
+        id: "s_old"
+      }),
       expect.objectContaining({
         content: "Accepted but not echoed",
         delivery: "acked",
