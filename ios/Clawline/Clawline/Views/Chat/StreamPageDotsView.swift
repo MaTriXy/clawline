@@ -475,9 +475,14 @@ struct StreamPageDotsView: View {
                     .frame(width: Self.dotDiameter, height: Self.dotDiameter)
                     .overlay {
                         if isCandidate && !isActive {
-                            Circle()
-                                .stroke(StreamDotColor.activeGlow(colorScheme: colorScheme).opacity(0.85), lineWidth: 1.2)
-                                .scaleEffect(1.16)
+                            ZStack {
+                                Circle()
+                                    .stroke(StreamDotColor.activeGlow(colorScheme: colorScheme).opacity(0.85), lineWidth: 1.2)
+                                    .scaleEffect(1.16)
+                                Circle()
+                                    .stroke(Color.white.opacity(0.82), lineWidth: 0.55)
+                                    .scaleEffect(1.07)
+                            }
                         }
                     }
                     .scaleEffect(scale)
