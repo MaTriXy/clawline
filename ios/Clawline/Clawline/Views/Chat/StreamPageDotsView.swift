@@ -25,10 +25,10 @@ struct StreamPageDotsView: View {
     private static let minimumHitTargetHeight: CGFloat = 44
     static let controlHeight: CGFloat = 23
     static func unreadEdgeBloomBlurRadius(colorScheme: ColorScheme) -> CGFloat {
-        colorScheme == .dark ? 1.5 : 1.0
+        colorScheme == .dark ? 4.5 : 4.0
     }
     static func unreadEdgeBloomOpacity(colorScheme: ColorScheme) -> Double {
-        1
+        0.30
     }
 
     private var activeIndex: Int {
