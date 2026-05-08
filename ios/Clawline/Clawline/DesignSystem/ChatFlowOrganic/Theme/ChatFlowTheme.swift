@@ -72,8 +72,8 @@ enum ChatFlowTheme {
             ? LinearGradient(colors: [Color(red: 0.110, green: 0.098, blue: 0.090),  // #1C1917
                                       Color(red: 0.078, green: 0.071, blue: 0.063)], // #141210
                              startPoint: .top, endPoint: .bottom)
-            : LinearGradient(colors: [Color(red: 0.941, green: 0.918, blue: 0.878),  // #F0EAE0
-                                      Color(red: 0.910, green: 0.878, blue: 0.831)], // #E8E0D4
+            : LinearGradient(colors: [Color(red: 0.933, green: 0.902, blue: 0.855),  // #EEE6DA
+                                      Color(red: 0.894, green: 0.851, blue: 0.796)], // #E4D9CB
                              startPoint: .top, endPoint: .bottom)
     }
 
