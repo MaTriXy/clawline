@@ -11,16 +11,7 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-struct MessageBubbleShadowDescriptor: Equatable {
-    let frame: CGRect
-    let cornerRadius: CGFloat
-    let opacity: Float
-    let radius: CGFloat
-    let offset: CGSize
-}
-
 enum MessageBubbleShadowStyle {
-    static let cornerRadius: CGFloat = 18
     static let radius: CGFloat = 12
     static let offset = CGSize(width: 0, height: 5)
 
@@ -505,19 +496,6 @@ final class MessageBubbleUIKitContainerView: UIView {
     func bubbleFrameInContainer() -> CGRect {
         bubbleView.frame
     }
-
-    func bubbleShadowDescriptor(in targetView: UIView, isDark: Bool) -> MessageBubbleShadowDescriptor? {
-        guard bubbleView.rendersBubbleShadow else { return nil }
-        let frame = convert(bubbleView.frame, to: targetView)
-        guard frame.width > 1, frame.height > 1 else { return nil }
-        return MessageBubbleShadowDescriptor(
-            frame: frame,
-            cornerRadius: MessageBubbleShadowStyle.cornerRadius,
-            opacity: MessageBubbleShadowStyle.opacity(isDark: isDark),
-            radius: MessageBubbleShadowStyle.radius,
-            offset: MessageBubbleShadowStyle.offset
-        )
-    }
 }
 
 final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
@@ -597,9 +575,6 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
     private var allowSwipeUpExpandForSingleLink = false
     private var timestampDate: Date?
     private var timestampRefreshTimer: Timer?
-    var rendersBubbleShadow: Bool {
-        !isChromeless
-    }
 
     private var traitObservation: (any NSObjectProtocol)?
 
@@ -1510,20 +1485,20 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         fadeView.setFadeStartLocation(nil)
 #endif
 
-        // Bubble shadows are composited by the collection-level shadow canvas so they stay behind
-        // the whole bubble stack instead of rendering over adjacent cells.
+        // Soft shadow
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
         shadowContainerView.layer.shadowRadius = MessageBubbleShadowStyle.radius
         shadowContainerView.layer.shadowOffset = MessageBubbleShadowStyle.offset
-        shadowContainerView.layer.shadowOpacity = 0
+        let shadowOpacity = MessageBubbleShadowStyle.opacity(isDark: palette.isDark)
+        shadowContainerView.layer.shadowOpacity = shadowOpacity
 
         // Chromeless mode: hide bubble chrome but keep padding
         isChromeless = hasTerminalSessions || isSingleImageOnly || presentation.isChromeless
         gradientLayer.isHidden = isChromeless
         borderGradientLayer.isHidden = isChromeless
         topHighlightLayer.isHidden = isChromeless
-        shadowContainerView.isHidden = true
-        shadowContainerView.layer.shadowOpacity = 0
+        shadowContainerView.isHidden = isChromeless
+        shadowContainerView.layer.shadowOpacity = isChromeless ? 0 : shadowOpacity
 
         // Update border colors for light/dark mode
         updateBorderColors(isDark: palette.isDark)
@@ -1755,8 +1730,9 @@ final class MessageBubbleUIKitView: UIView, UITextViewDelegate {
         shadowContainerView.layer.shadowColor = UIColor.black.cgColor
         shadowContainerView.layer.shadowRadius = MessageBubbleShadowStyle.radius
         shadowContainerView.layer.shadowOffset = MessageBubbleShadowStyle.offset
-        shadowContainerView.layer.shadowOpacity = 0
-        shadowContainerView.isHidden = true
+        let shadowOpacity = MessageBubbleShadowStyle.opacity(isDark: palette.isDark)
+        shadowContainerView.layer.shadowOpacity = isChromeless ? 0 : shadowOpacity
+        shadowContainerView.isHidden = isChromeless
 
         // Update border colors for light/dark mode
         updateBorderColors(isDark: palette.isDark)
@@ -2695,8 +2671,8 @@ enum ChatFlowUIKitTheme {
             adminAccent: UIColor(red: 0.141, green: 0.420, blue: 0.831, alpha: 1),
             ink: UIColor(red: 0.239, green: 0.204, blue: 0.161, alpha: 1),
             bubbleSelfGradient: [
-                UIColor(red: 0.722, green: 0.808, blue: 0.686, alpha: 1),
-                UIColor(red: 0.784, green: 0.851, blue: 0.753, alpha: 1)
+                UIColor(red: 0.886, green: 0.933, blue: 0.859, alpha: 1),
+                UIColor(red: 0.886, green: 0.933, blue: 0.859, alpha: 1)
             ],
             bubbleOtherGradient: [
                 UIColor(red: 1.0, green: 0.992, blue: 0.976, alpha: 1),
@@ -2861,10 +2837,6 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
             onInteractiveCallback: onInteractiveCallback,
             onResend: onResend
         )
-    }
-
-    func bubbleShadowDescriptor(in targetView: UIView, isDark: Bool) -> MessageBubbleShadowDescriptor? {
-        containerView.bubbleShadowDescriptor(in: targetView, isDark: isDark)
     }
 
     override func prepareForReuse() {

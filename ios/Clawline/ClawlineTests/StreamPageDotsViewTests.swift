@@ -168,8 +168,10 @@ struct StreamPageDotsViewTests {
 
     @Test("Offscreen unread edge bloom is blurred behind the glass")
     func offscreenUnreadEdgeBloomUsesBlur() {
-        #expect(StreamPageDotsView.unreadEdgeBloomBlurRadius(colorScheme: .light) > 0)
-        #expect(StreamPageDotsView.unreadEdgeBloomBlurRadius(colorScheme: .dark) > 0)
+        #expect(StreamPageDotsView.unreadEdgeBloomOpacity(colorScheme: .light) == 1)
+        #expect(StreamPageDotsView.unreadEdgeBloomOpacity(colorScheme: .dark) == 1)
+        #expect(StreamPageDotsView.unreadEdgeBloomBlurRadius(colorScheme: .light) <= 1)
+        #expect(StreamPageDotsView.unreadEdgeBloomBlurRadius(colorScheme: .dark) <= 1.5)
     }
 
     private struct RGB: Equatable {

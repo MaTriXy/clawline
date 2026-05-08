@@ -25,7 +25,10 @@ struct StreamPageDotsView: View {
     private static let minimumHitTargetHeight: CGFloat = 44
     static let controlHeight: CGFloat = 23
     static func unreadEdgeBloomBlurRadius(colorScheme: ColorScheme) -> CGFloat {
-        colorScheme == .dark ? 7 : 8
+        colorScheme == .dark ? 1.5 : 1.0
+    }
+    static func unreadEdgeBloomOpacity(colorScheme: ColorScheme) -> Double {
+        1
     }
 
     private var activeIndex: Int {
@@ -233,35 +236,11 @@ struct StreamPageDotsView: View {
 
     private func edgeWarningBloom(edge: HorizontalEdge) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            warningBloomColor.opacity(colorScheme == .dark ? 0.26 : 0.20),
-                            warningBloomColor.opacity(colorScheme == .dark ? 0.14 : 0.10),
-                            .clear
-                        ],
-                        startPoint: edge == .leading ? .leading : .trailing,
-                        endPoint: edge == .leading ? .trailing : .leading
-                    )
-                )
-                .frame(width: 24, height: 18)
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            warningBloomColor.opacity(colorScheme == .dark ? 0.36 : 0.28),
-                            warningBloomColor.opacity(colorScheme == .dark ? 0.10 : 0.08),
-                            .clear
-                        ],
-                        startPoint: edge == .leading ? .leading : .trailing,
-                        endPoint: edge == .leading ? .trailing : .leading
-                    )
-                )
-                .frame(width: 34, height: 24)
-                .blur(radius: colorScheme == .dark ? 4 : 5)
+                .fill(warningBloomColor.opacity(Self.unreadEdgeBloomOpacity(colorScheme: colorScheme)))
+                .frame(width: 18, height: 16)
         }
-        .frame(width: 28, height: 24)
-        .offset(x: edge == .leading ? -5 : 5)
+        .frame(width: 20, height: 18)
+        .offset(x: edge == .leading ? -4 : 4)
     }
 }

@@ -11,24 +11,19 @@ import UIKit
 
 @MainActor
 struct MessageBubbleShadowTests {
-    @Test("Bubble shadow canvas owns shadow layers under cells")
-    func bubbleShadowCanvasOwnsShadowLayers() throws {
-        let canvas = BubbleShadowCanvasView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
-        let descriptor = MessageBubbleShadowDescriptor(
-            frame: CGRect(x: 20, y: 24, width: 140, height: 52),
-            cornerRadius: MessageBubbleShadowStyle.cornerRadius,
-            opacity: MessageBubbleShadowStyle.opacity(isDark: false),
-            radius: MessageBubbleShadowStyle.radius,
-            offset: MessageBubbleShadowStyle.offset
-        )
+    @Test("Bubble shadows use the pre-canvas per-bubble opacity")
+    func bubbleShadowsUsePreCanvasOpacity() {
+        #expect(MessageBubbleShadowStyle.opacity(isDark: false) == 0.32)
+        #expect(MessageBubbleShadowStyle.opacity(isDark: true) == 0.25)
+        #expect(MessageBubbleShadowStyle.radius == 12)
+        #expect(MessageBubbleShadowStyle.offset == CGSize(width: 0, height: 5))
+    }
 
-        canvas.update(descriptors: [descriptor])
+    @Test("Light user prompt bubble fill is flat")
+    func lightUserPromptBubbleFillIsFlat() {
+        let colors = ChatFlowUIKitTheme.palette(isDark: false).bubbleSelfGradient
 
-        let layer = try #require(canvas.layer.sublayers?.first)
-        #expect(layer.frame == descriptor.frame)
-        #expect(layer.shadowOpacity == descriptor.opacity)
-        #expect(layer.shadowRadius == descriptor.radius)
-        #expect(layer.shadowOffset == descriptor.offset)
-        #expect(layer.shadowPath != nil)
+        #expect(colors.count == 2)
+        #expect(colors.first == colors.last)
     }
 }

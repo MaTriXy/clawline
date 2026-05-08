@@ -218,7 +218,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var channelOverride: String?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var flowLayout: MessageFlowLayout!
-    private let bubbleShadowCanvasView = BubbleShadowCanvasView()
     private let uiKitBubbleSizer = MessageBubbleUIKitView(enableDataDetectors: false)
     private var currentIsDark: Bool = true
     private let bubbleSizingV2Enabled = BubbleSizingV2.isEnabled
@@ -1070,7 +1069,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Handle bounds size changes
         let size = collectionView.bounds.size
         guard size != .zero, size != lastBoundsSize else {
-            updateBubbleShadowCanvas()
             return
         }
         lastBoundsSize = size
@@ -1098,12 +1096,10 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 isDark: currentIsDark
             )
         }
-        updateBubbleShadowCanvas()
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         bubbleSizingV2LastScrollActivityTime = CFAbsoluteTimeGetCurrent()
-        updateBubbleShadowCanvas()
         updateVisibleFooterAlpha()
         guard let sessionKey = callbackSessionKey() else { return }
         handleUserScrolled(sessionKey: sessionKey)
@@ -1181,7 +1177,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        updateBubbleShadowCanvas()
         guard let id = dataSource.itemIdentifier(for: indexPath) else { return }
         // During morph, we intentionally drive the target cell's alpha from 0->1 in our own
         // `UIView.animate`. Don't let willDisplay stomp it back to 1 early.
@@ -1252,10 +1247,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         logScrollRestore(
             "restorePhase sessionKey=\(sessionKey) from=\(String(describing: oldPhase)) to=\(String(describing: newPhase)) reason=\(reason)"
         )
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        updateBubbleShadowCanvas()
     }
 
     private func logPendingScrollRestoreStateChange(sessionKey: String,
@@ -3351,8 +3342,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView.register(TypingIndicatorCell.self, forCellWithReuseIdentifier: TypingIndicatorCell.reuseIdentifier)
         collectionView.register(DateSeparatorCell.self, forCellWithReuseIdentifier: DateSeparatorCell.reuseIdentifier)
         collectionView.register(SessionMetadataFooterCell.self, forCellWithReuseIdentifier: SessionMetadataFooterCell.reuseIdentifier)
-        bubbleShadowCanvasView.frame = CGRect(origin: .zero, size: collectionView.contentSize)
-        collectionView.insertSubview(bubbleShadowCanvasView, at: 0)
 
         view.addSubview(collectionView)
         // Frame will be set in viewDidLayoutSubviews to extend to window bounds
@@ -3364,17 +3353,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         view.isOpaque = !isDark
         collectionView?.backgroundColor = color
         collectionView?.isOpaque = !isDark
-    }
-
-    private func updateBubbleShadowCanvas() {
-        guard isViewLoaded, collectionView != nil else { return }
-        bubbleShadowCanvasView.frame = CGRect(origin: .zero, size: collectionView.contentSize)
-        collectionView.sendSubviewToBack(bubbleShadowCanvasView)
-        let descriptors = collectionView.visibleCells.compactMap { cell -> MessageBubbleShadowDescriptor? in
-            guard let messageCell = cell as? MessageBubbleUIKitCell else { return nil }
-            return messageCell.bubbleShadowDescriptor(in: collectionView, isDark: currentIsDark)
-        }
-        bubbleShadowCanvasView.update(descriptors: descriptors)
     }
 
     @objc private func handleCollectionViewTap(_ recognizer: UITapGestureRecognizer) {
@@ -5323,54 +5301,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                         layout collectionViewLayout: UICollectionViewLayout,
                         sizeForItemAt indexPath: IndexPath) -> CGSize {
         sizeForItem(at: indexPath)
-    }
-}
-
-final class BubbleShadowCanvasView: UIView {
-    private var shadowLayers: [CALayer] = []
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        isUserInteractionEnabled = false
-        backgroundColor = .clear
-        isOpaque = false
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func update(descriptors: [MessageBubbleShadowDescriptor]) {
-        while shadowLayers.count < descriptors.count {
-            let layer = CALayer()
-            layer.masksToBounds = false
-            self.layer.addSublayer(layer)
-            shadowLayers.append(layer)
-        }
-
-        for index in descriptors.indices {
-            let descriptor = descriptors[index]
-            let layer = shadowLayers[index]
-            layer.isHidden = false
-            layer.frame = descriptor.frame
-            layer.cornerRadius = descriptor.cornerRadius
-            layer.backgroundColor = UIColor.black.withAlphaComponent(0.001).cgColor
-            layer.shadowColor = UIColor.black.cgColor
-            layer.shadowOpacity = descriptor.opacity
-            layer.shadowRadius = descriptor.radius
-            layer.shadowOffset = descriptor.offset
-            layer.shadowPath = UIBezierPath(
-                roundedRect: CGRect(origin: .zero, size: descriptor.frame.size),
-                cornerRadius: descriptor.cornerRadius
-            ).cgPath
-        }
-
-        if shadowLayers.count > descriptors.count {
-            for index in descriptors.count..<shadowLayers.count {
-                shadowLayers[index].isHidden = true
-                shadowLayers[index].shadowOpacity = 0
-            }
-        }
     }
 }
 
