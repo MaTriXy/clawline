@@ -224,11 +224,11 @@ struct StreamPageDotsView: View {
         let widthGainRatio = max(0, (scrubFieldWidth - controlWidth) / max(controlWidth, 1))
 
         // Dock equation: hidden pressure opens a wider temporary field, then field gain broadens
-        // the influence radius and raises the peak. The radius carries the wide tail; sigma stays
-        // narrower so the center remains spiky instead of flattening into a sine-like wave.
+        // the influence radius and raises the peak. Radius controls the tail reach; sigma controls
+        // the high central spike so it can broaden without translating the whole row.
         let baseMagnificationRadius = min(5.25, max(3.25, 3.35 + (1.35 * hiddenPressure) + (0.35 * widthGainRatio)))
-        let magnificationRadius = baseMagnificationRadius * 4
-        let magnificationSigma = max(2.3, magnificationRadius * 0.18)
+        let magnificationRadius = baseMagnificationRadius * 2
+        let magnificationSigma = max(2.3, magnificationRadius * 0.36)
         let maximumScale = min(3.35, max(2.85, 2.88 + (0.34 * hiddenPressure) + (0.20 * widthGainRatio)))
 
         return ScrubLayoutMetrics(
@@ -629,7 +629,7 @@ struct StreamPageDotsView: View {
 
     static func scrubMagnificationFalloff(distance: CGFloat, metrics: ScrubLayoutMetrics) -> CGFloat {
         guard distance < metrics.magnificationRadius else { return 0 }
-        let narrowSigma = max(0.95, metrics.magnificationSigma * 0.30)
+        let narrowSigma = max(0.95, metrics.magnificationSigma * 0.60)
         let centralSpike = exp(-pow(distance / narrowSigma, 2.6))
         let edgeProgress = max(0, 1 - (distance / metrics.magnificationRadius))
         let broadTail = pow(edgeProgress, 1.25)

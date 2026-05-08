@@ -171,11 +171,12 @@ struct StreamPageDotsViewTests {
         #expect(rest.scrubFieldWidth == 190)
         #expect(active.scrubFieldWidth > rest.scrubFieldWidth)
         #expect(active.magnificationRadius > rest.magnificationRadius)
-        #expect(active.magnificationRadius > 18)
+        #expect(active.magnificationRadius > 9)
+        #expect(active.magnificationRadius < 10)
         #expect(active.maximumScale > rest.maximumScale)
     }
 
-    @Test("T257: scrub magnification falls off smoothly across doubled side area")
+    @Test("T257: scrub magnification uses a shorter tail with a wider central spike")
     func scrubMagnificationFallsOffWithDistance() {
         let metrics = StreamPageDotsView.scrubLayoutMetrics(
             totalSessionCount: 40,
@@ -187,8 +188,8 @@ struct StreamPageDotsViewTests {
         let primary = StreamPageDotsView.scrubMagnificationScale(dotIndex: 10, virtualIndex: 10, metrics: metrics)
         let neighbor = StreamPageDotsView.scrubMagnificationScale(dotIndex: 11, virtualIndex: 10, metrics: metrics)
         let outer = StreamPageDotsView.scrubMagnificationScale(dotIndex: 12, virtualIndex: 10, metrics: metrics)
-        let farParticipant = StreamPageDotsView.scrubMagnificationScale(dotIndex: 26, virtualIndex: 10, metrics: metrics)
-        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 30, virtualIndex: 10, metrics: metrics)
+        let farParticipant = StreamPageDotsView.scrubMagnificationScale(dotIndex: 18, virtualIndex: 10, metrics: metrics)
+        let outside = StreamPageDotsView.scrubMagnificationScale(dotIndex: 20, virtualIndex: 10, metrics: metrics)
 
         #expect(primary > neighbor)
         #expect(neighbor > outer)
@@ -196,12 +197,12 @@ struct StreamPageDotsViewTests {
         #expect(farParticipant > outside)
         #expect(outside == 1)
         #expect(primary > 3.0)
-        #expect(neighbor > 1.8)
-        #expect(neighbor < 2.5)
-        #expect(outer > 1.25)
-        #expect(outer < 1.7)
-        #expect(primary - neighbor > 0.9)
-        #expect((primary - neighbor) > (neighbor - outer))
+        #expect(neighbor > 2.8)
+        #expect(outer > 1.9)
+        #expect(outer < 2.2)
+        #expect(farParticipant < 1.1)
+        #expect(primary - neighbor < 0.5)
+        #expect((neighbor - outer) > (primary - neighbor))
     }
 
     @Test("T257: scrub magnification tracks continuous finger position")
