@@ -247,7 +247,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let previewRemeasureRestPollSeconds: TimeInterval = 0.06
     private static let bottomInsetHeightCapInvalidationDebounceSeconds: TimeInterval = 0.20
     private static let restoreMaxConfirmationRetries: Int = 3
-    private static let typingIndicatorTapTargetOutset: CGFloat = 16
+    private static let typingIndicatorTapTargetLeadingOutset: CGFloat = 8
+    private static let typingIndicatorTapTargetTrailingOutset: CGFloat = 44
 
     static func chatPageBackgroundColor(isDark: Bool) -> UIColor {
         isDark ? .clear : UIColor(ChatFlowTheme.pageBackgroundTopColor(.light))
@@ -3402,9 +3403,23 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         } else {
             visibleFrame = layoutAttributes.frame
         }
-        return visibleFrame.insetBy(
-            dx: -Self.typingIndicatorTapTargetOutset,
-            dy: -Self.typingIndicatorTapTargetOutset
+        let expandedFrame = CGRect(
+            x: visibleFrame.minX - Self.typingIndicatorTapTargetLeadingOutset,
+            y: visibleFrame.minY,
+            width: visibleFrame.width + Self.typingIndicatorTapTargetLeadingOutset + Self.typingIndicatorTapTargetTrailingOutset,
+            height: visibleFrame.height
+        )
+        return expandedFrame.intersection(collectionViewContentFrame())
+    }
+
+    private func collectionViewContentFrame() -> CGRect {
+        CGRect(
+            x: 0,
+            y: -collectionView.adjustedContentInset.top,
+            width: collectionView.bounds.width,
+            height: collectionView.contentSize.height
+                + collectionView.adjustedContentInset.top
+                + collectionView.adjustedContentInset.bottom
         )
     }
 

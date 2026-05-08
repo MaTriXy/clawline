@@ -185,6 +185,7 @@ struct ChatView: View {
     @State private var isFileImporterPresented = false
     @State private var isCancelCurrentPromptDialogPresented = false
     @State private var cancelCurrentPromptSessionKey: String?
+    @State private var cancelCurrentPromptRequiresVisibleTyping = false
     @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var focusRequestID = 0
     @State private var shouldRestoreFocusAfterPicker = false
@@ -837,7 +838,9 @@ struct ChatView: View {
             && !isPhotosPickerPresented
             && !isFileImporterPresented
         let cancelCurrentPromptDialogCanCancel = cancelCurrentPromptSessionKey.map { sessionKey in
-            viewModel.canCancelCurrentPrompt(in: sessionKey)
+            cancelCurrentPromptRequiresVisibleTyping
+                ? viewModel.canCancelVisibleTypingPrompt(in: sessionKey)
+                : viewModel.canCancelCurrentPrompt(in: sessionKey)
         } ?? viewModel.canCancelCurrentPrompt
 
         let messageLayer: AnyView = AnyView(
@@ -997,8 +1000,16 @@ struct ChatView: View {
                 canPresentCommand: viewModel.canCancelCurrentPrompt,
                 onPresentCommand: { presentCancelCurrentPromptDialog() },
                 onConfirm: {
+                    if cancelCurrentPromptRequiresVisibleTyping,
+                       let sessionKey = cancelCurrentPromptSessionKey,
+                       !viewModel.canCancelVisibleTypingPrompt(in: sessionKey) {
+                        cancelCurrentPromptSessionKey = nil
+                        cancelCurrentPromptRequiresVisibleTyping = false
+                        return
+                    }
                     viewModel.requestCurrentPromptCancellation(sessionKey: cancelCurrentPromptSessionKey)
                     cancelCurrentPromptSessionKey = nil
+                    cancelCurrentPromptRequiresVisibleTyping = false
                 }
             )
         )
@@ -1848,20 +1859,23 @@ struct ChatView: View {
 
     private func presentCancelCurrentPromptDialog(sessionKey: String? = nil) {
         if let sessionKey {
-            print("T217DIAG present_request build=\(Self.t217DiagnosticBuild) explicitSession=\(sessionKey) canCancelExplicit=\(viewModel.canCancelCurrentPrompt(in: sessionKey)) canCancelAny=\(viewModel.canCancelCurrentPrompt)")
+            let canCancelVisibleTypingPrompt = viewModel.canCancelVisibleTypingPrompt(in: sessionKey)
+            print("T217DIAG present_request build=\(Self.t217DiagnosticBuild) explicitSession=\(sessionKey) canCancelExplicit=\(canCancelVisibleTypingPrompt) canCancelAny=\(viewModel.canCancelCurrentPrompt)")
             logger.notice(
-                "T217DIAG present_request build=\(Self.t217DiagnosticBuild, privacy: .public) explicitSession=\(sessionKey, privacy: .public) canCancelExplicit=\(viewModel.canCancelCurrentPrompt(in: sessionKey), privacy: .public) canCancelAny=\(viewModel.canCancelCurrentPrompt, privacy: .public)"
+                "T217DIAG present_request build=\(Self.t217DiagnosticBuild, privacy: .public) explicitSession=\(sessionKey, privacy: .public) canCancelExplicit=\(canCancelVisibleTypingPrompt, privacy: .public) canCancelAny=\(viewModel.canCancelCurrentPrompt, privacy: .public)"
             )
-            guard viewModel.canCancelCurrentPrompt(in: sessionKey) else {
+            guard canCancelVisibleTypingPrompt else {
                 print("T217DIAG present_result build=\(Self.t217DiagnosticBuild) result=suppressed explicitSession=\(sessionKey)")
                 logger.notice(
                     "T217DIAG present_result build=\(Self.t217DiagnosticBuild, privacy: .public) result=suppressed explicitSession=\(sessionKey, privacy: .public)"
                 )
                 cancelCurrentPromptSessionKey = nil
+                cancelCurrentPromptRequiresVisibleTyping = false
                 isCancelCurrentPromptDialogPresented = false
                 return
             }
             cancelCurrentPromptSessionKey = sessionKey
+            cancelCurrentPromptRequiresVisibleTyping = true
         } else {
             print("T217DIAG present_request build=\(Self.t217DiagnosticBuild) explicitSession=nil canCancelAny=\(viewModel.canCancelCurrentPrompt)")
             logger.notice(
@@ -1873,10 +1887,12 @@ struct ChatView: View {
                     "T217DIAG present_result build=\(Self.t217DiagnosticBuild, privacy: .public) result=suppressed explicitSession=nil"
                 )
                 cancelCurrentPromptSessionKey = nil
+                cancelCurrentPromptRequiresVisibleTyping = false
                 isCancelCurrentPromptDialogPresented = false
                 return
             }
             cancelCurrentPromptSessionKey = nil
+            cancelCurrentPromptRequiresVisibleTyping = false
         }
         isCancelCurrentPromptDialogPresented = true
         print("T217DIAG present_result build=\(Self.t217DiagnosticBuild) result=presented storedSession=\(cancelCurrentPromptSessionKey ?? "nil")")
