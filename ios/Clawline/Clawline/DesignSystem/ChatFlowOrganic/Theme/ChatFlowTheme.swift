@@ -79,7 +79,7 @@ enum ChatFlowTheme {
     }
 
     static func pageBackground(_ scheme: ColorScheme) -> LinearGradient {
-        // --bg-surface-gradient from design system: #1C1917 to #141210
+        // --bg-surface-gradient from design system.
         LinearGradient(colors: [pageBackgroundTopColor(scheme),
                                 pageBackgroundBottomColor(scheme)],
                        startPoint: .top, endPoint: .bottom)

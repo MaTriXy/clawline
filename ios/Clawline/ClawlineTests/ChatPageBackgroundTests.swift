@@ -11,8 +11,8 @@ import UIKit
 
 @MainActor
 struct ChatPageBackgroundTests {
-    @Test("Light message flow host paints the actual original page background")
-    func lightMessageFlowHostUsesOriginalPageBackground() {
+    @Test("Light message flow host paints the design-system chat surface")
+    func lightMessageFlowHostUsesDesignSystemChatSurface() {
         let color = MessageFlowCollectionViewController.chatPageBackgroundColor(isDark: false)
 
         #expect(Self.rgba(color) == (240, 234, 224, 255))
