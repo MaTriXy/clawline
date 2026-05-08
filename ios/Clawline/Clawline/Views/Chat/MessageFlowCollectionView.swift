@@ -2289,6 +2289,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             if self.isActiveSession {
                 viewModel.markEngineActivationRenderedIfNeeded(for: effectiveSessionKey)
             }
+            self.updateVisibleFooterAlpha()
         }
         // Spec requires explicit contentOffset compensation for tail->full prepend.
         // This anchor path captures (messageId, oldFrameMinY, oldContentOffsetY), then applies:
@@ -2461,6 +2462,18 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         guard revealDistance > 0 else { return 0 }
         let revealedDistance = contentOffsetY - restingBottomOffsetY
         return min(1, max(0, revealedDistance / revealDistance))
+    }
+
+    static func initialFooterCellAlpha(
+        contentOffsetY: CGFloat,
+        restingBottomOffsetY: CGFloat,
+        trueBottomOffsetY: CGFloat
+    ) -> CGFloat {
+        footerRevealAlpha(
+            contentOffsetY: contentOffsetY,
+            restingBottomOffsetY: restingBottomOffsetY,
+            trueBottomOffsetY: trueBottomOffsetY
+        )
     }
 
     private func isNonMessageItemID(_ id: String) -> Bool {
@@ -3405,6 +3418,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     isDark: self.currentIsDark,
                     onSelect: self.onSessionControlSelected
                 )
+                cell?.alpha = self.footerRevealAlpha()
                 return cell
             }
 
@@ -5161,7 +5175,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if !snapshotMessages.isEmpty, SessionMetadataFooterCell.footerText(for: sessionStatus) != nil {
             snapshot.appendItems([SessionMetadataFooterCell.itemId])
         }
-        dataSource.apply(snapshot, animatingDifferences: false)
+        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+            self?.updateVisibleFooterAlpha()
+        }
     }
 
     private func materializeMessagesForActiveStage(allMessages: [Message], sessionKey: String) -> [Message] {

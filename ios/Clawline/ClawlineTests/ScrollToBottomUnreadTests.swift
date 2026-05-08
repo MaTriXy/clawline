@@ -179,4 +179,26 @@ struct ScrollToBottomUnreadTests {
             trueBottomOffsetY: trueBottom
         ) == 1)
     }
+
+    @Test("Initial footer cell alpha is resolved without waiting for scroll")
+    func initialFooterCellAlphaIsResolvedWithoutWaitingForScroll() {
+        let restingBottom: CGFloat = 440
+        let trueBottom: CGFloat = 500
+
+        #expect(MessageFlowCollectionViewController.initialFooterCellAlpha(
+            contentOffsetY: restingBottom,
+            restingBottomOffsetY: restingBottom,
+            trueBottomOffsetY: trueBottom
+        ) == 0)
+        #expect(MessageFlowCollectionViewController.initialFooterCellAlpha(
+            contentOffsetY: (restingBottom + trueBottom) / 2,
+            restingBottomOffsetY: restingBottom,
+            trueBottomOffsetY: trueBottom
+        ) == 0.5)
+        #expect(MessageFlowCollectionViewController.initialFooterCellAlpha(
+            contentOffsetY: trueBottom,
+            restingBottomOffsetY: restingBottom,
+            trueBottomOffsetY: trueBottom
+        ) == 1)
+    }
 }
