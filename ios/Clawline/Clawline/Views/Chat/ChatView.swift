@@ -2759,7 +2759,6 @@ private struct CancelCurrentPromptBubbleChrome: ViewModifier {
             .background(.regularMaterial, in: shape)
 #else
         content
-            .background(.regularMaterial, in: shape)
             .glassEffect(.regular, in: shape)
 #endif
     }
