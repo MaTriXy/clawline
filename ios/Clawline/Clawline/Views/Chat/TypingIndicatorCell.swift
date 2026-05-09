@@ -106,6 +106,15 @@ final class TypingIndicatorCell: UICollectionViewCell {
         dotsView.stopAnimating()
     }
 
+    func renderedBubbleFrame(in coordinateSpace: UICoordinateSpace?) -> CGRect {
+        layoutIfNeeded()
+        let bubbleFrame = containerView.bubbleFrameInContainer()
+        if let coordinateSpace {
+            return containerView.convert(bubbleFrame, to: coordinateSpace)
+        }
+        return containerView.convert(bubbleFrame, to: nil)
+    }
+
     static func makeMessage(sessionKey: String) -> Message {
         return Message(
             id: itemId,
