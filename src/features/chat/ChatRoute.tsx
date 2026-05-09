@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { StreamManagerDrawer } from "../streams/StreamManagerDrawer";
 import { getSessionProvisioningState } from "../streams/provisioning";
@@ -16,6 +16,7 @@ import {
   useChatSessionCoordinator,
   useChatSessionInteractionCoordinator
 } from "./useChatSessionCoordinator";
+import { useChatKeyboardShortcuts } from "./useChatKeyboardShortcuts";
 
 export function ChatRoute() {
   const navigate = useNavigate();
@@ -176,11 +177,23 @@ export function ChatRoute() {
     coordinator.requestSessionSwitch(sessionKey, source);
     navigate(`/chat/${sessionKey}`);
   };
+  const focusPromptInput = useCallback(() => {
+    document.getElementById("composer-input")?.focus({ preventScroll: true });
+  }, []);
+  const openSessionListFromShortcut = useCallback(() => {
+    coordinator.openSessionList();
+  }, [coordinator]);
 
   const interactionCoordinator = useChatSessionInteractionCoordinator({
     activeSessionKey,
     onSelectSession: handleSelectSession,
     orderedSessionKeys: chatState.streams.map((stream) => stream.sessionKey)
+  });
+  useChatKeyboardShortcuts({
+    canOpenSessionList: chatState.streams.length > 0,
+    isShortcutSurfaceBlocked: coordinator.isSessionListOpen || coordinator.isStreamManagerOpen,
+    onFocusPromptInput: focusPromptInput,
+    onOpenSessionList: openSessionListFromShortcut
   });
 
   useEffect(() => {
