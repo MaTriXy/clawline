@@ -294,6 +294,16 @@ struct StreamPageDotsViewTests {
         )
     }
 
+    @Test("T277: scrub drag-away cancel uses the indicator hit target distance")
+    func scrubDragAwayCancelUsesIndicatorHitTargetDistance() {
+        #expect(StreamPageDotsView.shouldCancelScrub(locationY: 21) == false)
+        #expect(StreamPageDotsView.shouldCancelScrub(locationY: 44) == false)
+        #expect(StreamPageDotsView.shouldCancelScrub(locationY: -23) == false)
+        #expect(StreamPageDotsView.shouldCancelScrub(locationY: 88) == false)
+        #expect(StreamPageDotsView.shouldCancelScrub(locationY: -24) == true)
+        #expect(StreamPageDotsView.shouldCancelScrub(locationY: 89) == true)
+    }
+
     @Test("T257: scrub candidate haptic strength follows existing dot visual state")
     func scrubCandidateHapticStrengthFollowsDotVisualState() {
         #expect(StreamPageDotsView.scrubCandidateHapticStyle(isActive: false, dotState: .inactive) == .light)
