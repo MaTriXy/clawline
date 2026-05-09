@@ -2702,7 +2702,7 @@ private struct CancelCurrentPromptPopup: View {
         content
             .padding(.top, tailEdge == .top ? tailHeight : 0)
             .padding(.bottom, tailEdge == .bottom ? tailHeight : 0)
-            .background(.regularMaterial, in: bubbleShape)
+            .modifier(CancelCurrentPromptBubbleChrome(shape: bubbleShape))
             .overlay {
                 bubbleShape
                     .stroke(Color.white.opacity(0.16), lineWidth: 0.75)
@@ -2747,6 +2747,21 @@ private struct CancelCurrentPromptPopup: View {
     private var buttonBackground: some View {
         RoundedRectangle(cornerRadius: buttonCornerRadius, style: .continuous)
             .fill(ChatFlowTheme.connectionDisconnected(colorScheme).opacity(isPressed ? 0.82 : 1))
+    }
+}
+
+private struct CancelCurrentPromptBubbleChrome: ViewModifier {
+    let shape: CancelCurrentPromptBubbleShape
+
+    func body(content: Content) -> some View {
+#if os(visionOS)
+        content
+            .background(.regularMaterial, in: shape)
+#else
+        content
+            .background(.regularMaterial, in: shape)
+            .glassEffect(.regular, in: shape)
+#endif
     }
 }
 
