@@ -2526,16 +2526,72 @@ private struct CancelCurrentPromptConfirmationModifier: ViewModifier {
                 }
             }
             .focusedSceneValue(\.cancelCurrentPromptCommand, command)
-            .alert("Cancel current prompt?", isPresented: $isPresented) {
-                Button("Cancel Prompt", role: .destructive) {
+            .popover(
+                isPresented: $isPresented,
+                attachmentAnchor: .rect(.bounds),
+                arrowEdge: .bottom
+            ) {
+                CancelCurrentPromptPopup {
+                    isPresented = false
                     onConfirm()
                 }
-                .keyboardShortcut(.defaultAction)
-                Button("Keep Running", role: .cancel) {}
-                    .keyboardShortcut(.cancelAction)
-            } message: {
-                Text("Stop the current in-flight prompt?")
+                .presentationCompactAdaptation(.popover)
+                .presentationBackground(.clear)
             }
+    }
+}
+
+private struct CancelCurrentPromptPopup: View {
+    let onCancelPrompt: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isPressed = false
+
+    private let rowHeight: CGFloat = 52
+    private let rowHorizontalInset: CGFloat = 12
+    private let outerVerticalPadding: CGFloat = 20
+    private let popupCornerRadius: CGFloat = 20
+    private let minimumPopoverWidth: CGFloat = 280
+    private let idealPopoverWidth: CGFloat = 320
+    private let maximumPopoverWidth: CGFloat = 360
+
+    var body: some View {
+        Button(action: onCancelPrompt) {
+            Text("Cancel")
+                .font(.clawline(.subsectionHeader).weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight)
+                .contentShape(Rectangle())
+                .background(buttonBackground)
+                .scaleEffect(isPressed ? 0.97 : 1)
+                .animation(.easeOut(duration: 0.15), value: isPressed)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.defaultAction)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
+        .padding(.horizontal, rowHorizontalInset)
+        .padding(.vertical, outerVerticalPadding)
+        .frame(
+            minWidth: minimumPopoverWidth,
+            idealWidth: idealPopoverWidth,
+            maxWidth: maximumPopoverWidth
+        )
+        .background(Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.10), lineWidth: 0.5)
+                .allowsHitTesting(false)
+        )
+    }
+
+    private var buttonBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(ChatFlowTheme.connectionDisconnected(colorScheme).opacity(isPressed ? 0.82 : 1))
     }
 }
 

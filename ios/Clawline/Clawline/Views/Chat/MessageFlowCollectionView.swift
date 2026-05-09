@@ -223,19 +223,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var channelOverride: String?
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var flowLayout: MessageFlowLayout!
-#if DEBUG
-    private let typingIndicatorHitTargetDebugView: UIView = {
-        let view = UIView()
-        view.isUserInteractionEnabled = false
-        view.backgroundColor = .clear
-        view.layer.borderWidth = 2
-        view.layer.borderColor = UIColor.systemYellow.cgColor
-        view.layer.cornerRadius = 8
-        view.layer.cornerCurve = .continuous
-        view.isHidden = true
-        return view
-    }()
-#endif
     private let uiKitBubbleSizer = MessageBubbleUIKitView(enableDataDetectors: false)
     private var currentIsDark: Bool = true
     private let bubbleSizingV2Enabled = BubbleSizingV2.isEnabled
@@ -1094,9 +1081,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         lastBoundsSize = size
         pendingBoundsChange = true
         updateLayout()
-#if DEBUG
-        updateTypingIndicatorHitTargetDebugOverlay()
-#endif
         if let viewModel {
             update(
                 viewModel: viewModel,
@@ -2318,9 +2302,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 viewModel.markEngineActivationRenderedIfNeeded(for: effectiveSessionKey)
             }
             self.updateVisibleFooterAlpha()
-#if DEBUG
-            self.updateTypingIndicatorHitTargetDebugOverlay()
-#endif
         }
         // Spec requires explicit contentOffset compensation for tail->full prepend.
         // This anchor path captures (messageId, oldFrameMinY, oldContentOffsetY), then applies:
@@ -3363,9 +3344,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         typingIndicatorTap.delaysTouchesBegan = false
         typingIndicatorTap.delaysTouchesEnded = false
         collectionView.addGestureRecognizer(typingIndicatorTap)
-#if DEBUG
-        collectionView.addSubview(typingIndicatorHitTargetDebugView)
-#endif
         let diagnosticMessage = "T217DIAG collection_recognizer_installed build=\(Self.t217DiagnosticBuild) recognizerCount=\(self.collectionView.gestureRecognizers?.count ?? 0)"
         print(diagnosticMessage)
         typingCancelDiagnosticLogger.notice(
@@ -3433,24 +3411,6 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         )
         return expandedFrame.intersection(collectionViewContentFrame())
     }
-
-#if DEBUG
-    private func updateTypingIndicatorHitTargetDebugOverlay() {
-        guard let typingIndexPath = dataSource.indexPath(for: TypingIndicatorCell.itemId),
-              let attributes = collectionView.layoutAttributesForItem(at: typingIndexPath) else {
-            typingIndicatorHitTargetDebugView.isHidden = true
-            return
-        }
-        let frame = typingIndicatorTapTargetFrame(for: typingIndexPath, layoutAttributes: attributes)
-        guard !frame.isNull, !frame.isEmpty else {
-            typingIndicatorHitTargetDebugView.isHidden = true
-            return
-        }
-        typingIndicatorHitTargetDebugView.frame = frame
-        typingIndicatorHitTargetDebugView.isHidden = false
-        collectionView.bringSubviewToFront(typingIndicatorHitTargetDebugView)
-    }
-#endif
 
     private func collectionViewContentFrame() -> CGRect {
         CGRect(
