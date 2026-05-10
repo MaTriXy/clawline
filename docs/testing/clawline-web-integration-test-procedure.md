@@ -1646,3 +1646,90 @@ Status:
 
 - Automated/deployed WebKit evidence is green.
 - Final experiential check remains Flynn/physical Safari: open `http://100.85.66.60:4173/`, scroll down in a long chat, then scroll back up and confirm it no longer snaps down.
+
+## Web Shortcut Parity Deployment - 2026-05-09 04:10 PDT
+
+Purpose: record T270 parity work for shortcut keys recently added to the iOS app.
+
+Product meaning:
+
+- Clawline Web now supports the browser-safe subset of the iOS shortcut model.
+- Browser/system-owned conflicts remain unsupported and documented in `tracking/T270.md`.
+
+Implemented web shortcuts:
+
+- `/` and `;` open Streams when focus is not inside an editable/interactive element.
+- Space and Enter focus Prompt Input when focus is not inside an editable/interactive element.
+- Cmd-; / Ctrl-; opens Streams, including while Prompt Input is focused.
+
+Source mapping / review:
+
+- Review result: clean.
+- Agent validated the subset against actual iOS sources: `ClawlineAppCommands.swift`, `ChatView.swift`, `RichTextEditor.swift`, and the T216 shortcut architecture retro.
+- External Codex review was attempted twice but hung while emitting context, with no actionable findings.
+
+Shipped/deployed state:
+
+- Final `origin/main`: `7185e868267afbcf5ada609db2da726acfb7d7e8`.
+- Implementation commit: `c6ec701b12 Add web chat shortcut parity subset`.
+- Evidence commits: `1729e6b977`, `3fb7c2542b`, `7185e86826`.
+- TARS web target: `http://100.85.66.60:4173/`.
+- Deployed JS asset: `assets/index-B1UqqFPy.js`.
+- CSS asset: `assets/index-DR6FtkEm.css`.
+
+Evidence:
+
+- Focused ChatRoute shortcut test: PASS (`14` tests).
+- `npm run build`: PASS.
+- `npm run test`: PASS (`174` tests).
+- `npx playwright test playwright/tests/phase5-responsive-keyboard.spec.ts`: PASS (`10` tests).
+- TARS smoke: `/`, `/chat/test`, `/pair` all `200 OK`.
+- Final artifact evidence directory: `/tmp/clawline-t270-final-main-verify-20260509-041002`.
+- Served index/JS/CSS hashes matched local build.
+
+05:00 readiness recheck:
+
+- TARS root returned `HTTP/1.1 200 OK`.
+- Root still references `assets/index-B1UqqFPy.js` and `assets/index-DR6FtkEm.css`.
+
+Status:
+
+- Tracker `T270` is `Verifiable`.
+- Flynn verification target: open `http://100.85.66.60:4173/` and test the shortcut behavior listed above.
+
+## 06:00 Deployed Shortcut Smoke - 2026-05-09
+
+Purpose: reduce Flynn-only verification by testing the deployed T270 shortcut behavior against the live TARS web client with the dedicated test account.
+
+Environment:
+
+- URL: `http://100.85.66.60:4173/chat/agent:main:clawline:clawline_web_test:main`
+- Account: `clawline_web_test`
+- Device/storage state: `da49d87f-60a5-4a72-b543-4f1da80200db`
+- Browser engine: Playwright WebKit
+
+Result: PASS.
+
+Checks:
+
+- `/` opens session popover: PASS.
+- `;` opens session popover: PASS.
+- Space focuses Prompt Input: PASS.
+- Enter focuses Prompt Input: PASS.
+- Cmd-; opens session popover from Prompt Input: PASS.
+
+Status:
+
+- T270 remains `Verifiable`: deployed automated WebKit smoke is green; Flynn can do final experiential confirmation in Safari if desired.
+
+### Flynn physical Safari verification - 2026-05-09
+
+- Flynn verified the Safari/WebKit transcript scroll fix experientially: he can now scroll up and down.
+- This closes the previously reported plain Safari regression where the transcript could scroll down but snapped/prevented scrolling back up.
+
+### Midnight deployed parity readiness check - 2026-05-10 00:00 PDT
+
+- Rechecked TARS Clawline Web routes after the Web parity/layout deploy.
+- `http://100.85.66.60:4173/`, `/chat/test`, and `/pair` all returned HTTP 200.
+- Served assets remain the deployed parity bundle: `assets/index-CCACm0zW.js` and `assets/index-B0esVyXO.css`.
+- This preserves readiness for Flynn live verification of T286/T287/T288 plus bubble-width/flow-layout behavior.
