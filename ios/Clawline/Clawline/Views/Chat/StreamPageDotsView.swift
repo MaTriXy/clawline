@@ -300,6 +300,8 @@ struct StreamPageDotsView: View {
 
             dotRow
                 .frame(width: scrubFieldWidth, height: Self.controlHeight, alignment: .center)
+                .frame(width: controlWidth, height: Self.controlHeight, alignment: .center)
+                .clipShape(Capsule())
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .frame(width: scrubFieldWidth, height: Self.minimumHitTargetHeight, alignment: .bottom)
@@ -504,11 +506,11 @@ struct StreamPageDotsView: View {
             scrubCandidateIndex: scrubCandidateIndex,
             sessionCount: sessionKeys.count
         )
-        return HStack(spacing: 7) {
+        return HStack(spacing: Self.dotSpacing) {
             if showsLeadingOverflow {
                 Circle()
                     .fill(StreamDotColor.inactive(colorScheme: colorScheme))
-                    .frame(width: 4, height: 4)
+                    .frame(width: Self.overflowDotDiameter, height: Self.overflowDotDiameter)
             }
             ForEach(visibleDotIndices, id: \.self) { index in
                 let sessionKey = sessionKeys[index]
@@ -546,7 +548,7 @@ struct StreamPageDotsView: View {
             if showsTrailingOverflow {
                 Circle()
                     .fill(StreamDotColor.inactive(colorScheme: colorScheme))
-                    .frame(width: 4, height: 4)
+                    .frame(width: Self.overflowDotDiameter, height: Self.overflowDotDiameter)
             }
         }
         .fixedSize(horizontal: true, vertical: false)
