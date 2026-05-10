@@ -21,3 +21,8 @@ Recorded 2026-05-09 10:05 PDT from `/Users/mike/src/worktrees/clawline-web-parit
 - `npm run build`: PASS.
 - `npm run test`: PASS, 23 files / 182 tests.
 - `npm run test:e2e -- playwright/tests/phase5-flow-layout.spec.ts`: PASS, 5 tests, all using local `clawline_web_test` harness identity. Browser assertion verified a wide markdown bubble stayed `<= 620px` and substantially narrower than the transcript viewport.
+
+Recorded 2026-05-09 17:21 PDT after impl-agent review from `/Users/mike/src/worktrees/clawline-web-parity-layout-batch`:
+
+- Review result: initial review found the new resting-bottom math ignored the scroll container's actual bottom padding. Fixed the virtual window's resting bottom to derive from the real container scroll range and subtract only the footer reveal region, preserving composer-safe padding while keeping the footer hidden until extra manual scroll.
+- `npm run build && npm run test && npm run test:e2e -- playwright/tests/phase5-typing-indicator.spec.ts playwright/tests/phase5-flow-layout.spec.ts`: PASS. Build succeeded with the existing Vite large-chunk warning; unit suite passed 23 files / 184 tests; affected Playwright specs passed 7 tests.

@@ -1360,4 +1360,27 @@ describe("MessageList rich rendering", () => {
       undefined
     );
   });
+
+  it("renders read-only fast mode status when mutation is unsupported", async () => {
+    renderMessageListWithProps({
+      messages: [makeMessage(1)],
+      sessionKey: "agent:main:clawline:flynn:main",
+      sessionStatus: {
+        sessionKey: "agent:main:clawline:flynn:main",
+        display: {
+          fastMode: false
+        },
+        capabilities: {
+          setFastMode: {
+            supported: false,
+            reason: "read_only"
+          }
+        }
+      }
+    });
+
+    const fastModeControl = await screen.findByLabelText("Fast off");
+    expect(fastModeControl).toBeDisabled();
+    expect(fastModeControl).toHaveTextContent("Off");
+  });
 });

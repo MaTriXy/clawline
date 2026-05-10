@@ -100,8 +100,12 @@ export type SessionControlAction =
 export interface ApplySessionControlRequest {
   sessionKey: string;
   action: SessionControlAction;
-  value?: string | null;
-  enabled?: boolean | null;
+  fastMode?: boolean | null;
+  mode?: string | null;
+  model?: string | null;
+  reasoningLevel?: string | null;
+  thinkingLevel?: string | null;
+  verbosity?: string | null;
 }
 
 export interface ApplySessionControlResponse {
@@ -208,12 +212,7 @@ export function createStreamApiClient(options?: StreamApiClientOptions) {
         path: "/api/session-control",
         serverUrl: input.serverUrl,
         token: input.token,
-        body: {
-          sessionKey: input.sessionKey,
-          action: input.action,
-          value: input.value ?? null,
-          enabled: input.enabled ?? null
-        }
+        body: buildSessionControlRequestBody(input)
       });
     },
     createStream(input: {
@@ -281,6 +280,53 @@ export function createStreamApiClient(options?: StreamApiClientOptions) {
       });
     }
   };
+}
+
+function buildSessionControlRequestBody(input: {
+  action: SessionControlAction;
+  enabled?: boolean | null;
+  sessionKey: string;
+  value?: string | null;
+}): ApplySessionControlRequest {
+  const base = {
+    sessionKey: input.sessionKey,
+    action: input.action
+  };
+
+  switch (input.action) {
+    case "set_model":
+      return {
+        ...base,
+        model: input.value ?? null
+      };
+    case "set_thinking":
+      return {
+        ...base,
+        thinkingLevel: input.value ?? null
+      };
+    case "set_reasoning":
+      return {
+        ...base,
+        reasoningLevel: input.value ?? null
+      };
+    case "set_fast_mode":
+      return {
+        ...base,
+        fastMode: input.enabled ?? null
+      };
+    case "set_mode":
+      return {
+        ...base,
+        mode: input.value ?? null
+      };
+    case "set_verbosity":
+      return {
+        ...base,
+        verbosity: input.value ?? null
+      };
+    case "cancel_current_run":
+      return base;
+  }
 }
 
 export function providerHttpBaseUrlFromServerUrl(serverUrl: string) {

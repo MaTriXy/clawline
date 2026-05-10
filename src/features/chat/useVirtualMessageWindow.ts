@@ -134,7 +134,7 @@ export function useVirtualMessageWindow(
     }
     const restingMaxScrollTop = maxRestingScrollTop(
       container,
-      layout.totalHeight + restingTrailingHeight
+      revealTrailingHeight
     );
     isAtBottomRef.current = restingMaxScrollTop - nextScrollTop <= BOTTOM_THRESHOLD_PX;
     shouldStickToBottomRef.current = isAtBottomRef.current;
@@ -149,26 +149,26 @@ export function useVirtualMessageWindow(
 
     const maxScrollTop = maxRestingScrollTop(
       container,
-      layout.totalHeight + restingTrailingHeight
+      revealTrailingHeight
     );
     const nextScrollTop = Number.isFinite(maxScrollTop) ? maxScrollTop : container.scrollHeight;
     container.scrollTop = nextScrollTop;
     setScrollTop(nextScrollTop);
-  }, [layout.totalHeight, restingTrailingHeight]);
+  }, [layout.totalHeight, restingTrailingHeight, revealTrailingHeight]);
 
+  const restingMaxScrollTopForRender = maxCurrentRestingScrollTop(
+    containerRef.current,
+    layout.totalHeight + restingTrailingHeight,
+    revealTrailingHeight,
+    viewportHeight
+  );
+  const effectiveScrollTop = Math.max(0, scrollTop);
   const isAtRestingBottom =
-    typeof window === "undefined"
-      ? Math.max(0, layout.totalHeight + restingTrailingHeight - viewportHeight - scrollTop)
-          <= BOTTOM_THRESHOLD_PX
-      : Math.max(0, layout.totalHeight + restingTrailingHeight - viewportHeight - scrollTop)
-          <= BOTTOM_THRESHOLD_PX;
+    restingMaxScrollTopForRender - effectiveScrollTop <= BOTTOM_THRESHOLD_PX;
   const trailingRevealAlpha = revealTrailingHeight > 0
     ? clamp(
         0,
-        (
-          scrollTop
-          - Math.max(0, layout.totalHeight + restingTrailingHeight - viewportHeight)
-        ) / revealTrailingHeight,
+        (effectiveScrollTop - restingMaxScrollTopForRender) / revealTrailingHeight,
         1
       )
     : 0;
@@ -203,7 +203,7 @@ export function useVirtualMessageWindow(
       shouldStickToBottomRef.current = true;
       const maxScrollTop = maxRestingScrollTop(
         container,
-        layout.totalHeight + restingTrailingHeight
+        revealTrailingHeight
       );
       const nextScrollTop = Number.isFinite(maxScrollTop) ? maxScrollTop : container.scrollHeight;
       container.scrollTop = nextScrollTop;
@@ -230,7 +230,7 @@ export function useVirtualMessageWindow(
 
       const clampedOffset = clampContainerScrollTop(container, nextOffset);
       const isAtBottom =
-        maxRestingScrollTop(container, layout.totalHeight + restingTrailingHeight)
+        maxRestingScrollTop(container, revealTrailingHeight)
         - clampedOffset <= BOTTOM_THRESHOLD_PX;
       shouldStickToBottomRef.current = isAtBottom;
       container.scrollTop = clampedOffset;
@@ -246,7 +246,7 @@ export function useVirtualMessageWindow(
 
       const clampedOffset = clampContainerScrollTop(container, offsetTop);
       const isAtBottom =
-        maxRestingScrollTop(container, layout.totalHeight + restingTrailingHeight)
+        maxRestingScrollTop(container, revealTrailingHeight)
         - clampedOffset <= BOTTOM_THRESHOLD_PX;
       shouldStickToBottomRef.current = isAtBottom;
       container.scrollTop = clampedOffset;
@@ -261,8 +261,27 @@ export function useVirtualMessageWindow(
   };
 }
 
-function maxRestingScrollTop(container: HTMLElement, restingHeight: number) {
-  return Math.max(0, restingHeight - container.clientHeight);
+function maxCurrentRestingScrollTop(
+  container: HTMLElement | null,
+  fallbackRestingHeight: number,
+  revealTrailingHeight: number,
+  viewportHeight: number
+) {
+  if (container) {
+    const maxScrollTop = maxRestingScrollTop(container, revealTrailingHeight);
+    if (Number.isFinite(maxScrollTop)) {
+      return maxScrollTop;
+    }
+  }
+  return Math.max(0, fallbackRestingHeight - viewportHeight);
+}
+
+function maxRestingScrollTop(container: HTMLElement, revealTrailingHeight: number) {
+  const maxScrollTop = maxContainerScrollTop(container);
+  if (!Number.isFinite(maxScrollTop)) {
+    return maxScrollTop;
+  }
+  return Math.max(0, maxScrollTop - revealTrailingHeight);
 }
 
 function maxContainerScrollTop(container: HTMLElement) {

@@ -235,7 +235,11 @@ function fastModeOptions(current: boolean | null | undefined, action?: SessionCo
     ];
   }
   if (action !== "set_fast_mode") {
-    return [];
+    return current == null
+      ? []
+      : [
+          { title: current ? "On" : "Off", enabled: current, isCurrent: true }
+        ];
   }
   return [
     { title: "On", enabled: true, isCurrent: current === true },
