@@ -1733,3 +1733,31 @@ Status:
 - `http://100.85.66.60:4173/`, `/chat/test`, and `/pair` all returned HTTP 200.
 - Served assets remain the deployed parity bundle: `assets/index-CCACm0zW.js` and `assets/index-B0esVyXO.css`.
 - This preserves readiness for Flynn live verification of T286/T287/T288 plus bubble-width/flow-layout behavior.
+
+### Final live Safari acceptance targets - 2026-05-10 02:00 PDT
+
+These are the remaining human/device acceptance targets for the deployed Web parity/layout bundle. They are criteria, not a replacement for Flynn's live verification:
+
+1. During an in-flight assistant response, a typing indicator bubble appears at the transcript bottom.
+2. Tapping the typing indicator, or pressing Cmd-. on a keyboard, opens a compact cancel confirmation anchored to that typing bubble.
+3. The cancel confirmation dismisses on outside tap/Esc and confirms on Return or the red Cancel action, using typed cancel behavior rather than sending `/stop` chat text.
+4. The model/thinking/Fast footer controls behave as interactive controls; the model picker uses the model catalog, marks the current model, and does not show as a normal bottom-of-chat obstruction.
+5. Message bubbles keep comfortable content-based widths; ordinary text/markdown bubbles should not stretch edge-to-edge across the viewport.
+6. Transcript scrolling remains bidirectional in Safari: scrolling down and back up both work after the deployed bundle.
+
+### Test identity hygiene rule - 2026-05-10 04:00 PDT
+
+For Clawline Web validation, use the dedicated `clawline_web_test` identity unless Flynn explicitly requests a different account. Do not use Flynn's primary account, browser token, or captured Flynn storage-state for automated harness traffic. If a live-provider scenario cannot run under `clawline_web_test`, mark the scenario BLOCKED/NOT RUN with the exact account/provisioning reason rather than silently falling back to Flynn's account.
+
+### Physical device availability recheck - 2026-05-10 06:00 PDT
+
+- Rechecked local physical-device control path with `xcrun devicectl list devices`.
+- Result: `No devices found.`
+- This confirms the remaining iPhone/iPad Safari proof still requires Flynn's physical device/session or another supported device-control path; no simulator or desktop proof is being substituted.
+
+### Deployed parity readiness recheck - 2026-05-11 00:00 PDT
+
+- Rechecked TARS Clawline Web routes after the deployed Web parity/layout bundle.
+- `http://100.85.66.60:4173/`, `/chat/test`, and `/pair` all returned HTTP 200.
+- Served assets remain the parity bundle: `assets/index-CCACm0zW.js` and `assets/index-B0esVyXO.css`.
+- This preserves readiness for final live Safari/user verification of T286/T287/T288 plus bubble-width/flow-layout behavior.
