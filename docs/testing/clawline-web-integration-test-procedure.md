@@ -1761,3 +1761,44 @@ For Clawline Web validation, use the dedicated `clawline_web_test` identity unle
 - `http://100.85.66.60:4173/`, `/chat/test`, and `/pair` all returned HTTP 200.
 - Served assets remain the parity bundle: `assets/index-CCACm0zW.js` and `assets/index-B0esVyXO.css`.
 - This preserves readiness for final live Safari/user verification of T286/T287/T288 plus bubble-width/flow-layout behavior.
+
+### Dedicated test-device state recheck - 2026-05-11 02:00 PDT
+
+- Rechecked Clawline device approval files for Web verification readiness.
+- `pending.json` contains no pending device entries.
+- `allowlist.json` still includes dedicated `clawline_web_test` devices.
+- This keeps live-provider/Web verification ready without using Flynn's primary account or storage-state.
+
+### Dedicated test-device count recheck - 2026-05-11 02:07 PDT
+
+- Corrected/expanded the 02:00 device-state check with exact counts.
+- `pending.json` has `0` pending entries.
+- `allowlist.json` has `3` `clawline_web_test` Web devices: `9be5a139-4a76-40fc-a9d4-537c28c6e56b`, `a32b2591-7a38-4a34-a44c-bc12a4e92935`, and `da49d87f-60a5-4a72-b543-4f1da80200db`.
+
+### Manual Safari packet currency note - 2026-05-11 03:00 PDT
+
+- The earlier manual Safari packet remains historical for the previous bundle.
+- For current final verification, use the latest deployed parity bundle recorded above: `assets/index-CCACm0zW.js` and `assets/index-B0esVyXO.css`.
+- Current verification scope is T286/T287/T288, bubble-width/flow-layout behavior, and bidirectional Safari scrolling; do not rely on stale bundle names from the 2026-05-08 packet.
+
+### Physical device availability recheck - 2026-05-11 04:00 PDT
+
+- Rechecked local physical-device control path with `xcrun devicectl list devices`.
+- Result: `No devices found.`
+- Final iPhone/iPad Safari proof still requires Flynn's physical device/session or another supported device-control path; no simulator or desktop substitute is being counted.
+
+### Deployed parity readiness recheck - 2026-05-11 06:00 PDT
+
+- Rechecked TARS Clawline Web routes after the deployed Web parity/layout bundle.
+- `http://100.85.66.60:4173/`, `/chat/test`, and `/pair` all returned HTTP 200.
+- Served assets remain the parity bundle: `assets/index-CCACm0zW.js` and `assets/index-B0esVyXO.css`.
+- This preserves readiness for final live Safari/user verification of T286/T287/T288 plus bubble-width/flow-layout behavior.
+
+### Current-main deploy reconciliation - 2026-05-12 01:00 PDT
+
+- Clean deployer worktree `/Users/mike/src/worktrees/clawline-web-parity-layout-batch` was fast-forwarded to `origin/main` `03c1762e5fe8e54681477bd10bc946243824dfc6`; canonical `/Users/mike/src/clawline` dirty state was left untouched.
+- `npm run build`: PASS on current `origin/main`.
+- `npm run test`: PASS on current `origin/main`.
+- `npm run test:e2e`: NOT GREEN — 29 passed, 3 visual snapshot assertions failed because current bubble width is about `601px` while checked-in dark snapshots expect `780px`. This appears to be snapshot drift against the intended bubble-width fix rather than a deploy/runtime regression, but it prevents claiming full e2e green.
+- Re-rsynced `dist/` to TARS anyway because current `origin/main` produced the same parity bundle filenames already served.
+- TARS smoke after reconciliation: `/`, `/chat/test`, and `/pair` returned HTTP 200 and serve `assets/index-CCACm0zW.js` plus `assets/index-B0esVyXO.css`.
