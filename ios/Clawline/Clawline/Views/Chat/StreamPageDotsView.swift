@@ -27,6 +27,7 @@ struct StreamPageDotsView: View {
     @State private var scrubStartVirtualIndex: CGFloat?
     @State private var scrubVirtualIndex: CGFloat?
     @State private var scrubCandidateIndex: Int?
+    @State private var scrubIsCancelled = false
     @State private var scrubTapSuppressionExpiresAt = Date.distantPast
 
     private static let collapsedMaxVisibleDots = 11
@@ -50,7 +51,11 @@ struct StreamPageDotsView: View {
     }
 
     private var isScrubbing: Bool {
-        scrubStartVirtualIndex != nil || scrubVirtualIndex != nil
+        !scrubIsCancelled && (scrubStartVirtualIndex != nil || scrubVirtualIndex != nil)
+    }
+
+    private var hasActiveScrubGesture: Bool {
+        scrubStartVirtualIndex != nil || scrubVirtualIndex != nil || scrubCandidateIndex != nil
     }
 
     private var baseVisibleDotCount: Int {
@@ -332,7 +337,7 @@ struct StreamPageDotsView: View {
                 case .second(true, let dragValue):
                     if let dragValue {
                         beginScrub(at: dragValue.startLocation.x)
-                        updateScrub(at: dragValue.location.x)
+                        updateScrub(at: dragValue.location)
                     }
                 default:
                     break
@@ -344,7 +349,7 @@ struct StreamPageDotsView: View {
                     commitScrub()
                 case .second(true, let dragValue):
                     if let dragValue {
-                        updateScrub(at: dragValue.location.x)
+                        updateScrub(at: dragValue.location)
                     }
                     commitScrub()
                 default:
@@ -369,17 +374,27 @@ struct StreamPageDotsView: View {
         withAnimation(.spring(response: 0.18, dampingFraction: 0.86)) {
             scrubStartLocationX = dockLocationX
             scrubStartVirtualIndex = virtualIndex
+            scrubIsCancelled = false
         }
         updateScrubVirtualIndex(virtualIndex)
     }
 
-    private func updateScrub(at locationX: CGFloat) {
+    private func updateScrub(at location: CGPoint) {
         guard !sessionKeys.isEmpty else { return }
         if scrubStartVirtualIndex == nil {
-            beginScrub(at: locationX)
+            beginScrub(at: location.x)
         }
         guard let startVirtualIndex = scrubStartVirtualIndex, let startLocationX = scrubStartLocationX else { return }
-        let dockLocationX = dockLocationX(fromScrubFieldLocationX: locationX)
+        if Self.shouldCancelScrub(locationY: location.y) {
+            enterScrubCancelledState()
+            return
+        }
+
+        let dockLocationX = dockLocationX(fromScrubFieldLocationX: location.x)
+        if scrubIsCancelled {
+            scrubIsCancelled = false
+        }
+
         let virtualIndex = Self.scrubVirtualIndex(
             sessionCount: sessionKeys.count,
             startVirtualIndex: startVirtualIndex,
@@ -389,8 +404,12 @@ struct StreamPageDotsView: View {
         updateScrubVirtualIndex(virtualIndex)
     }
 
-    private func endScrub(at locationX: CGFloat) {
-        updateScrub(at: locationX)
+    private func endScrub(at location: CGPoint) {
+        updateScrub(at: location)
+        guard !scrubIsCancelled else {
+            resetScrubState()
+            return
+        }
         commitScrub()
     }
 
@@ -428,6 +447,16 @@ struct StreamPageDotsView: View {
         onScrubCancel()
     }
 
+    private func enterScrubCancelledState() {
+        guard !scrubIsCancelled || scrubCandidateIndex != nil || scrubVirtualIndex != nil else { return }
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.86)) {
+            scrubIsCancelled = true
+            scrubVirtualIndex = nil
+            scrubCandidateIndex = nil
+        }
+        onScrubCancel()
+    }
+
     private func dockLocationX(fromScrubFieldLocationX locationX: CGFloat) -> CGFloat {
         Self.dockLocationX(
             fromScrubFieldLocationX: locationX,
@@ -437,7 +466,7 @@ struct StreamPageDotsView: View {
     }
 
     private func cancelScrubIfNeeded() {
-        guard scrubStartVirtualIndex != nil || scrubCandidateIndex != nil || scrubVirtualIndex != nil else { return }
+        guard hasActiveScrubGesture else { return }
         cancelScrub()
     }
 
@@ -447,6 +476,7 @@ struct StreamPageDotsView: View {
             scrubStartVirtualIndex = nil
             scrubVirtualIndex = nil
             scrubCandidateIndex = nil
+            scrubIsCancelled = false
         }
     }
 
@@ -667,6 +697,18 @@ struct StreamPageDotsView: View {
         return locationX - (fieldExtra / 2)
     }
 
+    static func shouldCancelScrub(locationY: CGFloat) -> Bool {
+        let indicatorTopY = minimumHitTargetHeight - controlHeight
+        let indicatorBottomY = minimumHitTargetHeight
+        if locationY < indicatorTopY {
+            return (indicatorTopY - locationY) > minimumHitTargetHeight
+        }
+        if locationY > indicatorBottomY {
+            return (locationY - indicatorBottomY) > minimumHitTargetHeight
+        }
+        return false
+    }
+
     static func shouldEmitScrubCandidateHaptic(previousIndex: Int?, candidateIndex: Int) -> Bool {
         guard let previousIndex else { return false }
         return previousIndex != candidateIndex
@@ -784,8 +826,8 @@ struct StreamPageDotsView: View {
 private struct StreamPageDotsGestureBridge: UIViewRepresentable {
     let onTap: () -> Void
     let onScrubBegan: (CGFloat) -> Void
-    let onScrubChanged: (CGFloat) -> Void
-    let onScrubEnded: (CGFloat) -> Void
+    let onScrubChanged: (CGPoint) -> Void
+    let onScrubEnded: (CGPoint) -> Void
     let onScrubCancelled: () -> Void
 
     func makeUIView(context: Context) -> UIView {
@@ -825,14 +867,14 @@ private struct StreamPageDotsGestureBridge: UIViewRepresentable {
         }
 
         @objc func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
-            let locationX = recognizer.location(in: recognizer.view).x
+            let location = recognizer.location(in: recognizer.view)
             switch recognizer.state {
             case .began:
-                parent.onScrubBegan(locationX)
+                parent.onScrubBegan(location.x)
             case .changed:
-                parent.onScrubChanged(locationX)
+                parent.onScrubChanged(location)
             case .ended:
-                parent.onScrubEnded(locationX)
+                parent.onScrubEnded(location)
             case .cancelled, .failed:
                 parent.onScrubCancelled()
             default:
