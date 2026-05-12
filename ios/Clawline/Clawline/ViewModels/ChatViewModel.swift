@@ -984,6 +984,10 @@ final class ChatViewModel: ChatViewModelHosting {
                     }
 
                     group.addTask { [weak self] in
+                        await self?.observeProviderConnectionState()
+                    }
+
+                    group.addTask { [weak self] in
                         await self?.observeServiceEvents()
                     }
                 }
@@ -1086,6 +1090,19 @@ final class ChatViewModel: ChatViewModelHosting {
             recordLifecycleStartupGateEvent(event)
 #endif
         }
+    }
+
+    @MainActor
+    private func observeProviderConnectionState() async {
+        for await state in chatService.connectionState {
+            await handleProviderConnectionState(state)
+        }
+    }
+
+    @MainActor
+    private func handleProviderConnectionState(_ state: ConnectionState) async {
+        guard state == .disconnected, connectionState == .connected else { return }
+        await lifecycleCoordinator.reconnectIntentTransportInterrupted()
     }
 
     @MainActor

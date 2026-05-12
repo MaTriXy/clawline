@@ -974,6 +974,44 @@ struct ChatViewModelTests {
         #expect(!viewModel.canSend)
     }
 
+    @Test("Provider disconnected state alone leaves send button non-green")
+    @MainActor
+    func providerDisconnectedStateAloneLeavesSendButtonNonGreen() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.activate(origin: "test.providerDisconnectedStateAlone")
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        viewModel.inputContent = NSAttributedString(string: "Pending")
+        #expect(viewModel.sendButtonConnectionState == .connected)
+        #expect(viewModel.canSend)
+
+        chatService.emitProviderConnectionStateOnly(.disconnected)
+
+        for _ in 0..<100 {
+            if viewModel.sendButtonConnectionState == .reconnecting {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(viewModel.sendButtonConnectionState == .reconnecting)
+        #expect(!viewModel.canSend)
+    }
+
     @Test("Disconnected transport maps to disconnected send-button state")
     @MainActor
     func disconnectedMapsToDisconnectedSendButtonState() async throws {
@@ -4350,6 +4388,11 @@ private final class TestChatService: ChatServicing {
         default:
             break
         }
+    }
+
+    func emitProviderConnectionStateOnly(_ state: ConnectionState) {
+        isTransportReadyForSend = (state == .connected)
+        stateContinuation?.yield(state)
     }
 
     func emitServiceEvent(_ event: ChatServiceEvent) {
