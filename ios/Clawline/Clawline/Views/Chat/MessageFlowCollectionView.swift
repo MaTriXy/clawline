@@ -134,8 +134,12 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> MessageFlowCollectionViewController {
         let controller = MessageFlowCollectionViewController()
-        controller.loadViewIfNeeded()
         let isDark = colorScheme == .dark
+        controller.prepareInitialAppearance(
+            isDark: isDark,
+            allowsTransparentWindowBackground: allowsTransparentWindowBackground
+        )
+        controller.loadViewIfNeeded()
         controller.update(
             viewModel: viewModel,
             isCompact: isCompact,
@@ -275,6 +279,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return .clear
         }
         return isDark ? .clear : UIColor(ChatFlowTheme.pageBackgroundTopColor(.light))
+    }
+
+    func prepareInitialAppearance(isDark: Bool, allowsTransparentWindowBackground: Bool) {
+        currentIsDark = isDark
+        self.allowsTransparentWindowBackground = allowsTransparentWindowBackground
+        if isViewLoaded {
+            applyChatPageBackground(isDark: isDark)
+        }
     }
 
     private var messagesById: [String: Message] = [:]
