@@ -1719,9 +1719,9 @@ struct ChatView: View {
         bottomSafeAreaInset: CGFloat
     ) -> some View {
         let effectiveSessionKeys = effectiveStreams.map(\.sessionKey)
-        let dotStatesBySession = Dictionary(
-            uniqueKeysWithValues: effectiveSessionKeys.map { ($0, viewModel.streamDotState(for: $0)) }
-        )
+        let dotStateLookup = StreamDotStateLookup { sessionKey in
+            viewModel.streamDotState(for: sessionKey)
+        }
         let pageDotsMaxWidth = inputFieldWidthCap(
             containerWidth: containerWidth,
             bottomSafeAreaInset: bottomSafeAreaInset
@@ -1732,7 +1732,7 @@ struct ChatView: View {
             streams: effectiveStreams,
             sessionKeys: effectiveSessionKeys,
             activeSessionKey: viewModel.uiSelectedSessionKey,
-            dotStatesBySession: dotStatesBySession,
+            dotStateLookup: dotStateLookup,
             maxWidth: pageDotsMaxWidth,
             maxAvailableHeight: streamSelectorMaxHeight,
             maxAvailableWidth: containerWidth,
@@ -2288,7 +2288,7 @@ private struct StreamPopupTrigger: View {
     let streams: [StreamSession]
     let sessionKeys: [String]
     let activeSessionKey: String
-    let dotStatesBySession: [String: StreamDotState]
+    let dotStateLookup: StreamDotStateLookup
     let maxWidth: CGFloat?
     let maxAvailableHeight: CGFloat
     let maxAvailableWidth: CGFloat
@@ -2303,7 +2303,7 @@ private struct StreamPopupTrigger: View {
         StreamPageDotsView(
             sessionKeys: sessionKeys,
             activeSessionKey: activeSessionKey,
-            dotStatesBySession: dotStatesBySession,
+            dotStateLookup: dotStateLookup,
             maxWidth: maxWidth,
             onTap: {
                 routeController.openPopup(focusSearch: false)
@@ -2333,6 +2333,7 @@ private struct StreamPopupTrigger: View {
             StreamManagerSheet(
                 viewModel: viewModel,
                 streams: streams,
+                dotStateLookup: dotStateLookup,
                 searchFocusRequestID: routeController.popupSearchFocusRequestID,
                 maxAvailableHeight: maxAvailableHeight,
                 maxAvailableWidth: maxAvailableWidth,

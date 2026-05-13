@@ -2353,8 +2353,11 @@ struct ChatViewModelTests {
         try await Task.sleep(for: .milliseconds(30))
 
         let invalidation = ObservationFlag()
+        let dotStateLookup = StreamDotStateLookup { sessionKey in
+            viewModel.streamDotState(for: sessionKey)
+        }
         withObservationTracking {
-            _ = viewModel.streamDotState(for: customKey)
+            _ = dotStateLookup(customKey)
         } onChange: {
             Task { @MainActor in
                 invalidation.value = true
@@ -2374,7 +2377,7 @@ struct ChatViewModelTests {
         }
 
         #expect(invalidation.value)
-        #expect(viewModel.streamDotState(for: customKey) == .userTail)
+        #expect(dotStateLookup(customKey) == .userTail)
     }
 
     @Test("User-tail classification does not require a matching read cursor")
