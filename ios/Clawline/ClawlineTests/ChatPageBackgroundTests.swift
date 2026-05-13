@@ -25,6 +25,16 @@ struct ChatPageBackgroundTests {
         #expect(Self.rgba(color).a == 0)
     }
 
+    @Test("Transparent window hosts keep light message flow clear")
+    func transparentWindowHostKeepsLightMessageFlowClear() {
+        let color = MessageFlowCollectionViewController.chatPageBackgroundColor(
+            isDark: false,
+            allowsTransparentWindowBackground: true
+        )
+
+        #expect(Self.rgba(color).a == 0)
+    }
+
     private static func rgba(_ color: UIColor) -> (r: Int, g: Int, b: Int, a: Int) {
         var red: CGFloat = 0
         var green: CGFloat = 0
