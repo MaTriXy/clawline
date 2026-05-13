@@ -1802,3 +1802,27 @@ For Clawline Web validation, use the dedicated `clawline_web_test` identity unle
 - `npm run test:e2e`: NOT GREEN — 29 passed, 3 visual snapshot assertions failed because current bubble width is about `601px` while checked-in dark snapshots expect `780px`. This appears to be snapshot drift against the intended bubble-width fix rather than a deploy/runtime regression, but it prevents claiming full e2e green.
 - Re-rsynced `dist/` to TARS anyway because current `origin/main` produced the same parity bundle filenames already served.
 - TARS smoke after reconciliation: `/`, `/chat/test`, and `/pair` returned HTTP 200 and serve `assets/index-CCACm0zW.js` plus `assets/index-B0esVyXO.css`.
+
+### Flow-layout focused e2e after current-main reconciliation - 2026-05-12 02:00 PDT
+
+- Ran focused Playwright flow-layout spec on clean deployer worktree at current `origin/main` after the 01:00 deploy reconciliation.
+- Command: `npm run test:e2e -- playwright/tests/phase5-flow-layout.spec.ts`.
+- Result: PASS — 5/5 tests.
+- Product meaning: the bubble-width/flow-layout behavior itself remains green; the earlier full-suite non-green state is isolated to stale visual snapshots in other specs expecting older 780px bubble imagery.
+
+### Visual snapshot drift resolved - 2026-05-12 03:37 PDT
+
+- `clawline-web-main` adjudicated the full Playwright non-green state against the flow/bubble design docs.
+- Verdict: stale visual baselines, not a product regression. Current comfortable bubble width is intended; old snapshots expected the previous `780px` width.
+- Review found one real test-harness issue: link-card golden snapshots had embedded a random localhost port. The harness now uses deterministic `https://clawline.test` route fulfillment.
+- Branch/commit: `clawline-web-visual-snapshot-drift` / `123b3f6d652375398ac78e86dc70bbd8689dc031`, pushed to `origin/main`.
+- Evidence before merge: `npm run build && npm run test && npm run test:e2e` PASS; full Playwright suite `32/32` passed; unit suite `184` tests passed; `git diff --check` clean.
+- TARS served runtime bundle remains `assets/index-CCACm0zW.js` / `assets/index-B0esVyXO.css`; this was test/snapshot maintenance and did not require a runtime bundle change.
+
+### Final readiness sweep - 2026-05-12 06:00 PDT
+
+- Coalesced the 05:00 and 06:00 continuation checks into one final readiness sweep.
+- TARS route smoke: `/`, `/chat/test`, and `/pair` returned HTTP 200.
+- Served assets remain `assets/index-CCACm0zW.js` and `assets/index-B0esVyXO.css`.
+- Physical device control recheck with `xcrun devicectl list devices`: `No devices found.`
+- Current state: Web parity/shortcut implementation and full Playwright evidence are green; final iPhone/iPad Safari proof still requires Flynn's physical device/session or another supported physical control path.
