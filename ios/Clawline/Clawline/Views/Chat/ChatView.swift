@@ -2333,7 +2333,6 @@ private struct StreamPopupTrigger: View {
             StreamManagerSheet(
                 viewModel: viewModel,
                 streams: streams,
-                dotStatesBySession: dotStatesBySession,
                 searchFocusRequestID: routeController.popupSearchFocusRequestID,
                 maxAvailableHeight: maxAvailableHeight,
                 maxAvailableWidth: maxAvailableWidth,
