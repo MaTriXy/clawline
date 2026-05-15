@@ -485,6 +485,62 @@ struct ChatViewModelTests {
         #expect(viewModel.sessionStatus(for: personalSessionKey)?.run.state != .running)
     }
 
+    @Test("T307 notification reply action toggles reply mode without dismissing")
+    @MainActor
+    func notificationReplyActionTogglesReplyMode() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let sourceSessionKey = "agent:main:clawline:user:s_toggle"
+        let streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: sourceSessionKey, displayName: "Source", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        let chatService = TestChatService()
+        chatService.streams = streams
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(streams))
+        try await setConnected(chatService: chatService, viewModel: viewModel)
+        chatService.emit(
+            Message(
+                id: "s_toggle",
+                role: .assistant,
+                content: "toggle target",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: sourceSessionKey
+            )
+        )
+        for _ in 0..<50 {
+            if viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        viewModel.toggleCrossChatNotificationReply(sourceChatId: sourceSessionKey)
+        viewModel.setCrossChatNotificationReplyDraft(sourceChatId: sourceSessionKey, draft: "discard me")
+        var bubble = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey])
+        #expect(bubble.isReplying)
+        #expect(bubble.replyDraft == "discard me")
+
+        viewModel.toggleCrossChatNotificationReply(sourceChatId: sourceSessionKey)
+        bubble = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey])
+        #expect(bubble.isReplying == false)
+        #expect(bubble.replyDraft.isEmpty)
+    }
+
     @Test("Records last server message id for reconnects")
     @MainActor
     func recordsLastServerMessageId() async throws {

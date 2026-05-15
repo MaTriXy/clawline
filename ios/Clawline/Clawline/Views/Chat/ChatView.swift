@@ -1460,7 +1460,10 @@ struct ChatView: View {
                 CrossChatNotificationOverlay(
                     viewModel: viewModel,
                     topInset: topInset,
-                    maxContainerHeight: maxContainerHeight
+                    maxContainerHeight: maxContainerHeight,
+                    onNavigateToSource: { sourceChatId in
+                        selectStream(sourceChatId, source: .programmatic)
+                    }
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: topInset + maxContainerHeight + 24, alignment: .topTrailing)
@@ -1485,7 +1488,7 @@ struct ChatView: View {
             },
             reply: { index in
                 guard bubbles.indices.contains(index) else { return }
-                viewModel.openCrossChatNotificationReply(sourceChatId: bubbles[index].sourceChatId)
+                viewModel.toggleCrossChatNotificationReply(sourceChatId: bubbles[index].sourceChatId)
             },
             dismissAll: {
                 viewModel.dismissAllCrossChatNotifications()
@@ -1502,7 +1505,7 @@ struct ChatView: View {
                 bubbles: viewModel.crossChatNotificationBubbles,
                 maxContainerHeight: maxContainerHeight,
                 onDismiss: { viewModel.dismissCrossChatNotification(sourceChatId: $0) },
-                onReply: { viewModel.openCrossChatNotificationReply(sourceChatId: $0) },
+                onReply: { viewModel.toggleCrossChatNotificationReply(sourceChatId: $0) },
                 onDismissAll: { viewModel.dismissAllCrossChatNotifications() }
             )
         )
@@ -4650,6 +4653,7 @@ private struct CrossChatNotificationOverlay: View {
     @Bindable var viewModel: ChatViewModel
     let topInset: CGFloat
     let maxContainerHeight: CGFloat
+    let onNavigateToSource: (String) -> Void
 
     private static let maxVisibleBubbleCount = 10
     static let minVisibleBubbleHeight: CGFloat = 104
@@ -4735,10 +4739,16 @@ private struct CrossChatNotificationOverlay: View {
                             viewModel.dismissCrossChatNotification(sourceChatId: bubble.sourceChatId)
                         },
                         onReply: {
-                            viewModel.openCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                            viewModel.toggleCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
                         },
                         onCancelReply: {
                             viewModel.closeCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                        },
+                        onDismissAll: {
+                            viewModel.dismissAllCrossChatNotifications()
+                        },
+                        onNavigate: {
+                            onNavigateToSource(bubble.sourceChatId)
                         },
                         onSendReply: {
                             viewModel.sendCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
@@ -4775,8 +4785,11 @@ private struct CrossChatNotificationBubbleView: View {
     let onDismiss: () -> Void
     let onReply: () -> Void
     let onCancelReply: () -> Void
+    let onDismissAll: () -> Void
+    let onNavigate: () -> Void
     let onSendReply: () -> Void
     @FocusState private var isReplyFocused: Bool
+    @State private var isClearAllConfirmationPresented = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: bubble.isReplying ? 4 : 8) {
@@ -4792,23 +4805,22 @@ private struct CrossChatNotificationBubbleView: View {
                     .font(.clawline(.uiLabel).weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onNavigate)
 
                 Spacer(minLength: 8)
 
                 Button(action: onReply) {
                     Image(systemName: "arrowshape.turn.up.left")
                         .font(.clawline(.uiLabel).weight(.semibold))
+                        .foregroundStyle(bubble.isReplying ? Color.accentColor : Color.primary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
                 .frame(width: 44, height: 44)
-#if os(visionOS)
-                .background(.regularMaterial, in: Circle())
-#else
-                .glassEffect(.regular.interactive(), in: Circle())
-#endif
                 .buttonStyle(.plain)
-                .accessibilityLabel("Reply")
+                .accessibilityLabel(bubble.isReplying ? "Close reply" : "Reply")
+                .accessibilityAddTraits(bubble.isReplying ? .isSelected : [])
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
@@ -4817,23 +4829,30 @@ private struct CrossChatNotificationBubbleView: View {
                         .contentShape(Rectangle())
                 }
                 .frame(width: 44, height: 44)
-#if os(visionOS)
-                .background(.regularMaterial, in: Circle())
-#else
-                .glassEffect(.regular.interactive(), in: Circle())
-#endif
                 .buttonStyle(.plain)
                 .accessibilityLabel("Dismiss")
+                .highPriorityGesture(
+                    LongPressGesture().onEnded { _ in
+                        isClearAllConfirmationPresented = true
+                    }
+                )
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(bubble.entries.prefix(bubble.isReplying ? 0 : 3)) { entry in
-                    Text(entry.content)
-                        .font(.clawline(.secondaryLabel))
-                        .lineLimit(3)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            if !bubble.isReplying {
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(bubble.entries) { entry in
+                            Text(entry.content)
+                                .font(.clawline(.secondaryLabel))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onNavigate)
                 }
+                .scrollIndicators(.visible)
+                .frame(maxHeight: max(44, maxBubbleHeight - 74))
             }
 
             if bubble.isReplying {
@@ -4864,11 +4883,6 @@ private struct CrossChatNotificationBubbleView: View {
                             .contentShape(Rectangle())
                     }
                     .frame(width: 44, height: 44)
-#if os(visionOS)
-                    .background(.regularMaterial, in: Circle())
-#else
-                    .glassEffect(.regular.interactive(), in: Circle())
-#endif
                     .buttonStyle(.plain)
                     .accessibilityLabel("Send reply")
                 }
@@ -4883,6 +4897,14 @@ private struct CrossChatNotificationBubbleView: View {
 #else
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 #endif
+        .confirmationDialog(
+            "Clear all notifications?",
+            isPresented: $isClearAllConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All Notifications", role: .destructive, action: onDismissAll)
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 

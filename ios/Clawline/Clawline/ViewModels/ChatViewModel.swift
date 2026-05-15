@@ -1269,6 +1269,15 @@ final class ChatViewModel: ChatViewModelHosting {
         closeOverflowingCrossChatNotificationReplies()
     }
 
+    func toggleCrossChatNotificationReply(sourceChatId: String) {
+        guard let bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { return }
+        if bubble.isReplying {
+            closeCrossChatNotificationReply(sourceChatId: sourceChatId)
+        } else {
+            openCrossChatNotificationReply(sourceChatId: sourceChatId)
+        }
+    }
+
     func closeCrossChatNotificationReply(sourceChatId: String) {
         guard var bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { return }
         bubble.isReplying = false
