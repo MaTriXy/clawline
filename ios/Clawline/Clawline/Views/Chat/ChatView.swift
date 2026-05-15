@@ -1500,6 +1500,7 @@ struct ChatView: View {
             sessionKey: sessionKey,
             sessionStatus: viewModel.sessionStatus(for: sessionKey),
             forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
+            sendIndicatorRevision: viewModel.sendIndicatorRevision,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: handleDeferredMessageFlowScrollEvent,
             onTypingIndicatorTap: { anchorFrame in
@@ -1656,6 +1657,7 @@ struct ChatView: View {
                 sessionKey: sessionKey,
                 sessionStatus: viewModel.sessionStatus(for: sessionKey),
                 forceReReadGeneration: viewModel.forceReReadGeneration(for: sessionKey),
+                sendIndicatorRevision: viewModel.sendIndicatorRevision,
                 fontScaleChangeSequence: fontScaleChangeSequence,
                 onScrollEvent: nil,
                 onTypingIndicatorTap: nil,

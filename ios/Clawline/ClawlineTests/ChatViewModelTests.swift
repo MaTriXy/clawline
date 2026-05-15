@@ -419,6 +419,169 @@ struct ChatViewModelTests {
         #expect(messages.contains("bad content"))
     }
 
+    @Test("Pending send shows pending indicator until server ack")
+    @MainActor
+    func pendingSendShowsPendingIndicatorUntilAck() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        viewModel.inputContent = NSAttributedString(string: "Still pending")
+        viewModel.send()
+
+        for _ in 0..<50 {
+            if let messageId = chatService.lastSentId,
+               viewModel.sendIndicatorState(for: messageId) == .pending {
+                return
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        Issue.record("Expected pending send indicator before server ack")
+    }
+
+    @Test("Server ack clears pending indicator and shields accepted send from later errors")
+    @MainActor
+    func serverAckClearsPendingIndicatorAndShieldsAcceptedSend() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let toastManager = ToastManager()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: toastManager,
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        viewModel.inputContent = NSAttributedString(string: "Accepted")
+        viewModel.send()
+
+        let messageId = try await requireLastSentId(chatService)
+        chatService.emitServiceEvent(.messageAcked(id: messageId))
+        for _ in 0..<50 {
+            if viewModel.sendIndicatorState(for: messageId) == nil { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(viewModel.sendIndicatorState(for: messageId) == nil)
+
+        chatService.emitServiceEvent(.messageError(messageId: messageId, code: "invalid_message", message: "late reject"))
+        chatService.emitServiceEvent(.messageError(messageId: nil, code: "payload_too_large", message: nil))
+        try await Task.sleep(forDuration: .milliseconds(40))
+
+        #expect(viewModel.sendIndicatorState(for: messageId) == nil)
+        #expect(viewModel.failureMessage(for: messageId) == nil)
+    }
+
+    @Test("Accepted replayed user message without final reply does not show failed indicator")
+    @MainActor
+    func acceptedReplayedUserMessageWithoutFinalReplyDoesNotShowFailedIndicator() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        chatService.startReplayCount = 1
+        chatService.emitSyncCompleteOnStart = false
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.prepareForReplacement() }
+
+        await viewModel.activate(origin: "test.acceptedReplayWithoutFinal")
+        for _ in 0..<50 {
+            if chatService.connectCallCount > 0 { break }
+            try await Task.sleep(forDuration: .milliseconds(10))
+        }
+
+        let payload = #"{"type":"message","id":"s_user_accepted","role":"user","content":"Accepted but no final yet","timestamp":1700000000000,"streaming":false,"deviceId":"device","sessionKey":"\#(personalSessionKey)","attachments":[],"clientMessageId":"c_accepted"}"#
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .serverMessage(data: Data(payload.utf8))))
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .syncComplete))
+
+        for _ in 0..<50 {
+            if viewModel.messages.contains(where: { $0.id == "s_user_accepted" }) { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(viewModel.messages.map(\.id).contains("s_user_accepted"))
+        #expect(viewModel.sendIndicatorState(for: "s_user_accepted") == nil)
+        #expect(viewModel.failureMessage(for: "s_user_accepted") == nil)
+    }
+
+    @Test("True send failure shows resend indicator and retry becomes pending")
+    @MainActor
+    func trueSendFailureShowsResendAndRetryBecomesPending() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        viewModel.inputContent = NSAttributedString(string: "Retry source")
+        viewModel.send()
+
+        let failedId = try await requireLastSentId(chatService)
+        chatService.emitServiceEvent(.messageError(messageId: failedId, code: "invalid_message", message: "bad"))
+        for _ in 0..<50 {
+            if case .failed("bad") = viewModel.sendIndicatorState(for: failedId) {
+                break
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(viewModel.sendIndicatorState(for: failedId) == .failed("bad"))
+
+        viewModel.resendFailedMessage(messageId: failedId)
+        for _ in 0..<50 {
+            if viewModel.messages.count == 1,
+               let replacement = viewModel.messages.first,
+               replacement.id != failedId,
+               viewModel.sendIndicatorState(for: replacement.id) == .pending {
+                return
+            }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        Issue.record("Expected retry replacement bubble to become pending")
+    }
+
     @Test("Unscoped payload_too_large errors mark pending placeholders and show clear toast")
     @MainActor
     func unscopedPayloadTooLargeErrorsMarkPendingPlaceholders() async throws {
@@ -4523,6 +4686,16 @@ private func setReadyToSend(chatService: TestChatService, viewModel: ChatViewMod
     try await setConnected(chatService: chatService, viewModel: viewModel)
     chatService.emitServiceEvent(.sessionProvisioningAvailable(false))
     try await Task.sleep(for: .milliseconds(20))
+}
+
+private func requireLastSentId(_ chatService: TestChatService) async throws -> String {
+    for _ in 0..<50 {
+        if let id = chatService.lastSentId {
+            return id
+        }
+        try await Task.sleep(forDuration: .milliseconds(20))
+    }
+    return try #require(chatService.lastSentId)
 }
 
 @MainActor

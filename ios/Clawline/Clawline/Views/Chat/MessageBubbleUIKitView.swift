@@ -410,7 +410,7 @@ final class MessageBubbleUIKitContainerView: UIView {
 
     func configure(message: Message,
                    presentation: MessagePresentation,
-                   failureReason: String?,
+                   sendIndicatorState: MessageSendIndicatorState?,
                    isCompact: Bool,
                    maxWidth: CGFloat,
                    bubbleHeightPolicy: BubbleSizingV2.BubbleHeightPolicy? = nil,
@@ -461,15 +461,22 @@ final class MessageBubbleUIKitContainerView: UIView {
         self.onResend = onResend
         self.onRequestLayout = onRequestLayout
 
-        if failureReason != nil {
+        switch sendIndicatorState {
+        case .pending:
             badgeView.isHidden = false
-            badgeView.configure(onResend: { [weak self] in
+            badgeView.configurePending()
+            bubbleBottomConstraint.constant = 0
+            badgeBottomConstraint.constant = -6
+            badgeTrailingConstraint.constant = -6
+        case .failed(_):
+            badgeView.isHidden = false
+            badgeView.configureFailure(onResend: { [weak self] in
                 self?.onResend?()
             })
             bubbleBottomConstraint.constant = 0
             badgeBottomConstraint.constant = -6
             badgeTrailingConstraint.constant = -6
-        } else {
+        case nil:
             badgeView.isHidden = true
             bubbleBottomConstraint.constant = 0
             badgeBottomConstraint.constant = 0
@@ -482,6 +489,7 @@ final class MessageBubbleUIKitContainerView: UIView {
         // reused cells from inheriting a non-zero contentOffset (GitHub #56).
         bubbleView.prepareForReuse()
         badgeView.isHidden = true
+        badgeView.prepareForReuse()
         onResend = nil
         onRequestLayout = nil
         bubbleBottomConstraint.constant = 0
@@ -2570,6 +2578,7 @@ final class AvatarCircleView: UIView {
 
 final class MessageFailureBadgeView: UIView {
     private let button = UIButton(type: .system)
+    private let spinner = UIActivityIndicatorView(style: .medium)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2593,14 +2602,36 @@ final class MessageFailureBadgeView: UIView {
         button.showsMenuAsPrimaryAction = true
         button.accessibilityLabel = "Message failed to send. Tap for options."
         button.accessibilityTraits = [.button]
+
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(spinner)
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: button.centerYAnchor)
+        ])
+        spinner.hidesWhenStopped = true
+        spinner.isHidden = true
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(onResend: @escaping () -> Void) {
+    func configurePending() {
         let isDark = traitCollection.userInterfaceStyle == .dark
+        button.isHidden = true
+        button.menu = nil
+        spinner.color = ChatFlowUIKitTheme.textMuted(isDark: isDark)
+        spinner.isHidden = false
+        spinner.startAnimating()
+        accessibilityLabel = "Message sending."
+    }
+
+    func configureFailure(onResend: @escaping () -> Void) {
+        let isDark = traitCollection.userInterfaceStyle == .dark
+        spinner.stopAnimating()
+        spinner.isHidden = true
+        button.isHidden = false
         button.tintColor = ChatFlowUIKitTheme.failureText(isDark: isDark)
         button.menu = UIMenu(
             options: .displayInline,
@@ -2610,6 +2641,15 @@ final class MessageFailureBadgeView: UIView {
                 }
             ]
         )
+        accessibilityLabel = nil
+    }
+
+    func prepareForReuse() {
+        spinner.stopAnimating()
+        spinner.isHidden = true
+        button.isHidden = false
+        button.menu = nil
+        accessibilityLabel = nil
     }
 }
 
@@ -2707,6 +2747,10 @@ enum ChatFlowUIKitTheme {
     static func failureBackground(isDark: Bool) -> UIColor {
         palette(isDark: isDark).failureBackground
     }
+
+    static func textMuted(isDark: Bool) -> UIColor {
+        palette(isDark: isDark).textMuted
+    }
 }
 
 final class TruncationFadeView: UIView {
@@ -2797,7 +2841,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
 
     func configure(message: Message,
                    presentation: MessagePresentation,
-                   failureReason: String?,
+                   sendIndicatorState: MessageSendIndicatorState?,
                    isCompact: Bool,
                    maxWidth: CGFloat,
                    bubbleHeightPolicy: BubbleSizingV2.BubbleHeightPolicy? = nil,
@@ -2821,7 +2865,7 @@ final class MessageBubbleUIKitCell: UICollectionViewCell {
         containerView.configure(
             message: message,
             presentation: presentation,
-            failureReason: failureReason,
+            sendIndicatorState: sendIndicatorState,
             isCompact: isCompact,
             maxWidth: maxWidth,
             bubbleHeightPolicy: bubbleHeightPolicy,

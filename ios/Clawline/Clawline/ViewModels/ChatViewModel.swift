@@ -16,6 +16,11 @@ enum SendButtonConnectionState: Equatable {
     case disconnected
 }
 
+enum MessageSendIndicatorState: Equatable, Hashable {
+    case pending
+    case failed(String)
+}
+
 protocol ChatViewModelHosting: AnyObject {
     func handleSceneDidBecomeActive()
 }
@@ -439,6 +444,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var pendingAttachmentStageCount: Int = 0
     private var stagedAttachmentProtection: Set<UUID> = []
     private(set) var isSending: Bool = false
+    private(set) var sendIndicatorRevision: Int = 0
     private(set) var isAssistantTyping: Bool = false
     private(set) var typingSessionKey: String?
     private(set) var connectionState: ConnectionState = .disconnected
@@ -570,6 +576,10 @@ final class ChatViewModel: ChatViewModelHosting {
         let epoch: Int
         let cursorBackedSessionKeys: Set<String>
         var messagesBySessionKey: [String: [Message]] = [:]
+    }
+
+    private func bumpSendIndicatorRevision() {
+        sendIndicatorRevision &+= 1
     }
 
 #if DEBUG
@@ -1337,6 +1347,7 @@ final class ChatViewModel: ChatViewModelHosting {
         )
         appendMessage(placeholder)
         pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
+        bumpSendIndicatorRevision()
 
         sendTask = Task { [weak self] in
             await self?.performSend(
@@ -1393,6 +1404,7 @@ final class ChatViewModel: ChatViewModelHosting {
         ackedPendingLocalMessageIDs.remove(messageId)
         pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
         messageFailures.removeValue(forKey: messageId)
+        bumpSendIndicatorRevision()
 
         isSending = true
         activeClientMessageId = clientId
@@ -1494,6 +1506,7 @@ final class ChatViewModel: ChatViewModelHosting {
         syntheticSessionKeys = []
         pendingLocalMessages.removeAll()
         ackedPendingLocalMessageIDs.removeAll()
+        bumpSendIndicatorRevision()
         isAssistantTyping = false
         typingSessionKey = nil
         shouldMorphTypingIndicator = false
@@ -1742,7 +1755,9 @@ final class ChatViewModel: ChatViewModelHosting {
         if resolvedMessage.role == .assistant,
            !resolvedMessage.streaming,
            let replyToMessageId = normalizedServerEventID(resolvedMessage.replyToMessageId) {
-            messageFailures.removeValue(forKey: replyToMessageId)
+            if messageFailures.removeValue(forKey: replyToMessageId) != nil {
+                bumpSendIndicatorRevision()
+            }
         }
 
         ensureSessionStorage(for: resolvedMessage.sessionKey)
@@ -1811,6 +1826,7 @@ final class ChatViewModel: ChatViewModelHosting {
         pendingLocalMessages.removeAll()
         ackedPendingLocalMessageIDs.removeAll()
         messageFailures.removeAll()
+        bumpSendIndicatorRevision()
         let cursorBackedSessionKeys = Set(chatService.replayCursorSnapshot().keys)
         chatService.clearReplayCursors()
         clearMessageCache()
@@ -2021,6 +2037,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
         let pending = pendingLocalMessages.remove(at: pendingIndex)
         ackedPendingLocalMessageIDs.remove(pending.id)
+        bumpSendIndicatorRevision()
         var placeholderSessionKey = pending.sessionKey
         ensureSessionStorage(for: placeholderSessionKey)
         var pendingList = sessionMessages[placeholderSessionKey] ?? []
@@ -2108,7 +2125,9 @@ final class ChatViewModel: ChatViewModelHosting {
             pendingLocalMessages.remove(at: pendingIndex)
         }
         ackedPendingLocalMessageIDs.remove(id)
+        bumpSendIndicatorRevision()
         messageFailures.removeValue(forKey: id)
+        bumpSendIndicatorRevision()
     }
 
     private func handleLifecycleOutput(_ output: ConnectionLifecycleOutput) {
@@ -2188,6 +2207,7 @@ final class ChatViewModel: ChatViewModelHosting {
         }
         pendingLocalMessages.removeAll()
         ackedPendingLocalMessageIDs.removeAll()
+        bumpSendIndicatorRevision()
         if let activeClientMessageId, pendingIds.contains(activeClientMessageId) {
             self.activeClientMessageId = nil
             self.isSending = false
@@ -2197,15 +2217,19 @@ final class ChatViewModel: ChatViewModelHosting {
     private func markPendingMessagesFailedForUnscopedMessageError(code: String, message: String?) {
         guard !pendingLocalMessages.isEmpty else { return }
         let pendingIds = Set(pendingLocalMessages.map(\.id))
-        for id in pendingIds {
+        let failedIds = pendingIds.subtracting(ackedPendingLocalMessageIDs)
+        for id in failedIds {
             messageFailures[id] = MessageFailure(code: code, message: message)
         }
-        pendingLocalMessages.removeAll()
-        ackedPendingLocalMessageIDs.removeAll()
-        if let activeClientMessageId, pendingIds.contains(activeClientMessageId) {
-            self.activeClientMessageId = nil
+        pendingLocalMessages.removeAll { failedIds.contains($0.id) }
+        ackedPendingLocalMessageIDs.subtract(failedIds)
+        if !failedIds.isEmpty {
+            bumpSendIndicatorRevision()
         }
-        self.isSending = false
+        if let activeClientMessageId, failedIds.contains(activeClientMessageId) {
+            self.activeClientMessageId = nil
+            self.isSending = false
+        }
     }
 
     private func performSend(clientId: String,
@@ -2618,6 +2642,17 @@ final class ChatViewModel: ChatViewModelHosting {
         return userFacingMessage(for: failure.code, fallback: failure.message)
     }
 
+    func sendIndicatorState(for messageId: String) -> MessageSendIndicatorState? {
+        if let failure = failureMessage(for: messageId) {
+            return .failed(failure)
+        }
+        guard pendingLocalMessages.contains(where: { $0.id == messageId }),
+              !ackedPendingLocalMessageIDs.contains(messageId) else {
+            return nil
+        }
+        return .pending
+    }
+
     private func handle(serviceEvent: ChatServiceEvent) {
         switch serviceEvent {
         case .messageError(let messageId, let code, let message):
@@ -2629,6 +2664,9 @@ final class ChatViewModel: ChatViewModelHosting {
                 messageId: messageId,
                 reason: "messageErrorTerminal"
             )
+            if let messageId, ackedPendingLocalMessageIDs.contains(messageId) {
+                return
+            }
             if shouldShowMessageErrorToast(code: code) {
                 let resolved = userFacingMessage(for: code, fallback: message)
                 toastManager.show(resolved)
@@ -2642,6 +2680,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 pendingLocalMessages.remove(at: pendingIndex)
             }
             ackedPendingLocalMessageIDs.remove(messageId)
+            bumpSendIndicatorRevision()
             if activeClientMessageId == messageId {
                 activeClientMessageId = nil
             }
@@ -2649,6 +2688,7 @@ final class ChatViewModel: ChatViewModelHosting {
         case .messageAcked(let messageId):
             ackedPendingLocalMessageIDs.insert(messageId)
             messageFailures.removeValue(forKey: messageId)
+            bumpSendIndicatorRevision()
             if activeClientMessageId == messageId {
                 activeClientMessageId = nil
                 isSending = false
@@ -3223,20 +3263,6 @@ final class ChatViewModel: ChatViewModelHosting {
             if detectionMessages.count != streamMessages.count {
                 setMessages(detectionMessages, for: sessionKey)
             }
-            let assistantFinalReplyIds = Set(detectionMessages.compactMap { message -> String? in
-                guard message.role == .assistant, !message.streaming else { return nil }
-                return normalizedServerEventID(message.replyToMessageId)
-            })
-            for message in detectionMessages {
-                guard message.role == .user,
-                      normalizedServerEventID(message.id) != nil,
-                      let clientMessageId = message.clientMessageId?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !clientMessageId.isEmpty,
-                      !assistantFinalReplyIds.contains(message.id) else {
-                    continue
-                }
-                messageFailures[message.id] = MessageFailure(code: "missing_final", message: nil)
-            }
         }
     }
 
@@ -3368,6 +3394,9 @@ final class ChatViewModel: ChatViewModelHosting {
             let removedIDs = Set(pendingLocalMessages.filter { $0.sessionKey == sessionKey }.map(\.id))
             pendingLocalMessages.removeAll { $0.sessionKey == sessionKey }
             ackedPendingLocalMessageIDs.subtract(removedIDs)
+            if !removedIDs.isEmpty {
+                bumpSendIndicatorRevision()
+            }
             chatService.setReplayCursor(nil, for: sessionKey)
             persistLastReadMessageId(nil, for: sessionKey)
             persistMessages([], for: sessionKey)
@@ -3417,6 +3446,9 @@ final class ChatViewModel: ChatViewModelHosting {
         let removedIDs = Set(pendingLocalMessages.filter { $0.sessionKey == sessionKey }.map(\.id))
         pendingLocalMessages.removeAll { $0.sessionKey == sessionKey }
         ackedPendingLocalMessageIDs.subtract(removedIDs)
+        if !removedIDs.isEmpty {
+            bumpSendIndicatorRevision()
+        }
         if typingSessionKey == sessionKey {
             typingSessionKey = nil
             isAssistantTyping = false
@@ -3708,6 +3740,7 @@ final class ChatViewModel: ChatViewModelHosting {
             resolvedSessionKey = pendingLocalMessages[pendingIndex].sessionKey
             pendingLocalMessages.remove(at: pendingIndex)
             ackedPendingLocalMessageIDs.remove(messageId)
+            bumpSendIndicatorRevision()
         }
         if let messageId, activeClientMessageId == messageId {
             activeClientMessageId = nil

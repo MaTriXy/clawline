@@ -124,6 +124,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var sessionKey: String?
     var sessionStatus: SessionStatus?
     var forceReReadGeneration: Int = 0
+    var sendIndicatorRevision: Int = 0
     var fontScaleChangeSequence: Int = 0
     var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     var onTypingIndicatorTap: (@MainActor (CGRect) -> Void)?
@@ -155,6 +156,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             sessionKey: sessionKey,
             sessionStatus: sessionStatus,
             forceReReadGeneration: forceReReadGeneration,
+            sendIndicatorRevision: sendIndicatorRevision,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
@@ -186,6 +188,7 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             sessionKey: sessionKey,
             sessionStatus: sessionStatus,
             forceReReadGeneration: forceReReadGeneration,
+            sendIndicatorRevision: sendIndicatorRevision,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
@@ -216,6 +219,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let sessionKey: String?
         let sessionStatus: SessionStatus?
         let forceReReadGeneration: Int
+        let sendIndicatorRevision: Int
         let fontScaleChangeSequence: Int
         let onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
         let onTypingIndicatorTap: (@MainActor (CGRect) -> Void)?
@@ -246,6 +250,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private let uiKitBubbleSizer = MessageBubbleUIKitView(enableDataDetectors: false)
     private var currentIsDark: Bool = true
     private var allowsTransparentWindowBackground = false
+    private var currentSendIndicatorRevision: Int = 0
     private let bubbleSizingV2Enabled = BubbleSizingV2.isEnabled
     private let bubbleSizingV2MeasurementCache = BubbleSizingV2.LRUCache<BubbleSizingV2.CacheKey, BubbleSizingV2.Measurement>(maxEntries: 800)
     private let bubbleSizingV2LinkPreviewHeightCache = BubbleSizingV2.LinkPreviewHeightCache()
@@ -1134,6 +1139,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 sessionKey: channelOverride,
                 sessionStatus: sessionStatus,
                 forceReReadGeneration: 0,
+                sendIndicatorRevision: viewModel.sendIndicatorRevision,
                 onScrollEvent: onScrollEvent,
                 onTypingIndicatorTap: onTypingIndicatorTap,
                 onTypingIndicatorAnchorFrameChanged: onTypingIndicatorAnchorFrameChanged,
@@ -1972,6 +1978,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sessionKey: channelOverride,
             sessionStatus: sessionStatus,
             forceReReadGeneration: 0,
+            sendIndicatorRevision: viewModel.sendIndicatorRevision,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
             onTypingIndicatorAnchorFrameChanged: onTypingIndicatorAnchorFrameChanged,
@@ -2002,6 +2009,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 sessionKey: request.sessionKey,
                 sessionStatus: request.sessionStatus,
                 forceReReadGeneration: request.forceReReadGeneration,
+                sendIndicatorRevision: request.sendIndicatorRevision,
                 onScrollEvent: request.onScrollEvent,
                 onTypingIndicatorTap: request.onTypingIndicatorTap,
                 onTypingIndicatorAnchorFrameChanged: request.onTypingIndicatorAnchorFrameChanged,
@@ -2027,6 +2035,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
               self.isActiveSession == request.isActiveSession,
               self.isRenderPolicyFrozen == request.isRenderPolicyFrozen,
               self.isInputActive == request.isInputActive,
+              self.currentSendIndicatorRevision == request.sendIndicatorRevision,
               abs(self.topInset - request.topInset) <= 0.5,
               self.firstUnreadMessageId == request.firstUnreadMessageId,
               self.unreadCount == request.unreadCount else {
@@ -2059,6 +2068,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         sessionKey: String? = nil,
         sessionStatus: SessionStatus? = nil,
         forceReReadGeneration: Int = 0,
+        sendIndicatorRevision: Int = 0,
         fontScaleChangeSequence: Int = 0,
         onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)? = nil,
         onTypingIndicatorTap: (@MainActor (CGRect) -> Void)? = nil,
@@ -2082,6 +2092,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sessionKey: sessionKey,
             sessionStatus: sessionStatus,
             forceReReadGeneration: forceReReadGeneration,
+            sendIndicatorRevision: sendIndicatorRevision,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
@@ -2120,6 +2131,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.isInputActive = isInputActive
         self.isTypingActive = isTypingActive
         self.sessionStatus = sessionStatus
+        self.currentSendIndicatorRevision = request.sendIndicatorRevision
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
         self.onScrollEvent = onScrollEvent
@@ -3613,8 +3625,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             let configureWidth: CGFloat
             let truncationHeightOverrideV1: CGFloat?
             let bubbleHeightPolicyForConfigure: BubbleSizingV2.BubbleHeightPolicy
+            let sendIndicatorState = viewModel.sendIndicatorState(for: message.id)
             if self.bubbleSizingV2Enabled {
-                let failureReason = viewModel.failureMessage(for: message.id)
                 let plan = self.bubbleSizingV2Plan(
                     message: message,
                     presentation: presentation,
@@ -3628,7 +3640,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     metrics: metrics,
                     env: env,
                     plan: plan,
-                    failureReason: failureReason,
+                    sendIndicatorState: sendIndicatorState,
                     showsHeader: !hideHeader
                 )
                 layoutStateV2 = state
@@ -3645,7 +3657,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             cell?.configure(
                 message: message,
                 presentation: presentation,
-                failureReason: viewModel.failureMessage(for: message.id),
+                sendIndicatorState: sendIndicatorState,
                 isCompact: self.isCompact,
                 maxWidth: configureWidth,
                 bubbleHeightPolicy: bubbleHeightPolicyForConfigure,
@@ -4075,7 +4087,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return measureUIKitBubbleSize(
                 message: message,
                 presentation: presentation,
-                failureReason: nil,
+                sendIndicatorState: nil,
                 maxWidth: maxWidth,
                 showsHeader: false,
                 paddingScale: TypingIndicatorCell.bubblePaddingScale,
@@ -4105,7 +4117,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if bubbleSizingV2Enabled {
             let presentation = viewModel.presentation(for: message, metrics: metrics)
             let hideHeader = shouldHideHeader(for: message, presentation: presentation)
-            let failureReason = viewModel.failureMessage(for: message.id)
+            let sendIndicatorState = viewModel.sendIndicatorState(for: message.id)
             let plan = bubbleSizingV2Plan(
                 message: message,
                 presentation: presentation,
@@ -4119,7 +4131,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 env: env,
                 plan: plan,
-                failureReason: failureReason,
+                sendIndicatorState: sendIndicatorState,
                 showsHeader: !hideHeader
             )
             return layoutState.measurement.measuredCellSize
@@ -4138,7 +4150,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             metrics: metrics,
             containerWidth: availableWidth
         )
-        let failureReason = viewModel.failureMessage(for: message.id)
+        let sendIndicatorState = viewModel.sendIndicatorState(for: message.id)
         let allowsOuterScroll = (sizeClass == .long) && !shouldDisableOuterScrollForMixedMediaBubble(presentation)
         let bubbleHeightPolicy = bubbleHeightPolicyForPresentation(
             presentation: presentation,
@@ -4149,7 +4161,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let measuredSize = measureUIKitBubbleSize(
             message: message,
             presentation: presentation,
-            failureReason: failureReason,
+            sendIndicatorState: sendIndicatorState,
             maxWidth: maxWidth,
             bubbleHeightPolicy: bubbleHeightPolicy,
             showsHeader: !hideHeader
@@ -4160,7 +4172,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func measureUIKitBubbleSize(message: Message,
                                         presentation: MessagePresentation,
-                                        failureReason: String?,
+                                        sendIndicatorState: MessageSendIndicatorState?,
                                         maxWidth: CGFloat,
                                         bubbleHeightPolicy: BubbleSizingV2.BubbleHeightPolicy? = nil,
                                         truncationHeightOverride: CGFloat? = nil,
@@ -4343,13 +4355,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                           metrics: ChatFlowTheme.Metrics,
                                           env: BubbleSizingV2.Environment,
                                           plan: BubbleSizingV2.Plan,
-                                          failureReason: String?,
+                                          sendIndicatorState: MessageSendIndicatorState?,
                                           showsHeader: Bool) -> BubbleSizingV2.LayoutState {
         let initialLinkVersion: Int = bubbleV2PreviewVersion(for: message.id)
         let layoutFingerprintSeed = bubbleSizingV2LayoutFingerprintSeed(
             plan: plan,
             showsHeader: showsHeader,
-            hasFailureBadge: failureReason != nil
+            hasFailureBadge: sendIndicatorState != nil
         )
         let key = plan.heightPolicy.measurementCacheKey(
             sessionKey: message.sessionKey,
@@ -4376,7 +4388,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             metrics: metrics,
             env: env,
             plan: plan,
-            failureReason: failureReason,
+            sendIndicatorState: sendIndicatorState,
             showsHeader: showsHeader
         )
         recordBubbleV2Measurement(measured.measurement, key: key, messageId: message.id)
@@ -4446,7 +4458,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                        metrics: ChatFlowTheme.Metrics,
                                        env: BubbleSizingV2.Environment,
                                        plan: BubbleSizingV2.Plan,
-                                       failureReason: String?,
+                                       sendIndicatorState: MessageSendIndicatorState?,
                                        showsHeader: Bool) -> BubbleSizingV2.LayoutState {
         // Pass 0: configure at max width so preferredWidth() can read padding and label sizes.
         uiKitBubbleSizer.configure(
@@ -4915,6 +4927,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         var hasher = Hasher()
         hasher.combine(message.content)
         hasher.combine(message.streaming)
+        hasher.combine(viewModel?.sendIndicatorState(for: message.id))
         hasher.combine(message.attachments.count)
         for attachment in message.attachments {
             hasher.combine(attachment.id)
