@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -207,6 +208,57 @@ function renderChatRoute(
   };
 }
 
+function applyAssistantNotification(
+  input: ReturnType<typeof renderChatRoute>,
+  {
+    content = "Side notification",
+    id = "s_side_notify",
+    selectedSessionKey = "agent:main:clawline:user_1:main",
+    sessionKey = "agent:main:clawline:user_1:side",
+    timestamp = 21,
+    streams = TEST_STREAMS.map((stream) => ({ ...stream }))
+  }: {
+    content?: string;
+    id?: string;
+    selectedSessionKey?: string;
+    sessionKey?: string;
+    timestamp?: number;
+    streams?: Array<{
+      sessionKey: string;
+      displayName: string;
+      kind: string;
+      orderIndex: number;
+      isBuiltIn: boolean;
+      createdAt: number;
+      updatedAt: number;
+      adopted: boolean;
+    }>;
+  } = {}
+) {
+  const message = {
+    type: "message" as const,
+    id,
+    role: "assistant" as const,
+    content,
+    timestamp,
+    streaming: false,
+    sessionKey,
+    attachments: []
+  };
+  input.chatStore.applyIncomingMessage({
+    localDeviceId: "browser-device-1",
+    message,
+    selectedSessionKey,
+    source: "live"
+  });
+  input.notificationStore.applyIncomingMessage({
+    message,
+    selectedSessionKey,
+    source: "live",
+    streams
+  });
+}
+
 describe("ChatRoute", () => {
   beforeEach(() => {
     vi.stubGlobal(
@@ -247,6 +299,7 @@ describe("ChatRoute", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -439,7 +492,9 @@ describe("ChatRoute", () => {
         notificationStore.getState().bubblesBySourceChatId
       ).not.toHaveProperty(sideSessionKey);
     });
-    expect(screen.queryByText("Delete me after stream removal")).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByText("Delete me after stream removal")).toBeNull();
+    });
   });
 
   it("clears unread state when the URL-selected session becomes active", async () => {
@@ -604,6 +659,172 @@ describe("ChatRoute", () => {
         role: "user"
       })
     ]);
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Side Thread notification")).toBeNull();
+    });
+  });
+
+  it("navigates to a notification source when the web notification body is clicked", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view);
+
+    fireEvent.click(await screen.findByText("Side notification"));
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat/agent:main:clawline:user_1:side"
+    );
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Side Thread notification")).toBeNull();
+    });
+  });
+
+  it("uses viewport-fit notification capacity with ten only as the upper bound", async () => {
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 260
+    });
+
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: ["agent:main:clawline:user_1:main", "agent:main:main"]
+    });
+    const notificationStreams = [
+      ...TEST_STREAMS.map((stream) => ({ ...stream })),
+      ...Array.from({ length: 3 }, (_, index) => ({
+        sessionKey: `agent:main:clawline:user_1:extra_${index}`,
+        displayName: `Extra ${index}`,
+        kind: "custom",
+        orderIndex: index + 3,
+        isBuiltIn: false,
+        createdAt: 20 + index,
+        updatedAt: 20 + index,
+        adopted: false
+      }))
+    ];
+
+    for (let index = 0; index < 3; index += 1) {
+      applyAssistantNotification(view, {
+        content: `Extra notification ${index}`,
+        id: `s_extra_notification_${index}`,
+        sessionKey: `agent:main:clawline:user_1:extra_${index}`,
+        timestamp: 30 + index,
+        streams: notificationStreams
+      });
+    }
+
+    expect(await screen.findByLabelText("Extra 2 notification")).toBeInTheDocument();
+    expect(screen.getByLabelText("Extra 1 notification")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Extra 0 notification")).toBeNull();
+    expect(
+      view.notificationStore.getState().bubblesBySourceChatId[
+        "agent:main:clawline:user_1:extra_0"
+      ]
+    ).toBeDefined();
+
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: originalInnerHeight
+    });
+  });
+
+  it("keeps long web notification content in a scrollable entries region", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view, {
+      content: "Long notification ".repeat(40)
+    });
+
+    const bubble = await screen.findByLabelText("Side Thread notification");
+    const entries = bubble.querySelector(".cross-chat-notification-entries");
+    const paragraph = bubble.querySelector(".cross-chat-notification-entries p");
+    const styleText = readFileSync("src/app/styles.css", "utf8");
+    expect(entries).not.toBeNull();
+    expect(paragraph).not.toBeNull();
+    expect(styleText).toContain(".cross-chat-notification-entries");
+    expect(styleText).toContain("overflow: auto;");
+    expect(styleText).not.toContain("-webkit-line-clamp: 3;");
+  });
+
+  it("collapses web notifications to right-edge peeks and restores them", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view);
+
+    const overlay = await screen.findByLabelText("Cross-chat notifications");
+    fireEvent.pointerDown(overlay, { clientX: 200, clientY: 40 });
+    fireEvent.pointerUp(overlay, { clientX: 260, clientY: 42 });
+
+    expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(screen.getByLabelText("Side Thread notification")).toBeInTheDocument();
+    expect(
+      view.notificationStore.getState().bubblesBySourceChatId[
+        "agent:main:clawline:user_1:side"
+      ]
+    ).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show notifications" }));
+    expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
+
+    fireEvent.pointerDown(overlay, { clientX: 200, clientY: 40 });
+    fireEvent.pointerUp(overlay, { clientX: 260, clientY: 42 });
+    fireEvent.pointerDown(overlay, { clientX: 260, clientY: 40 });
+    fireEvent.pointerUp(overlay, { clientX: 200, clientY: 42 });
+
+    expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
+  });
+
+  it("offers clear-all confirmation after holding a web notification dismiss control", async () => {
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view, {
+      content: "First notification",
+      id: "s_side_notify_1",
+      sessionKey: "agent:main:clawline:user_1:side",
+      timestamp: 21
+    });
+    applyAssistantNotification(view, {
+      content: "Second notification",
+      id: "s_main_notify_2",
+      sessionKey: "agent:main:main",
+      timestamp: 22
+    });
+
+    expect(await screen.findByText("Second notification")).toBeInTheDocument();
+    vi.useFakeTimers();
+    const dismissButton = screen.getAllByRole("button", { name: "Dismiss" })[0];
+    fireEvent.pointerDown(dismissButton);
+    await vi.advanceTimersByTimeAsync(650);
+
+    expect(confirm).toHaveBeenCalledWith("Clear all notifications?");
+    expect(view.notificationStore.getState().bubblesBySourceChatId).toEqual({});
   });
 
   it("uses physical digit keys for reply shortcuts and ignores unspecced Ctrl variants", async () => {
