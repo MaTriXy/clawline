@@ -579,7 +579,7 @@ export function createTransportMachine({
 
   function dismissUnavailableCrossChatNotifications() {
     crossChatNotificationStore?.dismissUnavailableNotifications(
-      chatDomainStore.getState().streams.map((stream) => stream.sessionKey)
+      chatDomainStore.getState().provisionedSessionKeys
     );
   }
 

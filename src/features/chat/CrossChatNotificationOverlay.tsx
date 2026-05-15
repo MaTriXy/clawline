@@ -41,11 +41,11 @@ export function CrossChatNotificationOverlay() {
 
   useEffect(() => {
     function handleKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.defaultPrevented || event.altKey || !event.metaKey) {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || !event.metaKey) {
         return;
       }
 
-      const key = normalizeShortcutKey(event.key);
+      const key = shortcutKeyFromEvent(event);
       if (key === "-" && !event.shiftKey) {
         event.preventDefault();
         notificationStore.clearCrossChatNotifications();
@@ -221,13 +221,25 @@ function sortBubblesByRecentActivity(
   return left.sourceChatId.localeCompare(right.sourceChatId);
 }
 
-function normalizeShortcutKey(key: string) {
-  return key.toLowerCase();
-}
-
 function hotkeyIndexFromKey(key: string) {
   if (!/^[0-9]$/.test(key)) {
     return null;
   }
   return Number(key);
+}
+
+function shortcutKeyFromEvent(event: globalThis.KeyboardEvent) {
+  if (/^Digit[0-9]$/.test(event.code)) {
+    return event.code.slice("Digit".length);
+  }
+
+  if (/^Numpad[0-9]$/.test(event.code)) {
+    return event.code.slice("Numpad".length);
+  }
+
+  if (event.code === "Minus" || event.code === "NumpadSubtract") {
+    return "-";
+  }
+
+  return event.key.toLowerCase();
 }

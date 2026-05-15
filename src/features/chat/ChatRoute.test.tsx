@@ -228,6 +228,16 @@ describe("ChatRoute", () => {
           });
         }
 
+        if (url.pathname.startsWith("/api/streams/")) {
+          return new Response(
+            JSON.stringify({ deletedSessionKey: decodeURIComponent(url.pathname.slice("/api/streams/".length)) }),
+            {
+              headers: { "Content-Type": "application/json" },
+              status: 200
+            }
+          );
+        }
+
         return new Response(JSON.stringify({ error: { code: "unexpected_path" } }), {
           headers: { "Content-Type": "application/json" },
           status: 404
@@ -375,6 +385,61 @@ describe("ChatRoute", () => {
     expect(
       within(globalCard as HTMLElement).getByRole("button", { name: "Delete" })
     ).toBeDisabled();
+  });
+
+  it("dismisses source notifications after local stream deletion succeeds", async () => {
+    const sideSessionKey = "agent:main:clawline:user_1:side";
+    const { notificationStore } = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        sideSessionKey
+      ],
+      configureTransportMachine: ({ notificationStore }) => {
+        notificationStore.applyIncomingMessage({
+          message: {
+            type: "message",
+            id: "s_side_notification",
+            role: "assistant",
+            content: "Delete me after stream removal",
+            timestamp: 30,
+            streaming: false,
+            sessionKey: sideSessionKey,
+            attachments: []
+          },
+          selectedSessionKey: "agent:main:clawline:user_1:main",
+          source: "live",
+          streams: TEST_STREAMS.map((stream) => ({ ...stream }))
+        });
+      }
+    });
+
+    expect(
+      notificationStore.getState().bubblesBySourceChatId
+    ).toHaveProperty(sideSessionKey);
+    expect(screen.getByText("Delete me after stream removal")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage streams" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add stream" }));
+
+    const streamManager = await screen.findByRole("heading", {
+      name: "Manage sessions"
+    });
+    const streamManagerPanel = streamManager.closest("aside");
+    expect(streamManagerPanel).not.toBeNull();
+    const sideCard = within(streamManagerPanel as HTMLElement)
+      .getByText(sideSessionKey)
+      .closest(".stream-manager-card");
+    expect(sideCard).not.toBeNull();
+
+    fireEvent.click(within(sideCard as HTMLElement).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(
+        notificationStore.getState().bubblesBySourceChatId
+      ).not.toHaveProperty(sideSessionKey);
+    });
+    expect(screen.queryByText("Delete me after stream removal")).toBeNull();
   });
 
   it("clears unread state when the URL-selected session becomes active", async () => {
@@ -539,6 +604,64 @@ describe("ChatRoute", () => {
         role: "user"
       })
     ]);
+  });
+
+  it("uses physical digit keys for reply shortcuts and ignores unspecced Ctrl variants", async () => {
+    const { chatStore, notificationStore } = renderChatRoute(
+      "/chat/agent:main:clawline:user_1:main",
+      {
+        initialMessages: [],
+        sessionKeys: [
+          "agent:main:clawline:user_1:main",
+          "agent:main:main",
+          "agent:main:clawline:user_1:side"
+        ]
+      }
+    );
+    const assistantMessageInput: Parameters<typeof chatStore.applyIncomingMessage>[0] = {
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_side_notify",
+        role: "assistant",
+        content: "Side notification",
+        timestamp: 21,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    };
+    chatStore.applyIncomingMessage(assistantMessageInput);
+    notificationStore.applyIncomingMessage({
+      message: assistantMessageInput.message,
+      selectedSessionKey: assistantMessageInput.selectedSessionKey,
+      source: assistantMessageInput.source,
+      streams: TEST_STREAMS.map((stream) => ({ ...stream }))
+    });
+
+    expect(await screen.findByLabelText("Side Thread notification"))
+      .toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, {
+      code: "Digit0",
+      ctrlKey: true,
+      key: "0",
+      metaKey: true
+    });
+    expect(screen.getByLabelText("Side Thread notification")).toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, {
+      code: "Digit0",
+      key: ")",
+      metaKey: true,
+      shiftKey: true
+    });
+
+    expect(
+      await screen.findByRole("textbox", { name: "Reply to Side Thread" })
+    ).toBeInTheDocument();
   });
 
   it("clears built-in stream unread dots after each stream is visited", async () => {
