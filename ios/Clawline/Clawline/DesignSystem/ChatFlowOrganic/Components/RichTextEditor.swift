@@ -26,6 +26,10 @@ struct RichTextEditor: UIViewRepresentable {
     var onFocusChange: (Bool) -> Void
     var onTextEditActivity: (() -> Void)?
     var onSubmit: (() -> Void)?
+    var handlesMentionPickerKeyCommands: Bool = false
+    var onMentionPickerTab: (() -> Void)?
+    var onMentionPickerMoveUp: (() -> Void)?
+    var onMentionPickerMoveDown: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
     var trailingPadding: CGFloat = 20
 
@@ -42,6 +46,10 @@ struct RichTextEditor: UIViewRepresentable {
         textView.onResponderFocusChange = { isFocused in
             coordinator.parent.onFocusChange(isFocused)
         }
+        textView.handlesMentionPickerKeyCommands = handlesMentionPickerKeyCommands
+        textView.onMentionPickerTab = { coordinator.parent.onMentionPickerTab?() }
+        textView.onMentionPickerMoveUp = { coordinator.parent.onMentionPickerMoveUp?() }
+        textView.onMentionPickerMoveDown = { coordinator.parent.onMentionPickerMoveDown?() }
         textView.isScrollEnabled = false
         textView.backgroundColor = .clear
         textView.textContainerInset = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: trailingPadding)
@@ -83,6 +91,10 @@ struct RichTextEditor: UIViewRepresentable {
         textView.onResponderFocusChange = { isFocused in
             coordinator.parent.onFocusChange(isFocused)
         }
+        textView.handlesMentionPickerKeyCommands = handlesMentionPickerKeyCommands
+        textView.onMentionPickerTab = { coordinator.parent.onMentionPickerTab?() }
+        textView.onMentionPickerMoveUp = { coordinator.parent.onMentionPickerMoveUp?() }
+        textView.onMentionPickerMoveDown = { coordinator.parent.onMentionPickerMoveDown?() }
 
         let isComposing = textView.markedTextRange != nil
         let resetRequested = resetToken != context.coordinator.lastResetToken
@@ -346,6 +358,10 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
     var onPasteImages: (([UIImage]) -> Void)?
     var onLayout: ((CGFloat) -> Void)?
     var onResponderFocusChange: ((Bool) -> Void)?
+    var handlesMentionPickerKeyCommands = false
+    var onMentionPickerTab: (() -> Void)?
+    var onMentionPickerMoveUp: (() -> Void)?
+    var onMentionPickerMoveDown: (() -> Void)?
     var isInputEnabled: Bool = true {
         didSet {
             guard oldValue != isInputEnabled else { return }
@@ -416,11 +432,33 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
         let inputReleaseCommands = [
             UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(didPressEscape))
         ]
-        return inputReleaseCommands + base + emacsCommands + appCommandShortcuts
+        let mentionPickerCommands: [UIKeyCommand] = handlesMentionPickerKeyCommands
+            ? [
+                UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(didPressMentionPickerTab)),
+                UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(didPressMentionPickerUp)),
+                UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(didPressMentionPickerDown))
+            ]
+            : []
+        return mentionPickerCommands + inputReleaseCommands + base + emacsCommands + appCommandShortcuts
     }
 
     private var canHandleInputShortcut: Bool {
         isInputEnabled && isFirstResponder
+    }
+
+    @objc private func didPressMentionPickerTab(_ sender: UIKeyCommand) {
+        guard canHandleInputShortcut, handlesMentionPickerKeyCommands else { return }
+        onMentionPickerTab?()
+    }
+
+    @objc private func didPressMentionPickerUp(_ sender: UIKeyCommand) {
+        guard canHandleInputShortcut, handlesMentionPickerKeyCommands else { return }
+        onMentionPickerMoveUp?()
+    }
+
+    @objc private func didPressMentionPickerDown(_ sender: UIKeyCommand) {
+        guard canHandleInputShortcut, handlesMentionPickerKeyCommands else { return }
+        onMentionPickerMoveDown?()
     }
 
     @objc private func didPressCtrlA(_ sender: UIKeyCommand) {

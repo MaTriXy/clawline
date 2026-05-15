@@ -16,6 +16,22 @@ enum SendButtonConnectionState: Equatable {
     case disconnected
 }
 
+struct CrossChatAssistantNotificationEntry: Identifiable, Equatable {
+    let id: String
+    var content: String
+    var timestamp: Date
+}
+
+struct CrossChatNotificationBubble: Identifiable, Equatable {
+    var id: String { sourceChatId }
+    let sourceChatId: String
+    var sourceTitle: String
+    var entries: [CrossChatAssistantNotificationEntry]
+    var lastAssistantActivityAt: Date
+    var isReplying: Bool = false
+    var replyDraft: String = ""
+}
+
 protocol ChatViewModelHosting: AnyObject {
     func handleSceneDidBecomeActive()
 }
@@ -101,6 +117,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var streamDotStateBySession: [String: StreamDotState] = [:]
     private(set) var lastReadMessageIdBySession: [String: String] = [:]
     private(set) var streamTailStateBySession: [String: StreamTailState] = [:]
+    private(set) var crossChatNotificationBubblesBySourceChatId: [String: CrossChatNotificationBubble] = [:]
+    private var unavailableCrossChatNotificationSourceIds: Set<String> = []
     private var syntheticSessionKeys: Set<String> = []
     private var didRestoreActiveSessionKey = false
 
@@ -204,6 +222,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     func requestStreamSwitch(to sessionKey: String, source: StreamSwitchSource) {
         guard orderedSessionKeys.contains(sessionKey) else { return }
+        dismissCrossChatNotification(sourceChatId: sessionKey)
 
         // Step 1-2: stream-switch intent + epoch bump.
         uiSwitchEpoch &+= 1
@@ -267,6 +286,7 @@ final class ChatViewModel: ChatViewModelHosting {
         guard orderedSessionKeys.contains(sessionKey) else { return }
         guard engineActiveSessionKey != sessionKey else { return }
         applyActiveSessionKey(sessionKey)
+        dismissCrossChatNotification(sourceChatId: sessionKey)
         markSessionRead(sessionKey, preferServerTail: true)
         // Keep intent selection coherent for non-switch engine mutations (bootstrap/deletion fallback).
         // Stream-switch path still writes uiSelectedSessionKey explicitly before this runs.
@@ -564,6 +584,7 @@ final class ChatViewModel: ChatViewModelHosting {
         let content: String
         let attachments: [PendingAttachment]
         let sessionKey: String
+        let crossChatNotificationReplySourceChatId: String?
     }
 
     private struct PendingHistoryResetReplay {
@@ -1224,8 +1245,98 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    func send() {
+    var crossChatNotificationBubbles: [CrossChatNotificationBubble] {
+        crossChatNotificationBubblesBySourceChatId.values.sorted {
+            if $0.lastAssistantActivityAt == $1.lastAssistantActivityAt {
+                return $0.sourceChatId < $1.sourceChatId
+            }
+            return $0.lastAssistantActivityAt > $1.lastAssistantActivityAt
+        }
+    }
+
+    func dismissCrossChatNotification(sourceChatId: String) {
+        crossChatNotificationBubblesBySourceChatId.removeValue(forKey: sourceChatId)
+    }
+
+    func dismissAllCrossChatNotifications() {
+        crossChatNotificationBubblesBySourceChatId.removeAll()
+    }
+
+    func openCrossChatNotificationReply(sourceChatId: String) {
+        guard var bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { return }
+        bubble.isReplying = true
+        crossChatNotificationBubblesBySourceChatId[sourceChatId] = bubble
+        closeOverflowingCrossChatNotificationReplies()
+    }
+
+    func closeCrossChatNotificationReply(sourceChatId: String) {
+        guard var bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { return }
+        bubble.isReplying = false
+        bubble.replyDraft = ""
+        crossChatNotificationBubblesBySourceChatId[sourceChatId] = bubble
+    }
+
+    func setCrossChatNotificationReplyDraft(sourceChatId: String, draft: String) {
+        guard var bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { return }
+        bubble.replyDraft = draft
+        crossChatNotificationBubblesBySourceChatId[sourceChatId] = bubble
+    }
+
+    func sendCrossChatNotificationReply(sourceChatId: String) {
         guard !isSending else { return }
+        guard let bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { return }
+        let text = bubble.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard streamsBySessionKey[sourceChatId] != nil else {
+            dismissCrossChatNotification(sourceChatId: sourceChatId)
+            return
+        }
+        guard validateTextByteLimitForSend(text) else { return }
+
+        switch sendProvisioningState(for: sourceChatId) {
+        case .ready:
+            guard transportSendButtonConnectionState == .connected else {
+                toastManager.show("Could not send; not connected.")
+                return
+            }
+            beginSend(
+                content: text,
+                pendingAttachments: [],
+                sessionKey: sourceChatId,
+                clearInputOnSuccess: false,
+                onSuccess: { [weak self] in
+                    self?.closeCrossChatNotificationReply(sourceChatId: sourceChatId)
+                }
+            )
+        case .waiting:
+            pendingProvisionedSend = PendingProvisionedSend(
+                content: text,
+                attachments: [],
+                sessionKey: sourceChatId,
+                crossChatNotificationReplySourceChatId: sourceChatId
+            )
+        case .unavailable:
+            dismissCrossChatNotification(sourceChatId: sourceChatId)
+            toastManager.show("This stream is unavailable. Switch streams and try again.")
+        }
+    }
+
+    func send() {
+        _ = sendResolved(destinationSessionKey: nil)
+    }
+
+    @discardableResult
+    func sendCrossChatMention(to destinationSessionKey: String) -> Bool {
+        let didDispatch = sendResolved(destinationSessionKey: destinationSessionKey)
+        if didDispatch {
+            clearInput()
+        }
+        return didDispatch
+    }
+
+    @discardableResult
+    private func sendResolved(destinationSessionKey: String?) -> Bool {
+        guard !isSending else { return false }
         let referencedIds = Set(inputContent.pendingAttachmentIds())
 #if DEBUG
         let transportSnapshot = sendTransportSnapshot()
@@ -1244,7 +1355,7 @@ final class ChatViewModel: ChatViewModelHosting {
             )
 #endif
             toastManager.show("Finishing attachment…")
-            return
+            return false
         }
         pruneAttachmentData()
         let (text, pendingIds) = inputContent.contentForSending()
@@ -1254,27 +1365,33 @@ final class ChatViewModel: ChatViewModelHosting {
 #if DEBUG
             recordImageSendDebugEvent(.sendResult, detail: "failure reason=empty_input")
 #endif
-            return
+            return false
         }
 
         if !validateTextByteLimitForSend(text) {
-            return
+            return false
         }
 
-        if pendingAttachments.isEmpty && handleSlashCommand(text) {
-            return
+        let crossChatDestination = destinationSessionKey?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if crossChatDestination == nil, pendingAttachments.isEmpty && handleSlashCommand(text) {
+            return true
         }
 
         ensureDefaultActiveSessionIfNeeded()
-        let outboundSessionKey = engineActiveSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let outboundSessionKey = crossChatDestination ?? engineActiveSessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !outboundSessionKey.isEmpty else {
 #if DEBUG
             recordImageSendDebugEvent(.sendResult, detail: "failure reason=no_stream_selected")
 #endif
             toastManager.show("No stream selected.")
-            return
+            return false
         }
-
+        if crossChatDestination != nil, streamsBySessionKey[outboundSessionKey] == nil {
+#if DEBUG
+            recordImageSendDebugEvent(.sendResult, detail: "failure reason=cross_chat_destination_unavailable")
+#endif
+            return false
+        }
         switch sendProvisioningState(for: outboundSessionKey) {
         case .ready:
             guard transportSendButtonConnectionState == .connected else {
@@ -1285,9 +1402,10 @@ final class ChatViewModel: ChatViewModelHosting {
                 )
 #endif
                 toastManager.show("Could not send; not connected.")
-                return
+                return false
             }
             beginSend(content: text, pendingAttachments: pendingAttachments, sessionKey: outboundSessionKey)
+            return true
         case .waiting:
 #if DEBUG
             recordImageSendDebugEvent(
@@ -1298,8 +1416,10 @@ final class ChatViewModel: ChatViewModelHosting {
             pendingProvisionedSend = PendingProvisionedSend(
                 content: text,
                 attachments: pendingAttachments,
-                sessionKey: outboundSessionKey
+                sessionKey: outboundSessionKey,
+                crossChatNotificationReplySourceChatId: nil
             )
+            return true
         case .unavailable:
 #if DEBUG
             recordImageSendDebugEvent(
@@ -1308,13 +1428,15 @@ final class ChatViewModel: ChatViewModelHosting {
             )
 #endif
             toastManager.show("This stream is unavailable. Switch streams and try again.")
+            return false
         }
     }
 
     private func beginSend(content: String,
                            pendingAttachments: [PendingAttachment],
                            sessionKey: String,
-                           clearInputOnSuccess: Bool = true) {
+                           clearInputOnSuccess: Bool = true,
+                           onSuccess: (@MainActor () -> Void)? = nil) {
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
 #if DEBUG
@@ -1344,7 +1466,8 @@ final class ChatViewModel: ChatViewModelHosting {
                 content: content,
                 pendingAttachments: pendingAttachments,
                 sessionKey: sessionKey,
-                clearInputOnSuccess: clearInputOnSuccess
+                clearInputOnSuccess: clearInputOnSuccess,
+                onSuccess: onSuccess
             )
         }
     }
@@ -1502,6 +1625,8 @@ final class ChatViewModel: ChatViewModelHosting {
         restoredSessionKeys.removeAll()
         forceReReadGenerationBySession.removeAll()
         restoredStreamMetadataForUserId = nil
+        crossChatNotificationBubblesBySourceChatId.removeAll()
+        unavailableCrossChatNotificationSourceIds.removeAll()
         resetSessionProvisioningState(clearPendingSend: true)
         clearMessageCache()
         clearStreamMetadataCache()
@@ -1764,9 +1889,54 @@ final class ChatViewModel: ChatViewModelHosting {
            resolvedMessage.id.hasPrefix("s_") {
             markSessionRead(resolvedMessage.sessionKey)
         }
+        applyCrossChatAssistantNotificationIfNeeded(for: resolvedMessage)
         maybeTriggerAssistantIncomingHaptic(for: resolvedMessage, didAppendNewMessage: didAppendNewMessage)
 
         resolveAssetAttachmentsIfNeeded(for: resolvedMessage)
+    }
+
+    private func applyCrossChatAssistantNotificationIfNeeded(for message: Message) {
+        guard message.role == .assistant else { return }
+        guard streamsBySessionKey[message.sessionKey] != nil else { return }
+        guard !unavailableCrossChatNotificationSourceIds.contains(message.sessionKey) else { return }
+        guard !hasReceivedSessionProvisioning || isLocallySendableSessionKey(message.sessionKey) else { return }
+        let visibleSessionKey = uiSelectedSessionKey.isEmpty ? engineActiveSessionKey : uiSelectedSessionKey
+        guard message.sessionKey != visibleSessionKey else { return }
+
+        let title = stream(for: message.sessionKey)?.displayName
+            ?? message.sender
+            ?? message.sessionKey
+        let entry = CrossChatAssistantNotificationEntry(
+            id: message.id,
+            content: message.content,
+            timestamp: message.timestamp
+        )
+        var bubble = crossChatNotificationBubblesBySourceChatId[message.sessionKey] ?? CrossChatNotificationBubble(
+            sourceChatId: message.sessionKey,
+            sourceTitle: title,
+            entries: [],
+            lastAssistantActivityAt: message.timestamp
+        )
+        bubble.sourceTitle = title
+        if let existingIndex = bubble.entries.firstIndex(where: { $0.id == message.id }) {
+            bubble.entries.remove(at: existingIndex)
+        }
+        bubble.entries.insert(entry, at: 0)
+        bubble.lastAssistantActivityAt = message.timestamp
+        crossChatNotificationBubblesBySourceChatId[message.sessionKey] = bubble
+        closeOverflowingCrossChatNotificationReplies()
+    }
+
+    func closeOverflowingCrossChatNotificationReplies(visibleCapacity: Int = 10) {
+        let capacity = max(0, visibleCapacity)
+        let overflowSourceChatIds = crossChatNotificationBubbles.dropFirst(capacity).map(\.sourceChatId)
+        for sourceChatId in overflowSourceChatIds {
+            guard var bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { continue }
+            guard bubble.isReplying || !bubble.replyDraft.isEmpty else { continue }
+            bubble.isReplying = false
+            bubble.replyDraft = ""
+            crossChatNotificationBubblesBySourceChatId[sourceChatId] = bubble
+        }
     }
 
     private func shouldSuppressInteractiveCallbackEcho(_ message: Message) -> Bool {
@@ -2212,7 +2382,8 @@ final class ChatViewModel: ChatViewModelHosting {
                              content: String,
                              pendingAttachments: [PendingAttachment],
                              sessionKey: String?,
-                             clearInputOnSuccess: Bool = true) async {
+                             clearInputOnSuccess: Bool = true,
+                             onSuccess: (@MainActor () -> Void)? = nil) async {
         defer { sendTask = nil }
         var didStartChatSend = false
         do {
@@ -2232,6 +2403,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 if clearInputOnSuccess {
                     clearInput()
                 }
+                onSuccess?()
                 isSending = false
                 activeClientMessageId = nil
             }
@@ -2755,10 +2927,17 @@ final class ChatViewModel: ChatViewModelHosting {
         switch sendProvisioningState(for: pending.sessionKey) {
         case .ready:
             pendingProvisionedSend = nil
+            let replySourceChatId = pending.crossChatNotificationReplySourceChatId
             beginSend(
                 content: pending.content,
                 pendingAttachments: pending.attachments,
-                sessionKey: pending.sessionKey
+                sessionKey: pending.sessionKey,
+                clearInputOnSuccess: replySourceChatId == nil,
+                onSuccess: { [weak self] in
+                    if let replySourceChatId {
+                        self?.closeCrossChatNotificationReply(sourceChatId: replySourceChatId)
+                    }
+                }
             )
         case .waiting:
             break
@@ -2824,6 +3003,15 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func replaceAccessibleSessionKeys(with sessionKeys: [String]) {
         let normalized = normalizeSessionKeyList(sessionKeys)
+        let available = Set(normalized)
+        unavailableCrossChatNotificationSourceIds.subtract(available)
+        unavailableCrossChatNotificationSourceIds.formUnion(accessibleSessionKeys.subtracting(available))
+        let unavailableNotificationSourceChatIds = crossChatNotificationBubblesBySourceChatId.keys.filter {
+            !available.contains($0)
+        }
+        for sourceChatId in unavailableNotificationSourceChatIds {
+            dismissCrossChatNotification(sourceChatId: sourceChatId)
+        }
         accessibleSessionKeyOrder = normalized
         accessibleSessionKeys = Set(normalized)
     }
@@ -2835,8 +3023,10 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func removeAccessibleSessionKey(_ sessionKey: String) {
+        unavailableCrossChatNotificationSourceIds.insert(sessionKey)
         accessibleSessionKeys.remove(sessionKey)
         accessibleSessionKeyOrder.removeAll { $0 == sessionKey }
+        dismissCrossChatNotification(sourceChatId: sessionKey)
     }
 
     private func replaceTrackableSessions(with sessions: [TrackableSession]) {
@@ -3358,7 +3548,10 @@ final class ChatViewModel: ChatViewModelHosting {
         streamsBySessionKey = byKey
         let validSessionKeys = Set(byKey.keys)
         let removedSessionKeys = previousSessionKeys.subtracting(validSessionKeys)
+        unavailableCrossChatNotificationSourceIds.subtract(validSessionKeys)
+        unavailableCrossChatNotificationSourceIds.formUnion(removedSessionKeys)
         for sessionKey in removedSessionKeys {
+            dismissCrossChatNotification(sourceChatId: sessionKey)
             sessionMessages.removeValue(forKey: sessionKey)
             lastReadMessageIdBySession.removeValue(forKey: sessionKey)
             streamTailStateBySession.removeValue(forKey: sessionKey)
@@ -3390,6 +3583,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func applyStreamUpsert(_ stream: StreamSession) {
+        unavailableCrossChatNotificationSourceIds.remove(stream.sessionKey)
         streamsBySessionKey[stream.sessionKey] = stream
         syntheticSessionKeys.remove(stream.sessionKey)
         recalculateOrderedSessionKeys()
@@ -3402,6 +3596,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func applyStreamDeletion(sessionKey: String) {
+        unavailableCrossChatNotificationSourceIds.insert(sessionKey)
         streamsBySessionKey.removeValue(forKey: sessionKey)
         syntheticSessionKeys.remove(sessionKey)
         recalculateOrderedSessionKeys()
@@ -3459,6 +3654,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func applyDeletedStreamMutation(sessionKey: String) {
+        dismissCrossChatNotification(sourceChatId: sessionKey)
         if pendingUntrackRecovery?.sessionKey == sessionKey || streamsBySessionKey[sessionKey]?.adopted == true {
             unlinkTrackedSession(sessionKey: sessionKey)
             return
@@ -3467,6 +3663,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func unlinkTrackedSession(sessionKey: String) {
+        unavailableCrossChatNotificationSourceIds.insert(sessionKey)
         streamsBySessionKey.removeValue(forKey: sessionKey)
         syntheticSessionKeys.remove(sessionKey)
         sessionStatusBySessionKey.removeValue(forKey: sessionKey)

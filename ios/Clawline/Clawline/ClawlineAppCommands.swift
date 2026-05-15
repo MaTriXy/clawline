@@ -10,6 +10,11 @@ import SwiftUI
 struct ClawlineAppCommands: Commands {
     let settingsManager: SettingsManager
     @FocusedValue(\.cancelCurrentPromptCommand) private var cancelCurrentPromptCommand
+    @FocusedValue(\.crossChatNotificationCommand) private var crossChatNotificationCommand
+
+    private var notificationCommandsActive: Bool {
+        crossChatNotificationCommand?.hasVisibleNotifications == true
+    }
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
@@ -29,11 +34,13 @@ struct ClawlineAppCommands: Commands {
                 settingsManager.decreaseFontScale()
             }
             .keyboardShortcut("-", modifiers: .command)
+            .disabled(notificationCommandsActive)
 
             Button("Reset Font Size") {
                 settingsManager.resetFontScale()
             }
             .keyboardShortcut("0", modifiers: .command)
+            .disabled(notificationCommandsActive)
 
             Divider()
 

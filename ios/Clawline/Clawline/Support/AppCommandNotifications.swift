@@ -21,13 +21,29 @@ struct CancelCurrentPromptCommand {
     let presentConfirmation: @MainActor () -> Void
 }
 
+struct CrossChatNotificationCommand {
+    let hasVisibleNotifications: Bool
+    let dismiss: @MainActor (Int) -> Void
+    let reply: @MainActor (Int) -> Void
+    let dismissAll: @MainActor () -> Void
+}
+
 private struct CancelCurrentPromptCommandKey: FocusedValueKey {
     typealias Value = CancelCurrentPromptCommand
+}
+
+private struct CrossChatNotificationCommandKey: FocusedValueKey {
+    typealias Value = CrossChatNotificationCommand
 }
 
 extension FocusedValues {
     var cancelCurrentPromptCommand: CancelCurrentPromptCommand? {
         get { self[CancelCurrentPromptCommandKey.self] }
         set { self[CancelCurrentPromptCommandKey.self] = newValue }
+    }
+
+    var crossChatNotificationCommand: CrossChatNotificationCommand? {
+        get { self[CrossChatNotificationCommandKey.self] }
+        set { self[CrossChatNotificationCommandKey.self] = newValue }
     }
 }
