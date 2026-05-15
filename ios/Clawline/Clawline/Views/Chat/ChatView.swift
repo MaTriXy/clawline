@@ -4658,7 +4658,7 @@ private struct CrossChatNotificationOverlay: View {
     private static let maxVisibleBubbleCount = 10
     static let minVisibleBubbleHeight: CGFloat = 104
     private static let minReplyBubbleHeight: CGFloat = 104
-    private static let maxBubbleHeight: CGFloat = 230
+    private static let maxBubbleHeight: CGFloat = 115
     private static let bubbleSpacing: CGFloat = 10
 
     static func visibleCapacity(maxContainerHeight: CGFloat) -> Int {
@@ -4857,10 +4857,11 @@ private struct CrossChatNotificationBubbleView: View {
 
             if bubble.isReplying {
                 HStack(spacing: 8) {
-                    TextField("Reply", text: $replyDraft, axis: .vertical)
+                    TextField("Reply", text: $replyDraft)
                         .font(.clawline(.secondaryLabel))
-                        .lineLimit(1...3)
+                        .lineLimit(1)
                         .textFieldStyle(.plain)
+                        .submitLabel(.send)
                         .focused($isReplyFocused)
                         .onSubmit(onSendReply)
                         .onKeyPress(.escape) {
@@ -4891,7 +4892,7 @@ private struct CrossChatNotificationBubbleView: View {
         .foregroundStyle(.primary)
         .padding(.horizontal, 12)
         .padding(.vertical, bubble.isReplying ? 4 : 12)
-        .frame(maxWidth: 340, maxHeight: maxBubbleHeight, alignment: .topLeading)
+        .frame(maxWidth: 340, maxHeight: bubble.isReplying ? nil : maxBubbleHeight, alignment: .topLeading)
 #if os(visionOS)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 #else
