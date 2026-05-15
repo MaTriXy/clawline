@@ -52,6 +52,53 @@ struct StreamSelectorLayoutTests {
         #expect(result.map(\.displayName) == ["Research Notes"])
     }
 
+    @Test("T307 mention picker filtering uses visible session labels")
+    func crossChatMentionPickerFilteringUsesVisibleLabels() {
+        let streams = [
+            StreamSession(
+                sessionKey: "agent:main:clawline:user:s_one",
+                displayName: "Dictation",
+                kind: "custom",
+                orderIndex: 0,
+                isBuiltIn: false,
+                createdAt: Date(),
+                updatedAt: Date()
+            ),
+            StreamSession(
+                sessionKey: "agent:main:clawline:user:s_two",
+                displayName: "Clawline",
+                kind: "custom",
+                orderIndex: 1,
+                isBuiltIn: false,
+                createdAt: Date(),
+                updatedAt: Date()
+            ),
+            StreamSession(
+                sessionKey: "agent:main:clawline:user:s_three",
+                displayName: "Notes",
+                kind: "custom",
+                orderIndex: 2,
+                isBuiltIn: false,
+                createdAt: Date(),
+                updatedAt: Date()
+            ),
+        ]
+
+        let clawline = CrossChatMentionPickerLogic.filteredStreams(
+            streams: streams,
+            currentSessionKey: "agent:main:main",
+            query: "clawline"
+        )
+        let dictation = CrossChatMentionPickerLogic.filteredStreams(
+            streams: streams,
+            currentSessionKey: "agent:main:main",
+            query: "dictation"
+        )
+
+        #expect(clawline.map(\.displayName) == ["Clawline"])
+        #expect(dictation.map(\.displayName) == ["Dictation"])
+    }
+
     @Test("T307 mention picker activates only for leading at-sign and clamps arrow selection")
     func crossChatMentionPickerQueryAndSelection() {
         #expect(CrossChatMentionPickerLogic.query(inputText: "@res", resolvedMention: nil) == "res")

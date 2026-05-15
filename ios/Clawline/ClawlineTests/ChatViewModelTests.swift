@@ -25,6 +25,22 @@ struct ChatViewModelTests {
         ]
         let chatService = TestChatService()
         chatService.streams = streams
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "medium",
+            queueDepth: 0
+        )
+        chatService.sessionStatusBySessionKey[destinationSessionKey] = makeSessionStatus(
+            sessionKey: destinationSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "medium",
+            queueDepth: 1
+        )
         let viewModel = ChatViewModel(
             auth: auth,
             chatService: chatService,
@@ -39,7 +55,66 @@ struct ChatViewModelTests {
         await viewModel.onAppear()
         chatService.emitServiceEvent(.streamSnapshot(streams))
         try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        chatService.resetFetchedSessionStatusKeys()
         viewModel.inputContent = NSAttributedString(string: "route this")
+
+        let dispatched = viewModel.sendCrossChatMention(to: destinationSessionKey)
+
+        #expect(dispatched)
+        for _ in 0..<50 {
+            if chatService.lastSessionKey == destinationSessionKey { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(chatService.lastSessionKey == destinationSessionKey)
+        #expect(chatService.lastSentContent == "route this")
+        #expect(viewModel.messages.isEmpty)
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: destinationSessionKey)?.run.state == .running { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(chatService.fetchedSessionStatusKeys.contains(destinationSessionKey))
+        #expect(viewModel.sessionStatus(for: destinationSessionKey)?.run.state == .running)
+        #expect(viewModel.sessionStatus(for: personalSessionKey)?.run.state != .running)
+    }
+
+    @Test("T307 cross-chat mention sends only content after chip")
+    @MainActor
+    func crossChatMentionSendUsesOnlyContentAfterChip() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let destinationSessionKey = "agent:main:clawline:user:s_destination"
+        let streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: destinationSessionKey, displayName: "Side", kind: "custom", orderIndex: 1, isBuiltIn: false),
+        ]
+        let chatService = TestChatService()
+        chatService.streams = streams
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(streams))
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+        let content = NSMutableAttributedString(string: "do not route ")
+        content.append(
+            NSAttributedString(
+                attachment: CrossChatMentionTextAttachment(
+                    destinationChatId: destinationSessionKey,
+                    displayName: "Side"
+                )
+            )
+        )
+        content.append(NSAttributedString(string: " route this"))
+        viewModel.inputContent = content
 
         let dispatched = viewModel.sendCrossChatMention(to: destinationSessionKey)
 
@@ -292,6 +367,10 @@ struct ChatViewModelTests {
         let oldestVisible = "agent:main:clawline:user:s_overflow_0"
         viewModel.openCrossChatNotificationReply(sourceChatId: oldestVisible)
         viewModel.setCrossChatNotificationReplyDraft(sourceChatId: oldestVisible, draft: "draft")
+        viewModel.closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: [oldestVisible])
+        let replyingBubble = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[oldestVisible])
+        #expect(replyingBubble.isReplying)
+        #expect(replyingBubble.replyDraft == "draft")
 
         chatService.emit(
             Message(
@@ -329,6 +408,22 @@ struct ChatViewModelTests {
         ]
         let chatService = TestChatService()
         chatService.streams = streams
+        chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
+            sessionKey: personalSessionKey,
+            state: .idle,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "medium",
+            queueDepth: 0
+        )
+        chatService.sessionStatusBySessionKey[sourceSessionKey] = makeSessionStatus(
+            sessionKey: sourceSessionKey,
+            state: .running,
+            provider: "openai",
+            model: "gpt-5.5",
+            thinkingLevel: "medium",
+            queueDepth: 1
+        )
         let viewModel = ChatViewModel(
             auth: auth,
             chatService: chatService,
@@ -366,23 +461,28 @@ struct ChatViewModelTests {
         viewModel.sendCrossChatNotificationReply(sourceChatId: sourceSessionKey)
         try await Task.sleep(for: .milliseconds(50))
 
-        var bubble = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey])
+        let bubble = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey])
         #expect(bubble.isReplying)
         #expect(bubble.replyDraft == "reply draft")
 
         chatService.sendError = nil
+        chatService.resetFetchedSessionStatusKeys()
         viewModel.sendCrossChatNotificationReply(sourceChatId: sourceSessionKey)
         for _ in 0..<50 {
-            bubble = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey])
-            if bubble.isReplying == false, bubble.replyDraft.isEmpty { break }
+            if viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] == nil { break }
             try await Task.sleep(for: .milliseconds(10))
         }
 
         #expect(chatService.lastSentContent == "reply draft")
         #expect(chatService.lastSessionKey == sourceSessionKey)
-        bubble = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey])
-        #expect(bubble.isReplying == false)
-        #expect(bubble.replyDraft.isEmpty)
+        #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] == nil)
+        for _ in 0..<50 {
+            if viewModel.sessionStatus(for: sourceSessionKey)?.run.state == .running { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(chatService.fetchedSessionStatusKeys.contains(sourceSessionKey))
+        #expect(viewModel.sessionStatus(for: sourceSessionKey)?.run.state == .running)
+        #expect(viewModel.sessionStatus(for: personalSessionKey)?.run.state != .running)
     }
 
     @Test("Records last server message id for reconnects")
@@ -4603,6 +4703,7 @@ private final class TestChatService: ChatServicing {
     private(set) var fetchStreamsCallCount: Int = 0
     private(set) var fetchTrackableSessionsCallCount: Int = 0
     private(set) var fetchSessionStatusCallCount: Int = 0
+    private(set) var fetchedSessionStatusKeys: [String] = []
     private(set) var cancelCurrentRunCallCount: Int = 0
     private(set) var lastCancelledSessionKey: String?
     private(set) var deleteStreamCallCount: Int = 0
@@ -4789,10 +4890,15 @@ private final class TestChatService: ChatServicing {
 
     func fetchSessionStatus(sessionKey: String) async throws -> SessionStatus {
         fetchSessionStatusCallCount += 1
+        fetchedSessionStatusKeys.append(sessionKey)
         if let status = sessionStatusBySessionKey[sessionKey] {
             return status
         }
         throw StreamAPIError(code: "stream_not_found", message: "not found", statusCode: 404)
+    }
+
+    func resetFetchedSessionStatusKeys() {
+        fetchedSessionStatusKeys.removeAll()
     }
 
     func applySessionControl(

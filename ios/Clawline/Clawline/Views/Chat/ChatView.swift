@@ -126,7 +126,6 @@ enum CrossChatMentionPickerLogic {
             guard stream.sessionKey != currentSessionKey else { return false }
             guard !normalizedQuery.isEmpty else { return true }
             return stream.displayName.lowercased().contains(normalizedQuery)
-                || stream.sessionKey.lowercased().contains(normalizedQuery)
         }
     }
 
@@ -367,20 +366,51 @@ struct ChatView: View {
     }
 
     private func resolveCrossChatMention(_ stream: StreamSession) {
+        let queryLength = currentMentionPickerQuery().map { $0.count + 1 } ?? 0
         resolvedCrossChatMention = ResolvedCrossChatMention(
             destinationChatId: stream.sessionKey,
             displayName: stream.displayName
         )
         highlightedCrossChatMentionSessionKey = stream.sessionKey
-        viewModel.inputContent = NSAttributedString(string: "")
-        selectionRange = NSRange(location: 0, length: 0)
+        let mutable = NSMutableAttributedString(attributedString: viewModel.inputContent)
+        if queryLength > 0, mutable.length >= queryLength {
+            mutable.deleteCharacters(in: NSRange(location: 0, length: queryLength))
+        }
+        mutable.removeCrossChatMentionAttachments()
+        mutable.insert(
+            NSAttributedString(
+                attachment: CrossChatMentionTextAttachment(
+                    destinationChatId: stream.sessionKey,
+                    displayName: stream.displayName
+                )
+            ),
+            at: 0
+        )
+        if mutable.length == 1 || mutable.string.dropFirst().first?.isWhitespace == false {
+            mutable.insert(NSAttributedString(string: " "), at: 1)
+        }
+        viewModel.inputContent = mutable
+        selectionRange = NSRange(location: min(mutable.length, 2), length: 0)
+        viewModel.refreshInputEditorContent()
         focusRequestID &+= 1
     }
 
     private func removeResolvedCrossChatMention() {
         resolvedCrossChatMention = nil
         highlightedCrossChatMentionSessionKey = nil
+        let mutable = NSMutableAttributedString(attributedString: viewModel.inputContent)
+        mutable.removeCrossChatMentionAttachments()
+        viewModel.inputContent = mutable
+        selectionRange = NSRange(location: min(selectionRange.location, mutable.length), length: 0)
+        viewModel.refreshInputEditorContent()
         focusRequestID &+= 1
+    }
+
+    private func reconcileResolvedMentionAttachment() {
+        guard resolvedCrossChatMention != nil else { return }
+        guard !viewModel.inputContent.containsCrossChatMentionAttachment else { return }
+        resolvedCrossChatMention = nil
+        highlightedCrossChatMentionSessionKey = nil
     }
 
     private func handleCrossChatMentionMove(filteredStreams: [StreamSession], step: Int) {
@@ -940,7 +970,7 @@ struct ChatView: View {
         } ?? visibleMentionPickerStreams.first?.sessionKey
         let isMentionPickerVisible = mentionQuery != nil
         let notificationOverlayMaxHeight = max(
-            120,
+            CrossChatNotificationOverlay.minVisibleBubbleHeight,
             geometry.size.height - statusBarTopInset - inputBarTopFromScreenBottom - 24
         )
         let cancelCurrentPromptDialogCanCancel = cancelCurrentPromptSessionKey.map { sessionKey in
@@ -1441,8 +1471,11 @@ struct ChatView: View {
         viewModel: ChatViewModel,
         maxContainerHeight: CGFloat
     ) -> CrossChatNotificationCommand? {
-        let visibleCapacity = CrossChatNotificationOverlay.visibleCapacity(maxContainerHeight: maxContainerHeight)
-        let bubbles = Array(viewModel.crossChatNotificationBubbles.prefix(visibleCapacity))
+        let allBubbles = viewModel.crossChatNotificationBubbles
+        let bubbles = CrossChatNotificationOverlay.visibleBubbles(
+            maxContainerHeight: maxContainerHeight,
+            bubbles: allBubbles
+        )
         guard !bubbles.isEmpty else { return nil }
         return CrossChatNotificationCommand(
             hasVisibleNotifications: true,
@@ -1610,7 +1643,7 @@ struct ChatView: View {
                 bottomSafeAreaInset: geometry.safeAreaInsets.bottom,
                 isKeyboardVisible: isKeyboardVisible,
                 isAttachmentMenuPresented: $isAttachmentMenuPresented,
-                resolvedMentionTitle: resolvedCrossChatMention?.displayName,
+                resolvedMentionTitle: nil,
                 onSend: {
                     clearTypingActivity()
                     if let resolvedCrossChatMention {
@@ -1653,6 +1686,7 @@ struct ChatView: View {
                     scheduleInputFocusChange(focused)
                 },
                 onTextEditActivity: {
+                    reconcileResolvedMentionAttachment()
                     recordTypingActivity()
                 },
                 handlesMentionPickerKeyCommands: isMentionPickerVisible,
@@ -4618,28 +4652,64 @@ private struct CrossChatNotificationOverlay: View {
     let maxContainerHeight: CGFloat
 
     private static let maxVisibleBubbleCount = 10
-    private static let minUsableBubbleHeight: CGFloat = 96
+    static let minVisibleBubbleHeight: CGFloat = 104
+    private static let minReplyBubbleHeight: CGFloat = 104
     private static let maxBubbleHeight: CGFloat = 230
     private static let bubbleSpacing: CGFloat = 10
 
     static func visibleCapacity(maxContainerHeight: CGFloat) -> Int {
-        let slotHeight = minUsableBubbleHeight + bubbleSpacing
+        let slotHeight = minVisibleBubbleHeight + bubbleSpacing
         let capacity = Int((maxContainerHeight + bubbleSpacing) / slotHeight)
         return max(1, min(maxVisibleBubbleCount, capacity))
     }
 
-    private var visibleCapacity: Int {
-        Self.visibleCapacity(maxContainerHeight: maxContainerHeight)
+    static func visibleCapacity(
+        maxContainerHeight: CGFloat,
+        bubbles: [CrossChatNotificationBubble]
+    ) -> Int {
+        var capacity = min(visibleCapacity(maxContainerHeight: maxContainerHeight), bubbles.count)
+        while capacity > 1 {
+            let visible = bubbles.prefix(capacity)
+            let minimumHeight = visible.contains { $0.isReplying } ? minReplyBubbleHeight : minVisibleBubbleHeight
+            let spacingHeight = bubbleSpacing * CGFloat(max(0, capacity - 1))
+            let availablePerBubble = (maxContainerHeight - spacingHeight) / CGFloat(capacity)
+            if availablePerBubble >= minimumHeight {
+                break
+            }
+            capacity -= 1
+        }
+        return max(1, capacity)
+    }
+
+    static func visibleBubbles(
+        maxContainerHeight: CGFloat,
+        bubbles: [CrossChatNotificationBubble]
+    ) -> [CrossChatNotificationBubble] {
+        let capacity = visibleCapacity(
+            maxContainerHeight: maxContainerHeight,
+            bubbles: bubbles
+        )
+        return Array(bubbles.prefix(capacity))
     }
 
     private var visibleBubbles: [CrossChatNotificationBubble] {
-        Array(viewModel.crossChatNotificationBubbles.prefix(visibleCapacity))
+        Self.visibleBubbles(
+            maxContainerHeight: maxContainerHeight,
+            bubbles: viewModel.crossChatNotificationBubbles
+        )
+    }
+
+    private var visibleCapacity: Int {
+        visibleBubbles.count
     }
 
     private var maxBubbleHeight: CGFloat {
         let spacingHeight = Self.bubbleSpacing * CGFloat(max(0, visibleCapacity - 1))
         let availablePerBubble = (maxContainerHeight - spacingHeight) / CGFloat(max(1, visibleCapacity))
-        return min(Self.maxBubbleHeight, max(Self.minUsableBubbleHeight, availablePerBubble))
+        let minimumHeight = visibleBubbles.contains { $0.isReplying }
+            ? Self.minReplyBubbleHeight
+            : Self.minVisibleBubbleHeight
+        return min(Self.maxBubbleHeight, max(minimumHeight, availablePerBubble))
     }
 
     var body: some View {
@@ -4683,15 +4753,15 @@ private struct CrossChatNotificationOverlay: View {
             .padding(.trailing, 12)
             .transition(.move(edge: .top).combined(with: .opacity))
             .onAppear {
-                viewModel.closeOverflowingCrossChatNotificationReplies(visibleCapacity: visibleCapacity)
+                viewModel.closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: Set(visibleBubbles.map(\.sourceChatId)))
             }
             .onChange(of: visibleCapacity) { _, newCapacity in
-                viewModel.closeOverflowingCrossChatNotificationReplies(visibleCapacity: newCapacity)
+                viewModel.closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: Set(visibleBubbles.map(\.sourceChatId)))
             }
             .onChange(of: viewModel.crossChatNotificationBubbles.map { bubble in
                 "\(bubble.sourceChatId):\(bubble.lastAssistantActivityAt.timeIntervalSinceReferenceDate)"
             }) { _, _ in
-                viewModel.closeOverflowingCrossChatNotificationReplies(visibleCapacity: visibleCapacity)
+                viewModel.closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: Set(visibleBubbles.map(\.sourceChatId)))
             }
         }
     }
@@ -4709,7 +4779,7 @@ private struct CrossChatNotificationBubbleView: View {
     @FocusState private var isReplyFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: bubble.isReplying ? 4 : 8) {
             HStack(spacing: 8) {
                 Text("\(assignedNumber)")
                     .font(.clawline(.secondaryLabel).weight(.bold))
@@ -4727,23 +4797,37 @@ private struct CrossChatNotificationBubbleView: View {
 
                 Button(action: onReply) {
                     Image(systemName: "arrowshape.turn.up.left")
-                        .frame(width: 28, height: 28)
+                        .font(.clawline(.uiLabel).weight(.semibold))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
+                .frame(width: 44, height: 44)
+#if os(visionOS)
+                .background(.regularMaterial, in: Circle())
+#else
+                .glassEffect(.regular.interactive(), in: Circle())
+#endif
                 .buttonStyle(.plain)
                 .accessibilityLabel("Reply")
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .frame(width: 28, height: 28)
+                        .font(.clawline(.uiLabel).weight(.semibold))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
+                .frame(width: 44, height: 44)
+#if os(visionOS)
+                .background(.regularMaterial, in: Circle())
+#else
+                .glassEffect(.regular.interactive(), in: Circle())
+#endif
                 .buttonStyle(.plain)
                 .accessibilityLabel("Dismiss")
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                ForEach(bubble.entries.prefix(3)) { entry in
+                ForEach(bubble.entries.prefix(bubble.isReplying ? 0 : 3)) { entry in
                     Text(entry.content)
                         .font(.clawline(.secondaryLabel))
                         .lineLimit(3)
@@ -4775,15 +4859,24 @@ private struct CrossChatNotificationBubbleView: View {
                         )
                     Button(action: onSendReply) {
                         Image(systemName: "paperplane.fill")
-                            .frame(width: 30, height: 30)
+                            .font(.clawline(.uiLabel).weight(.semibold))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .contentShape(Rectangle())
                     }
+                    .frame(width: 44, height: 44)
+#if os(visionOS)
+                    .background(.regularMaterial, in: Circle())
+#else
+                    .glassEffect(.regular.interactive(), in: Circle())
+#endif
                     .buttonStyle(.plain)
                     .accessibilityLabel("Send reply")
                 }
             }
         }
         .foregroundStyle(.primary)
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, bubble.isReplying ? 4 : 12)
         .frame(maxWidth: 340, maxHeight: maxBubbleHeight, alignment: .topLeading)
 #if os(visionOS)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -4801,8 +4894,10 @@ private struct CrossChatNotificationKeyboardShortcuts: View {
     let onDismissAll: () -> Void
 
     private var visibleBubbles: [CrossChatNotificationBubble] {
-        let visibleCapacity = CrossChatNotificationOverlay.visibleCapacity(maxContainerHeight: maxContainerHeight)
-        return Array(bubbles.prefix(visibleCapacity))
+        CrossChatNotificationOverlay.visibleBubbles(
+            maxContainerHeight: maxContainerHeight,
+            bubbles: bubbles
+        )
     }
 
     var body: some View {

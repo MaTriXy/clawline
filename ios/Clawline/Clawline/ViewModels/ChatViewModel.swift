@@ -1305,7 +1305,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 sessionKey: sourceChatId,
                 clearInputOnSuccess: false,
                 onSuccess: { [weak self] in
-                    self?.closeCrossChatNotificationReply(sourceChatId: sourceChatId)
+                    self?.dismissCrossChatNotification(sourceChatId: sourceChatId)
                 }
             )
         case .waiting:
@@ -1327,7 +1327,11 @@ final class ChatViewModel: ChatViewModelHosting {
 
     @discardableResult
     func sendCrossChatMention(to destinationSessionKey: String) -> Bool {
-        let didDispatch = sendResolved(destinationSessionKey: destinationSessionKey)
+        let routedContent = inputContent.contentAfterCrossChatMentionAttachment() ?? inputContent
+        let didDispatch = sendResolved(
+            destinationSessionKey: destinationSessionKey,
+            sourceContent: routedContent
+        )
         if didDispatch {
             clearInput()
         }
@@ -1335,15 +1339,19 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     @discardableResult
-    private func sendResolved(destinationSessionKey: String?) -> Bool {
+    private func sendResolved(
+        destinationSessionKey: String?,
+        sourceContent: NSAttributedString? = nil
+    ) -> Bool {
         guard !isSending else { return false }
-        let referencedIds = Set(inputContent.pendingAttachmentIds())
+        let sendContent = sourceContent ?? inputContent
+        let referencedIds = Set(sendContent.pendingAttachmentIds())
 #if DEBUG
         let transportSnapshot = sendTransportSnapshot()
         imageSendLastTransportSnapshot = transportSnapshot
         recordImageSendDebugEvent(
             .sendTapped,
-            detail: "textLen=\(inputContent.length) attachmentCount=\(referencedIds.count) \(transportSnapshot)"
+            detail: "textLen=\(sendContent.length) attachmentCount=\(referencedIds.count) \(transportSnapshot)"
         )
 #endif
         let stagedOnly = attachmentData.keys.filter { !referencedIds.contains($0) }
@@ -1358,7 +1366,7 @@ final class ChatViewModel: ChatViewModelHosting {
             return false
         }
         pruneAttachmentData()
-        let (text, pendingIds) = inputContent.contentForSending()
+        let (text, pendingIds) = sendContent.contentForSending()
         let pendingAttachments = pendingIds.compactMap { attachmentData[$0] }
 
         guard !text.isEmpty || !pendingAttachments.isEmpty else {
@@ -1459,6 +1467,7 @@ final class ChatViewModel: ChatViewModelHosting {
         )
         appendMessage(placeholder)
         pendingLocalMessages.append(PendingLocalMessage(id: clientId, sessionKey: sessionKey))
+        scheduleSessionStatusRefresh(for: sessionKey, reason: "sendDispatched")
 
         sendTask = Task { [weak self] in
             await self?.performSend(
@@ -1930,7 +1939,18 @@ final class ChatViewModel: ChatViewModelHosting {
     func closeOverflowingCrossChatNotificationReplies(visibleCapacity: Int = 10) {
         let capacity = max(0, visibleCapacity)
         let overflowSourceChatIds = crossChatNotificationBubbles.dropFirst(capacity).map(\.sourceChatId)
-        for sourceChatId in overflowSourceChatIds {
+        closeCrossChatNotificationReplies(sourceChatIds: overflowSourceChatIds)
+    }
+
+    func closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: Set<String>) {
+        let overflowSourceChatIds = crossChatNotificationBubblesBySourceChatId.keys.filter {
+            !visibleSourceChatIds.contains($0)
+        }
+        closeCrossChatNotificationReplies(sourceChatIds: overflowSourceChatIds)
+    }
+
+    private func closeCrossChatNotificationReplies(sourceChatIds: some Sequence<String>) {
+        for sourceChatId in sourceChatIds {
             guard var bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { continue }
             guard bubble.isReplying || !bubble.replyDraft.isEmpty else { continue }
             bubble.isReplying = false
@@ -2746,6 +2766,10 @@ final class ChatViewModel: ChatViewModelHosting {
         inputResetToken &+= 1
     }
 
+    func refreshInputEditorContent() {
+        inputResetToken &+= 1
+    }
+
     func presentation(for message: Message, metrics: ChatFlowTheme.Metrics) -> MessagePresentation {
         let key = PresentationCacheKey(messageID: message.id, isCompact: metrics.isCompact)
         let fingerprint = presentationFingerprint(for: message)
@@ -2819,6 +2843,9 @@ final class ChatViewModel: ChatViewModelHosting {
             }
             isSending = false
         case .messageAcked(let messageId):
+            if let sessionKey = localMessageSessionKey(for: messageId) {
+                scheduleSessionStatusRefresh(for: sessionKey, reason: "messageAcked")
+            }
             ackedPendingLocalMessageIDs.insert(messageId)
             messageFailures.removeValue(forKey: messageId)
             if activeClientMessageId == messageId {
@@ -2935,7 +2962,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 clearInputOnSuccess: replySourceChatId == nil,
                 onSuccess: { [weak self] in
                     if let replySourceChatId {
-                        self?.closeCrossChatNotificationReply(sourceChatId: replySourceChatId)
+                        self?.dismissCrossChatNotification(sourceChatId: replySourceChatId)
                     }
                 }
             )
@@ -3947,6 +3974,16 @@ final class ChatViewModel: ChatViewModelHosting {
         for sessionKey in sessionKeys {
             scheduleSessionStatusRefresh(for: sessionKey, reason: reason)
         }
+    }
+
+    private func localMessageSessionKey(for messageId: String) -> String? {
+        if let pending = pendingLocalMessages.first(where: { $0.id == messageId }) {
+            return pending.sessionKey
+        }
+        if let (_, sessionKey, _) = findMessage(id: messageId) {
+            return sessionKey
+        }
+        return nil
     }
 
     private func trimPresentationCache() {

@@ -177,8 +177,8 @@ struct RichTextEditor: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             guard !isUpdatingFromSwiftUI else { return }
             isApplyingLocalEdit = true
-            parent.onTextEditActivity?()
             parent.attributedText = textView.attributedText
+            parent.onTextEditActivity?()
             setSelectionRange(textView.selectedRange)
             updateHeight(for: textView, allowAutoScroll: true)
             ensureCaretVisible(in: textView)
