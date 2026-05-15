@@ -48,10 +48,12 @@ export function CrossChatNotificationOverlay() {
   const [renderedBubbles, setRenderedBubbles] = useState<RenderedNotificationBubble[]>(
     []
   );
+  const [activeSourceChatId, setActiveSourceChatId] = useState<string | null>(null);
   const dragStartXRef = useRef<number | null>(null);
   const dragStartYRef = useRef<number | null>(null);
   const suppressNavigationClickRef = useRef(false);
   const clearAllHoldTimerRef = useRef<number | null>(null);
+  const entriesRefsBySourceChatId = useRef<Record<string, HTMLDivElement | null>>({});
   const orderedBubbles = useMemo(
     () =>
       Object.values(notificationState.bubblesBySourceChatId).sort(
@@ -124,12 +126,34 @@ export function CrossChatNotificationOverlay() {
 
   useEffect(() => {
     function handleKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || !event.metaKey) {
+      if (event.defaultPrevented || event.ctrlKey || !event.metaKey) {
         return;
       }
 
       const key = shortcutKeyFromEvent(event);
-      if (key === "-" && !event.shiftKey) {
+      if (key === "\\" && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        toggleNotificationDock();
+        return;
+      }
+
+      if ((key === "j" || key === "k") && !event.shiftKey && !event.altKey) {
+        if (isEditableShortcutTarget(event.target)) {
+          return;
+        }
+        const targetSourceChatId =
+          activeSourceChatId && visibleSourceChatIds.includes(activeSourceChatId)
+            ? activeSourceChatId
+            : visibleSourceChatIds[0];
+        if (!targetSourceChatId) {
+          return;
+        }
+        event.preventDefault();
+        scrollNotificationEntries(targetSourceChatId, key === "j" ? "down" : "up");
+        return;
+      }
+
+      if (key === "-" && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         notificationStore.clearCrossChatNotifications();
         return;
@@ -145,17 +169,22 @@ export function CrossChatNotificationOverlay() {
         return;
       }
 
-      event.preventDefault();
-      if (event.shiftKey) {
-        notificationStore.openCrossChatNotificationReply(sourceChatId);
-      } else {
+      if (event.shiftKey && event.altKey) {
+        event.preventDefault();
         notificationStore.dismissCrossChatNotification(sourceChatId);
+      } else if (event.shiftKey) {
+        event.preventDefault();
+        notificationStore.openCrossChatNotificationReply(sourceChatId);
+      } else if (!event.altKey) {
+        event.preventDefault();
+        notificationStore.dismissCrossChatNotification(sourceChatId);
+        navigate(`/chat/${sourceChatId}`);
       }
     }
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [notificationStore, visibleSourceChatIds]);
+  }, [activeSourceChatId, navigate, notificationStore, visibleSourceChatIds]);
 
   if (visibleBubbles.length === 0 && renderedBubbles.length === 0) {
     return null;
@@ -241,6 +270,34 @@ export function CrossChatNotificationOverlay() {
     }
   }
 
+  function dockNotifications() {
+    setIsCollapsed(true);
+  }
+
+  function restoreNotifications() {
+    setIsCollapsed(false);
+  }
+
+  function toggleNotificationDock() {
+    setIsCollapsed((current) => !current);
+  }
+
+  function scrollNotificationEntries(sourceChatId: string, direction: "down" | "up") {
+    const element = entriesRefsBySourceChatId.current[sourceChatId];
+    if (!element || element.scrollHeight <= element.clientHeight) {
+      return;
+    }
+    const lineIncrement = 56;
+    const targetScrollTop =
+      direction === "down"
+        ? element.scrollTop + lineIncrement
+        : element.scrollTop - lineIncrement;
+    element.scrollTo({
+      behavior: "smooth",
+      top: Math.max(0, Math.min(targetScrollTop, element.scrollHeight - element.clientHeight))
+    });
+  }
+
   function handlePointerDown(event: PointerEvent<HTMLElement>) {
     dragStartXRef.current = event.clientX;
     dragStartYRef.current = event.clientY;
@@ -269,9 +326,9 @@ export function CrossChatNotificationOverlay() {
       suppressNavigationClickRef.current = false;
     }, 0);
     if (horizontal > 0) {
-      setIsCollapsed(true);
+      dockNotifications();
     } else if (isCollapsed) {
-      setIsCollapsed(false);
+      restoreNotifications();
     }
   }
 
@@ -290,7 +347,7 @@ export function CrossChatNotificationOverlay() {
         <button
           aria-label="Show notifications"
           className="cross-chat-notification-peek"
-          onClick={() => setIsCollapsed(false)}
+          onClick={restoreNotifications}
           type="button"
         />
       ) : null}
@@ -304,6 +361,22 @@ export function CrossChatNotificationOverlay() {
           }
           data-testid="cross-chat-notification-bubble"
           key={bubble.sourceChatId}
+          onBlur={(event) => {
+            const nextFocused = event.relatedTarget;
+            if (!(nextFocused instanceof Node) || !event.currentTarget.contains(nextFocused)) {
+              setActiveSourceChatId((current) =>
+                current === bubble.sourceChatId ? null : current
+              );
+            }
+          }}
+          onFocus={() => setActiveSourceChatId(bubble.sourceChatId)}
+          onPointerEnter={() => setActiveSourceChatId(bubble.sourceChatId)}
+          onPointerLeave={() =>
+            setActiveSourceChatId((current) =>
+              current === bubble.sourceChatId ? null : current
+            )
+          }
+          tabIndex={0}
         >
           <header
             className="cross-chat-notification-header"
@@ -353,6 +426,9 @@ export function CrossChatNotificationOverlay() {
           <div
             className="cross-chat-notification-entries"
             onClick={() => navigateToSourceChat(bubble.sourceChatId)}
+            ref={(element) => {
+              entriesRefsBySourceChatId.current[bubble.sourceChatId] = element;
+            }}
           >
             {bubble.entriesNewestFirst.map((entry) => (
               <p key={entry.assistantMessageId}>
@@ -453,4 +529,18 @@ function shortcutKeyFromEvent(event: globalThis.KeyboardEvent) {
   }
 
   return event.key.toLowerCase();
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.isContentEditable) {
+    return true;
+  }
+
+  return Boolean(
+    target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']")
+  );
 }

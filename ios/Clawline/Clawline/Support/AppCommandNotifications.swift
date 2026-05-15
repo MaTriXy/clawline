@@ -15,6 +15,9 @@ extension Notification.Name {
     static let clawlineScrollUpCommand = Notification.Name("clawline.scrollUpCommand")
     static let clawlineScrollChatDownCommand = Notification.Name("clawline.scrollChatDownCommand")
     static let clawlineScrollChatUpCommand = Notification.Name("clawline.scrollChatUpCommand")
+    static let clawlineScrollNotificationDownCommand = Notification.Name("clawline.scrollNotificationDownCommand")
+    static let clawlineScrollNotificationUpCommand = Notification.Name("clawline.scrollNotificationUpCommand")
+    static let clawlineToggleNotificationDockCommand = Notification.Name("clawline.toggleNotificationDockCommand")
 }
 
 struct CancelCurrentPromptCommand {

@@ -579,7 +579,7 @@ describe("ChatRoute", () => {
     expect(screen.getByText("Side notification")).toBeInTheDocument();
     expect(screen.getByText("0")).toBeInTheDocument();
 
-    fireEvent.keyDown(document.body, { key: "0", metaKey: true });
+    fireEvent.keyDown(document.body, { key: "0", metaKey: true, shiftKey: true, altKey: true });
 
     await waitFor(() => {
       expect(screen.queryByLabelText("Side Thread notification")).toBeNull();
@@ -791,6 +791,11 @@ describe("ChatRoute", () => {
     fireEvent.pointerUp(overlay, { clientX: 200, clientY: 42 });
 
     expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
+
+    fireEvent.keyDown(document.body, { key: "\\", code: "Backslash", metaKey: true });
+    expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    fireEvent.keyDown(document.body, { key: "\\", code: "Backslash", metaKey: true });
+    expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
   });
 
   it("offers clear-all confirmation after holding a web notification dismiss control", async () => {
@@ -827,51 +832,42 @@ describe("ChatRoute", () => {
     expect(view.notificationStore.getState().bubblesBySourceChatId).toEqual({});
   });
 
-  it("uses physical digit keys for reply shortcuts and ignores unspecced Ctrl variants", async () => {
-    const { chatStore, notificationStore } = renderChatRoute(
-      "/chat/agent:main:clawline:user_1:main",
-      {
-        initialMessages: [],
-        sessionKeys: [
-          "agent:main:clawline:user_1:main",
-          "agent:main:main",
-          "agent:main:clawline:user_1:side"
-        ]
-      }
-    );
-    const assistantMessageInput: Parameters<typeof chatStore.applyIncomingMessage>[0] = {
-      localDeviceId: "browser-device-1",
-      message: {
-        type: "message",
-        id: "s_side_notify",
-        role: "assistant",
-        content: "Side notification",
-        timestamp: 21,
-        streaming: false,
-        sessionKey: "agent:main:clawline:user_1:side",
-        attachments: []
-      },
-      selectedSessionKey: "agent:main:clawline:user_1:main",
-      source: "live"
-    };
-    chatStore.applyIncomingMessage(assistantMessageInput);
-    notificationStore.applyIncomingMessage({
-      message: assistantMessageInput.message,
-      selectedSessionKey: assistantMessageInput.selectedSessionKey,
-      source: assistantMessageInput.source,
-      streams: TEST_STREAMS.map((stream) => ({ ...stream }))
+  it("uses notification digit shortcuts for navigation, reply, and dismiss", async () => {
+    const navigateView = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
     });
+    applyAssistantNotification(navigateView);
 
     expect(await screen.findByLabelText("Side Thread notification"))
       .toBeInTheDocument();
 
     fireEvent.keyDown(document.body, {
       code: "Digit0",
-      ctrlKey: true,
       key: "0",
       metaKey: true
     });
-    expect(screen.getByLabelText("Side Thread notification")).toBeInTheDocument();
+
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat/agent:main:clawline:user_1:side"
+    );
+    navigateView.unmount();
+
+    const actionView = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(actionView);
+    expect(await screen.findByLabelText("Side Thread notification"))
+      .toBeInTheDocument();
 
     fireEvent.keyDown(document.body, {
       code: "Digit0",
@@ -883,6 +879,134 @@ describe("ChatRoute", () => {
     expect(
       await screen.findByRole("textbox", { name: "Reply to Side Thread" })
     ).toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, {
+      code: "Digit0",
+      key: ")",
+      metaKey: true,
+      shiftKey: true,
+      altKey: true
+    });
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Side Thread notification")).toBeNull();
+    });
+  });
+
+  it("ignores unspecced Ctrl notification digit variants", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view);
+
+    expect(await screen.findByLabelText("Side Thread notification"))
+      .toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, {
+      code: "Digit0",
+      ctrlKey: true,
+      key: "0",
+      metaKey: true
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat/agent:main:clawline:user_1:main"
+    );
+    expect(screen.getByLabelText("Side Thread notification")).toBeInTheDocument();
+  });
+
+  it("scrolls the active or top visible notification with Cmd-J and Cmd-K", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view, {
+      content: "Older notification ".repeat(20),
+      id: "s_side_notify",
+      sessionKey: "agent:main:clawline:user_1:side",
+      timestamp: 21
+    });
+    applyAssistantNotification(view, {
+      content: "Top notification ".repeat(20),
+      id: "s_heimdal_notify",
+      sessionKey: "agent:main:main",
+      timestamp: 22
+    });
+
+    const topBubble = await screen.findByLabelText("Heimdal notification");
+    const sideBubble = screen.getByLabelText("Side Thread notification");
+    const topEntries = topBubble.querySelector(".cross-chat-notification-entries");
+    const sideEntries = sideBubble.querySelector(".cross-chat-notification-entries");
+    expect(topEntries).toBeInstanceOf(HTMLElement);
+    expect(sideEntries).toBeInstanceOf(HTMLElement);
+    const topElement = topEntries as HTMLElement;
+    const sideElement = sideEntries as HTMLElement;
+    Object.defineProperty(topElement, "clientHeight", { configurable: true, value: 80 });
+    Object.defineProperty(topElement, "scrollHeight", { configurable: true, value: 240 });
+    Object.defineProperty(sideElement, "clientHeight", { configurable: true, value: 80 });
+    Object.defineProperty(sideElement, "scrollHeight", { configurable: true, value: 240 });
+    topElement.scrollTo = vi.fn((options?: ScrollToOptions | number) => {
+      topElement.scrollTop =
+        typeof options === "number" ? options : Number(options?.top ?? 0);
+    });
+    sideElement.scrollTo = vi.fn((options?: ScrollToOptions | number) => {
+      sideElement.scrollTop =
+        typeof options === "number" ? options : Number(options?.top ?? 0);
+    });
+
+    fireEvent.keyDown(document.body, { key: "j", metaKey: true });
+    expect(topElement.scrollTop).toBe(56);
+    expect(sideElement.scrollTop).toBe(0);
+
+    fireEvent.pointerEnter(sideBubble);
+    fireEvent.keyDown(document.body, { key: "j", metaKey: true });
+    expect(sideElement.scrollTop).toBe(56);
+
+    fireEvent.keyDown(document.body, { key: "k", metaKey: true });
+    expect(sideElement.scrollTop).toBe(0);
+  });
+
+  it("does not scroll notifications with Cmd-J while reply text is focused", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view, {
+      content: "Side notification ".repeat(20)
+    });
+    expect(await screen.findByLabelText("Side Thread notification"))
+      .toBeInTheDocument();
+    fireEvent.keyDown(document.body, {
+      code: "Digit0",
+      key: ")",
+      metaKey: true,
+      shiftKey: true
+    });
+    const replyField = await screen.findByRole("textbox", {
+      name: "Reply to Side Thread"
+    });
+    const bubble = screen.getByLabelText("Side Thread notification");
+    const entries = bubble.querySelector(".cross-chat-notification-entries");
+    expect(entries).toBeInstanceOf(HTMLElement);
+    const element = entries as HTMLElement;
+    Object.defineProperty(element, "clientHeight", { configurable: true, value: 80 });
+    Object.defineProperty(element, "scrollHeight", { configurable: true, value: 240 });
+    element.scrollTo = vi.fn();
+
+    fireEvent.keyDown(replyField, { key: "j", metaKey: true });
+
+    expect(element.scrollTo).not.toHaveBeenCalled();
   });
 
   it("clears built-in stream unread dots after each stream is visited", async () => {

@@ -796,6 +796,7 @@ struct ChatView: View {
         )
         .handleKeyboardScrollCommands(
             isEnabled: keyboardScrollShortcutEnabled,
+            hasVisibleNotifications: !viewModel.crossChatNotificationBubbles.isEmpty,
             onScrollDown: { scrollVisibleBubbleContents(.down) },
             onScrollUp: { scrollVisibleBubbleContents(.up) },
             onScrollChatDown: { scrollChatSurface(.down) },
@@ -1521,8 +1522,12 @@ struct ChatView: View {
                 bubbles: viewModel.crossChatNotificationBubbles,
                 maxContainerHeight: maxContainerHeight,
                 onDismiss: { viewModel.dismissCrossChatNotification(sourceChatId: $0) },
+                onNavigate: { sourceChatId in selectStream(sourceChatId, source: .programmatic) },
                 onReply: { viewModel.toggleCrossChatNotificationReply(sourceChatId: $0) },
-                onDismissAll: { viewModel.dismissAllCrossChatNotifications() }
+                onDismissAll: { viewModel.dismissAllCrossChatNotifications() },
+                onToggleDock: {
+                    NotificationCenter.default.post(name: .clawlineToggleNotificationDockCommand, object: nil)
+                }
             )
         )
     }
@@ -2731,6 +2736,7 @@ private extension View {
 
     func handleKeyboardScrollCommands(
         isEnabled: Bool,
+        hasVisibleNotifications: Bool,
         onScrollDown: @escaping () -> Void,
         onScrollUp: @escaping () -> Void,
         onScrollChatDown: @escaping () -> Void,
@@ -2739,6 +2745,7 @@ private extension View {
         modifier(
             KeyboardScrollCommandModifier(
                 isEnabled: isEnabled,
+                hasVisibleNotifications: hasVisibleNotifications,
                 onScrollDown: onScrollDown,
                 onScrollUp: onScrollUp,
                 onScrollChatDown: onScrollChatDown,
@@ -2790,6 +2797,7 @@ private struct StreamNavigationCommandModifier: ViewModifier {
 
 private struct KeyboardScrollCommandModifier: ViewModifier {
     let isEnabled: Bool
+    let hasVisibleNotifications: Bool
     let onScrollDown: () -> Void
     let onScrollUp: () -> Void
     let onScrollChatDown: () -> Void
@@ -2798,19 +2806,27 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollDownCommand)) { _ in
-                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll else { return }
+                if hasVisibleNotifications {
+                    NotificationCenter.default.post(name: .clawlineScrollNotificationDownCommand, object: nil)
+                    return
+                }
                 onScrollDown()
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollUpCommand)) { _ in
-                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll else { return }
+                if hasVisibleNotifications {
+                    NotificationCenter.default.post(name: .clawlineScrollNotificationUpCommand, object: nil)
+                    return
+                }
                 onScrollUp()
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatDownCommand)) { _ in
-                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll else { return }
                 onScrollChatDown()
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatUpCommand)) { _ in
-                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderOwnsEmbeddedScroll else { return }
+                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll else { return }
                 onScrollChatUp()
             }
     }
@@ -3510,6 +3526,16 @@ private extension UIWindow {
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
             .contains { $0.clawlineFirstResponder?.ownsClawlineEmbeddedScrollInput == true }
+    }
+
+    static var clawlineCurrentFirstResponderBlocksKeyboardScroll: Bool {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .contains { window in
+                guard let responder = window.clawlineFirstResponder else { return false }
+                return responder.isClawlineTextInputResponder || responder.ownsClawlineEmbeddedScrollInput
+            }
     }
 }
 
@@ -4672,6 +4698,8 @@ private struct CrossChatNotificationOverlay: View {
     let onNavigateToSource: (String) -> Void
     @State private var showShortcutLabels = CrossChatShortcutLabelAvailability.current
     @State private var isCollapsed = false
+    @State private var activeScrollSourceChatId: String?
+    @State private var scrollViewsBySourceChatId: [String: WeakScrollViewBox] = [:]
 
     private static let maxVisibleBubbleCount = 10
     static let minVisibleBubbleHeight: CGFloat = 104
@@ -4786,6 +4814,12 @@ private struct CrossChatNotificationOverlay: View {
                         },
                         onSendReply: {
                             viewModel.sendCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                        },
+                        onActivate: {
+                            activeScrollSourceChatId = bubble.sourceChatId
+                        },
+                        onRegisterScrollView: { scrollView in
+                            registerScrollView(sourceChatId: bubble.sourceChatId, scrollView: scrollView)
                         }
                     )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -4801,9 +4835,7 @@ private struct CrossChatNotificationOverlay: View {
             .overlay(alignment: .leading) {
                 if isCollapsed {
                     Button {
-                        withAnimation(Self.stackAnimation) {
-                            isCollapsed = false
-                        }
+                        restoreDock()
                     } label: {
                         Color.clear
                             .frame(width: Self.collapsedPeekWidth)
@@ -4832,6 +4864,15 @@ private struct CrossChatNotificationOverlay: View {
                 showShortcutLabels = CrossChatShortcutLabelAvailability.current
             }
 #endif
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollNotificationDownCommand)) { _ in
+                scrollActiveNotification(.down)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollNotificationUpCommand)) { _ in
+                scrollActiveNotification(.up)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineToggleNotificationDockCommand)) { _ in
+                toggleDock()
+            }
             .onChange(of: visibleCapacity) { _, newCapacity in
                 viewModel.closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: Set(visibleBubbles.map(\.sourceChatId)))
             }
@@ -4843,15 +4884,114 @@ private struct CrossChatNotificationOverlay: View {
         }
     }
 
+    private func registerScrollView(sourceChatId: String, scrollView: UIScrollView?) {
+        if let scrollView {
+            scrollViewsBySourceChatId[sourceChatId] = WeakScrollViewBox(scrollView)
+        } else {
+            scrollViewsBySourceChatId.removeValue(forKey: sourceChatId)
+        }
+    }
+
+    private func scrollActiveNotification(_ direction: ChatScrollPageDirection) {
+        guard !isCollapsed else { return }
+        let visibleSourceChatIds = visibleBubbles.map(\.sourceChatId)
+        guard let sourceChatId = activeScrollSourceChatId.flatMap({ visibleSourceChatIds.contains($0) ? $0 : nil })
+                ?? visibleSourceChatIds.first,
+              let scrollView = scrollViewsBySourceChatId[sourceChatId]?.scrollView else {
+            return
+        }
+
+        let minY = -scrollView.adjustedContentInset.top
+        let maxY = max(
+            minY,
+            scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+        )
+        guard maxY - minY > 0.5 else { return }
+
+        let lineIncrement: CGFloat = 56
+        let targetY = scrollView.contentOffset.y + (direction == .down ? lineIncrement : -lineIncrement)
+        let clampedY = max(minY, min(targetY, maxY))
+        guard abs(scrollView.contentOffset.y - clampedY) > 0.5 else { return }
+        scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: clampedY), animated: true)
+    }
+
     private func handleDrag(_ value: DragGesture.Value) {
         let horizontal = value.translation.width
         guard abs(horizontal) > abs(value.translation.height),
               abs(horizontal) >= Self.collapseSwipeThreshold else { return }
+        if horizontal > 0 {
+            dock()
+        } else if isCollapsed {
+            restoreDock()
+        }
+    }
+
+    private func dock() {
         withAnimation(Self.stackAnimation) {
-            if horizontal > 0 {
-                isCollapsed = true
-            } else if isCollapsed {
-                isCollapsed = false
+            isCollapsed = true
+        }
+    }
+
+    private func restoreDock() {
+        withAnimation(Self.stackAnimation) {
+            isCollapsed = false
+        }
+    }
+
+    private func toggleDock() {
+        withAnimation(Self.stackAnimation) {
+            isCollapsed.toggle()
+        }
+    }
+}
+
+private final class WeakScrollViewBox {
+    weak var scrollView: UIScrollView?
+
+    init(_ scrollView: UIScrollView) {
+        self.scrollView = scrollView
+    }
+}
+
+private struct NotificationScrollViewResolver: UIViewRepresentable {
+    let onResolve: (UIScrollView?) -> Void
+
+    func makeUIView(context: Context) -> ResolverView {
+        let view = ResolverView()
+        view.onResolve = onResolve
+        return view
+    }
+
+    func updateUIView(_ uiView: ResolverView, context: Context) {
+        uiView.onResolve = onResolve
+        uiView.resolve()
+    }
+
+    final class ResolverView: UIView {
+        var onResolve: ((UIScrollView?) -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            resolve()
+        }
+
+        override func didMoveToSuperview() {
+            super.didMoveToSuperview()
+            resolve()
+        }
+
+        func resolve() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                var view: UIView? = self.superview
+                while let current = view {
+                    if let scrollView = current as? UIScrollView {
+                        self.onResolve?(scrollView)
+                        return
+                    }
+                    view = current.superview
+                }
+                self.onResolve?(nil)
             }
         }
     }
@@ -4869,6 +5009,8 @@ private struct CrossChatNotificationBubbleView: View {
     let onDismissAll: () -> Void
     let onNavigate: () -> Void
     let onSendReply: () -> Void
+    let onActivate: () -> Void
+    let onRegisterScrollView: (UIScrollView?) -> Void
     @FocusState private var isReplyFocused: Bool
     @State private var isClearAllConfirmationPresented = false
 
@@ -4947,6 +5089,9 @@ private struct CrossChatNotificationBubbleView: View {
                 }
                 .scrollIndicators(.visible)
                 .frame(maxHeight: contentMaxHeight)
+                .background(
+                    NotificationScrollViewResolver(onResolve: onRegisterScrollView)
+                )
             }
 
             if bubble.isReplying {
@@ -4988,6 +5133,12 @@ private struct CrossChatNotificationBubbleView: View {
         .padding(.top, bubble.isReplying ? replyVerticalPadding : normalTopPadding)
         .padding(.bottom, bubble.isReplying ? replyVerticalPadding : normalBottomPadding)
         .frame(maxWidth: 340, maxHeight: bubble.isReplying ? nil : maxBubbleHeight, alignment: .topLeading)
+        .onHover { isHovering in
+            if isHovering {
+                onActivate()
+            }
+        }
+        .onTapGesture(perform: onActivate)
 #if os(visionOS)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 #else
@@ -5008,8 +5159,10 @@ private struct CrossChatNotificationKeyboardShortcuts: View {
     let bubbles: [CrossChatNotificationBubble]
     let maxContainerHeight: CGFloat
     let onDismiss: (String) -> Void
+    let onNavigate: (String) -> Void
     let onReply: (String) -> Void
     let onDismissAll: () -> Void
+    let onToggleDock: () -> Void
 
     private var visibleBubbles: [CrossChatNotificationBubble] {
         CrossChatNotificationOverlay.visibleBubbles(
@@ -5022,13 +5175,17 @@ private struct CrossChatNotificationKeyboardShortcuts: View {
         if !visibleBubbles.isEmpty {
             ZStack {
                 ForEach(Array(visibleBubbles.enumerated()), id: \.element.sourceChatId) { index, bubble in
-                    Button("") { onDismiss(bubble.sourceChatId) }
+                    Button("") { onNavigate(bubble.sourceChatId) }
                         .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: .command)
                     Button("") { onReply(bubble.sourceChatId) }
                         .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: [.command, .shift])
+                    Button("") { onDismiss(bubble.sourceChatId) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: [.command, .shift, .option])
                 }
                 Button("") { onDismissAll() }
                     .keyboardShortcut("-", modifiers: .command)
+                Button("") { onToggleDock() }
+                    .keyboardShortcut("\\", modifiers: .command)
             }
             .opacity(0.001)
             .frame(width: 1, height: 1)
