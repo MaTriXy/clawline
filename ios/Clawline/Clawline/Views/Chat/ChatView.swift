@@ -11,9 +11,24 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 import WebKit
+#if canImport(GameController)
+import GameController
+#endif
 import os.log
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "ChatView")
+
+private enum CrossChatShortcutLabelAvailability {
+    static var current: Bool {
+#if targetEnvironment(macCatalyst)
+        true
+#elseif os(iOS) && canImport(GameController)
+        GCKeyboard.coalesced != nil
+#else
+        false
+#endif
+    }
+}
 
 #if DEBUG
 @MainActor
@@ -4654,6 +4669,7 @@ private struct CrossChatNotificationOverlay: View {
     let topInset: CGFloat
     let maxContainerHeight: CGFloat
     let onNavigateToSource: (String) -> Void
+    @State private var showShortcutLabels = CrossChatShortcutLabelAvailability.current
 
     private static let maxVisibleBubbleCount = 10
     static let minVisibleBubbleHeight: CGFloat = 104
@@ -4723,6 +4739,7 @@ private struct CrossChatNotificationOverlay: View {
                     CrossChatNotificationBubbleView(
                         bubble: bubble,
                         assignedNumber: index,
+                        showShortcutLabel: showShortcutLabels,
                         maxBubbleHeight: maxBubbleHeight,
                         replyDraft: Binding(
                             get: {
@@ -4763,8 +4780,17 @@ private struct CrossChatNotificationOverlay: View {
             .padding(.trailing, 12)
             .transition(.move(edge: .top).combined(with: .opacity))
             .onAppear {
+                showShortcutLabels = CrossChatShortcutLabelAvailability.current
                 viewModel.closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: Set(visibleBubbles.map(\.sourceChatId)))
             }
+#if os(iOS) && !targetEnvironment(macCatalyst) && canImport(GameController)
+            .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidConnect)) { _ in
+                showShortcutLabels = CrossChatShortcutLabelAvailability.current
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .GCKeyboardDidDisconnect)) { _ in
+                showShortcutLabels = CrossChatShortcutLabelAvailability.current
+            }
+#endif
             .onChange(of: visibleCapacity) { _, newCapacity in
                 viewModel.closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: Set(visibleBubbles.map(\.sourceChatId)))
             }
@@ -4780,6 +4806,7 @@ private struct CrossChatNotificationOverlay: View {
 private struct CrossChatNotificationBubbleView: View {
     let bubble: CrossChatNotificationBubble
     let assignedNumber: Int
+    let showShortcutLabel: Bool
     let maxBubbleHeight: CGFloat
     @Binding var replyDraft: String
     let onDismiss: () -> Void
@@ -4794,12 +4821,14 @@ private struct CrossChatNotificationBubbleView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: bubble.isReplying ? 4 : 8) {
             HStack(spacing: 8) {
-                Text("\(assignedNumber)")
-                    .font(.clawline(.secondaryLabel).weight(.bold))
-                    .monospacedDigit()
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(Color.primary.opacity(0.12)))
-                    .accessibilityLabel("Shortcut \(assignedNumber)")
+                if showShortcutLabel {
+                    Text("\(assignedNumber)")
+                        .font(.clawline(.secondaryLabel).weight(.bold))
+                        .monospacedDigit()
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Color.primary.opacity(0.12)))
+                        .accessibilityLabel("Shortcut \(assignedNumber)")
+                }
 
                 Text(bubble.sourceTitle)
                     .font(.clawline(.uiLabel).weight(.semibold))
