@@ -10,6 +10,10 @@ import {
   ChatDomainStoreProvider,
   createChatDomainStore
 } from "../../runtime/chat/chatDomainStore";
+import {
+  CrossChatNotificationStoreProvider,
+  createCrossChatNotificationStore
+} from "../../runtime/chat/crossChatNotificationStore";
 import { createMemoryChatPersistence } from "../../runtime/persistence/indexedDbChatPersistence";
 import {
   SettingsStoreProvider,
@@ -102,6 +106,7 @@ function renderChatRoute(
     >;
     configureTransportMachine?: (input: {
       chatStore: ReturnType<typeof createChatDomainStore>;
+      notificationStore: ReturnType<typeof createCrossChatNotificationStore>;
       transportMachine: TransportMachine;
     }) => void;
   } = {}
@@ -110,6 +115,7 @@ function renderChatRoute(
   const chatStore = createChatDomainStore({
     persistence: createMemoryChatPersistence()
   });
+  const notificationStore = createCrossChatNotificationStore();
   const settingsStore = createSettingsStore();
   const webSocketFactory = new FakeWebSocketFactory();
 
@@ -147,6 +153,7 @@ function renderChatRoute(
   const transportMachine = createTransportMachine({
     authSessionStore: authStore,
     chatDomainStore: chatStore,
+    crossChatNotificationStore: notificationStore,
     webSocketFactory: webSocketFactory.create
   });
   webSocketFactory.sockets[0]?.emitOpen();
@@ -161,6 +168,7 @@ function renderChatRoute(
   );
   configureTransportMachine?.({
     chatStore,
+    notificationStore,
     transportMachine
   });
 
@@ -168,21 +176,23 @@ function renderChatRoute(
     <SettingsStoreProvider value={settingsStore}>
       <AuthSessionStoreProvider value={authStore}>
         <ChatDomainStoreProvider value={chatStore}>
-          <TransportMachineProvider value={transportMachine}>
-            <MemoryRouter initialEntries={[initialPath]}>
-              <Routes>
-                <Route
-                  element={
-                    <>
-                      <ChatRoute />
-                      <LocationProbe />
-                    </>
-                  }
-                  path="/chat/:sessionKey?"
-                />
-              </Routes>
-            </MemoryRouter>
-          </TransportMachineProvider>
+          <CrossChatNotificationStoreProvider value={notificationStore}>
+            <TransportMachineProvider value={transportMachine}>
+              <MemoryRouter initialEntries={[initialPath]}>
+                <Routes>
+                  <Route
+                    element={
+                      <>
+                        <ChatRoute />
+                        <LocationProbe />
+                      </>
+                    }
+                    path="/chat/:sessionKey?"
+                  />
+                </Routes>
+              </MemoryRouter>
+            </TransportMachineProvider>
+          </CrossChatNotificationStoreProvider>
         </ChatDomainStoreProvider>
       </AuthSessionStoreProvider>
     </SettingsStoreProvider>
@@ -191,6 +201,7 @@ function renderChatRoute(
   return {
     ...view,
     chatStore,
+    notificationStore,
     transportMachine,
     webSocketFactory
   };
@@ -380,6 +391,154 @@ describe("ChatRoute", () => {
     await waitFor(() => {
       expect(screen.queryByLabelText("1 unread messages")).not.toBeInTheDocument();
     });
+  });
+
+  it("shows assistant-only cross-chat notifications and dismisses them with shortcuts", async () => {
+    const { chatStore, notificationStore } = renderChatRoute(
+      "/chat/agent:main:clawline:user_1:main",
+      {
+        initialMessages: [],
+        sessionKeys: [
+          "agent:main:clawline:user_1:main",
+          "agent:main:main",
+          "agent:main:clawline:user_1:side"
+        ]
+      }
+    );
+
+    const userMessageInput: Parameters<typeof chatStore.applyIncomingMessage>[0] = {
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_user_ignored",
+        role: "user",
+        content: "Do not notify",
+        timestamp: 20,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    };
+    chatStore.applyIncomingMessage(userMessageInput);
+    notificationStore.applyIncomingMessage({
+      message: userMessageInput.message,
+      selectedSessionKey: userMessageInput.selectedSessionKey,
+      source: userMessageInput.source,
+      streams: TEST_STREAMS.map((stream) => ({ ...stream }))
+    });
+
+    expect(screen.queryByLabelText("Side Thread notification")).toBeNull();
+
+    const assistantMessageInput: Parameters<typeof chatStore.applyIncomingMessage>[0] = {
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_side_notify",
+        role: "assistant",
+        content: "Side notification",
+        timestamp: 21,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    };
+    chatStore.applyIncomingMessage(assistantMessageInput);
+    notificationStore.applyIncomingMessage({
+      message: assistantMessageInput.message,
+      selectedSessionKey: assistantMessageInput.selectedSessionKey,
+      source: assistantMessageInput.source,
+      streams: TEST_STREAMS.map((stream) => ({ ...stream }))
+    });
+
+    expect(await screen.findByLabelText("Side Thread notification"))
+      .toBeInTheDocument();
+    expect(screen.getByText("Side notification")).toBeInTheDocument();
+    expect(screen.getByText("0")).toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, { key: "0", metaKey: true });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Side Thread notification")).toBeNull();
+    });
+  });
+
+  it("replies from a notification to its source chat without changing the current transcript", async () => {
+    const { chatStore, notificationStore, transportMachine } = renderChatRoute(
+      "/chat/agent:main:clawline:user_1:main",
+      {
+        initialMessages: [],
+        sessionKeys: [
+          "agent:main:clawline:user_1:main",
+          "agent:main:main",
+          "agent:main:clawline:user_1:side"
+        ]
+      }
+    );
+    const sendMessage = vi
+      .spyOn(transportMachine, "sendMessage")
+      .mockResolvedValue(undefined);
+
+    const assistantMessageInput: Parameters<typeof chatStore.applyIncomingMessage>[0] = {
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_side_notify",
+        role: "assistant",
+        content: "Side notification",
+        timestamp: 21,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    };
+    chatStore.applyIncomingMessage(assistantMessageInput);
+    notificationStore.applyIncomingMessage({
+      message: assistantMessageInput.message,
+      selectedSessionKey: assistantMessageInput.selectedSessionKey,
+      source: assistantMessageInput.source,
+      streams: TEST_STREAMS.map((stream) => ({ ...stream }))
+    });
+
+    expect(await screen.findByLabelText("Side Thread notification"))
+      .toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, { key: "0", metaKey: true, shiftKey: true });
+    const replyField = await screen.findByRole("textbox", {
+      name: "Reply to Side Thread"
+    });
+    fireEvent.change(replyField, { target: { value: "Reply from here" } });
+    fireEvent.keyDown(replyField, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        attachments: [],
+        content: "Reply from here",
+        id: expect.stringMatching(/^c_/),
+        sessionKey: "agent:main:clawline:user_1:side"
+      });
+    });
+
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]
+    ).toBeUndefined();
+    expect(
+      chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:side"]
+    ).toEqual([
+      expect.objectContaining({
+        content: "Side notification",
+        role: "assistant"
+      }),
+      expect.objectContaining({
+        content: "Reply from here",
+        role: "user"
+      })
+    ]);
   });
 
   it("clears built-in stream unread dots after each stream is visited", async () => {

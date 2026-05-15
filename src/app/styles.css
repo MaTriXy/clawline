@@ -1515,6 +1515,7 @@ html[data-appearance="light"] body::before {
 }
 
 .composer-input-field {
+  position: relative;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -1539,6 +1540,245 @@ html[data-appearance="light"] body::before {
 .composer-input-field textarea {
   flex: 1 1 auto;
   line-height: 1.45;
+}
+
+.composer-mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 42%;
+  min-height: 1.85rem;
+  margin-right: 0.55rem;
+  padding: 0.22rem 0.28rem 0.22rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-border-strong));
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 18%, var(--color-glass-specular-soft) 0%, transparent 46%),
+    color-mix(in srgb, var(--color-accent) 18%, var(--color-panel-glass-strong));
+  color: var(--color-text);
+  box-shadow: inset 0 1px 0 var(--color-glass-specular-soft);
+}
+
+.composer-mention-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.composer-mention-remove,
+.cross-chat-notification-icon-button {
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 74%, transparent);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 18%, var(--color-glass-specular-soft) 0%, transparent 48%),
+    var(--color-panel-glass);
+  color: var(--color-text);
+}
+
+.composer-mention-remove {
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+}
+
+.composer-mention-picker {
+  position: absolute;
+  left: 0.7rem;
+  right: 0.7rem;
+  bottom: calc(100% + 0.55rem);
+  display: grid;
+  gap: 0.25rem;
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 74%, var(--color-glass-specular) 26%);
+  border-radius: 1.1rem;
+  background:
+    linear-gradient(180deg, var(--color-glass-specular-soft), transparent 44%),
+    color-mix(in srgb, var(--color-panel-glass-strong) 92%, var(--color-panel));
+  box-shadow:
+    0 18px 44px var(--color-glass-shadow),
+    inset 0 1px 0 var(--color-glass-specular-soft);
+  backdrop-filter: blur(24px) saturate(190%);
+  -webkit-backdrop-filter: blur(24px) saturate(190%);
+  z-index: 8;
+}
+
+.composer-mention-option,
+.composer-mention-empty {
+  width: 100%;
+  min-width: 0;
+  padding: 0.58rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+
+.composer-mention-option {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.composer-mention-option span,
+.composer-mention-option small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-mention-option span {
+  font-weight: 700;
+}
+
+.composer-mention-option small,
+.composer-mention-empty {
+  color: var(--color-text-dim);
+  font-size: 0.78rem;
+}
+
+.composer-mention-option--active {
+  border-color: color-mix(in srgb, var(--color-accent) 34%, var(--color-border-strong));
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.cross-chat-notification-overlay {
+  position: absolute;
+  top: calc(0.9rem + env(safe-area-inset-top, 0px));
+  right: calc(0.9rem + env(safe-area-inset-right, 0px));
+  z-index: 7;
+  display: grid;
+  justify-items: end;
+  gap: 0.55rem;
+  width: min(23rem, calc(100% - 1.8rem));
+  pointer-events: none;
+}
+
+.cross-chat-notification-bubble {
+  width: min(23rem, 100%);
+  max-height: min(15rem, 34vh);
+  display: grid;
+  gap: 0.55rem;
+  overflow: hidden;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 76%, var(--color-glass-specular) 24%);
+  border-radius: 1.15rem;
+  background:
+    linear-gradient(180deg, var(--color-glass-specular-soft), transparent 44%),
+    color-mix(in srgb, var(--color-panel-glass-strong) 90%, var(--color-panel));
+  color: var(--color-text);
+  box-shadow:
+    0 18px 46px var(--color-glass-shadow),
+    0 3px 14px var(--color-glass-shadow-soft),
+    inset 0 1px 0 var(--color-glass-specular-soft);
+  backdrop-filter: blur(26px) saturate(190%);
+  -webkit-backdrop-filter: blur(26px) saturate(190%);
+  pointer-events: auto;
+}
+
+.cross-chat-notification-header,
+.cross-chat-notification-actions,
+.cross-chat-notification-title,
+.cross-chat-notification-reply {
+  display: flex;
+  align-items: center;
+}
+
+.cross-chat-notification-header {
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cross-chat-notification-title {
+  min-width: 0;
+  gap: 0.45rem;
+}
+
+.cross-chat-notification-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.cross-chat-notification-title kbd {
+  display: grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-panel-glass) 84%, transparent);
+  color: var(--color-text-secondary);
+  font: 700 0.76rem/1 var(--font-body);
+}
+
+.cross-chat-notification-actions {
+  flex: 0 0 auto;
+  gap: 0.35rem;
+}
+
+.cross-chat-notification-icon-button {
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+}
+
+.cross-chat-notification-entries {
+  display: grid;
+  gap: 0.38rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cross-chat-notification-entries p {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.cross-chat-notification-reply {
+  position: relative;
+  gap: 0.4rem;
+}
+
+.cross-chat-notification-reply textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2.1rem;
+  max-height: 4.8rem;
+  resize: vertical;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 72%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--color-panel-glass) 86%, transparent);
+  color: var(--color-text);
+}
+
+.cross-chat-notification-reply .field-error {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin: 0.2rem 0 0;
+  font-size: 0.76rem;
+}
+
+.cross-chat-notification-send {
+  flex: 0 0 auto;
+  background: var(--color-accent-soft);
 }
 
 .session-popover-backdrop {
