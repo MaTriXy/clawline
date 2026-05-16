@@ -311,6 +311,66 @@ describe("Composer", () => {
     );
   });
 
+  it("resolves the highlighted leading mention with Enter before submitting", async () => {
+    const streams: StreamRecord[] = [
+      {
+        adopted: false,
+        createdAt: 10,
+        displayName: "Personal",
+        isBuiltIn: true,
+        kind: "main",
+        orderIndex: 0,
+        sessionKey: "agent:main:clawline:user_1:main",
+        updatedAt: 10
+      },
+      {
+        adopted: false,
+        createdAt: 11,
+        displayName: "Side Thread",
+        isBuiltIn: false,
+        kind: "custom",
+        orderIndex: 1,
+        sessionKey: "agent:main:clawline:user_1:side",
+        updatedAt: 11
+      },
+      {
+        adopted: false,
+        createdAt: 12,
+        displayName: "Dictation",
+        isBuiltIn: false,
+        kind: "custom",
+        orderIndex: 2,
+        sessionKey: "agent:main:clawline:user_1:dictation",
+        updatedAt: 12
+      }
+    ];
+    const { sendMessage } = renderComposer({ streams });
+    const textarea = screen.getByLabelText("Message");
+
+    fireEvent.change(textarea, { target: { value: "@" } });
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.getByTestId("composer-mention-chip")).toHaveTextContent(
+      "@Dictation"
+    );
+    expect(screen.queryByRole("listbox", { name: "Mention destination" }))
+      .not.toBeInTheDocument();
+
+    fireEvent.change(textarea, { target: { value: "Please check this" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        attachments: [],
+        content: "Please check this",
+        id: expect.stringMatching(/^c_/),
+        sessionKey: "agent:main:clawline:user_1:dictation"
+      });
+    });
+  });
+
   it("keeps ArrowUp and ArrowDown inside an empty leading mention picker", async () => {
     const streams: StreamRecord[] = [
       {

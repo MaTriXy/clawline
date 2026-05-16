@@ -77,6 +77,7 @@ struct MessageInputBar: View {
     let onFocusChange: (Bool) -> Void
     let onTextEditActivity: () -> Void
     var handlesMentionPickerKeyCommands: Bool = false
+    var mentionPickerHasCompletion: Bool = false
     var onMentionPickerTab: (() -> Void)?
     var onMentionPickerMoveUp: (() -> Void)?
     var onMentionPickerMoveDown: (() -> Void)?
@@ -358,6 +359,7 @@ struct MessageInputBar: View {
                 resolvedMentionTitle: resolvedMentionTitle,
                 onRemoveResolvedMention: onRemoveResolvedMention,
                 handlesMentionPickerKeyCommands: handlesMentionPickerKeyCommands,
+                mentionPickerHasCompletion: mentionPickerHasCompletion,
                 onMentionPickerTab: onMentionPickerTab,
                 onMentionPickerMoveUp: onMentionPickerMoveUp,
                 onMentionPickerMoveDown: onMentionPickerMoveDown,
@@ -418,6 +420,7 @@ private struct MessageEditorChrome: View {
     var resolvedMentionTitle: String?
     var onRemoveResolvedMention: (() -> Void)?
     var handlesMentionPickerKeyCommands: Bool = false
+    var mentionPickerHasCompletion: Bool = false
     var onMentionPickerTab: (() -> Void)?
     var onMentionPickerMoveUp: (() -> Void)?
     var onMentionPickerMoveDown: (() -> Void)?
@@ -494,6 +497,7 @@ private struct MessageEditorChrome: View {
                         onSubmitRequested()
                     },
                     handlesMentionPickerKeyCommands: handlesMentionPickerKeyCommands,
+                    mentionPickerHasCompletion: mentionPickerHasCompletion,
                     onMentionPickerTab: onMentionPickerTab,
                     onMentionPickerMoveUp: onMentionPickerMoveUp,
                     onMentionPickerMoveDown: onMentionPickerMoveDown,

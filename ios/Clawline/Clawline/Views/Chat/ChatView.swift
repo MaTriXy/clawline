@@ -1721,6 +1721,7 @@ struct ChatView: View {
                     recordTypingActivity()
                 },
                 handlesMentionPickerKeyCommands: isMentionPickerVisible,
+                mentionPickerHasCompletion: !mentionPickerStreams.isEmpty,
                 onMentionPickerTab: {
                     handleCrossChatMentionTab(filteredStreams: mentionPickerStreams)
                 },

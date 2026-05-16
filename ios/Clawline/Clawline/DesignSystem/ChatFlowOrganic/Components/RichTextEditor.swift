@@ -27,6 +27,7 @@ struct RichTextEditor: UIViewRepresentable {
     var onTextEditActivity: (() -> Void)?
     var onSubmit: (() -> Void)?
     var handlesMentionPickerKeyCommands: Bool = false
+    var mentionPickerHasCompletion: Bool = false
     var onMentionPickerTab: (() -> Void)?
     var onMentionPickerMoveUp: (() -> Void)?
     var onMentionPickerMoveDown: (() -> Void)?
@@ -200,7 +201,11 @@ struct RichTextEditor: UIViewRepresentable {
                       shouldChangeTextIn range: NSRange,
                       replacementText text: String) -> Bool {
             if text == "\n" {
-                parent.onSubmit?()
+                if parent.handlesMentionPickerKeyCommands, parent.mentionPickerHasCompletion {
+                    parent.onMentionPickerTab?()
+                } else {
+                    parent.onSubmit?()
+                }
                 return false
             }
             return true

@@ -306,6 +306,12 @@ export function Composer({
         resolveHighlightedMention();
         return;
       }
+
+      if (event.key === "Enter" && highlightedMentionStream) {
+        event.preventDefault();
+        resolveHighlightedMention();
+        return;
+      }
     }
 
     if (
