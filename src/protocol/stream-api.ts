@@ -56,6 +56,13 @@ export interface SessionStatusPayload {
 export interface SessionStatusCapability {
   supported: boolean;
   reason?: string | null;
+  options?: SessionStatusCapabilityOption[] | null;
+}
+
+export interface SessionStatusCapabilityOption {
+  title?: string | null;
+  value?: string | null;
+  enabled?: boolean | null;
 }
 
 export interface SessionStatusCapabilities {
