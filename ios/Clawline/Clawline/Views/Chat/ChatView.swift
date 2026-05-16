@@ -4841,6 +4841,7 @@ private struct CrossChatNotificationOverlay: View {
                         }
                     )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(actionMenuSourceChatId == bubble.sourceChatId ? 1 : 0)
                 }
             }
             .padding(.vertical, 2)
@@ -5008,6 +5009,12 @@ private final class WeakScrollViewBox {
     }
 }
 
+private extension UIKey {
+    var hasNoCommandModifiers: Bool {
+        modifierFlags.intersection([.command, .shift, .alternate, .control]).isEmpty
+    }
+}
+
 private struct NotificationScrollViewResolver: UIViewRepresentable {
     let onResolve: (UIScrollView?) -> Void
 
@@ -5090,11 +5097,9 @@ private struct CrossChatNotificationBubbleView: View {
             HStack(spacing: 8) {
                 if showShortcutLabel {
                     Text("⌘\(assignedNumber)")
-                        .font(.clawline(.secondaryLabel).weight(.bold))
+                        .font(.clawline(.secondaryLabel))
                         .monospacedDigit()
-                        .padding(.horizontal, 6)
-                        .frame(minWidth: 34, minHeight: 22)
-                        .background(Capsule().fill(Color.primary.opacity(0.12)))
+                        .lineLimit(1)
                         .accessibilityLabel("Shortcut Command \(assignedNumber)")
                 }
 
@@ -5336,6 +5341,124 @@ private struct CrossChatNotificationActionMenu: View {
         .onKeyPress(.return) {
             onActivate(selection)
             return .handled
+        }
+        .background(
+            CrossChatNotificationActionMenuKeyBridge(
+                selection: selection,
+                onSelectionChange: onSelectionChange,
+                onActivate: onActivate
+            )
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        )
+    }
+}
+
+private struct CrossChatNotificationActionMenuKeyBridge: UIViewRepresentable {
+    let selection: CrossChatNotificationActionMenuItem
+    let onSelectionChange: (CrossChatNotificationActionMenuItem) -> Void
+    let onActivate: (CrossChatNotificationActionMenuItem) -> Void
+
+    func makeUIView(context: Context) -> KeyCommandView {
+        let view = KeyCommandView()
+        view.delegate = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ uiView: KeyCommandView, context: Context) {
+        context.coordinator.selection = selection
+        context.coordinator.onSelectionChange = onSelectionChange
+        context.coordinator.onActivate = onActivate
+        DispatchQueue.main.async { [weak uiView] in
+            uiView?.becomeFirstResponder()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            selection: selection,
+            onSelectionChange: onSelectionChange,
+            onActivate: onActivate
+        )
+    }
+
+    final class Coordinator {
+        var selection: CrossChatNotificationActionMenuItem
+        var onSelectionChange: (CrossChatNotificationActionMenuItem) -> Void
+        var onActivate: (CrossChatNotificationActionMenuItem) -> Void
+
+        init(
+            selection: CrossChatNotificationActionMenuItem,
+            onSelectionChange: @escaping (CrossChatNotificationActionMenuItem) -> Void,
+            onActivate: @escaping (CrossChatNotificationActionMenuItem) -> Void
+        ) {
+            self.selection = selection
+            self.onSelectionChange = onSelectionChange
+            self.onActivate = onActivate
+        }
+
+        func move(step: Int) {
+            onSelectionChange(selection.moved(step: step))
+        }
+
+        func activate() {
+            onActivate(selection)
+        }
+    }
+
+    final class KeyCommandView: UIView {
+        weak var delegate: Coordinator?
+
+        override var canBecomeFirstResponder: Bool { true }
+
+        override var keyCommands: [UIKeyCommand]? {
+            [
+                UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [], action: #selector(handleUp)),
+                UIKeyCommand(input: UIKeyCommand.inputUpArrow, modifierFlags: [.numericPad], action: #selector(handleUp)),
+                UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(handleDown)),
+                UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [.numericPad], action: #selector(handleDown)),
+                UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(handleReturn)),
+                UIKeyCommand(input: "\n", modifierFlags: [], action: #selector(handleReturn))
+            ]
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            DispatchQueue.main.async { [weak self] in
+                self?.becomeFirstResponder()
+            }
+        }
+
+        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            for press in presses {
+                guard let key = press.key, key.hasNoCommandModifiers else { continue }
+                switch key.keyCode {
+                case .keyboardUpArrow:
+                    handleUp()
+                    return
+                case .keyboardDownArrow:
+                    handleDown()
+                    return
+                case .keyboardReturnOrEnter:
+                    handleReturn()
+                    return
+                default:
+                    continue
+                }
+            }
+            super.pressesBegan(presses, with: event)
+        }
+
+        @objc private func handleUp() {
+            delegate?.move(step: -1)
+        }
+
+        @objc private func handleDown() {
+            delegate?.move(step: 1)
+        }
+
+        @objc private func handleReturn() {
+            delegate?.activate()
         }
     }
 }

@@ -12,6 +12,12 @@ import UniformTypeIdentifiers
 
 private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "RichTextEditor")
 
+private extension UIKey {
+    var hasNoCommandModifiers: Bool {
+        modifierFlags.intersection([.command, .shift, .alternate, .control]).isEmpty
+    }
+}
+
 struct RichTextEditor: UIViewRepresentable {
     @Binding var attributedText: NSAttributedString
     @Binding var calculatedHeight: CGFloat
@@ -473,7 +479,7 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
         }
 
         for press in presses {
-            guard let key = press.key, key.modifierFlags.isEmpty else { continue }
+            guard let key = press.key, key.hasNoCommandModifiers else { continue }
             switch key.keyCode {
             case .keyboardUpArrow:
                 onMentionPickerMoveUp?()
