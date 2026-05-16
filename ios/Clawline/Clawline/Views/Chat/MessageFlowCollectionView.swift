@@ -5558,7 +5558,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
                 unsupportedReason: levelControl.reason
             ),
             FooterItem(
-                text: fastModeText(display.fastMode),
+                text: fastModeText(display.fastMode, action: fastControl.action, unsupportedReason: fastControl.reason),
                 action: fastControl.action,
                 options: fastModeOptions(
                     current: display.fastMode,
@@ -5647,7 +5647,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
 
     private static func modelCatalogOption(_ model: SessionStatus.ModelCatalog.Model,
                                            current: String?) -> (title: String, isCurrent: Bool) {
-        let title = normalized(model.alias) ?? normalized(model.name) ?? normalized(model.ref) ?? model.ref
+        let title = normalized(model.name) ?? normalized(model.ref) ?? normalized(model.alias) ?? model.ref
         let isCurrent = current == normalized(model.id) || current == normalized(model.ref)
         return (title, isCurrent)
     }
@@ -5774,7 +5774,12 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         return (nil, fastModeCapability.reason ?? modeCapability.reason, nil)
     }
 
-    private static func fastModeText(_ fastMode: Bool?) -> String {
+    private static func fastModeText(_ fastMode: Bool?,
+                                     action: SessionControlAction?,
+                                     unsupportedReason: String?) -> String {
+        if action == nil, unsupportedReason == "codex_fast_mode_not_supported_by_session_control" {
+            return "Fast unavailable"
+        }
         guard let fastMode else { return "Fast Unknown" }
         return fastMode ? "Fast on" : "Fast off"
     }

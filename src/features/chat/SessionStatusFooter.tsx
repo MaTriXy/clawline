@@ -99,6 +99,8 @@ export function footerItems(status?: SessionStatusPayload | null): FooterItem[] 
     hasThinkingValue: thinkingValue != null
   });
   const fastControl = fastModeControlAction(capabilities);
+  const fastText = fastModeText(display.fastMode, fastControl.action, fastControl.reason);
+  const fastOptions = fastModeOptions(display.fastMode, fastControl.action, fastControl.options);
 
   return [
     {
@@ -115,8 +117,8 @@ export function footerItems(status?: SessionStatusPayload | null): FooterItem[] 
     },
     {
       action: fastControl.action,
-      options: fastModeOptions(display.fastMode, fastControl.action, fastControl.options),
-      text: fastModeText(display.fastMode),
+      options: fastOptions.length > 0 ? fastOptions : [{ title: fastText, isCurrent: true }],
+      text: fastText,
       unsupportedReason: fastControl.reason
     }
   ];
@@ -144,7 +146,7 @@ function modelOptions(status: SessionStatusPayload): FooterOption[] {
   const current = normalized(status.display?.model);
   if (status.modelCatalog?.available === true) {
     return (status.modelCatalog.models ?? []).map((model) => {
-      const title = normalized(model.alias) ?? normalized(model.name) ?? normalized(model.ref) ?? model.ref;
+      const title = normalized(model.name) ?? normalized(model.ref) ?? normalized(model.alias) ?? model.ref;
       return {
         title,
         value: model.ref,
@@ -289,7 +291,14 @@ function fastModeOptions(
   ];
 }
 
-function fastModeText(fastMode: boolean | null | undefined) {
+function fastModeText(
+  fastMode: boolean | null | undefined,
+  action?: SessionControlAction,
+  unsupportedReason?: string | null
+) {
+  if (!action && unsupportedReason === "codex_fast_mode_not_supported_by_session_control") {
+    return "Fast unavailable";
+  }
   if (fastMode == null) {
     return "Fast Unknown";
   }

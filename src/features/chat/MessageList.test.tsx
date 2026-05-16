@@ -1336,7 +1336,8 @@ describe("MessageList rich rendering", () => {
           models: [
             {
               ref: "openai/gpt-5.5",
-              name: "gpt-5.5"
+              name: "gpt-5.5",
+              alias: "gpt"
             },
             {
               ref: "openai/gpt-5.4",
@@ -1348,8 +1349,10 @@ describe("MessageList rich rendering", () => {
     });
 
     expect(await screen.findByTestId("session-status-footer")).toBeInTheDocument();
+    const modelControl = screen.getByLabelText("gpt-5.5") as HTMLSelectElement;
+    expect(modelControl.options[0]?.textContent).toBe("✓ gpt-5.5");
 
-    fireEvent.change(screen.getByLabelText("gpt-5.5"), {
+    fireEvent.change(modelControl, {
       target: { value: "1" }
     });
 
@@ -1395,7 +1398,7 @@ describe("MessageList rich rendering", () => {
         display: {
           model: "gpt-5.5",
           thinkingLevel: "medium",
-          fastMode: false
+          fastMode: null
         },
         capabilities: {
           setModel: { supported: true },
@@ -1440,7 +1443,12 @@ describe("MessageList rich rendering", () => {
       undefined
     );
 
-    const fastModeControl = screen.getByLabelText("Fast off");
+    const fastModeControl = screen.getByLabelText("Fast unavailable");
     expect(fastModeControl).toBeDisabled();
+    expect(fastModeControl).toHaveTextContent("Fast unavailable");
+    expect(fastModeControl).toHaveAttribute(
+      "title",
+      "codex_fast_mode_not_supported_by_session_control"
+    );
   });
 });
