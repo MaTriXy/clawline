@@ -246,6 +246,93 @@ describe("Composer", () => {
     ).toHaveLength(1);
   });
 
+  it("moves the leading mention picker highlight with ArrowUp and ArrowDown", async () => {
+    const streams: StreamRecord[] = [
+      {
+        adopted: false,
+        createdAt: 10,
+        displayName: "Personal",
+        isBuiltIn: true,
+        kind: "main",
+        orderIndex: 0,
+        sessionKey: "agent:main:clawline:user_1:main",
+        updatedAt: 10
+      },
+      {
+        adopted: false,
+        createdAt: 11,
+        displayName: "Side Thread",
+        isBuiltIn: false,
+        kind: "custom",
+        orderIndex: 1,
+        sessionKey: "agent:main:clawline:user_1:side",
+        updatedAt: 11
+      },
+      {
+        adopted: false,
+        createdAt: 12,
+        displayName: "Dictation",
+        isBuiltIn: false,
+        kind: "custom",
+        orderIndex: 2,
+        sessionKey: "agent:main:clawline:user_1:dictation",
+        updatedAt: 12
+      }
+    ];
+    renderComposer({ streams });
+    const textarea = screen.getByLabelText("Message");
+
+    fireEvent.change(textarea, { target: { value: "@" } });
+    const sideOption = screen.getByRole("option", { name: /Side Thread/i });
+    const dictationOption = screen.getByRole("option", { name: /Dictation/i });
+    expect(sideOption).toHaveAttribute("aria-selected", "true");
+    expect(dictationOption).toHaveAttribute("aria-selected", "false");
+
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    expect(sideOption).toHaveAttribute("aria-selected", "false");
+    expect(dictationOption).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(textarea, { key: "Tab" });
+    expect(screen.getByTestId("composer-mention-chip")).toHaveTextContent(
+      "@Dictation"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Dictation mention" }));
+    fireEvent.change(textarea, { target: { value: "@" } });
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    fireEvent.keyDown(textarea, { key: "ArrowUp" });
+    expect(screen.getByRole("option", { name: /Side Thread/i })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(screen.getByRole("option", { name: /Dictation/i })).toHaveAttribute(
+      "aria-selected",
+      "false"
+    );
+  });
+
+  it("keeps ArrowUp and ArrowDown inside an empty leading mention picker", async () => {
+    const streams: StreamRecord[] = [
+      {
+        adopted: false,
+        createdAt: 10,
+        displayName: "Personal",
+        isBuiltIn: true,
+        kind: "main",
+        orderIndex: 0,
+        sessionKey: "agent:main:clawline:user_1:main",
+        updatedAt: 10
+      }
+    ];
+    renderComposer({ streams });
+    const textarea = screen.getByLabelText("Message");
+
+    fireEvent.change(textarea, { target: { value: "@" } });
+    expect(fireEvent.keyDown(textarea, { key: "ArrowDown" })).toBe(false);
+    expect(fireEvent.keyDown(textarea, { key: "ArrowUp" })).toBe(false);
+    expect(screen.getByText("No matching sessions")).toBeInTheDocument();
+  });
+
   it("submits unresolved leading mention text normally to the current chat", async () => {
     const streams: StreamRecord[] = [
       {

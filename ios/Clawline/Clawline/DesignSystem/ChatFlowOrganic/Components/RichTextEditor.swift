@@ -461,6 +461,29 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
         onMentionPickerMoveDown?()
     }
 
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard canHandleInputShortcut, handlesMentionPickerKeyCommands else {
+            super.pressesBegan(presses, with: event)
+            return
+        }
+
+        for press in presses {
+            guard let key = press.key, key.modifierFlags.isEmpty else { continue }
+            switch key.keyCode {
+            case .keyboardUpArrow:
+                onMentionPickerMoveUp?()
+                return
+            case .keyboardDownArrow:
+                onMentionPickerMoveDown?()
+                return
+            default:
+                continue
+            }
+        }
+
+        super.pressesBegan(presses, with: event)
+    }
+
     @objc private func didPressCtrlA(_ sender: UIKeyCommand) {
         guard canHandleInputShortcut else { return }
         selectedTextRange = textRange(from: beginningOfDocument, to: beginningOfDocument)

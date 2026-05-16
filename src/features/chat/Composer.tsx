@@ -283,17 +283,21 @@ export function Composer({
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (mentionPickerVisible) {
-      if (event.key === "ArrowDown" && filteredMentionStreams.length > 0) {
+      if (event.key === "ArrowDown") {
         event.preventDefault();
-        setHighlightedMentionIndex((current) =>
-          Math.min(current + 1, filteredMentionStreams.length - 1)
-        );
+        if (filteredMentionStreams.length > 0) {
+          setHighlightedMentionIndex((current) =>
+            Math.min(current + 1, filteredMentionStreams.length - 1)
+          );
+        }
         return;
       }
 
-      if (event.key === "ArrowUp" && filteredMentionStreams.length > 0) {
+      if (event.key === "ArrowUp") {
         event.preventDefault();
-        setHighlightedMentionIndex((current) => Math.max(current - 1, 0));
+        if (filteredMentionStreams.length > 0) {
+          setHighlightedMentionIndex((current) => Math.max(current - 1, 0));
+        }
         return;
       }
 

@@ -150,10 +150,9 @@ enum CrossChatMentionPickerLogic {
         step: Int
     ) -> String? {
         guard !filteredStreams.isEmpty else { return nil }
-        guard let currentSessionKey,
-              let currentIndex = filteredStreams.firstIndex(where: { $0.sessionKey == currentSessionKey }) else {
-            return filteredStreams.first?.sessionKey
-        }
+        let currentIndex = currentSessionKey.flatMap { sessionKey in
+            filteredStreams.firstIndex { $0.sessionKey == sessionKey }
+        } ?? 0
         let nextIndex = min(max(currentIndex + step, 0), filteredStreams.count - 1)
         return filteredStreams[nextIndex].sessionKey
     }

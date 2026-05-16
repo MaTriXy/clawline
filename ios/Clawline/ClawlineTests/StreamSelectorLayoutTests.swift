@@ -115,7 +115,8 @@ struct StreamSelectorLayoutTests {
             StreamSession(sessionKey: "s_2", displayName: "Two", kind: "custom", orderIndex: 1, isBuiltIn: false, createdAt: Date(), updatedAt: Date()),
         ]
 
-        #expect(CrossChatMentionPickerLogic.selectionAfterMoving(currentSessionKey: nil, filteredStreams: streams, step: 1) == "s_1")
+        #expect(CrossChatMentionPickerLogic.selectionAfterMoving(currentSessionKey: nil, filteredStreams: streams, step: 1) == "s_2")
+        #expect(CrossChatMentionPickerLogic.selectionAfterMoving(currentSessionKey: nil, filteredStreams: streams, step: -1) == "s_1")
         #expect(CrossChatMentionPickerLogic.selectionAfterMoving(currentSessionKey: "s_1", filteredStreams: streams, step: 1) == "s_2")
         #expect(CrossChatMentionPickerLogic.selectionAfterMoving(currentSessionKey: "s_2", filteredStreams: streams, step: 1) == "s_2")
     }
