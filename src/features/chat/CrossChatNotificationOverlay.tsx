@@ -138,6 +138,9 @@ export function CrossChatNotificationOverlay() {
       }
 
       if ((key === "j" || key === "k") && !event.shiftKey && !event.altKey) {
+        if (isCollapsed) {
+          return;
+        }
         if (isEditableShortcutTarget(event.target)) {
           return;
         }
@@ -184,7 +187,7 @@ export function CrossChatNotificationOverlay() {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [activeSourceChatId, navigate, notificationStore, visibleSourceChatIds]);
+  }, [activeSourceChatId, isCollapsed, navigate, notificationStore, visibleSourceChatIds]);
 
   if (visibleBubbles.length === 0 && renderedBubbles.length === 0) {
     return null;

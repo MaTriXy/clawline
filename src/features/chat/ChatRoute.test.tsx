@@ -794,6 +794,7 @@ describe("ChatRoute", () => {
 
     fireEvent.keyDown(document.body, { key: "\\", code: "Backslash", metaKey: true });
     expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(fireEvent.keyDown(document.body, { key: "j", metaKey: true })).toBe(true);
     fireEvent.keyDown(document.body, { key: "\\", code: "Backslash", metaKey: true });
     expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
   });

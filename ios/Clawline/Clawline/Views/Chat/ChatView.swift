@@ -273,6 +273,7 @@ struct ChatView: View {
     @State private var streamToastManager = StreamToastManager()
     @State private var streamToastBusySince: Date?
     @State private var streamToastBusyClearTask: Task<Void, Never>?
+    @State private var isCrossChatNotificationStackDocked = false
     @State private var chatViewTraceId = UUID().uuidString
 #if DEBUG
     @State private var lifecycleDebugOverlayVisible = true
@@ -793,14 +794,6 @@ struct ChatView: View {
             onNavigatePrevious: { navigateStreamByShortcut(step: -1, sessionKeys: viewModel.orderedStreams.map(\.sessionKey)) },
             onNavigateNext: { navigateStreamByShortcut(step: 1, sessionKeys: viewModel.orderedStreams.map(\.sessionKey)) }
         )
-        .handleKeyboardScrollCommands(
-            isEnabled: keyboardScrollShortcutEnabled,
-            hasVisibleNotifications: !viewModel.crossChatNotificationBubbles.isEmpty,
-            onScrollDown: { scrollVisibleBubbleContents(.down) },
-            onScrollUp: { scrollVisibleBubbleContents(.up) },
-            onScrollChatDown: { scrollChatSurface(.down) },
-            onScrollChatUp: { scrollChatSurface(.up) }
-        )
 #if DEBUG
         .onChange(of: viewModel.lifecycleDebugSequence) { _, _ in
             showLifecycleDebugOverlay()
@@ -1036,6 +1029,18 @@ struct ChatView: View {
 
         rootLayer
         .ignoresSafeArea(.keyboard)
+        .handleKeyboardScrollCommands(
+            isEnabled: keyboardScrollShortcutEnabled,
+            hasVisibleNotifications: !isCrossChatNotificationStackDocked
+                && !CrossChatNotificationOverlay.visibleBubbles(
+                    maxContainerHeight: notificationOverlayMaxHeight,
+                    bubbles: viewModel.crossChatNotificationBubbles
+                ).isEmpty,
+            onScrollDown: { scrollVisibleBubbleContents(.down) },
+            onScrollUp: { scrollVisibleBubbleContents(.up) },
+            onScrollChatDown: { scrollChatSurface(.down) },
+            onScrollChatUp: { scrollChatSurface(.up) }
+        )
         .focusedSceneValue(
             \.crossChatNotificationCommand,
             crossChatNotificationCommand(
@@ -1479,6 +1484,7 @@ struct ChatView: View {
                     viewModel: viewModel,
                     topMargin: topMargin,
                     maxContainerHeight: maxContainerHeight,
+                    isCollapsed: $isCrossChatNotificationStackDocked,
                     onNavigateToSource: { sourceChatId in
                         selectStream(sourceChatId, source: .programmatic)
                     }
@@ -4696,9 +4702,9 @@ private struct CrossChatNotificationOverlay: View {
     @Bindable var viewModel: ChatViewModel
     let topMargin: CGFloat
     let maxContainerHeight: CGFloat
+    @Binding var isCollapsed: Bool
     let onNavigateToSource: (String) -> Void
     @State private var showShortcutLabels = CrossChatShortcutLabelAvailability.current
-    @State private var isCollapsed = false
     @State private var activeScrollSourceChatId: String?
     @State private var scrollViewsBySourceChatId: [String: WeakScrollViewBox] = [:]
 
