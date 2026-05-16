@@ -25,6 +25,12 @@ const NOTIFICATION_BUBBLE_GAP_PX = 9;
 const COLLAPSE_SWIPE_THRESHOLD_PX = 44;
 const CLEAR_ALL_HOLD_DELAY_MS = 650;
 const NOTIFICATION_EXIT_ANIMATION_MS = 180;
+const NOTIFICATION_ACTION_MENU_ITEMS = [
+  { key: "go-to-chat", label: "Go to Chat…" },
+  { key: "reply", label: "Reply…" },
+  { key: "dismiss", label: "Dismiss" }
+] as const;
+const DEFAULT_NOTIFICATION_ACTION_MENU_INDEX = 0;
 
 interface RenderedNotificationBubble {
   bubble: CrossChatNotificationBubble;
@@ -49,11 +55,18 @@ export function CrossChatNotificationOverlay() {
     []
   );
   const [activeSourceChatId, setActiveSourceChatId] = useState<string | null>(null);
+  const [actionMenuSourceChatId, setActionMenuSourceChatId] = useState<string | null>(
+    null
+  );
+  const [actionMenuSelectedIndex, setActionMenuSelectedIndex] = useState(
+    DEFAULT_NOTIFICATION_ACTION_MENU_INDEX
+  );
   const dragStartXRef = useRef<number | null>(null);
   const dragStartYRef = useRef<number | null>(null);
   const suppressNavigationClickRef = useRef(false);
   const clearAllHoldTimerRef = useRef<number | null>(null);
   const entriesRefsBySourceChatId = useRef<Record<string, HTMLDivElement | null>>({});
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const orderedBubbles = useMemo(
     () =>
       Object.values(notificationState.bubblesBySourceChatId).sort(
@@ -125,6 +138,21 @@ export function CrossChatNotificationOverlay() {
   }, [notificationStore, overflowBubbles]);
 
   useEffect(() => {
+    if (
+      actionMenuSourceChatId &&
+      !visibleSourceChatIds.includes(actionMenuSourceChatId)
+    ) {
+      setActionMenuSourceChatId(null);
+    }
+  }, [actionMenuSourceChatId, visibleSourceChatIds]);
+
+  useEffect(() => {
+    if (actionMenuSourceChatId) {
+      actionMenuRef.current?.focus({ preventScroll: true });
+    }
+  }, [actionMenuSourceChatId]);
+
+  useEffect(() => {
     function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (event.defaultPrevented || event.ctrlKey || !event.metaKey) {
         return;
@@ -174,20 +202,22 @@ export function CrossChatNotificationOverlay() {
 
       if (event.shiftKey && event.altKey) {
         event.preventDefault();
+        setActionMenuSourceChatId(null);
         notificationStore.dismissCrossChatNotification(sourceChatId);
       } else if (event.shiftKey) {
         event.preventDefault();
+        setActionMenuSourceChatId(null);
         notificationStore.openCrossChatNotificationReply(sourceChatId);
       } else if (!event.altKey) {
         event.preventDefault();
-        notificationStore.dismissCrossChatNotification(sourceChatId);
-        navigate(`/chat/${sourceChatId}`);
+        setActionMenuSelectedIndex(DEFAULT_NOTIFICATION_ACTION_MENU_INDEX);
+        setActionMenuSourceChatId(sourceChatId);
       }
     }
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [activeSourceChatId, isCollapsed, navigate, notificationStore, visibleSourceChatIds]);
+  }, [activeSourceChatId, isCollapsed, notificationStore, visibleSourceChatIds]);
 
   if (visibleBubbles.length === 0 && renderedBubbles.length === 0) {
     return null;
@@ -261,15 +291,55 @@ export function CrossChatNotificationOverlay() {
       suppressNavigationClickRef.current = false;
       return;
     }
+    setActionMenuSourceChatId(null);
     notificationStore.dismissCrossChatNotification(sourceChatId);
     navigate(`/chat/${sourceChatId}`);
   }
 
   function handleReplyButtonClick(bubble: CrossChatNotificationBubble) {
+    setActionMenuSourceChatId(null);
     if (bubble.replyMode) {
       notificationStore.closeCrossChatNotificationReply(bubble.sourceChatId);
     } else {
       notificationStore.openCrossChatNotificationReply(bubble.sourceChatId);
+    }
+  }
+
+  function selectActionMenuItem(sourceChatId: string, index: number) {
+    if (index === 0) {
+      navigateToSourceChat(sourceChatId);
+      return;
+    }
+
+    setActionMenuSourceChatId(null);
+    if (index === 1) {
+      notificationStore.openCrossChatNotificationReply(sourceChatId);
+    } else {
+      notificationStore.dismissCrossChatNotification(sourceChatId);
+    }
+  }
+
+  function handleActionMenuKeyDown(
+    event: KeyboardEvent<HTMLDivElement>,
+    sourceChatId: string
+  ) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActionMenuSelectedIndex((current) =>
+        Math.min(current + 1, NOTIFICATION_ACTION_MENU_ITEMS.length - 1)
+      );
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActionMenuSelectedIndex((current) => Math.max(current - 1, 0));
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      selectActionMenuItem(sourceChatId, actionMenuSelectedIndex);
     }
   }
 
@@ -386,7 +456,7 @@ export function CrossChatNotificationOverlay() {
             onClick={() => navigateToSourceChat(bubble.sourceChatId)}
           >
             <div className="cross-chat-notification-title">
-              <kbd>{Math.max(0, visibleSourceChatIds.indexOf(bubble.sourceChatId))}</kbd>
+              <kbd>⌘{Math.max(0, visibleSourceChatIds.indexOf(bubble.sourceChatId))}</kbd>
               <strong>{bubble.sourceTitle}</strong>
             </div>
             <div className="cross-chat-notification-actions">
@@ -411,7 +481,8 @@ export function CrossChatNotificationOverlay() {
                 className="cross-chat-notification-icon-button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  notificationStore.dismissCrossChatNotification(bubble.sourceChatId)
+                  setActionMenuSourceChatId(null);
+                  notificationStore.dismissCrossChatNotification(bubble.sourceChatId);
                 }}
                 onPointerCancel={clearClearAllHoldTimer}
                 onPointerDown={(event) => {
@@ -476,6 +547,42 @@ export function CrossChatNotificationOverlay() {
                   {replyErrorsBySourceChatId[bubble.sourceChatId]}
                 </p>
               ) : null}
+            </div>
+          ) : null}
+          {actionMenuSourceChatId === bubble.sourceChatId ? (
+            <div
+              aria-label={`Actions for ${bubble.sourceTitle} notification`}
+              className="cross-chat-notification-action-menu"
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => handleActionMenuKeyDown(event, bubble.sourceChatId)}
+              ref={actionMenuRef}
+              role="menu"
+              tabIndex={-1}
+            >
+              {NOTIFICATION_ACTION_MENU_ITEMS.map((label, index) => (
+                <button
+                  aria-selected={actionMenuSelectedIndex === index}
+                  className={
+                    actionMenuSelectedIndex === index
+                      ? "cross-chat-notification-action-menu-item cross-chat-notification-action-menu-item--active"
+                      : "cross-chat-notification-action-menu-item"
+                  }
+                  key={label.key}
+                  onClick={() => selectActionMenuItem(bubble.sourceChatId, index)}
+                  onPointerEnter={() => setActionMenuSelectedIndex(index)}
+                  role="menuitem"
+                  type="button"
+                >
+                  <span>{label.label}</span>
+                  {index > 0 ? (
+                    <kbd>
+                      {index === 1
+                        ? `⇧⌘${visibleSourceChatIds.indexOf(bubble.sourceChatId)}`
+                        : `⌥⇧⌘${visibleSourceChatIds.indexOf(bubble.sourceChatId)}`}
+                    </kbd>
+                  ) : null}
+                </button>
+              ))}
             </div>
           ) : null}
         </section>

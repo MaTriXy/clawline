@@ -1512,7 +1512,7 @@ struct ChatView: View {
             },
             reply: { index in
                 guard bubbles.indices.contains(index) else { return }
-                viewModel.toggleCrossChatNotificationReply(sourceChatId: bubbles[index].sourceChatId)
+                viewModel.openCrossChatNotificationReply(sourceChatId: bubbles[index].sourceChatId)
             },
             dismissAll: {
                 viewModel.dismissAllCrossChatNotifications()
@@ -1529,8 +1529,7 @@ struct ChatView: View {
                 bubbles: viewModel.crossChatNotificationBubbles,
                 maxContainerHeight: maxContainerHeight,
                 onDismiss: { viewModel.dismissCrossChatNotification(sourceChatId: $0) },
-                onNavigate: { sourceChatId in selectStream(sourceChatId, source: .programmatic) },
-                onReply: { viewModel.toggleCrossChatNotificationReply(sourceChatId: $0) },
+                onReply: { viewModel.openCrossChatNotificationReply(sourceChatId: $0) },
                 onDismissAll: { viewModel.dismissAllCrossChatNotifications() },
                 onToggleDock: {
                     NotificationCenter.default.post(name: .clawlineToggleNotificationDockCommand, object: nil)
@@ -4707,6 +4706,8 @@ private struct CrossChatNotificationOverlay: View {
     let onNavigateToSource: (String) -> Void
     @State private var showShortcutLabels = CrossChatShortcutLabelAvailability.current
     @State private var activeScrollSourceChatId: String?
+    @State private var actionMenuSourceChatId: String?
+    @State private var actionMenuSelection: CrossChatNotificationActionMenuItem = .goToChat
     @State private var scrollViewsBySourceChatId: [String: WeakScrollViewBox] = [:]
 
     private static let maxVisibleBubbleCount = 10
@@ -4818,6 +4819,7 @@ private struct CrossChatNotificationOverlay: View {
                             viewModel.dismissAllCrossChatNotifications()
                         },
                         onNavigate: {
+                            closeActionMenu()
                             onNavigateToSource(bubble.sourceChatId)
                         },
                         onSendReply: {
@@ -4825,6 +4827,14 @@ private struct CrossChatNotificationOverlay: View {
                         },
                         onActivate: {
                             activeScrollSourceChatId = bubble.sourceChatId
+                        },
+                        isActionMenuOpen: actionMenuSourceChatId == bubble.sourceChatId,
+                        actionMenuSelection: actionMenuSelection,
+                        onActionMenuSelectionChange: { selection in
+                            actionMenuSelection = selection
+                        },
+                        onActionMenuAction: { item in
+                            handleActionMenuAction(item, bubble: bubble)
                         },
                         onRegisterScrollView: { scrollView in
                             registerScrollView(sourceChatId: bubble.sourceChatId, scrollView: scrollView)
@@ -4881,8 +4891,25 @@ private struct CrossChatNotificationOverlay: View {
             .onReceive(NotificationCenter.default.publisher(for: .clawlineToggleNotificationDockCommand)) { _ in
                 toggleDock()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineOpenNotificationActionMenuCommand)) { notification in
+                guard let index = notification.object as? Int,
+                      visibleBubbles.indices.contains(index) else { return }
+                actionMenuSelection = .goToChat
+                actionMenuSourceChatId = visibleBubbles[index].sourceChatId
+            }
             .onChange(of: visibleCapacity) { _, newCapacity in
                 viewModel.closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: Set(visibleBubbles.map(\.sourceChatId)))
+            }
+            .onChange(of: visibleBubbles.map(\.sourceChatId)) { _, sourceChatIds in
+                if let actionMenuSourceChatId, !sourceChatIds.contains(actionMenuSourceChatId) {
+                    closeActionMenu()
+                }
+            }
+            .onChange(of: visibleBubbles.map { "\($0.sourceChatId):\($0.isReplying)" }) { _, _ in
+                if let actionMenuSourceChatId,
+                   visibleBubbles.first(where: { $0.sourceChatId == actionMenuSourceChatId })?.isReplying == true {
+                    closeActionMenu()
+                }
             }
             .onChange(of: viewModel.crossChatNotificationBubbles.map { bubble in
                 "\(bubble.sourceChatId):\(bubble.lastAssistantActivityAt.timeIntervalSinceReferenceDate)"
@@ -4949,6 +4976,26 @@ private struct CrossChatNotificationOverlay: View {
     private func toggleDock() {
         withAnimation(Self.stackAnimation) {
             isCollapsed.toggle()
+        }
+    }
+
+    private func closeActionMenu() {
+        actionMenuSourceChatId = nil
+        actionMenuSelection = .goToChat
+    }
+
+    private func handleActionMenuAction(
+        _ item: CrossChatNotificationActionMenuItem,
+        bubble: CrossChatNotificationBubble
+    ) {
+        closeActionMenu()
+        switch item {
+        case .goToChat:
+            onNavigateToSource(bubble.sourceChatId)
+        case .reply:
+            viewModel.openCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+        case .dismiss:
+            viewModel.dismissCrossChatNotification(sourceChatId: bubble.sourceChatId)
         }
     }
 }
@@ -5018,8 +5065,13 @@ private struct CrossChatNotificationBubbleView: View {
     let onNavigate: () -> Void
     let onSendReply: () -> Void
     let onActivate: () -> Void
+    let isActionMenuOpen: Bool
+    let actionMenuSelection: CrossChatNotificationActionMenuItem
+    let onActionMenuSelectionChange: (CrossChatNotificationActionMenuItem) -> Void
+    let onActionMenuAction: (CrossChatNotificationActionMenuItem) -> Void
     let onRegisterScrollView: (UIScrollView?) -> Void
     @FocusState private var isReplyFocused: Bool
+    @FocusState private var isActionMenuFocused: Bool
     @State private var isClearAllConfirmationPresented = false
 
     private let controlSize: CGFloat = 44
@@ -5037,12 +5089,13 @@ private struct CrossChatNotificationBubbleView: View {
         VStack(alignment: .leading, spacing: bubble.isReplying ? 4 : normalContentSpacing) {
             HStack(spacing: 8) {
                 if showShortcutLabel {
-                    Text("\(assignedNumber)")
+                    Text("⌘\(assignedNumber)")
                         .font(.clawline(.secondaryLabel).weight(.bold))
                         .monospacedDigit()
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(Color.primary.opacity(0.12)))
-                        .accessibilityLabel("Shortcut \(assignedNumber)")
+                        .padding(.horizontal, 6)
+                        .frame(minWidth: 34, minHeight: 22)
+                        .background(Capsule().fill(Color.primary.opacity(0.12)))
+                        .accessibilityLabel("Shortcut Command \(assignedNumber)")
                 }
 
                 Text(bubble.sourceTitle)
@@ -5054,7 +5107,13 @@ private struct CrossChatNotificationBubbleView: View {
 
                 Spacer(minLength: 8)
 
-                Button(action: onReply) {
+                Button {
+                    if isActionMenuOpen {
+                        onActionMenuAction(.reply)
+                    } else {
+                        onReply()
+                    }
+                } label: {
                     Image(systemName: "arrowshape.turn.up.left")
                         .font(.clawline(.uiLabel).weight(.semibold))
                         .foregroundStyle(bubble.isReplying ? Color.accentColor : Color.primary)
@@ -5135,6 +5194,22 @@ private struct CrossChatNotificationBubbleView: View {
                     .accessibilityLabel("Send reply")
                 }
             }
+
+            if isActionMenuOpen {
+                CrossChatNotificationActionMenu(
+                    assignedNumber: assignedNumber,
+                    selection: actionMenuSelection,
+                    onSelectionChange: onActionMenuSelectionChange,
+                    onActivate: onActionMenuAction
+                )
+                .focused($isActionMenuFocused)
+                .onAppear {
+                    isActionMenuFocused = true
+                }
+                .onChange(of: actionMenuSelection) { _, _ in
+                    isActionMenuFocused = true
+                }
+            }
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 12)
@@ -5163,11 +5238,112 @@ private struct CrossChatNotificationBubbleView: View {
     }
 }
 
+private enum CrossChatNotificationActionMenuItem: CaseIterable, Identifiable {
+    case goToChat
+    case reply
+    case dismiss
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .goToChat:
+            return "Go to Chat…"
+        case .reply:
+            return "Reply…"
+        case .dismiss:
+            return "Dismiss"
+        }
+    }
+
+    func shortcutLabel(assignedNumber: Int) -> String? {
+        switch self {
+        case .goToChat:
+            return nil
+        case .reply:
+            return "⇧⌘\(assignedNumber)"
+        case .dismiss:
+            return "⌥⇧⌘\(assignedNumber)"
+        }
+    }
+
+    func moved(step: Int) -> Self {
+        let items = Self.allCases
+        guard let currentIndex = items.firstIndex(of: self) else { return .goToChat }
+        let nextIndex = min(max(currentIndex + step, 0), items.count - 1)
+        return items[nextIndex]
+    }
+}
+
+private struct CrossChatNotificationActionMenu: View {
+    let assignedNumber: Int
+    let selection: CrossChatNotificationActionMenuItem
+    let onSelectionChange: (CrossChatNotificationActionMenuItem) -> Void
+    let onActivate: (CrossChatNotificationActionMenuItem) -> Void
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ForEach(CrossChatNotificationActionMenuItem.allCases) { item in
+                Button {
+                    onActivate(item)
+                } label: {
+                    HStack(spacing: 14) {
+                        Text(item.title)
+                            .font(.clawline(.secondaryLabel).weight(.semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 12)
+                        if let shortcut = item.shortcutLabel(assignedNumber: assignedNumber) {
+                            Text(shortcut)
+                                .font(.clawline(.secondaryLabel).weight(.bold))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(item == selection ? Color.accentColor.opacity(0.18) : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.title)
+                .onHover { isHovering in
+                    if isHovering {
+                        onSelectionChange(item)
+                    }
+                }
+            }
+        }
+        .padding(5)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.08))
+        )
+        .focusable()
+        .onKeyPress(.upArrow) {
+            onSelectionChange(selection.moved(step: -1))
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            onSelectionChange(selection.moved(step: 1))
+            return .handled
+        }
+        .onKeyPress(.return) {
+            onActivate(selection)
+            return .handled
+        }
+    }
+}
+
 private struct CrossChatNotificationKeyboardShortcuts: View {
     let bubbles: [CrossChatNotificationBubble]
     let maxContainerHeight: CGFloat
     let onDismiss: (String) -> Void
-    let onNavigate: (String) -> Void
     let onReply: (String) -> Void
     let onDismissAll: () -> Void
     let onToggleDock: () -> Void
@@ -5183,7 +5359,12 @@ private struct CrossChatNotificationKeyboardShortcuts: View {
         if !visibleBubbles.isEmpty {
             ZStack {
                 ForEach(Array(visibleBubbles.enumerated()), id: \.element.sourceChatId) { index, bubble in
-                    Button("") { onNavigate(bubble.sourceChatId) }
+                    Button("") {
+                        NotificationCenter.default.post(
+                            name: .clawlineOpenNotificationActionMenuCommand,
+                            object: index
+                        )
+                    }
                         .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: .command)
                     Button("") { onReply(bubble.sourceChatId) }
                         .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: [.command, .shift])

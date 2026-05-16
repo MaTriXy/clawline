@@ -577,7 +577,7 @@ describe("ChatRoute", () => {
     expect(await screen.findByLabelText("Side Thread notification"))
       .toBeInTheDocument();
     expect(screen.getByText("Side notification")).toBeInTheDocument();
-    expect(screen.getByText("0")).toBeInTheDocument();
+    expect(screen.getByText("⌘0")).toBeInTheDocument();
 
     fireEvent.keyDown(document.body, { key: "0", metaKey: true, shiftKey: true, altKey: true });
 
@@ -833,7 +833,7 @@ describe("ChatRoute", () => {
     expect(view.notificationStore.getState().bubblesBySourceChatId).toEqual({});
   });
 
-  it("uses notification digit shortcuts for navigation, reply, and dismiss", async () => {
+  it("uses notification digit shortcuts for action menus, reply, and dismiss", async () => {
     const navigateView = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
       initialMessages: [],
       sessionKeys: [
@@ -852,6 +852,19 @@ describe("ChatRoute", () => {
       key: "0",
       metaKey: true
     });
+
+    const actionMenu = await screen.findByRole("menu", {
+      name: "Actions for Side Thread notification"
+    });
+    expect(within(actionMenu).getByRole("menuitem", { name: /Go to Chat/ }))
+      .toHaveAttribute("aria-selected", "true");
+    expect(within(actionMenu).getByText("⇧⌘0")).toBeInTheDocument();
+    expect(within(actionMenu).getByText("⌥⇧⌘0")).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat/agent:main:clawline:user_1:main"
+    );
+
+    fireEvent.keyDown(actionMenu, { key: "Enter" });
 
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/chat/agent:main:clawline:user_1:side"
@@ -891,6 +904,40 @@ describe("ChatRoute", () => {
     await waitFor(() => {
       expect(screen.queryByLabelText("Side Thread notification")).toBeNull();
     });
+  });
+
+  it("moves through the notification action menu with arrow keys", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view);
+
+    expect(await screen.findByLabelText("Side Thread notification"))
+      .toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, {
+      code: "Digit0",
+      key: "0",
+      metaKey: true
+    });
+
+    const actionMenu = await screen.findByRole("menu", {
+      name: "Actions for Side Thread notification"
+    });
+    fireEvent.keyDown(actionMenu, { key: "ArrowDown" });
+    expect(within(actionMenu).getByRole("menuitem", { name: /Reply/ }))
+      .toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(actionMenu, { key: "Enter" });
+
+    expect(
+      await screen.findByRole("textbox", { name: "Reply to Side Thread" })
+    ).toBeInTheDocument();
   });
 
   it("ignores unspecced Ctrl notification digit variants", async () => {

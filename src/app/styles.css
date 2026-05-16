@@ -1739,8 +1739,9 @@ html[data-appearance="light"] body::before {
 .cross-chat-notification-title kbd {
   display: grid;
   place-items: center;
-  width: 1.45rem;
+  min-width: 2.15rem;
   height: 1.45rem;
+  padding: 0 0.34rem;
   border: 1px solid color-mix(in srgb, var(--color-border-strong) 72%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-panel-glass) 84%, transparent);
@@ -1809,6 +1810,56 @@ html[data-appearance="light"] body::before {
 .cross-chat-notification-send {
   flex: 0 0 auto;
   background: var(--color-accent-soft);
+}
+
+.cross-chat-notification-action-menu {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 11rem;
+  padding: 0.28rem;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 72%, var(--color-glass-specular) 28%);
+  border-radius: 0.8rem;
+  background:
+    linear-gradient(180deg, var(--color-glass-specular-soft), transparent 48%),
+    color-mix(in srgb, var(--color-panel-glass-strong) 94%, var(--color-panel));
+  box-shadow:
+    0 12px 28px var(--color-glass-shadow-soft),
+    inset 0 1px 0 var(--color-glass-specular-soft);
+  outline: none;
+}
+
+.cross-chat-notification-action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  padding: 0.48rem 0.58rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--color-text);
+  font: 650 0.82rem/1.15 var(--font-body);
+  text-align: left;
+}
+
+.cross-chat-notification-action-menu-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cross-chat-notification-action-menu-item kbd {
+  flex: 0 0 auto;
+  color: var(--color-text-dim);
+  font: 700 0.75rem/1 var(--font-body);
+}
+
+.cross-chat-notification-action-menu-item--active {
+  border-color: color-mix(in srgb, var(--color-accent) 34%, var(--color-border-strong));
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
 }
 
 @keyframes cross-chat-notification-enter {
