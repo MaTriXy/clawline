@@ -1014,6 +1014,7 @@ struct ChatView: View {
             streamToastView(
                 inputBarTopFromScreenBottom: inputBarTopFromScreenBottom
             )
+            .zIndex(30)
             toastBannerView(geometry: geometry, toastManager: toastManager)
             mentionPickerOverlay(
                 streams: mentionPickerStreams,
@@ -1026,6 +1027,7 @@ struct ChatView: View {
                 topMargin: notificationOverlayTopMargin,
                 maxContainerHeight: notificationOverlayMaxHeight
             )
+            .zIndex(20)
             notificationKeyboardShortcutView(
                 viewModel: viewModel,
                 maxContainerHeight: notificationOverlayMaxHeight
