@@ -756,6 +756,10 @@ describe("ChatRoute", () => {
     expect(paragraph).not.toBeNull();
     expect(styleText).toContain(".cross-chat-notification-entries");
     expect(styleText).toContain("overflow: auto;");
+    expect(styleText).toContain("interpolate-size: allow-keywords;");
+    expect(styleText).toContain("height 180ms ease");
+    expect(styleText).toContain("grid-template-rows: auto auto auto;");
+    expect(styleText).toContain("max-height: calc(min(15rem, 34vh) - 4.7rem);");
     expect(styleText).not.toContain("-webkit-line-clamp: 3;");
   });
 
@@ -794,7 +798,7 @@ describe("ChatRoute", () => {
 
     fireEvent.keyDown(document.body, { key: "\\", code: "Backslash", metaKey: true });
     expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
-    expect(fireEvent.keyDown(document.body, { key: "j", metaKey: true })).toBe(true);
+    expect(fireEvent.keyDown(document.body, { key: "j", metaKey: true })).toBe(false);
     fireEvent.keyDown(document.body, { key: "\\", code: "Backslash", metaKey: true });
     expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
   });
@@ -847,7 +851,9 @@ describe("ChatRoute", () => {
     expect(await screen.findByLabelText("Side Thread notification"))
       .toBeInTheDocument();
 
-    fireEvent.keyDown(document.body, {
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    composer.focus();
+    fireEvent.keyDown(composer, {
       code: "Digit0",
       key: "0",
       metaKey: true
@@ -894,7 +900,9 @@ describe("ChatRoute", () => {
       await screen.findByRole("textbox", { name: "Reply to Side Thread" })
     ).toBeInTheDocument();
 
-    fireEvent.keyDown(document.body, {
+    const replyField = screen.getByRole("textbox", { name: "Reply to Side Thread" });
+    replyField.focus();
+    fireEvent.keyDown(replyField, {
       code: "Digit0",
       key: ")",
       metaKey: true,
@@ -1021,7 +1029,7 @@ describe("ChatRoute", () => {
     expect(sideElement.scrollTop).toBe(0);
   });
 
-  it("does not scroll notifications with Cmd-J while reply text is focused", async () => {
+  it("scrolls notifications with Cmd-J and Cmd-Shift-J while reply text is focused", async () => {
     const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
       initialMessages: [],
       sessionKeys: [
@@ -1050,11 +1058,50 @@ describe("ChatRoute", () => {
     const element = entries as HTMLElement;
     Object.defineProperty(element, "clientHeight", { configurable: true, value: 80 });
     Object.defineProperty(element, "scrollHeight", { configurable: true, value: 240 });
-    element.scrollTo = vi.fn();
+    element.scrollTo = vi.fn((options?: ScrollToOptions | number) => {
+      element.scrollTop =
+        typeof options === "number" ? options : Number(options?.top ?? 0);
+    });
 
     fireEvent.keyDown(replyField, { key: "j", metaKey: true });
+    expect(element.scrollTo).toHaveBeenCalledTimes(1);
+    expect(element.scrollTop).toBe(56);
 
-    expect(element.scrollTo).not.toHaveBeenCalled();
+    fireEvent.keyDown(replyField, { key: "j", metaKey: true, shiftKey: true });
+    expect(element.scrollTo).toHaveBeenCalledTimes(2);
+    expect(element.scrollTop).toBe(112);
+  });
+
+  it("scrolls notifications with Cmd-J while composer text is focused", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view, {
+      content: "Side notification ".repeat(20)
+    });
+
+    const composer = screen.getByLabelText("Message");
+    composer.focus();
+    const bubble = await screen.findByLabelText("Side Thread notification");
+    const entries = bubble.querySelector(".cross-chat-notification-entries");
+    expect(entries).toBeInstanceOf(HTMLElement);
+    const element = entries as HTMLElement;
+    Object.defineProperty(element, "clientHeight", { configurable: true, value: 80 });
+    Object.defineProperty(element, "scrollHeight", { configurable: true, value: 240 });
+    element.scrollTo = vi.fn((options?: ScrollToOptions | number) => {
+      element.scrollTop =
+        typeof options === "number" ? options : Number(options?.top ?? 0);
+    });
+
+    fireEvent.keyDown(composer, { key: "j", metaKey: true });
+
+    expect(element.scrollTo).toHaveBeenCalledTimes(1);
+    expect(element.scrollTop).toBe(56);
   });
 
   it("clears built-in stream unread dots after each stream is visited", async () => {

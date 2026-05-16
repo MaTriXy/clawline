@@ -45,6 +45,7 @@ export function Composer({
   const [isSubmitting, setSubmitting] = useState(false);
   const [stagedAttachments, setStagedAttachments] = useState<ComposerAttachmentDraft[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [sentToastMessage, setSentToastMessage] = useState<string | null>(null);
   const [resolvedMention, setResolvedMention] = useState<{
     destinationChatId: string;
     displayTitle: string;
@@ -52,6 +53,7 @@ export function Composer({
   const [highlightedMentionIndex, setHighlightedMentionIndex] = useState(0);
   const fileInputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const sentToastTimeoutRef = useRef<number | null>(null);
   const sendClickSuppressionTimeoutRef = useRef<number | null>(null);
   const suppressNextSendClickRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -136,6 +138,25 @@ export function Composer({
     setHighlightedMentionIndex(Math.max(0, filteredMentionStreams.length - 1));
   }, [filteredMentionStreams.length, highlightedMentionIndex]);
 
+  useEffect(() => {
+    return () => {
+      if (sentToastTimeoutRef.current != null) {
+        window.clearTimeout(sentToastTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  function showSentToast(displayTitle: string) {
+    setSentToastMessage(`Sent to ${displayTitle}`);
+    if (sentToastTimeoutRef.current != null) {
+      window.clearTimeout(sentToastTimeoutRef.current);
+    }
+    sentToastTimeoutRef.current = window.setTimeout(() => {
+      setSentToastMessage(null);
+      sentToastTimeoutRef.current = null;
+    }, 2500);
+  }
+
   async function submit() {
     const submitSession = authState.session;
     if (!sessionKey || !submitSession) {
@@ -148,6 +169,7 @@ export function Composer({
 
     const isCrossChatSend = resolvedMention !== null;
     const destinationSessionKey = resolvedMention?.destinationChatId ?? sessionKey;
+    const crossChatSentToastTitle = resolvedMention?.displayTitle;
     if (!destinationSessionKey) {
       return;
     }
@@ -230,6 +252,9 @@ export function Composer({
         id,
         sessionKey: destinationSessionKey
       });
+      if (isCrossChatSend && crossChatSentToastTitle) {
+        showSentToast(crossChatSentToastTitle);
+      }
     } catch {
       chatStore.markMessageFailed(id);
       if (isCrossChatSend) {
@@ -440,6 +465,11 @@ export function Composer({
         </div>
       ) : null}
       {submitError ? <p className="field-error">{submitError}</p> : null}
+      {sentToastMessage ? (
+        <div className="composer-sent-toast" role="status">
+          {sentToastMessage}
+        </div>
+      ) : null}
       <form
         className="composer-input-bar"
         data-testid="composer-input-bar"

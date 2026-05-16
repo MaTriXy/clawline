@@ -237,6 +237,7 @@ describe("Composer", () => {
         sessionKey: "agent:main:clawline:user_1:side"
       });
     });
+    expect(await screen.findByRole("status")).toHaveTextContent("Sent to Side Thread");
 
     expect(
       chatStore.getState().messagesBySessionKey["agent:main:clawline:user_1:main"]

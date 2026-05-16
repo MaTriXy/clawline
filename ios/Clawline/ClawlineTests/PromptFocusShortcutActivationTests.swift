@@ -6,6 +6,7 @@
 //
 
 import Testing
+import SwiftUI
 import UIKit
 @testable import Clawline
 
@@ -86,6 +87,9 @@ struct PromptFocusShortcutActivationTests {
                     && spec.action.selector == #selector(UIResponder.clawlineScrollChatUpCommand(_:))
             }
         )
+        #expect(!ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
+            spec.input == "0" && spec.modifierFlags == [.command]
+        })
         #expect(
             !ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
                 spec.input == "h" && spec.modifierFlags == [.command]
@@ -361,6 +365,127 @@ struct PromptFocusShortcutActivationTests {
                 photosPickerPresented: false,
                 fileImporterPresented: true
             )
+        )
+    }
+
+    @Test("Visible notifications own Cmd-J/K and Cmd-Shift-J/K before text-field focus blocks")
+    @MainActor
+    func visibleNotificationsOwnScrollShortcutsBeforeTextFieldFocusBlocks() {
+        #expect(
+            ChatKeyboardScrollRouting.route(
+                command: .scrollDown,
+                isEnabled: true,
+                hasVisibleNotifications: true,
+                firstResponderBlocksKeyboardScroll: true
+            ) == .notificationDown
+        )
+        #expect(
+            ChatKeyboardScrollRouting.route(
+                command: .scrollUp,
+                isEnabled: true,
+                hasVisibleNotifications: true,
+                firstResponderBlocksKeyboardScroll: true
+            ) == .notificationUp
+        )
+        #expect(
+            ChatKeyboardScrollRouting.route(
+                command: .scrollChatDown,
+                isEnabled: true,
+                hasVisibleNotifications: true,
+                firstResponderBlocksKeyboardScroll: true
+            ) == .notificationDown
+        )
+        #expect(
+            ChatKeyboardScrollRouting.route(
+                command: .scrollChatUp,
+                isEnabled: true,
+                hasVisibleNotifications: true,
+                firstResponderBlocksKeyboardScroll: true
+            ) == .notificationUp
+        )
+    }
+
+    @Test("Notification reply field keeps notification number and scroll shortcuts above text focus")
+    @MainActor
+    func notificationReplyFieldKeepsNotificationNumberAndScrollShortcutsAboveTextFocus() {
+        #expect(
+            CrossChatNotificationKeyPrecedence.replyFieldAction(
+                characters: "3",
+                modifiers: .command,
+                assignedNumber: 3
+            ) == .openMenu
+        )
+        #expect(
+            CrossChatNotificationKeyPrecedence.replyFieldAction(
+                characters: "#",
+                modifiers: [.command, .shift],
+                assignedNumber: 3
+            ) == .reply
+        )
+        #expect(
+            CrossChatNotificationKeyPrecedence.replyFieldAction(
+                characters: "#",
+                modifiers: [.command, .shift, .option],
+                assignedNumber: 3
+            ) == .dismiss
+        )
+        #expect(
+            CrossChatNotificationKeyPrecedence.replyFieldAction(
+                characters: "j",
+                modifiers: .command,
+                assignedNumber: 3
+            ) == .scrollDown
+        )
+        #expect(
+            CrossChatNotificationKeyPrecedence.replyFieldAction(
+                characters: "k",
+                modifiers: [.command, .shift],
+                assignedNumber: 3
+            ) == .scrollUp
+        )
+        #expect(
+            CrossChatNotificationKeyPrecedence.replyFieldAction(
+                characters: "3",
+                modifiers: [.command, .control],
+                assignedNumber: 3
+            ) == nil
+        )
+    }
+
+    @Test("Transcript and chat scroll receive only unclaimed scroll shortcuts")
+    @MainActor
+    func transcriptAndChatScrollReceiveOnlyUnclaimedScrollShortcuts() {
+        #expect(
+            ChatKeyboardScrollRouting.route(
+                command: .scrollDown,
+                isEnabled: true,
+                hasVisibleNotifications: false,
+                firstResponderBlocksKeyboardScroll: false
+            ) == .bubbleDown
+        )
+        #expect(
+            ChatKeyboardScrollRouting.route(
+                command: .scrollChatDown,
+                isEnabled: true,
+                hasVisibleNotifications: false,
+                firstResponderBlocksKeyboardScroll: false
+            ) == .chatDown
+        )
+        #expect(
+            ChatKeyboardScrollRouting.route(
+                command: .scrollDown,
+                isEnabled: true,
+                hasVisibleNotifications: false,
+                firstResponderBlocksKeyboardScroll: true
+            ) == .none
+        )
+        #expect(
+            ChatKeyboardScrollRouting.route(
+                command: .scrollChatDown,
+                isEnabled: true,
+                hasVisibleNotifications: false,
+                firstResponderBlocksKeyboardScroll: true
+            ) == .none
         )
     }
 

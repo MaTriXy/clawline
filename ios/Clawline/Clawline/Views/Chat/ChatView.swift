@@ -1031,8 +1031,7 @@ struct ChatView: View {
         .ignoresSafeArea(.keyboard)
         .handleKeyboardScrollCommands(
             isEnabled: keyboardScrollShortcutEnabled,
-            hasVisibleNotifications: !isCrossChatNotificationStackDocked
-                && !CrossChatNotificationOverlay.visibleBubbles(
+            hasVisibleNotifications: !CrossChatNotificationOverlay.visibleBubbles(
                     maxContainerHeight: notificationOverlayMaxHeight,
                     bubbles: viewModel.crossChatNotificationBubbles
                 ).isEmpty,
@@ -1506,6 +1505,14 @@ struct ChatView: View {
         guard !bubbles.isEmpty else { return nil }
         return CrossChatNotificationCommand(
             hasVisibleNotifications: true,
+            visibleCount: bubbles.count,
+            openActionMenu: { index in
+                guard bubbles.indices.contains(index) else { return }
+                NotificationCenter.default.post(
+                    name: .clawlineOpenNotificationActionMenuCommand,
+                    object: index
+                )
+            },
             dismiss: { index in
                 guard bubbles.indices.contains(index) else { return }
                 viewModel.dismissCrossChatNotification(sourceChatId: bubbles[index].sourceChatId)
@@ -1678,6 +1685,7 @@ struct ChatView: View {
                     clearTypingActivity()
                     if let resolvedCrossChatMention {
                         if viewModel.sendCrossChatMention(to: resolvedCrossChatMention.destinationChatId) {
+                            showCrossChatMentionSentToast(resolvedCrossChatMention)
                             removeResolvedCrossChatMention()
                         }
                     } else {
@@ -1737,6 +1745,19 @@ struct ChatView: View {
         .visionOSInputBarDepthOffset()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .ignoresSafeArea(.container, edges: .bottom)
+    }
+
+    private func showCrossChatMentionSentToast(_ mention: ResolvedCrossChatMention) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            streamToastManager.show(
+                displayName: "Sent to \(mention.displayName)",
+                sessionKey: mention.destinationChatId,
+                isBusy: false
+            )
+        }
+        streamToastBusySince = nil
+        streamToastBusyClearTask?.cancel()
+        streamToastBusyClearTask = nil
     }
 
     @ViewBuilder
@@ -2813,28 +2834,64 @@ private struct KeyboardScrollCommandModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollDownCommand)) { _ in
-                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll else { return }
-                if hasVisibleNotifications {
+                switch ChatKeyboardScrollRouting.route(
+                    command: .scrollDown,
+                    isEnabled: isEnabled,
+                    hasVisibleNotifications: hasVisibleNotifications,
+                    firstResponderBlocksKeyboardScroll: UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll
+                ) {
+                case .notificationDown:
                     NotificationCenter.default.post(name: .clawlineScrollNotificationDownCommand, object: nil)
-                    return
+                case .bubbleDown:
+                    onScrollDown()
+                default:
+                    break
                 }
-                onScrollDown()
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollUpCommand)) { _ in
-                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll else { return }
-                if hasVisibleNotifications {
+                switch ChatKeyboardScrollRouting.route(
+                    command: .scrollUp,
+                    isEnabled: isEnabled,
+                    hasVisibleNotifications: hasVisibleNotifications,
+                    firstResponderBlocksKeyboardScroll: UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll
+                ) {
+                case .notificationUp:
                     NotificationCenter.default.post(name: .clawlineScrollNotificationUpCommand, object: nil)
-                    return
+                case .bubbleUp:
+                    onScrollUp()
+                default:
+                    break
                 }
-                onScrollUp()
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatDownCommand)) { _ in
-                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll else { return }
-                onScrollChatDown()
+                switch ChatKeyboardScrollRouting.route(
+                    command: .scrollChatDown,
+                    isEnabled: isEnabled,
+                    hasVisibleNotifications: hasVisibleNotifications,
+                    firstResponderBlocksKeyboardScroll: UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll
+                ) {
+                case .notificationDown:
+                    NotificationCenter.default.post(name: .clawlineScrollNotificationDownCommand, object: nil)
+                case .chatDown:
+                    onScrollChatDown()
+                default:
+                    break
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineScrollChatUpCommand)) { _ in
-                guard isEnabled, !UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll else { return }
-                onScrollChatUp()
+                switch ChatKeyboardScrollRouting.route(
+                    command: .scrollChatUp,
+                    isEnabled: isEnabled,
+                    hasVisibleNotifications: hasVisibleNotifications,
+                    firstResponderBlocksKeyboardScroll: UIWindow.clawlineCurrentFirstResponderBlocksKeyboardScroll
+                ) {
+                case .notificationUp:
+                    NotificationCenter.default.post(name: .clawlineScrollNotificationUpCommand, object: nil)
+                case .chatUp:
+                    onScrollChatUp()
+                default:
+                    break
+                }
             }
     }
 }
@@ -2952,6 +3009,14 @@ private struct CancelCurrentPromptBubbleOverlay: View {
                     y: placement.origin.y + placement.size.height / 2
                 )
             }
+            .background(
+                CancelCurrentPromptBubbleKeyBridge(
+                    onConfirm: onCancelPrompt,
+                    onDismiss: onDismiss
+                )
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+            )
         }
     }
 
@@ -3053,6 +3118,85 @@ private struct CancelCurrentPromptPopup: View {
     private var buttonBackground: some View {
         RoundedRectangle(cornerRadius: buttonCornerRadius, style: .continuous)
             .fill(ChatFlowTheme.connectionDisconnected(colorScheme).opacity(isPressed ? 0.82 : 1))
+    }
+}
+
+private struct CancelCurrentPromptBubbleKeyBridge: UIViewRepresentable {
+    let onConfirm: () -> Void
+    let onDismiss: () -> Void
+
+    func makeUIView(context: Context) -> KeyCommandView {
+        let view = KeyCommandView()
+        view.delegate = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ uiView: KeyCommandView, context: Context) {
+        context.coordinator.onConfirm = onConfirm
+        context.coordinator.onDismiss = onDismiss
+        DispatchQueue.main.async {
+            uiView.becomeFirstResponder()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onConfirm: onConfirm, onDismiss: onDismiss)
+    }
+
+    final class Coordinator {
+        var onConfirm: () -> Void
+        var onDismiss: () -> Void
+
+        init(onConfirm: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+            self.onConfirm = onConfirm
+            self.onDismiss = onDismiss
+        }
+    }
+
+    final class KeyCommandView: UIView {
+        weak var delegate: Coordinator?
+
+        override var canBecomeFirstResponder: Bool { true }
+
+        override var keyCommands: [UIKeyCommand]? {
+            [
+                UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(handleDismiss)),
+                UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(handleConfirm)),
+                UIKeyCommand(input: "\n", modifierFlags: [], action: #selector(handleConfirm))
+            ]
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            DispatchQueue.main.async { [weak self] in
+                self?.becomeFirstResponder()
+            }
+        }
+
+        override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+            for press in presses {
+                guard let key = press.key, key.hasNoCommandModifiers else { continue }
+                switch key.keyCode {
+                case .keyboardEscape:
+                    handleDismiss()
+                    return
+                case .keyboardReturnOrEnter:
+                    handleConfirm()
+                    return
+                default:
+                    continue
+                }
+            }
+            super.pressesBegan(presses, with: event)
+        }
+
+        @objc private func handleConfirm() {
+            delegate?.onConfirm()
+        }
+
+        @objc private func handleDismiss() {
+            delegate?.onDismiss()
+        }
     }
 }
 
@@ -3404,6 +3548,23 @@ enum PromptFocusTypingActivation {
 }
 
 enum ChatKeyboardScrollRouting {
+    enum Command {
+        case scrollDown
+        case scrollUp
+        case scrollChatDown
+        case scrollChatUp
+    }
+
+    enum Route: Equatable {
+        case notificationDown
+        case notificationUp
+        case bubbleDown
+        case bubbleUp
+        case chatDown
+        case chatUp
+        case none
+    }
+
     static func isEnabled(
         platformSupportsKeyboardNavigation: Bool,
         streamPopupRoute: StreamPopupRoute,
@@ -3416,6 +3577,34 @@ enum ChatKeyboardScrollRouting {
             && !activeSheetPresented
             && !photosPickerPresented
             && !fileImporterPresented
+    }
+
+    static func route(
+        command: Command,
+        isEnabled: Bool,
+        hasVisibleNotifications: Bool,
+        firstResponderBlocksKeyboardScroll: Bool
+    ) -> Route {
+        guard isEnabled else { return .none }
+        if hasVisibleNotifications {
+            switch command {
+            case .scrollDown, .scrollChatDown:
+                return .notificationDown
+            case .scrollUp, .scrollChatUp:
+                return .notificationUp
+            }
+        }
+        guard !firstResponderBlocksKeyboardScroll else { return .none }
+        switch command {
+        case .scrollDown:
+            return .bubbleDown
+        case .scrollUp:
+            return .bubbleUp
+        case .scrollChatDown:
+            return .chatDown
+        case .scrollChatUp:
+            return .chatUp
+        }
     }
 }
 
@@ -4898,6 +5087,18 @@ private struct CrossChatNotificationOverlay: View {
                 actionMenuSelection = .goToChat
                 actionMenuSourceChatId = visibleBubbles[index].sourceChatId
             }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineReplyNotificationCommand)) { notification in
+                guard let index = notification.object as? Int,
+                      visibleBubbles.indices.contains(index) else { return }
+                closeActionMenu()
+                viewModel.openCrossChatNotificationReply(sourceChatId: visibleBubbles[index].sourceChatId)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .clawlineDismissNotificationCommand)) { notification in
+                guard let index = notification.object as? Int,
+                      visibleBubbles.indices.contains(index) else { return }
+                closeActionMenu()
+                viewModel.dismissCrossChatNotification(sourceChatId: visibleBubbles[index].sourceChatId)
+            }
             .onChange(of: visibleCapacity) { _, newCapacity in
                 viewModel.closeOverflowingCrossChatNotificationReplies(visibleSourceChatIds: Set(visibleBubbles.map(\.sourceChatId)))
             }
@@ -4929,7 +5130,6 @@ private struct CrossChatNotificationOverlay: View {
     }
 
     private func scrollActiveNotification(_ direction: ChatScrollPageDirection) {
-        guard !isCollapsed else { return }
         let visibleSourceChatIds = visibleBubbles.map(\.sourceChatId)
         guard let sourceChatId = activeScrollSourceChatId.flatMap({ visibleSourceChatIds.contains($0) ? $0 : nil })
                 ?? visibleSourceChatIds.first,
@@ -5086,10 +5286,17 @@ private struct CrossChatNotificationBubbleView: View {
     private let normalTopPadding: CGFloat = 6
     private let normalBottomPadding: CGFloat = 8
     private let replyVerticalPadding: CGFloat = 4
+    private let resizeAnimation = Animation.spring(response: 0.28, dampingFraction: 0.88)
 
     private var contentMaxHeight: CGFloat {
         let headerAndPadding = controlSize + normalContentSpacing + normalTopPadding + normalBottomPadding
         return max(44, maxBubbleHeight - headerAndPadding)
+    }
+
+    private var entriesAnimationKey: String {
+        bubble.entries
+            .map { "\($0.id):\($0.content.count)" }
+            .joined(separator: "|")
     }
 
     var body: some View {
@@ -5147,23 +5354,28 @@ private struct CrossChatNotificationBubbleView: View {
             }
 
             if !bubble.isReplying {
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(bubble.entries) { entry in
-                            Text(entry.content)
-                                .font(.clawline(.secondaryLabel))
-                                .fixedSize(horizontal: false, vertical: true)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                ViewThatFits(in: .vertical) {
+                    notificationEntriesContent()
+                        .fixedSize(horizontal: false, vertical: true)
+                        .background(
+                            NotificationScrollViewResolver { _ in
+                                onRegisterScrollView(nil)
+                            }
+                        )
+                    ScrollView(.vertical) {
+                        notificationEntriesContent()
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: onNavigate)
+                    .scrollIndicators(.visible)
+                    .background(
+                        NotificationScrollViewResolver(onResolve: onRegisterScrollView)
+                    )
                 }
-                .scrollIndicators(.visible)
-                .frame(maxHeight: contentMaxHeight)
-                .background(
-                    NotificationScrollViewResolver(onResolve: onRegisterScrollView)
-                )
+                .frame(maxHeight: contentMaxHeight, alignment: .top)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onNavigate)
+                .clipped()
+                .animation(resizeAnimation, value: entriesAnimationKey)
+                .animation(resizeAnimation, value: contentMaxHeight)
             }
 
             if bubble.isReplying {
@@ -5178,6 +5390,9 @@ private struct CrossChatNotificationBubbleView: View {
                         .onKeyPress(.escape) {
                             onCancelReply()
                             return .handled
+                        }
+                        .onKeyPress { press in
+                            handleReplyFieldKeyPress(press, assignedNumber: assignedNumber)
                         }
                         .onAppear {
                             isReplyFocused = true
@@ -5221,6 +5436,8 @@ private struct CrossChatNotificationBubbleView: View {
         .padding(.top, bubble.isReplying ? replyVerticalPadding : normalTopPadding)
         .padding(.bottom, bubble.isReplying ? replyVerticalPadding : normalBottomPadding)
         .frame(maxWidth: 340, maxHeight: bubble.isReplying ? nil : maxBubbleHeight, alignment: .topLeading)
+        .animation(resizeAnimation, value: bubble.isReplying)
+        .animation(resizeAnimation, value: maxBubbleHeight)
         .onHover { isHovering in
             if isHovering {
                 onActivate()
@@ -5239,6 +5456,122 @@ private struct CrossChatNotificationBubbleView: View {
         ) {
             Button("Clear All Notifications", role: .destructive, action: onDismissAll)
             Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder
+    private func notificationEntriesContent() -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(bubble.entries) { entry in
+                Text(entry.content)
+                    .font(.clawline(.secondaryLabel))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func handleReplyFieldKeyPress(
+        _ press: KeyPress,
+        assignedNumber: Int
+    ) -> KeyPress.Result {
+        let commandModifiers: EventModifiers = [.command, .shift, .option, .control]
+        let modifiers = press.modifiers.intersection(commandModifiers)
+        if let action = CrossChatNotificationKeyPrecedence.replyFieldAction(
+            characters: press.characters,
+            modifiers: modifiers,
+            assignedNumber: assignedNumber
+        ) {
+            switch action {
+            case .openMenu:
+                NotificationCenter.default.post(
+                    name: .clawlineOpenNotificationActionMenuCommand,
+                    object: assignedNumber
+                )
+            case .reply:
+                break
+            case .dismiss:
+                onDismiss()
+            case .scrollDown:
+                NotificationCenter.default.post(name: .clawlineScrollNotificationDownCommand, object: nil)
+            case .scrollUp:
+                NotificationCenter.default.post(name: .clawlineScrollNotificationUpCommand, object: nil)
+            }
+            return .handled
+        }
+        return .ignored
+    }
+}
+
+enum CrossChatNotificationKeyPrecedence {
+    enum Action: Equatable {
+        case openMenu
+        case reply
+        case dismiss
+        case scrollDown
+        case scrollUp
+    }
+
+    static func replyFieldAction(
+        characters: String,
+        modifiers: EventModifiers,
+        assignedNumber: Int
+    ) -> Action? {
+        guard characters.count == 1 else { return nil }
+        if matchesShortcutNumber(characters, assignedNumber: assignedNumber) {
+            if modifiers == .command {
+                return .openMenu
+            }
+            if modifiers == [.command, .shift] {
+                return .reply
+            }
+            if modifiers == [.command, .shift, .option] {
+                return .dismiss
+            }
+        }
+
+        guard modifiers == .command || modifiers == [.command, .shift] else {
+            return nil
+        }
+        switch characters.lowercased() {
+        case "j":
+            return .scrollDown
+        case "k":
+            return .scrollUp
+        default:
+            return nil
+        }
+    }
+
+    private static func matchesShortcutNumber(_ characters: String, assignedNumber: Int) -> Bool {
+        characters == "\(assignedNumber)" || characters == shiftedShortcutCharacter(assignedNumber)
+    }
+
+    private static func shiftedShortcutCharacter(_ assignedNumber: Int) -> String {
+        switch assignedNumber {
+        case 0:
+            return ")"
+        case 1:
+            return "!"
+        case 2:
+            return "@"
+        case 3:
+            return "#"
+        case 4:
+            return "$"
+        case 5:
+            return "%"
+        case 6:
+            return "^"
+        case 7:
+            return "&"
+        case 8:
+            return "*"
+        case 9:
+            return "("
+        default:
+            return ""
         }
     }
 }
@@ -5299,7 +5632,7 @@ private struct CrossChatNotificationActionMenu: View {
                         Spacer(minLength: 12)
                         if let shortcut = item.shortcutLabel(assignedNumber: assignedNumber) {
                             Text(shortcut)
-                                .font(.clawline(.secondaryLabel).weight(.bold))
+                                .font(.clawline(.secondaryLabel))
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)

@@ -154,7 +154,7 @@ export function CrossChatNotificationOverlay() {
 
   useEffect(() => {
     function handleKeyDown(event: globalThis.KeyboardEvent) {
-      if (event.defaultPrevented || event.ctrlKey || !event.metaKey) {
+      if (event.ctrlKey || !event.metaKey) {
         return;
       }
 
@@ -165,13 +165,7 @@ export function CrossChatNotificationOverlay() {
         return;
       }
 
-      if ((key === "j" || key === "k") && !event.shiftKey && !event.altKey) {
-        if (isCollapsed) {
-          return;
-        }
-        if (isEditableShortcutTarget(event.target)) {
-          return;
-        }
+      if ((key === "j" || key === "k") && !event.altKey) {
         const targetSourceChatId =
           activeSourceChatId && visibleSourceChatIds.includes(activeSourceChatId)
             ? activeSourceChatId
@@ -215,8 +209,8 @@ export function CrossChatNotificationOverlay() {
       }
     }
 
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
   }, [activeSourceChatId, isCollapsed, notificationStore, visibleSourceChatIds]);
 
   if (visibleBubbles.length === 0 && renderedBubbles.length === 0) {
@@ -639,18 +633,4 @@ function shortcutKeyFromEvent(event: globalThis.KeyboardEvent) {
   }
 
   return event.key.toLowerCase();
-}
-
-function isEditableShortcutTarget(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (target.isContentEditable) {
-    return true;
-  }
-
-  return Boolean(
-    target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']")
-  );
 }

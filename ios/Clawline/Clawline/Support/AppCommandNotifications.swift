@@ -19,6 +19,8 @@ extension Notification.Name {
     static let clawlineScrollNotificationUpCommand = Notification.Name("clawline.scrollNotificationUpCommand")
     static let clawlineToggleNotificationDockCommand = Notification.Name("clawline.toggleNotificationDockCommand")
     static let clawlineOpenNotificationActionMenuCommand = Notification.Name("clawline.openNotificationActionMenuCommand")
+    static let clawlineReplyNotificationCommand = Notification.Name("clawline.replyNotificationCommand")
+    static let clawlineDismissNotificationCommand = Notification.Name("clawline.dismissNotificationCommand")
 }
 
 struct CancelCurrentPromptCommand {
@@ -27,6 +29,8 @@ struct CancelCurrentPromptCommand {
 
 struct CrossChatNotificationCommand {
     let hasVisibleNotifications: Bool
+    let visibleCount: Int
+    let openActionMenu: @MainActor (Int) -> Void
     let dismiss: @MainActor (Int) -> Void
     let reply: @MainActor (Int) -> Void
     let dismissAll: @MainActor () -> Void
