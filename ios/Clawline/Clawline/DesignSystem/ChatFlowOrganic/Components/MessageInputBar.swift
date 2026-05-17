@@ -541,7 +541,7 @@ private struct MessageEditorChrome: View {
     }
 }
 
-private struct MessageSendControl: View {
+struct MessageSendControl: View {
     private enum BubbleVisualState: Equatable {
         case ghost
         case active

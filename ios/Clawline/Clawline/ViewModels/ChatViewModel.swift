@@ -520,6 +520,8 @@ final class ChatViewModel: ChatViewModelHosting {
     private var connectionStableTask: Task<Void, Never>?
     private let stableConnectionInterval: Duration = .seconds(5)
     private var activeClientMessageId: String?
+    private var activeCrossChatNotificationReplySourceChatId: String?
+    private var crossChatNotificationReplySourceByClientMessageId: [String: String] = [:]
     private var messageFailures: [String: MessageFailure] = [:]
     private var presentationCache: [PresentationCacheKey: PresentationCacheEntry] = [:]
     private var tableParseStates: [String: StreamingTableParseState] = [:]
@@ -1306,6 +1308,10 @@ final class ChatViewModel: ChatViewModelHosting {
         crossChatNotificationBubblesBySourceChatId[sourceChatId] = bubble
     }
 
+    func isSendingCrossChatNotificationReply(sourceChatId: String) -> Bool {
+        isSending && activeCrossChatNotificationReplySourceChatId == sourceChatId
+    }
+
     func sendCrossChatNotificationReply(sourceChatId: String) {
         guard !isSending else { return }
         guard let bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { return }
@@ -1328,9 +1334,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 pendingAttachments: [],
                 sessionKey: sourceChatId,
                 clearInputOnSuccess: false,
-                onSuccess: { [weak self] in
-                    self?.dismissCrossChatNotification(sourceChatId: sourceChatId)
-                }
+                crossChatNotificationReplySourceChatId: sourceChatId
             )
         case .waiting:
             pendingProvisionedSend = PendingProvisionedSend(
@@ -1468,9 +1472,14 @@ final class ChatViewModel: ChatViewModelHosting {
                            pendingAttachments: [PendingAttachment],
                            sessionKey: String,
                            clearInputOnSuccess: Bool = true,
+                           crossChatNotificationReplySourceChatId: String? = nil,
                            onSuccess: (@MainActor () -> Void)? = nil) {
         let clientId = "c_\(UUID().uuidString)"
         activeClientMessageId = clientId
+        activeCrossChatNotificationReplySourceChatId = crossChatNotificationReplySourceChatId
+        if let crossChatNotificationReplySourceChatId {
+            crossChatNotificationReplySourceByClientMessageId[clientId] = crossChatNotificationReplySourceChatId
+        }
 #if DEBUG
         recordImageSendDebugEvent(
             .sendDispatched,
@@ -1552,6 +1561,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
         isSending = true
         activeClientMessageId = clientId
+        activeCrossChatNotificationReplySourceChatId = nil
 
         sendTask = Task { [weak self] in
             await self?.performRetrySend(
@@ -1569,8 +1579,10 @@ final class ChatViewModel: ChatViewModelHosting {
         sendTask = nil
         if let activeClientMessageId {
             removePlaceholder(withId: activeClientMessageId)
+            crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: activeClientMessageId)
         }
         activeClientMessageId = nil
+        activeCrossChatNotificationReplySourceChatId = nil
         isSending = false
     }
 
@@ -2271,6 +2283,10 @@ final class ChatViewModel: ChatViewModelHosting {
         }
         if activeClientMessageId == pending.id {
             activeClientMessageId = nil
+            activeCrossChatNotificationReplySourceChatId = nil
+        }
+        if let replySourceChatId = crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: pending.id) {
+            dismissCrossChatNotification(sourceChatId: replySourceChatId)
         }
         messageFailures.removeValue(forKey: pending.id)
         return true
@@ -2403,8 +2419,12 @@ final class ChatViewModel: ChatViewModelHosting {
         }
         pendingLocalMessages.removeAll()
         ackedPendingLocalMessageIDs.removeAll()
+        for id in pendingIds {
+            crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: id)
+        }
         if let activeClientMessageId, pendingIds.contains(activeClientMessageId) {
             self.activeClientMessageId = nil
+            self.activeCrossChatNotificationReplySourceChatId = nil
             self.isSending = false
         }
     }
@@ -2417,8 +2437,12 @@ final class ChatViewModel: ChatViewModelHosting {
         }
         pendingLocalMessages.removeAll()
         ackedPendingLocalMessageIDs.removeAll()
+        for id in pendingIds {
+            crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: id)
+        }
         if let activeClientMessageId, pendingIds.contains(activeClientMessageId) {
             self.activeClientMessageId = nil
+            self.activeCrossChatNotificationReplySourceChatId = nil
         }
         self.isSending = false
     }
@@ -2451,6 +2475,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 onSuccess?()
                 isSending = false
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
             }
         } catch is CancellationError {
             await MainActor.run {
@@ -2458,8 +2483,10 @@ final class ChatViewModel: ChatViewModelHosting {
                 self.recordImageSendDebugEvent(.sendResult, detail: "failure localId=\(clientId) reason=cancelled")
 #endif
                 removePlaceholder(withId: clientId)
+                crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: clientId)
                 isSending = false
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
             }
         } catch let attachmentError as AttachmentError {
             await MainActor.run {
@@ -2475,8 +2502,10 @@ final class ChatViewModel: ChatViewModelHosting {
                     code: "upload_failed_retryable",
                     message: nil
                 )
+                crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: clientId)
                 isSending = false
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
             }
         } catch {
             await MainActor.run {
@@ -2493,8 +2522,10 @@ final class ChatViewModel: ChatViewModelHosting {
                     code: "queue_failed",
                     message: nil
                 )
+                crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: clientId)
                 isSending = false
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
             }
         }
     }
@@ -2521,6 +2552,7 @@ final class ChatViewModel: ChatViewModelHosting {
 #endif
                 isSending = false
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
             }
         } catch is CancellationError {
             await MainActor.run {
@@ -2530,6 +2562,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 removePlaceholder(withId: clientId)
                 isSending = false
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
             }
         } catch let attachmentError as AttachmentError {
             await MainActor.run {
@@ -2547,6 +2580,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 )
                 isSending = false
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
             }
         } catch {
             await MainActor.run {
@@ -2565,6 +2599,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 )
                 isSending = false
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
             }
         }
     }
@@ -2859,12 +2894,14 @@ final class ChatViewModel: ChatViewModelHosting {
                 return
             }
             messageFailures[messageId] = MessageFailure(code: code, message: message)
+            crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: messageId)
             if let pendingIndex = pendingLocalMessages.firstIndex(where: { $0.id == messageId }) {
                 pendingLocalMessages.remove(at: pendingIndex)
             }
             ackedPendingLocalMessageIDs.remove(messageId)
             if activeClientMessageId == messageId {
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
             }
             isSending = false
         case .messageAcked(let messageId):
@@ -2873,8 +2910,12 @@ final class ChatViewModel: ChatViewModelHosting {
             }
             ackedPendingLocalMessageIDs.insert(messageId)
             messageFailures.removeValue(forKey: messageId)
+            if let replySourceChatId = crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: messageId) {
+                dismissCrossChatNotification(sourceChatId: replySourceChatId)
+            }
             if activeClientMessageId == messageId {
                 activeClientMessageId = nil
+                activeCrossChatNotificationReplySourceChatId = nil
                 isSending = false
             }
         case .connectionInterrupted(let reason):
@@ -2985,11 +3026,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 pendingAttachments: pending.attachments,
                 sessionKey: pending.sessionKey,
                 clearInputOnSuccess: replySourceChatId == nil,
-                onSuccess: { [weak self] in
-                    if let replySourceChatId {
-                        self?.dismissCrossChatNotification(sourceChatId: replySourceChatId)
-                    }
-                }
+                crossChatNotificationReplySourceChatId: replySourceChatId
             )
         case .waiting:
             break
@@ -3960,6 +3997,11 @@ final class ChatViewModel: ChatViewModelHosting {
         }
         if let messageId, activeClientMessageId == messageId {
             activeClientMessageId = nil
+            activeCrossChatNotificationReplySourceChatId = nil
+        }
+        if let messageId,
+           let replySourceChatId = crossChatNotificationReplySourceByClientMessageId.removeValue(forKey: messageId) {
+            dismissCrossChatNotification(sourceChatId: replySourceChatId)
         }
         isSending = false
 

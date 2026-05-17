@@ -983,10 +983,7 @@ struct ChatView: View {
             CrossChatNotificationOverlay.minVisibleBubbleHeight,
             geometry.size.height - notificationOverlayTopMargin - inputBarTopFromScreenBottom - 24
         )
-        let notificationOverlayMaxWidth = max(
-            0,
-            geometry.size.width - geometry.safeAreaInsets.leading - geometry.safeAreaInsets.trailing - 24
-        )
+        let notificationOverlayMaxWidth = geometry.size.width
         let notificationShortcutVisibleCount = CrossChatNotificationOverlay.visibleBubbles(
             maxContainerHeight: notificationOverlayMaxHeight,
             bubbles: viewModel.crossChatNotificationBubbles,
@@ -1510,6 +1507,7 @@ struct ChatView: View {
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: topMargin + maxContainerHeight + 12, alignment: .topTrailing)
+            .ignoresSafeArea(.container, edges: .horizontal)
         )
     }
 
@@ -5038,7 +5036,8 @@ private struct CrossChatNotificationOverlay: View {
     private static let maxBubbleHeight: CGFloat = 205
     private static let bubbleSpacing: CGFloat = 10
     private static let maxStackWidth: CGFloat = 450
-    private static let collapsedPeekWidth: CGFloat = 47
+    private static let bubbleCornerRadius: CGFloat = 18
+    private static let collapsedPeekWidth: CGFloat = bubbleCornerRadius
     private static let trailingMargin: CGFloat = 12
     private static let collapseSwipeThreshold: CGFloat = 44
     static let stackAnimation = Animation.spring(response: 0.34, dampingFraction: 0.86)
@@ -5121,7 +5120,7 @@ private struct CrossChatNotificationOverlay: View {
     }
 
     private var collapsedOffset: CGFloat {
-        stackWidth + Self.trailingMargin - Self.collapsedPeekWidth
+        max(0, stackWidth - 20 - Self.collapsedPeekWidth)
     }
 
     private var visibleBubbleIdentity: [String] {
@@ -5154,6 +5153,9 @@ private struct CrossChatNotificationOverlay: View {
         if !visibleBubbles.isEmpty {
             VStack(alignment: .trailing, spacing: Self.bubbleSpacing) {
                 ForEach(Array(visibleBubbles.enumerated()), id: \.element.sourceChatId) { index, bubble in
+                    let isReplySendActive = viewModel.isSendingCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                    let canSendReply = !viewModel.isSending
+                        && !bubble.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     CrossChatNotificationBubbleView(
                         bubble: bubble,
                         assignedNumber: index,
@@ -5161,6 +5163,10 @@ private struct CrossChatNotificationOverlay: View {
                         showShortcutLabel: showShortcutLabels,
                         maxBubbleHeight: maxBubbleHeight,
                         maxBubbleWidth: max(0, stackWidth - 20),
+                        bubbleCornerRadius: Self.bubbleCornerRadius,
+                        isSending: isReplySendActive,
+                        canSendReply: canSendReply,
+                        connectionState: viewModel.sendButtonConnectionState,
                         replyDraft: Binding(
                             get: {
                                 viewModel.crossChatNotificationBubblesBySourceChatId[bubble.sourceChatId]?.replyDraft ?? ""
@@ -5203,6 +5209,14 @@ private struct CrossChatNotificationOverlay: View {
                         onSendReply: {
                             viewModel.sendCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
                         },
+                        onCancelSend: {
+                            if isReplySendActive {
+                                viewModel.cancelSend()
+                            }
+                        },
+                        onReconnect: {
+                            viewModel.reconnect()
+                        },
                         onActivate: {
                             activeScrollSourceChatId = bubble.sourceChatId
                         },
@@ -5234,7 +5248,7 @@ private struct CrossChatNotificationOverlay: View {
             .frame(maxHeight: maxContainerHeight, alignment: .topTrailing)
             .clipped()
             .padding(.top, topMargin)
-            .padding(.trailing, Self.trailingMargin)
+            .padding(.trailing, isCollapsed ? 0 : Self.trailingMargin)
             .overlay(alignment: .topTrailing) {
                 actionMenuOverlay()
             }
@@ -5675,6 +5689,20 @@ private final class WeakScrollViewBox {
     }
 }
 
+private extension UIScrollView {
+    func clawlineClampNotificationContentOffset() {
+        layoutIfNeeded()
+        let minY = -adjustedContentInset.top
+        let maxY = max(
+            minY,
+            contentSize.height - bounds.height + adjustedContentInset.bottom
+        )
+        let clampedY = max(minY, min(contentOffset.y, maxY))
+        guard abs(contentOffset.y - clampedY) > 0.5 else { return }
+        setContentOffset(CGPoint(x: contentOffset.x, y: clampedY), animated: false)
+    }
+}
+
 private extension UIKey {
     var hasNoCommandModifiers: Bool {
         modifierFlags.intersection([.command, .shift, .alternate, .control]).isEmpty
@@ -5715,6 +5743,13 @@ private struct NotificationScrollViewResolver: UIViewRepresentable {
                 while let current = view {
                     if let scrollView = current as? UIScrollView {
                         self.onResolve?(scrollView)
+                        scrollView.clawlineClampNotificationContentOffset()
+                        DispatchQueue.main.async { [weak scrollView] in
+                            scrollView?.clawlineClampNotificationContentOffset()
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak scrollView] in
+                            scrollView?.clawlineClampNotificationContentOffset()
+                        }
                         return
                     }
                     view = current.superview
@@ -5732,6 +5767,10 @@ private struct CrossChatNotificationBubbleView: View {
     let showShortcutLabel: Bool
     let maxBubbleHeight: CGFloat
     let maxBubbleWidth: CGFloat
+    let bubbleCornerRadius: CGFloat
+    let isSending: Bool
+    let canSendReply: Bool
+    let connectionState: SendButtonConnectionState
     @Binding var replyDraft: String
     let onDismiss: () -> Void
     let onReply: () -> Void
@@ -5739,6 +5778,8 @@ private struct CrossChatNotificationBubbleView: View {
     let onDismissAll: () -> Void
     let onNavigate: () -> Void
     let onSendReply: () -> Void
+    let onCancelSend: () -> Void
+    let onReconnect: () -> Void
     let onActivate: () -> Void
     let isActionMenuOpen: Bool
     let actionMenuSelection: CrossChatNotificationActionMenuItem
@@ -5752,12 +5793,20 @@ private struct CrossChatNotificationBubbleView: View {
 
     private let controlSize: CGFloat = 44
     private let normalContentSpacing: CGFloat = 6
-    private let normalTopPadding: CGFloat = 6
-    private let normalBottomPadding: CGFloat = 8
-    private let replyVerticalPadding: CGFloat = 4
-    private let bubbleCornerRadius: CGFloat = 18
+    private let normalTopPadding: CGFloat = 4
+    private let normalBottomPadding: CGFloat = 6
+    private let replyTopPadding: CGFloat = 3
+    private let replyBottomPadding: CGFloat = 28
     private let accentContentGap: CGFloat = 10
     private let resizeAnimation = Animation.spring(response: 0.28, dampingFraction: 0.88)
+
+    private var inputBarColorScheme: ColorScheme {
+        return colorScheme
+    }
+
+    private var visionOSBorderColor: Color {
+        Color.white.opacity(0.5)
+    }
 
     private var contentMaxHeight: CGFloat {
         let headerAndPadding = controlSize + normalContentSpacing + normalTopPadding + normalBottomPadding
@@ -5806,6 +5855,19 @@ private struct CrossChatNotificationBubbleView: View {
             return AttributedString(markdown)
         }
         return AttributedString(rendered)
+    }
+
+    private func activateReplySendControl() {
+        guard !isSending else { return }
+        switch connectionState {
+        case .connected:
+            guard canSendReply else { return }
+            onSendReply()
+        case .disconnected:
+            onReconnect()
+        case .reconnecting:
+            break
+        }
     }
 
     var body: some View {
@@ -5919,7 +5981,7 @@ private struct CrossChatNotificationBubbleView: View {
                         .textFieldStyle(.plain)
                         .submitLabel(.send)
                         .focused($isReplyFocused)
-                        .onSubmit(onSendReply)
+                        .onSubmit(activateReplySendControl)
                         .onKeyPress(.escape) {
                             onCancelReply()
                             return .handled
@@ -5939,14 +6001,19 @@ private struct CrossChatNotificationBubbleView: View {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(Color.primary.opacity(0.08))
                         )
-                    Button(action: onSendReply) {
-                        Image(systemName: "paperplane.fill")
-                            .font(.clawline(.uiLabel).weight(.semibold))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
-                    }
-                    .frame(width: controlSize, height: controlSize)
-                    .buttonStyle(.plain)
+                    MessageSendControl(
+                        isSending: isSending,
+                        canSend: canSendReply,
+                        isStagingAttachments: false,
+                        connectionState: connectionState,
+                        sendButtonSize: controlSize,
+                        inputBarColorScheme: inputBarColorScheme,
+                        uiColorScheme: colorScheme,
+                        visionOSBorderColor: visionOSBorderColor,
+                        onSend: onSendReply,
+                        onCancel: onCancelSend,
+                        onReconnect: onReconnect
+                    )
                     .accessibilityLabel("Send reply")
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -5956,8 +6023,9 @@ private struct CrossChatNotificationBubbleView: View {
         .foregroundStyle(.primary)
         .padding(.leading, bubbleCornerRadius + accentContentGap)
         .padding(.trailing, 12)
-        .padding(.top, bubble.isReplying ? replyVerticalPadding : normalTopPadding)
-        .padding(.bottom, bubble.isReplying ? replyVerticalPadding : normalBottomPadding)
+        .padding(.top, bubble.isReplying ? replyTopPadding : normalTopPadding)
+        .padding(.bottom, bubble.isReplying ? replyBottomPadding : normalBottomPadding)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: maxBubbleWidth, maxHeight: bubble.isReplying ? nil : maxBubbleHeight, alignment: .topLeading)
         .animation(resizeAnimation, value: bubble.isReplying)
         .animation(resizeAnimation, value: maxBubbleHeight)
@@ -5978,7 +6046,7 @@ private struct CrossChatNotificationBubbleView: View {
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
                 .overlay(alignment: .leading) {
                     Rectangle()
-                        .fill(notificationAccentColor)
+                        .fill(notificationAccentColor.opacity(0.5))
                         .frame(width: bubbleCornerRadius)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))

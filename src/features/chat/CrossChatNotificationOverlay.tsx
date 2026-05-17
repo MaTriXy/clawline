@@ -6,7 +6,7 @@ import {
   type KeyboardEvent,
   type PointerEvent
 } from "react";
-import { Reply, SendHorizontal, X } from "lucide-react";
+import { RefreshCw, Reply, SendHorizontal, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuthSessionStore } from "../../runtime/auth/authSessionStore";
 import {
@@ -16,6 +16,8 @@ import {
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
 import { generateUuidV4 } from "../../runtime/shared/uuid";
 import { useTransportMachine } from "../../runtime/transport/transportMachine";
+import { getSessionProvisioningState } from "../streams/provisioning";
+import { projectComposerSendState } from "./chatSendState";
 import { RichMessageBody } from "./RichMessageBody";
 
 const VISIBLE_NOTIFICATION_LIMIT = 10;
@@ -42,13 +44,18 @@ interface RenderedNotificationBubble {
 export function CrossChatNotificationOverlay() {
   const navigate = useNavigate();
   const { state: authState } = useAuthSessionStore();
-  const { store: chatStore } = useChatDomainStore();
+  const { state: chatState, store: chatStore } = useChatDomainStore();
   const { state: notificationState, store: notificationStore } =
     useCrossChatNotificationStore();
-  const { store: transportStore } = useTransportMachine();
+  const { state: transportState, store: transportStore } = useTransportMachine();
   const [replyErrorsBySourceChatId, setReplyErrorsBySourceChatId] = useState<
     Record<string, string>
   >({});
+  const [sendingReplySourceChatIds, setSendingReplySourceChatIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const [replySourceChatIdByClientMessageId, setReplySourceChatIdByClientMessageId] =
+    useState<Record<string, string>>({});
   const [visibleCapacity, setVisibleCapacity] = useState(() =>
     visibleCapacityForViewportHeight(getViewportHeight())
   );
@@ -77,6 +84,7 @@ export function CrossChatNotificationOverlay() {
     useRef<Record<string, string> | null>(null);
   const entriesRefsBySourceChatId = useRef<Record<string, HTMLDivElement | null>>({});
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
+  const sendingReplySourceChatIdsRef = useRef<Set<string>>(new Set());
   const baseOrderedBubbles = useMemo(
     () =>
       Object.values(notificationState.bubblesBySourceChatId).sort(
@@ -120,6 +128,47 @@ export function CrossChatNotificationOverlay() {
       ].join(":")
     )
     .join("|");
+
+  useEffect(() => {
+    const trackedEntries = Object.entries(replySourceChatIdByClientMessageId);
+    if (trackedEntries.length === 0) {
+      return;
+    }
+
+    for (const [messageId, sourceChatId] of trackedEntries) {
+      const messages = chatState.messagesBySessionKey[sourceChatId] ?? [];
+      const message = messages.find((candidate) => candidate.id === messageId);
+      const isPending = Boolean(chatState.pendingMessages[messageId]);
+      if (message?.delivery === "failed") {
+        setReplySubmitting(sourceChatId, false);
+        setReplySourceChatIdByClientMessageId((current) => {
+          const next = { ...current };
+          delete next[messageId];
+          return next;
+        });
+        setReplyErrorsBySourceChatId((current) => ({
+          ...current,
+          [sourceChatId]: "Reply send failed."
+        }));
+        continue;
+      }
+
+      if (message?.delivery === "acked" || (!isPending && !message)) {
+        setReplySubmitting(sourceChatId, false);
+        notificationStore.dismissCrossChatNotification(sourceChatId);
+        setReplySourceChatIdByClientMessageId((current) => {
+          const next = { ...current };
+          delete next[messageId];
+          return next;
+        });
+      }
+    }
+  }, [
+    chatState.messagesBySessionKey,
+    chatState.pendingMessages,
+    notificationStore,
+    replySourceChatIdByClientMessageId
+  ]);
 
   useEffect(() => {
     function updateVisibleCapacity() {
@@ -333,13 +382,32 @@ export function CrossChatNotificationOverlay() {
     return null;
   }
 
+  function setReplySubmitting(sourceChatId: string, isSubmitting: boolean) {
+    const next = new Set(sendingReplySourceChatIdsRef.current);
+    if (isSubmitting) {
+      next.add(sourceChatId);
+    } else {
+      next.delete(sourceChatId);
+    }
+    sendingReplySourceChatIdsRef.current = next;
+    setSendingReplySourceChatIds(new Set(next));
+  }
+
   async function sendReply(bubble: CrossChatNotificationBubble) {
     const submitSession = authState.session;
     const content = bubble.replyDraft.trim();
     if (!submitSession || content.length === 0) {
       return;
     }
+    const sendState = replySendStateFor(bubble);
+    if (
+      sendState.sendAction !== "send" ||
+      sendingReplySourceChatIdsRef.current.has(bubble.sourceChatId)
+    ) {
+      return;
+    }
 
+    setReplySubmitting(bubble.sourceChatId, true);
     setReplyErrorsBySourceChatId((current) => {
       const next = { ...current };
       delete next[bubble.sourceChatId];
@@ -347,6 +415,10 @@ export function CrossChatNotificationOverlay() {
     });
 
     const id = `c_${generateUuidV4()}`;
+    setReplySourceChatIdByClientMessageId((current) => ({
+      ...current,
+      [id]: bubble.sourceChatId
+    }));
     chatStore.enqueueOptimisticMessage({
       attachments: [],
       content,
@@ -364,13 +436,50 @@ export function CrossChatNotificationOverlay() {
         id,
         sessionKey: bubble.sourceChatId
       });
-      notificationStore.dismissCrossChatNotification(bubble.sourceChatId);
     } catch {
       chatStore.markMessageFailed(id);
       setReplyErrorsBySourceChatId((current) => ({
         ...current,
         [bubble.sourceChatId]: "Reply send failed."
       }));
+      setReplySubmitting(bubble.sourceChatId, false);
+      setReplySourceChatIdByClientMessageId((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+    }
+  }
+
+  function replySendStateFor(bubble: CrossChatNotificationBubble) {
+    return projectComposerSendState({
+      activeStreamDisplayName: bubble.sourceTitle,
+      draft: bubble.replyDraft,
+      isSubmitting: sendingReplySourceChatIds.has(bubble.sourceChatId),
+      provisioningState: getSessionProvisioningState({
+        hasStream: chatState.streams.some(
+          (stream) => stream.sessionKey === bubble.sourceChatId
+        ),
+        provisionedSessionKeys: chatState.provisionedSessionKeys,
+        sessionKey: bubble.sourceChatId,
+        transportPhase: transportState.phase
+      }),
+      sessionKey: bubble.sourceChatId,
+      stagedAttachmentCount: 0,
+      transportPhase: transportState.phase
+    });
+  }
+
+  function activateReplySendButton(
+    bubble: CrossChatNotificationBubble,
+    sendAction: "none" | "reconnect" | "send"
+  ) {
+    if (sendAction === "reconnect") {
+      transportStore.retryNow();
+      return;
+    }
+    if (sendAction === "send") {
+      void sendReply(bubble);
     }
   }
 
@@ -703,13 +812,16 @@ export function CrossChatNotificationOverlay() {
       {renderedBubbles.map(({ bubble, isExiting }) => {
         const isBubbleCollapsed =
           isCollapsed && !previewingCollapsedSourceChatIds.has(bubble.sourceChatId);
+        const replySendState = replySendStateFor(bubble);
+        const isReplySubmitting = sendingReplySourceChatIds.has(bubble.sourceChatId);
         return (
         <section
           aria-label={`${bubble.sourceTitle} notification`}
           className={[
             "cross-chat-notification-bubble",
             isExiting ? "cross-chat-notification-bubble--exiting" : null,
-            isBubbleCollapsed ? "cross-chat-notification-bubble--collapsed" : null
+            isBubbleCollapsed ? "cross-chat-notification-bubble--collapsed" : null,
+            bubble.replyMode ? "cross-chat-notification-bubble--replying" : null
           ]
             .filter(Boolean)
             .join(" ")}
@@ -814,19 +926,36 @@ export function CrossChatNotificationOverlay() {
                   }
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
-                    void sendReply(bubble);
+                    activateReplySendButton(bubble, replySendState.sendAction);
                   }
                 }}
                 rows={1}
                 value={bubble.replyDraft}
               />
               <button
-                aria-label={`Send reply to ${bubble.sourceTitle}`}
-                className="cross-chat-notification-icon-button cross-chat-notification-send"
-                onClick={() => void sendReply(bubble)}
+                aria-label={
+                  replySendState.sendAction === "send"
+                    ? `Send reply to ${bubble.sourceTitle}`
+                    : replySendState.sendAriaLabel
+                }
+                className={[
+                  "composer-circle-button",
+                  "composer-circle-button--send",
+                  `composer-circle-button--${replySendState.connectionState}`,
+                  "cross-chat-notification-send"
+                ].join(" ")}
+                data-connection-state={replySendState.connectionState}
+                disabled={!replySendState.isSendButtonEnabled}
+                onClick={() => activateReplySendButton(bubble, replySendState.sendAction)}
                 type="button"
               >
-                <SendHorizontal aria-hidden="true" size={15} strokeWidth={2.2} />
+                {isReplySubmitting ? (
+                  <span aria-hidden="true">…</span>
+                ) : replySendState.sendAction === "reconnect" ? (
+                  <RefreshCw aria-hidden="true" size={15} strokeWidth={2.1} />
+                ) : (
+                  <SendHorizontal aria-hidden="true" size={15} strokeWidth={2.1} />
+                )}
               </button>
               {replyErrorsBySourceChatId[bubble.sourceChatId] ? (
                 <p className="field-error">

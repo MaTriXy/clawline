@@ -1665,7 +1665,9 @@ html[data-appearance="light"] body::before {
 }
 
 .cross-chat-notification-overlay {
-  position: absolute;
+  --notification-bubble-radius: 1.15rem;
+  --notification-peek-width: var(--notification-bubble-radius);
+  position: fixed;
   top: calc(0.9rem + env(safe-area-inset-top, 0px));
   right: calc(0.9rem + env(safe-area-inset-right, 0px));
   z-index: 7;
@@ -1686,9 +1688,11 @@ html[data-appearance="light"] body::before {
 
 .cross-chat-notification-peek {
   position: absolute;
-  inset: 0 0 0 auto;
+  top: 0;
+  right: calc(-0.9rem - env(safe-area-inset-right, 0px));
+  bottom: 0;
   z-index: 30;
-  width: 2.975rem;
+  width: var(--notification-peek-width);
   padding: 0;
   border: 0;
   background: transparent;
@@ -1707,9 +1711,9 @@ html[data-appearance="light"] body::before {
   align-content: start;
   gap: 0.55rem;
   overflow: hidden;
-  padding: 0.75rem 0.75rem 0.75rem calc(1.15rem + 0.75rem);
+  padding: 0.58rem 0.75rem 0.65rem calc(var(--notification-bubble-radius) + 0.75rem);
   border: 1px solid color-mix(in srgb, var(--color-border-strong) 76%, var(--color-glass-specular) 24%);
-  border-radius: 1.15rem;
+  border-radius: var(--notification-bubble-radius);
   background:
     linear-gradient(180deg, var(--color-glass-specular-soft), transparent 44%),
     color-mix(in srgb, var(--color-panel-glass-strong) 90%, var(--color-panel));
@@ -1729,12 +1733,17 @@ html[data-appearance="light"] body::before {
   animation: cross-chat-notification-enter 180ms ease both;
 }
 
+.cross-chat-notification-bubble--replying {
+  padding-top: 0.46rem;
+  padding-bottom: calc(var(--notification-bubble-radius) + 0.75rem);
+}
+
 .cross-chat-notification-bubble::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 1.15rem;
-  background: var(--color-notification-accent);
+  width: var(--notification-bubble-radius);
+  background: color-mix(in srgb, var(--color-notification-accent) 50%, transparent);
   pointer-events: none;
 }
 
@@ -1744,7 +1753,7 @@ html[data-appearance="light"] body::before {
 }
 
 .cross-chat-notification-bubble--collapsed {
-  transform: translateX(calc(100% - 2.975rem + 0.9rem + env(safe-area-inset-right, 0px)));
+  transform: translateX(calc(100% - var(--notification-peek-width) + 0.9rem + env(safe-area-inset-right, 0px)));
   pointer-events: none;
 }
 
@@ -1867,9 +1876,19 @@ html[data-appearance="light"] body::before {
   font-size: 0.885rem;
 }
 
-.cross-chat-notification-send {
+.cross-chat-notification-send.composer-circle-button {
   flex: 0 0 auto;
-  background: var(--color-accent-soft);
+  width: 2.4rem;
+  height: 2.4rem;
+}
+
+.cross-chat-notification-send.composer-circle-button svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.cross-chat-notification-send.composer-circle-button span {
+  font-size: 1rem;
 }
 
 .cross-chat-notification-action-menu-layer {

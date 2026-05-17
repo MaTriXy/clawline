@@ -467,7 +467,31 @@ struct ChatViewModelTests {
 
         chatService.sendError = nil
         chatService.resetFetchedSessionStatusKeys()
+        chatService.sendDelay = .milliseconds(300)
         viewModel.sendCrossChatNotificationReply(sourceChatId: sourceSessionKey)
+        for _ in 0..<50 {
+            if chatService.lastSentId != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let replyMessageId = try #require(chatService.lastSentId)
+        #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] != nil)
+        viewModel.cancelSend()
+        chatService.emitServiceEvent(.messageAcked(id: replyMessageId))
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] != nil)
+
+        chatService.sendDelay = nil
+        viewModel.sendCrossChatNotificationReply(sourceChatId: sourceSessionKey)
+        for _ in 0..<50 {
+            if chatService.lastSentId != replyMessageId { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let acceptedReplyMessageId = try #require(chatService.lastSentId)
+        #expect(acceptedReplyMessageId != replyMessageId)
+        chatService.emitServiceEvent(.messageAcked(id: replyMessageId))
+        chatService.emitServiceEvent(.messageAcked(id: acceptedReplyMessageId))
         for _ in 0..<50 {
             if viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] == nil { break }
             try await Task.sleep(for: .milliseconds(10))
@@ -4739,6 +4763,7 @@ private final class TestChatService: ChatServicing {
     private(set) var connectCallCount: Int = 0
     var isTransportReadyForSend: Bool = false
     var sendError: Swift.Error?
+    var sendDelay: Duration?
     var createStreamError: Error?
     var deleteStreamError: Error?
     var deleteStreamErrorSequence: [Error] = []
@@ -4869,6 +4894,9 @@ private final class TestChatService: ChatServicing {
         lastSentContent = content
         lastSentAttachments = attachments
         lastSessionKey = sessionKey
+        if let sendDelay {
+            try await Task.sleep(for: sendDelay)
+        }
     }
 
     func sendInteractiveCallback(sourceMessageId: String, action: String, data: JSONValue?) async throws {

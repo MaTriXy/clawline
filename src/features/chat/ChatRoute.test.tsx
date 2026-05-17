@@ -704,6 +704,14 @@ describe("ChatRoute", () => {
         role: "user"
       })
     ]);
+    expect(screen.getByLabelText("Side Thread notification")).toBeInTheDocument();
+
+    const sentMessage = sendMessage.mock.calls[0]?.[0];
+    expect(sentMessage?.id).toEqual(expect.stringMatching(/^c_/));
+    await act(async () => {
+      chatStore.markMessageAcked(sentMessage.id);
+    });
+
     await waitFor(() => {
       expect(screen.queryByLabelText("Side Thread notification")).toBeNull();
     });
