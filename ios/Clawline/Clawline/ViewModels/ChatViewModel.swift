@@ -1259,13 +1259,19 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
-    func dismissCrossChatNotification(sourceChatId: String) {
+    func dismissCrossChatNotification(sourceChatId: String, markSourceRead: Bool = true) {
+        if markSourceRead {
+            markSessionRead(sourceChatId, preferServerTail: true)
+        }
         animateCrossChatNotificationDismissal {
             self.crossChatNotificationBubblesBySourceChatId.removeValue(forKey: sourceChatId)
         }
     }
 
     func dismissAllCrossChatNotifications() {
+        for sourceChatId in crossChatNotificationBubblesBySourceChatId.keys {
+            markSessionRead(sourceChatId, preferServerTail: true)
+        }
         animateCrossChatNotificationDismissal {
             self.crossChatNotificationBubblesBySourceChatId.removeAll()
         }
@@ -3098,7 +3104,7 @@ final class ChatViewModel: ChatViewModelHosting {
             !available.contains($0)
         }
         for sourceChatId in unavailableNotificationSourceChatIds {
-            dismissCrossChatNotification(sourceChatId: sourceChatId)
+            dismissCrossChatNotification(sourceChatId: sourceChatId, markSourceRead: false)
         }
         accessibleSessionKeyOrder = normalized
         accessibleSessionKeys = Set(normalized)
@@ -3114,7 +3120,7 @@ final class ChatViewModel: ChatViewModelHosting {
         unavailableCrossChatNotificationSourceIds.insert(sessionKey)
         accessibleSessionKeys.remove(sessionKey)
         accessibleSessionKeyOrder.removeAll { $0 == sessionKey }
-        dismissCrossChatNotification(sourceChatId: sessionKey)
+        dismissCrossChatNotification(sourceChatId: sessionKey, markSourceRead: false)
     }
 
     private func replaceTrackableSessions(with sessions: [TrackableSession]) {
@@ -3639,7 +3645,7 @@ final class ChatViewModel: ChatViewModelHosting {
         unavailableCrossChatNotificationSourceIds.subtract(validSessionKeys)
         unavailableCrossChatNotificationSourceIds.formUnion(removedSessionKeys)
         for sessionKey in removedSessionKeys {
-            dismissCrossChatNotification(sourceChatId: sessionKey)
+            dismissCrossChatNotification(sourceChatId: sessionKey, markSourceRead: false)
             sessionMessages.removeValue(forKey: sessionKey)
             lastReadMessageIdBySession.removeValue(forKey: sessionKey)
             streamTailStateBySession.removeValue(forKey: sessionKey)
@@ -3742,7 +3748,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private func applyDeletedStreamMutation(sessionKey: String) {
-        dismissCrossChatNotification(sourceChatId: sessionKey)
+        dismissCrossChatNotification(sourceChatId: sessionKey, markSourceRead: false)
         if pendingUntrackRecovery?.sessionKey == sessionKey || streamsBySessionKey[sessionKey]?.adopted == true {
             unlinkTrackedSession(sessionKey: sessionKey)
             return

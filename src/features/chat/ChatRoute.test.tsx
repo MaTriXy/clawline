@@ -514,7 +514,8 @@ describe("ChatRoute", () => {
   });
 
   it("shows assistant-only cross-chat notifications and dismisses them with shortcuts", async () => {
-    const { chatStore, notificationStore } = renderChatRoute(
+    const publishedReadStates: Array<{ sessionKey: string; lastReadMessageId: string }> = [];
+    const { chatStore, notificationStore, transportMachine } = renderChatRoute(
       "/chat/agent:main:clawline:user_1:main",
       {
         initialMessages: [],
@@ -522,7 +523,19 @@ describe("ChatRoute", () => {
           "agent:main:clawline:user_1:main",
           "agent:main:main",
           "agent:main:clawline:user_1:side"
-        ]
+        ],
+        streamReadStates: {
+          "agent:main:clawline:user_1:side": "s_old_read"
+        },
+        configureTransportMachine({ transportMachine }) {
+          const publishReadState = transportMachine.publishReadState.bind(transportMachine);
+          vi.spyOn(transportMachine, "publishReadState").mockImplementation(
+            async (sessionKey, lastReadMessageId) => {
+              publishedReadStates.push({ sessionKey, lastReadMessageId });
+              await publishReadState(sessionKey, lastReadMessageId);
+            }
+          );
+        }
       }
     );
 
@@ -578,12 +591,27 @@ describe("ChatRoute", () => {
       .toBeInTheDocument();
     expect(screen.getByText("Side notification")).toBeInTheDocument();
     expect(screen.getByText("⌘0")).toBeInTheDocument();
+    expect(transportMachine.publishReadState).not.toHaveBeenCalledWith(
+      "agent:main:clawline:user_1:side",
+      "s_side_notify"
+    );
 
     fireEvent.keyDown(document.body, { key: "0", metaKey: true, shiftKey: true, altKey: true });
 
     await waitFor(() => {
       expect(screen.queryByLabelText("Side Thread notification")).toBeNull();
     });
+    await waitFor(() => {
+      expect(publishedReadStates).toContainEqual({
+        sessionKey: "agent:main:clawline:user_1:side",
+        lastReadMessageId: "s_side_notify"
+      });
+    });
+    expect(
+      chatStore.getState().streamReadStateBySessionKey[
+        "agent:main:clawline:user_1:side"
+      ]
+    ).toBe("s_side_notify");
   });
 
   it("renders assistant markdown inside cross-chat notification content", async () => {
@@ -677,6 +705,9 @@ describe("ChatRoute", () => {
     const replyField = await screen.findByRole("textbox", {
       name: "Reply to Side Thread"
     });
+    expect(
+      screen.getByLabelText("Side Thread notification").querySelector(".cross-chat-notification-entries")
+    ).toBeNull();
     fireEvent.change(replyField, { target: { value: "Reply from here" } });
     fireEvent.keyDown(replyField, { key: "Enter" });
 
@@ -742,7 +773,7 @@ describe("ChatRoute", () => {
     const originalInnerHeight = window.innerHeight;
     Object.defineProperty(window, "innerHeight", {
       configurable: true,
-      value: 500
+      value: 230
     });
 
     const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
@@ -810,7 +841,15 @@ describe("ChatRoute", () => {
     expect(styleText).toContain(".cross-chat-notification-entries");
     expect(styleText).toContain("overflow: auto;");
     expect(styleText).toContain("interpolate-size: allow-keywords;");
-    expect(styleText).toContain("height 180ms ease");
+    expect(styleText).toContain("align-self: start;");
+    expect(styleText).toContain("justify-self: end;");
+    expect(styleText).toContain("--notification-motion-duration: 300ms;");
+    expect(styleText).toContain("--notification-motion-reveal: cubic-bezier(0, 0, 0.2, 1);");
+    expect(styleText).toContain("--notification-motion-hide: cubic-bezier(0.4, 0, 1, 1);");
+    expect(styleText).toContain("--notification-motion-resize: cubic-bezier(0.4, 0, 0.2, 1);");
+    expect(styleText).toContain(
+      "height var(--notification-motion-duration) var(--notification-motion-resize)"
+    );
     expect(styleText).toContain("grid-template-rows: auto auto auto;");
     expect(styleText).toContain("max-height: calc(min(20rem, 45vh) - 4.7rem);");
     expect(styleText).not.toContain(".cross-chat-notification-entries {\n  min-height:");
@@ -1341,7 +1380,8 @@ describe("ChatRoute", () => {
       ]
     });
     applyAssistantNotification(view, {
-      content: "Side notification ".repeat(20)
+      content: "Side notification ".repeat(20),
+      timestamp: 21
     });
     expect(await screen.findByLabelText("Side Thread notification"))
       .toBeInTheDocument();
@@ -1354,7 +1394,17 @@ describe("ChatRoute", () => {
     const replyField = await screen.findByRole("textbox", {
       name: "Reply to Side Thread"
     });
-    const bubble = screen.getByLabelText("Side Thread notification");
+    expect(
+      screen.getByLabelText("Side Thread notification").querySelector(".cross-chat-notification-entries")
+    ).toBeNull();
+    applyAssistantNotification(view, {
+      content: "Heimdal notification ".repeat(20),
+      id: "s_heimdal_notify",
+      sessionKey: "agent:main:main",
+      timestamp: 22
+    });
+    const bubble = await screen.findByLabelText("Heimdal notification");
+    fireEvent.pointerEnter(bubble);
     const entries = bubble.querySelector(".cross-chat-notification-entries");
     expect(entries).toBeInstanceOf(HTMLElement);
     const element = entries as HTMLElement;

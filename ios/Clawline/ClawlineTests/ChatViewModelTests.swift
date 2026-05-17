@@ -312,6 +312,70 @@ struct ChatViewModelTests {
         #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] == nil)
     }
 
+    @Test("T307 dismissing notification clears source unread dot through read-state")
+    @MainActor
+    func dismissingNotificationClearsSourceUnreadDot() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let sourceSessionKey = "agent:main:clawline:user:s_read_notification"
+        let streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+            makeStreamSession(sessionKey: sourceSessionKey, displayName: "Source", kind: "custom", orderIndex: 1, isBuiltIn: false)
+        ]
+        let chatService = TestChatService()
+        chatService.streams = streams
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(streams))
+        try await setConnected(chatService: chatService, viewModel: viewModel)
+        chatService.emitServiceEvent(.streamReadStateUpdated(sessionKey: sourceSessionKey, lastReadMessageId: "s_old_read"))
+        chatService.emit(
+            Message(
+                id: "s_notification_unread",
+                role: .assistant,
+                content: "unread source notification",
+                timestamp: Date(),
+                streaming: false,
+                attachments: [],
+                deviceId: nil,
+                sessionKey: sourceSessionKey
+            )
+        )
+
+        for _ in 0..<50 {
+            if viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] != nil,
+               viewModel.streamDotState(for: sourceSessionKey) == .unread {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(viewModel.streamDotState(for: sourceSessionKey) == .unread)
+
+        chatService.lastPublishedReadState = nil
+        viewModel.dismissCrossChatNotification(sourceChatId: sourceSessionKey)
+        for _ in 0..<50 {
+            if chatService.lastPublishedReadState?.lastReadMessageId == "s_notification_unread" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] == nil)
+        #expect(chatService.lastPublishedReadState?.sessionKey == sourceSessionKey)
+        #expect(chatService.lastPublishedReadState?.lastReadMessageId == "s_notification_unread")
+        #expect(viewModel.lastReadMessageIdBySession[sourceSessionKey] == "s_notification_unread")
+        #expect(viewModel.streamDotState(for: sourceSessionKey) == .inactive)
+    }
+
     @Test("T307 overflowing notification preserves active reply draft")
     @MainActor
     func overflowingNotificationClosesReplyDraft() async throws {
