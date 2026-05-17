@@ -1681,7 +1681,7 @@ html[data-appearance="light"] body::before {
   justify-items: end;
   gap: 0.55rem;
   width: min(
-    28.75rem,
+    35.9375rem,
     calc(100% - var(--notification-undocked-right-inset) - var(--notification-undocked-right-inset))
   );
   pointer-events: none;
@@ -1718,7 +1718,7 @@ html[data-appearance="light"] body::before {
   position: relative;
   align-self: start;
   justify-self: end;
-  width: min(28.75rem, 100%);
+  width: min(35.9375rem, 100%);
   height: auto;
   max-height: min(16rem, 36vh);
   display: grid;

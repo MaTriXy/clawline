@@ -5127,7 +5127,7 @@ private struct CrossChatNotificationOverlay: View {
     private static let minReplyBubbleHeight: CGFloat = 104
     private static let maxBubbleHeight: CGFloat = 164
     private static let bubbleSpacing: CGFloat = 10
-    private static let maxStackWidth: CGFloat = 450
+    private static let maxStackWidth: CGFloat = 562.5
     private static let bubbleCornerRadius: CGFloat = 18
     private static let collapsedPeekWidth: CGFloat = bubbleCornerRadius
     private static let trailingMargin: CGFloat = 6

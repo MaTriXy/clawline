@@ -943,6 +943,7 @@ describe("ChatRoute", () => {
     expect(styleText).toContain("interpolate-size: allow-keywords;");
     expect(styleText).toContain("align-self: start;");
     expect(styleText).toContain("justify-self: end;");
+    expect(styleText).toContain("35.9375rem");
     expect(styleText).toContain("--notification-motion-duration: 300ms;");
     expect(styleText).toContain("--notification-motion-reveal: cubic-bezier(0, 0, 0.2, 1);");
     expect(styleText).toContain("--notification-motion-hide: cubic-bezier(0.4, 0, 1, 1);");
