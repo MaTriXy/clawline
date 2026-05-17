@@ -6602,58 +6602,58 @@ private struct CrossChatNotificationActionMenu: View {
         let menuShape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         let selectionColor = ChatFlowTheme.notificationAccent(colorScheme)
 
-        ZStack {
+        VStack(spacing: 2) {
+            ForEach(CrossChatNotificationActionMenuItem.allCases) { item in
+                Button {
+                    onActivate(item)
+                } label: {
+                    HStack(spacing: 14) {
+                        Text(item.title)
+                            .font(notificationFont(.secondaryLabel, weight: .semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 12)
+                        if let shortcut = item.shortcutLabel(assignedNumber: assignedNumber) {
+                            Text(shortcut)
+                                .font(notificationFont(.secondaryLabel))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(item == selection ? selectionColor.opacity(0.24) : Color.clear)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(
+                                item == selection ? selectionColor.opacity(0.58) : Color.clear,
+                                lineWidth: 0.8
+                            )
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.title)
+                .onHover { isHovering in
+                    if isHovering {
+                        onSelectionChange(item)
+                    }
+                }
+            }
+        }
+        .padding(5)
+        .frame(width: 220, alignment: .topLeading)
+        .fixedSize(horizontal: false, vertical: true)
+        .background {
             menuShape
                 .fill(.regularMaterial)
             menuShape
                 .fill(Color(uiColor: .systemBackground).opacity(0.84))
-
-            VStack(spacing: 2) {
-                ForEach(CrossChatNotificationActionMenuItem.allCases) { item in
-                    Button {
-                        onActivate(item)
-                    } label: {
-                        HStack(spacing: 14) {
-                            Text(item.title)
-                                .font(notificationFont(.secondaryLabel, weight: .semibold))
-                                .lineLimit(1)
-                            Spacer(minLength: 12)
-                            if let shortcut = item.shortcutLabel(assignedNumber: assignedNumber) {
-                                Text(shortcut)
-                                    .font(notificationFont(.secondaryLabel))
-                                    .monospacedDigit()
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(item == selection ? selectionColor.opacity(0.24) : Color.clear)
-                        }
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(
-                                    item == selection ? selectionColor.opacity(0.58) : Color.clear,
-                                    lineWidth: 0.8
-                                )
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(item.title)
-                    .onHover { isHovering in
-                        if isHovering {
-                            onSelectionChange(item)
-                        }
-                    }
-                }
-            }
-            .padding(5)
         }
-        .frame(maxWidth: .infinity)
         .overlay {
             menuShape
                 .strokeBorder(Color.primary.opacity(0.30), lineWidth: 0.9)
