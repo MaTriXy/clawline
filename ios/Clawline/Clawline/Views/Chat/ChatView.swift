@@ -1494,6 +1494,7 @@ struct ChatView: View {
         AnyView(
             HStack(alignment: .top, spacing: 0) {
                 Spacer(minLength: 0)
+                    .allowsHitTesting(false)
                 CrossChatNotificationOverlay(
                     viewModel: viewModel,
                     topMargin: topMargin,
@@ -5796,7 +5797,7 @@ private struct CrossChatNotificationBubbleView: View {
     private let normalTopPadding: CGFloat = 4
     private let normalBottomPadding: CGFloat = 6
     private let replyTopPadding: CGFloat = 3
-    private let replyBottomPadding: CGFloat = 28
+    private let replyBottomPadding: CGFloat = 6
     private let accentContentGap: CGFloat = 10
     private let resizeAnimation = Animation.spring(response: 0.28, dampingFraction: 0.88)
 
@@ -5943,6 +5944,7 @@ private struct CrossChatNotificationBubbleView: View {
                         ScrollView(.vertical) {
                             notificationEntriesContent()
                         }
+                        .frame(height: resolvedEntriesHeight ?? contentMaxHeight, alignment: .top)
                         .scrollIndicators(.visible)
                         .background(
                             NotificationScrollViewResolver(onResolve: onRegisterScrollView)

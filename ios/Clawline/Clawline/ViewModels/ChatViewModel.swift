@@ -1318,7 +1318,7 @@ final class ChatViewModel: ChatViewModelHosting {
         let text = bubble.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard streamsBySessionKey[sourceChatId] != nil else {
-            dismissCrossChatNotification(sourceChatId: sourceChatId)
+            toastManager.show("This stream is unavailable. Switch streams and try again.")
             return
         }
         guard validateTextByteLimitForSend(text) else { return }
@@ -1344,7 +1344,6 @@ final class ChatViewModel: ChatViewModelHosting {
                 crossChatNotificationReplySourceChatId: sourceChatId
             )
         case .unavailable:
-            dismissCrossChatNotification(sourceChatId: sourceChatId)
             toastManager.show("This stream is unavailable. Switch streams and try again.")
         }
     }

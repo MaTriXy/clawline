@@ -1735,7 +1735,7 @@ html[data-appearance="light"] body::before {
 
 .cross-chat-notification-bubble--replying {
   padding-top: 0.46rem;
-  padding-bottom: calc(var(--notification-bubble-radius) + 0.75rem);
+  padding-bottom: 0.58rem;
 }
 
 .cross-chat-notification-bubble::before {
