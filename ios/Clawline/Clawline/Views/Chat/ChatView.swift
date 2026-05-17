@@ -6174,6 +6174,8 @@ struct CrossChatNotificationBubbleView: View {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(Color.primary.opacity(0.08))
                         )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
                     MessageSendControl(
                         isSending: isSending,
                         canSend: canSendReply,
@@ -6187,8 +6189,10 @@ struct CrossChatNotificationBubbleView: View {
                         onCancel: onCancelSend,
                         onReconnect: onReconnect
                     )
+                    .frame(width: controlSize, height: controlSize)
                     .accessibilityLabel("Send reply")
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
@@ -6324,6 +6328,7 @@ enum NotificationReplyTextInputConfiguration {
         textView.backgroundColor = .clear
         textView.textContainerInset = textContainerInset
         textView.textContainer.lineFragmentPadding = 0
+        textView.textContainer.widthTracksTextView = true
         textView.adjustsFontForContentSizeCategory = true
         textView.returnKeyType = .send
         textView.autocorrectionType = .yes
@@ -6335,6 +6340,8 @@ enum NotificationReplyTextInputConfiguration {
 #endif
         textView.isEditable = true
         textView.isSelectable = true
+        textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         if let replyTextView = textView as? NotificationReplyUITextView {
             replyTextView.visibleNotificationCount = visibleNotificationCount
         }
@@ -6382,6 +6389,23 @@ struct NotificationReplyTextInput: UIViewRepresentable {
         }
         context.coordinator.updateHeight(for: textView)
         textView.focusIfNeeded()
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: NotificationReplyUITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0 else { return nil }
+        let maxHeight = NotificationReplyTextInputConfiguration.height(
+            forVisibleLines: NotificationReplyTextInputConfiguration.maximumVisibleLines,
+            font: font
+        )
+        let minimumHeight = NotificationReplyTextInputConfiguration.height(
+            forVisibleLines: 1,
+            font: font
+        )
+        let fittingHeight = uiView.sizeThatFits(
+            CGSize(width: width, height: .greatestFiniteMagnitude)
+        ).height
+        let resolvedHeight = min(max(fittingHeight, minimumHeight), maxHeight)
+        return CGSize(width: width, height: resolvedHeight)
     }
 
     func makeCoordinator() -> Coordinator {
