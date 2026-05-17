@@ -1961,6 +1961,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private func closeCrossChatNotificationReplies(sourceChatIds: some Sequence<String>) {
         for sourceChatId in sourceChatIds {
             guard var bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { continue }
+            guard !bubble.isReplying else { continue }
             guard bubble.isReplying || !bubble.replyDraft.isEmpty else { continue }
             bubble.isReplying = false
             bubble.replyDraft = ""

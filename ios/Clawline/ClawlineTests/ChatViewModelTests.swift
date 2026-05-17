@@ -312,7 +312,7 @@ struct ChatViewModelTests {
         #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] == nil)
     }
 
-    @Test("T307 overflowing notification closes reply draft")
+    @Test("T307 overflowing notification preserves active reply draft")
     @MainActor
     func overflowingNotificationClosesReplyDraft() async throws {
         resetChatPersistence()
@@ -387,12 +387,12 @@ struct ChatViewModelTests {
 
         for _ in 0..<50 {
             let bubble = viewModel.crossChatNotificationBubblesBySourceChatId[oldestVisible]
-            if bubble?.isReplying == false, bubble?.replyDraft.isEmpty == true { break }
+            if bubble?.isReplying == true, bubble?.replyDraft == "draft" { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         let overflowed = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[oldestVisible])
-        #expect(overflowed.isReplying == false)
-        #expect(overflowed.replyDraft.isEmpty)
+        #expect(overflowed.isReplying)
+        #expect(overflowed.replyDraft == "draft")
     }
 
     @Test("T307 notification reply closes only after successful send")

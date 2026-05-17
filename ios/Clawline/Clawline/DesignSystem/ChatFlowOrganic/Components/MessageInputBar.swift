@@ -82,6 +82,7 @@ struct MessageInputBar: View {
     var onMentionPickerMoveUp: (() -> Void)?
     var onMentionPickerMoveDown: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
+    var notificationVisibleCount: Int = 0
 
     @State private var editorHeight: CGFloat = 44
     @State private var cachedMaxBarWidth: CGFloat?
@@ -364,6 +365,7 @@ struct MessageInputBar: View {
                 onMentionPickerMoveUp: onMentionPickerMoveUp,
                 onMentionPickerMoveDown: onMentionPickerMoveDown,
                 onPasteImages: onPasteImages,
+                notificationVisibleCount: notificationVisibleCount,
                 placeholderText: placeholderText,
                 isLightModeForInputBar: isLightModeForInputBar,
                 visionOSBorderColor: visionOSBorderColor
@@ -425,6 +427,7 @@ private struct MessageEditorChrome: View {
     var onMentionPickerMoveUp: (() -> Void)?
     var onMentionPickerMoveDown: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
+    var notificationVisibleCount: Int = 0
     let placeholderText: String
     let isLightModeForInputBar: Bool
     let visionOSBorderColor: Color
@@ -502,6 +505,7 @@ private struct MessageEditorChrome: View {
                     onMentionPickerMoveUp: onMentionPickerMoveUp,
                     onMentionPickerMoveDown: onMentionPickerMoveDown,
                     onPasteImages: onPasteImages,
+                    notificationVisibleCount: notificationVisibleCount,
                     trailingPadding: 20
                 )
                 .opacity(editorOpacity)

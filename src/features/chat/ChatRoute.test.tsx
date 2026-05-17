@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatRoute } from "./ChatRoute";
@@ -689,7 +689,7 @@ describe("ChatRoute", () => {
     const originalInnerHeight = window.innerHeight;
     Object.defineProperty(window, "innerHeight", {
       configurable: true,
-      value: 260
+      value: 500
     });
 
     const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
@@ -759,7 +759,7 @@ describe("ChatRoute", () => {
     expect(styleText).toContain("interpolate-size: allow-keywords;");
     expect(styleText).toContain("height 180ms ease");
     expect(styleText).toContain("grid-template-rows: auto auto auto;");
-    expect(styleText).toContain("max-height: calc(min(15rem, 34vh) - 4.7rem);");
+    expect(styleText).toContain("max-height: calc(min(20rem, 45vh) - 4.7rem);");
     expect(styleText).not.toContain("-webkit-line-clamp: 3;");
   });
 
@@ -801,6 +801,123 @@ describe("ChatRoute", () => {
     expect(fireEvent.keyDown(document.body, { key: "j", metaKey: true })).toBe(false);
     fireEvent.keyDown(document.body, { key: "\\", code: "Backslash", metaKey: true });
     expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
+  });
+
+  it("temporarily reveals collapsed web notifications when new content arrives", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view);
+
+    const overlay = await screen.findByLabelText("Cross-chat notifications");
+    fireEvent.pointerDown(overlay, { clientX: 200, clientY: 40 });
+    fireEvent.pointerUp(overlay, { clientX: 260, clientY: 42 });
+    expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+
+    vi.useFakeTimers();
+    await act(async () => {
+      applyAssistantNotification(view, {
+        content: "Fresh collapsed notification",
+        id: "s_side_notify_2",
+        timestamp: 22
+      });
+    });
+
+    expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(screen.getByText("Fresh collapsed notification")).toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+      applyAssistantNotification(view, {
+        content: "Another collapsed notification",
+        id: "s_side_notify_3",
+        timestamp: 23
+      });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(
+      view.notificationStore.getState().bubblesBySourceChatId[
+        "agent:main:clawline:user_1:side"
+      ]
+    ).toBeDefined();
+  });
+
+  it("keeps an active notification reply visible when newer notifications arrive", async () => {
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 220
+    });
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: ["agent:main:clawline:user_1:main", "agent:main:main"]
+    });
+    const notificationStreams = [
+      ...TEST_STREAMS.map((stream) => ({ ...stream })),
+      ...Array.from({ length: 2 }, (_, index) => ({
+        sessionKey: `agent:main:clawline:user_1:extra_${index}`,
+        displayName: `Extra ${index}`,
+        kind: "custom",
+        orderIndex: index + 3,
+        isBuiltIn: false,
+        createdAt: 20 + index,
+        updatedAt: 20 + index,
+        adopted: false
+      }))
+    ];
+
+    applyAssistantNotification(view, {
+      content: "Reply target",
+      id: "s_side_reply_pin",
+      sessionKey: "agent:main:clawline:user_1:side",
+      timestamp: 30,
+      streams: notificationStreams
+    });
+
+    const sideBubble = await screen.findByLabelText("Side Thread notification");
+    fireEvent.click(within(sideBubble).getByRole("button", { name: "Reply" }));
+    expect(await screen.findByLabelText("Reply to Side Thread")).toBeInTheDocument();
+
+    applyAssistantNotification(view, {
+      content: "Newer visible",
+      id: "s_extra_notification_0",
+      sessionKey: "agent:main:clawline:user_1:extra_0",
+      timestamp: 31,
+      streams: notificationStreams
+    });
+    applyAssistantNotification(view, {
+      content: "Newest would normally overflow the reply",
+      id: "s_extra_notification_1",
+      sessionKey: "agent:main:clawline:user_1:extra_1",
+      timestamp: 32,
+      streams: notificationStreams
+    });
+
+    expect(screen.getByLabelText("Side Thread notification")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reply to Side Thread")).toBeInTheDocument();
+    expect(
+      view.notificationStore.getState().bubblesBySourceChatId[
+        "agent:main:clawline:user_1:extra_1"
+      ]
+    ).toBeDefined();
+
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: originalInnerHeight
+    });
   });
 
   it("offers clear-all confirmation after holding a web notification dismiss control", async () => {
@@ -941,7 +1058,24 @@ describe("ChatRoute", () => {
     expect(within(actionMenu).getByRole("menuitem", { name: /Reply/ }))
       .toHaveAttribute("aria-selected", "true");
 
-    fireEvent.keyDown(actionMenu, { key: "Enter" });
+    fireEvent.keyDown(actionMenu, { key: "Escape" });
+    expect(
+      screen.queryByRole("menu", { name: "Actions for Side Thread notification" })
+    ).toBeNull();
+
+    fireEvent.keyDown(document.body, {
+      code: "Digit0",
+      key: "0",
+      metaKey: true
+    });
+    const reopenedActionMenu = await screen.findByRole("menu", {
+      name: "Actions for Side Thread notification"
+    });
+    fireEvent.keyDown(reopenedActionMenu, { key: "ArrowDown" });
+    expect(within(reopenedActionMenu).getByRole("menuitem", { name: /Reply/ }))
+      .toHaveAttribute("aria-selected", "true");
+
+    fireEvent.keyDown(reopenedActionMenu, { key: "Enter" });
 
     expect(
       await screen.findByRole("textbox", { name: "Reply to Side Thread" })

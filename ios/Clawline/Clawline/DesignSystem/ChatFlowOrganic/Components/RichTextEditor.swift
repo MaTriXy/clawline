@@ -38,6 +38,7 @@ struct RichTextEditor: UIViewRepresentable {
     var onMentionPickerMoveUp: (() -> Void)?
     var onMentionPickerMoveDown: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
+    var notificationVisibleCount: Int = 0
     var trailingPadding: CGFloat = 20
 
     func makeUIView(context: Context) -> PastableTextView {
@@ -54,6 +55,7 @@ struct RichTextEditor: UIViewRepresentable {
             coordinator.parent.onFocusChange(isFocused)
         }
         textView.handlesMentionPickerKeyCommands = handlesMentionPickerKeyCommands
+        textView.notificationVisibleCount = notificationVisibleCount
         textView.onMentionPickerTab = { coordinator.parent.onMentionPickerTab?() }
         textView.onMentionPickerMoveUp = { coordinator.parent.onMentionPickerMoveUp?() }
         textView.onMentionPickerMoveDown = { coordinator.parent.onMentionPickerMoveDown?() }
@@ -99,6 +101,7 @@ struct RichTextEditor: UIViewRepresentable {
             coordinator.parent.onFocusChange(isFocused)
         }
         textView.handlesMentionPickerKeyCommands = handlesMentionPickerKeyCommands
+        textView.notificationVisibleCount = notificationVisibleCount
         textView.onMentionPickerTab = { coordinator.parent.onMentionPickerTab?() }
         textView.onMentionPickerMoveUp = { coordinator.parent.onMentionPickerMoveUp?() }
         textView.onMentionPickerMoveDown = { coordinator.parent.onMentionPickerMoveDown?() }
@@ -370,6 +373,7 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
     var onLayout: ((CGFloat) -> Void)?
     var onResponderFocusChange: ((Bool) -> Void)?
     var handlesMentionPickerKeyCommands = false
+    var notificationVisibleCount = 0
     var onMentionPickerTab: (() -> Void)?
     var onMentionPickerMoveUp: (() -> Void)?
     var onMentionPickerMoveDown: (() -> Void)?
@@ -433,7 +437,9 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
             UIKeyCommand(input: "k", modifierFlags: [.control], action: #selector(didPressCtrlK)),
             UIKeyCommand(input: "c", modifierFlags: [.control], action: #selector(didPressCtrlC))
         ]
-        let appCommandShortcuts = ChatAppCommandShortcut.keyCommandSpecs.map { spec in
+        let appCommandShortcuts = ChatAppCommandShortcut
+            .keyCommandSpecs(notificationVisibleCount: notificationVisibleCount)
+            .map { spec in
             UIKeyCommand(
                 input: spec.input,
                 modifierFlags: spec.modifierFlags,

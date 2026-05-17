@@ -90,6 +90,26 @@ struct PromptFocusShortcutActivationTests {
         #expect(!ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
             spec.input == "0" && spec.modifierFlags == [.command]
         })
+        let notificationCommandSpecs = ChatAppCommandShortcut.keyCommandSpecs(
+            notificationVisibleCount: 10
+        )
+        for index in 0...9 {
+            #expect(notificationCommandSpecs.contains { spec in
+                spec.input == "\(index)"
+                    && spec.modifierFlags == [.command]
+                    && spec.action.selector == #selector(UIResponder.clawlineNotificationNumberCommand(_:))
+            })
+            #expect(notificationCommandSpecs.contains { spec in
+                spec.input == "\(index)"
+                    && spec.modifierFlags == [.command, .shift]
+                    && spec.action.selector == #selector(UIResponder.clawlineNotificationNumberCommand(_:))
+            })
+            #expect(notificationCommandSpecs.contains { spec in
+                spec.input == "\(index)"
+                    && spec.modifierFlags == [.command, .shift, .alternate]
+                    && spec.action.selector == #selector(UIResponder.clawlineNotificationNumberCommand(_:))
+            })
+        }
         #expect(
             !ChatAppCommandShortcut.keyCommandSpecs.contains { spec in
                 spec.input == "h" && spec.modifierFlags == [.command]
@@ -292,6 +312,56 @@ struct PromptFocusShortcutActivationTests {
         ])
     }
 
+    @Test("Notification number responders post menu reply and dismiss notifications")
+    @MainActor
+    func notificationNumberRespondersPostMenuReplyAndDismissNotifications() {
+        let center = NotificationCenter.default
+        var posted: [(Notification.Name, Int?)] = []
+        let names: [Notification.Name] = [
+            .clawlineOpenNotificationActionMenuCommand,
+            .clawlineReplyNotificationCommand,
+            .clawlineDismissNotificationCommand
+        ]
+        let tokens = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: nil) { notification in
+                posted.append((name, notification.object as? Int))
+            }
+        }
+        defer {
+            tokens.forEach(center.removeObserver)
+        }
+
+        let responder = UIResponder()
+        responder.clawlineNotificationNumberCommand(
+            UIKeyCommand(
+                input: "3",
+                modifierFlags: [.command],
+                action: #selector(UIResponder.clawlineNotificationNumberCommand(_:))
+            )
+        )
+        responder.clawlineNotificationNumberCommand(
+            UIKeyCommand(
+                input: "3",
+                modifierFlags: [.command, .shift],
+                action: #selector(UIResponder.clawlineNotificationNumberCommand(_:))
+            )
+        )
+        responder.clawlineNotificationNumberCommand(
+            UIKeyCommand(
+                input: "3",
+                modifierFlags: [.command, .shift, .alternate],
+                action: #selector(UIResponder.clawlineNotificationNumberCommand(_:))
+            )
+        )
+
+        #expect(posted.map(\.0) == [
+            .clawlineOpenNotificationActionMenuCommand,
+            .clawlineReplyNotificationCommand,
+            .clawlineDismissNotificationCommand
+        ])
+        #expect(posted.map(\.1) == [3, 3, 3])
+    }
+
     @Test("No-text composed printable typing activates prompt insertion")
     func noTextComposedPrintableTypingActivatesPromptInsertion() {
         #expect(PromptFocusTypingActivation.promptInsertionText(from: "a") == "a")
@@ -412,42 +482,56 @@ struct PromptFocusShortcutActivationTests {
             CrossChatNotificationKeyPrecedence.replyFieldAction(
                 characters: "3",
                 modifiers: .command,
-                assignedNumber: 3
-            ) == .openMenu
+                visibleNotificationCount: 4
+            ) == .openMenu(3)
         )
         #expect(
             CrossChatNotificationKeyPrecedence.replyFieldAction(
                 characters: "#",
                 modifiers: [.command, .shift],
-                assignedNumber: 3
-            ) == .reply
+                visibleNotificationCount: 4
+            ) == .reply(3)
         )
         #expect(
             CrossChatNotificationKeyPrecedence.replyFieldAction(
                 characters: "#",
                 modifiers: [.command, .shift, .option],
-                assignedNumber: 3
-            ) == .dismiss
+                visibleNotificationCount: 4
+            ) == .dismiss(3)
+        )
+        #expect(
+            CrossChatNotificationKeyPrecedence.replyFieldAction(
+                characters: "1",
+                modifiers: .command,
+                visibleNotificationCount: 4
+            ) == .openMenu(1)
         )
         #expect(
             CrossChatNotificationKeyPrecedence.replyFieldAction(
                 characters: "j",
                 modifiers: .command,
-                assignedNumber: 3
+                visibleNotificationCount: 4
             ) == .scrollDown
         )
         #expect(
             CrossChatNotificationKeyPrecedence.replyFieldAction(
                 characters: "k",
                 modifiers: [.command, .shift],
-                assignedNumber: 3
+                visibleNotificationCount: 4
             ) == .scrollUp
         )
         #expect(
             CrossChatNotificationKeyPrecedence.replyFieldAction(
                 characters: "3",
                 modifiers: [.command, .control],
-                assignedNumber: 3
+                visibleNotificationCount: 4
+            ) == nil
+        )
+        #expect(
+            CrossChatNotificationKeyPrecedence.replyFieldAction(
+                characters: "4",
+                modifiers: .command,
+                visibleNotificationCount: 4
             ) == nil
         )
     }
