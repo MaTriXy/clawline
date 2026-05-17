@@ -26,6 +26,9 @@ struct PromptFocusShortcutActivationTests {
         )
 
         #expect(textView.returnKeyType == .send)
+        textView.returnKeyType = .default
+        textView.enforceSendReturnKey()
+        #expect(textView.returnKeyType == .send)
         #expect(textView.font == font)
         #expect(textView.visibleNotificationCount == 3)
         #expect(textView.textContainer.widthTracksTextView)

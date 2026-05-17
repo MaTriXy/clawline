@@ -983,6 +983,7 @@ struct ChatView: View {
         let activeSelectionPopupVisible = isMentionPickerVisible
             || streamPopupRouteController.route != .closed
         let notificationNormalTrailingMargin = metrics.containerPadding / 2
+        let notificationCompactLeadingFitMargin = isCompactLayout ? metrics.containerPadding * 2 : 0
         let notificationOverlayTopMargin: CGFloat = 8
         let notificationOverlayMaxHeight = max(
             CrossChatNotificationOverlay.minVisibleBubbleHeight,
@@ -1035,6 +1036,7 @@ struct ChatView: View {
                 maxContainerHeight: notificationOverlayMaxHeight,
                 maxContainerWidth: notificationOverlayMaxWidth,
                 normalTrailingMargin: notificationNormalTrailingMargin,
+                compactLeadingFitMargin: notificationCompactLeadingFitMargin,
                 measuredBubbleHeightsBySourceChatId: $crossChatNotificationMeasuredHeightsBySourceChatId
             )
             .zIndex(20)
@@ -1503,6 +1505,7 @@ struct ChatView: View {
         maxContainerHeight: CGFloat,
         maxContainerWidth: CGFloat,
         normalTrailingMargin: CGFloat,
+        compactLeadingFitMargin: CGFloat,
         measuredBubbleHeightsBySourceChatId: Binding<[String: CGFloat]>
     ) -> AnyView {
         AnyView(
@@ -1515,6 +1518,7 @@ struct ChatView: View {
                     maxContainerHeight: maxContainerHeight,
                     maxContainerWidth: maxContainerWidth,
                     normalTrailingMargin: normalTrailingMargin,
+                    compactLeadingFitMargin: compactLeadingFitMargin,
                     isCollapsed: $isCrossChatNotificationStackDocked,
                     replyPinSlotsBySourceChatId: $crossChatNotificationReplyPinSlotsBySourceChatId,
                     measuredBubbleHeightsBySourceChatId: measuredBubbleHeightsBySourceChatId,
@@ -5133,6 +5137,7 @@ private struct CrossChatNotificationOverlay: View {
     let maxContainerHeight: CGFloat
     let maxContainerWidth: CGFloat
     let normalTrailingMargin: CGFloat
+    let compactLeadingFitMargin: CGFloat
     @Binding var isCollapsed: Bool
     @Binding var replyPinSlotsBySourceChatId: [String: Int]
     @Binding var measuredBubbleHeightsBySourceChatId: [String: CGFloat]
@@ -5255,7 +5260,10 @@ private struct CrossChatNotificationOverlay: View {
     }
 
     private var stackWidth: CGFloat {
-        min(Self.maxStackWidth, max(0, maxContainerWidth - (isCollapsed ? 0 : normalTrailingMargin)))
+        let externalHorizontalMargin = isCollapsed
+            ? 0
+            : normalTrailingMargin + compactLeadingFitMargin
+        return min(Self.maxStackWidth, max(0, maxContainerWidth - externalHorizontalMargin))
     }
 
     private var collapsedOffset: CGFloat {
@@ -5995,6 +6003,7 @@ struct CrossChatNotificationBubbleView: View {
     private let replyTopPadding: CGFloat = 3
     private let replyBottomPadding: CGFloat = 10
     private let notificationAccentWidth: CGFloat = 14
+    private let notificationAccentOpacity: Double = 0.40
     private let accentContentGap: CGFloat = 10
     private let entriesBottomBreathingRoom: CGFloat = 8
     private let resizeAnimation = CrossChatNotificationMotion.resize
@@ -6249,7 +6258,7 @@ struct CrossChatNotificationBubbleView: View {
 #else
         .background(alignment: .leading) {
             Rectangle()
-                .fill(notificationAccentColor.opacity(0.30))
+                .fill(notificationAccentColor.opacity(notificationAccentOpacity))
                 .frame(width: notificationAccentWidth)
                 .allowsHitTesting(false)
         }
@@ -6355,7 +6364,9 @@ enum NotificationReplyTextInputConfiguration {
         textView.textContainer.widthTracksTextView = true
         textView.adjustsFontForContentSizeCategory = true
         textView.returnKeyType = .send
-        if textView.isFirstResponder {
+        if let replyTextView = textView as? NotificationReplyUITextView {
+            replyTextView.enforceSendReturnKey()
+        } else if textView.isFirstResponder {
             textView.reloadInputViews()
         }
         textView.autocorrectionType = .yes
@@ -6490,6 +6501,13 @@ final class NotificationReplyUITextView: UITextView {
     var wantsInitialFocus = false
     var visibleNotificationCount = 0
 
+    func enforceSendReturnKey() {
+        returnKeyType = .send
+        if isFirstResponder {
+            reloadInputViews()
+        }
+    }
+
     override var keyCommands: [UIKeyCommand]? {
         let prioritizedNotificationCommands = ChatAppCommandShortcut
             .keyCommandSpecs(notificationVisibleCount: visibleNotificationCount)
@@ -6517,14 +6535,24 @@ final class NotificationReplyUITextView: UITextView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        enforceSendReturnKey()
         focusIfNeeded()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        enforceSendReturnKey()
+        let didBecomeFirstResponder = super.becomeFirstResponder()
+        if didBecomeFirstResponder {
+            enforceSendReturnKey()
+        }
+        return didBecomeFirstResponder
     }
 
     func focusIfNeeded() {
         guard wantsInitialFocus, window != nil, !isFirstResponder else { return }
         DispatchQueue.main.async { [weak self] in
             guard let self, wantsInitialFocus, window != nil, !isFirstResponder else { return }
-            becomeFirstResponder()
+            _ = becomeFirstResponder()
             wantsInitialFocus = false
         }
     }
