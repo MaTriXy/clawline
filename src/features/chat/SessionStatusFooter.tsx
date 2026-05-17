@@ -296,7 +296,7 @@ function fastModeText(
   action?: SessionControlAction,
   unsupportedReason?: string | null
 ) {
-  if (!action && unsupportedReason === "codex_fast_mode_not_supported_by_session_control") {
+  if (!action && fastMode == null && unsupportedReason) {
     return "Fast unavailable";
   }
   if (fastMode == null) {

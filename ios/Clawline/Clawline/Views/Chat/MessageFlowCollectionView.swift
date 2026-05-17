@@ -5777,7 +5777,7 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
     private static func fastModeText(_ fastMode: Bool?,
                                      action: SessionControlAction?,
                                      unsupportedReason: String?) -> String {
-        if action == nil, unsupportedReason == "codex_fast_mode_not_supported_by_session_control" {
+        if action == nil, fastMode == nil, unsupportedReason != nil {
             return "Fast unavailable"
         }
         guard let fastMode else { return "Fast Unknown" }
