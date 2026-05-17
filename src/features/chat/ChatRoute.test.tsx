@@ -586,6 +586,51 @@ describe("ChatRoute", () => {
     });
   });
 
+  it("renders assistant markdown inside cross-chat notification content", async () => {
+    const { chatStore, notificationStore } = renderChatRoute(
+      "/chat/agent:main:clawline:user_1:main",
+      {
+        initialMessages: [],
+        sessionKeys: [
+          "agent:main:clawline:user_1:main",
+          "agent:main:main",
+          "agent:main:clawline:user_1:side"
+        ]
+      }
+    );
+
+    const assistantMessageInput: Parameters<typeof chatStore.applyIncomingMessage>[0] = {
+      localDeviceId: "browser-device-1",
+      message: {
+        type: "message",
+        id: "s_side_markdown_notify",
+        role: "assistant",
+        content: "Side **notification** with [details](https://example.com)",
+        timestamp: 21,
+        streaming: false,
+        sessionKey: "agent:main:clawline:user_1:side",
+        attachments: []
+      },
+      selectedSessionKey: "agent:main:clawline:user_1:main",
+      source: "live"
+    };
+    chatStore.applyIncomingMessage(assistantMessageInput);
+    notificationStore.applyIncomingMessage({
+      message: assistantMessageInput.message,
+      selectedSessionKey: assistantMessageInput.selectedSessionKey,
+      source: assistantMessageInput.source,
+      streams: TEST_STREAMS.map((stream) => ({ ...stream }))
+    });
+
+    expect(await screen.findByLabelText("Side Thread notification"))
+      .toBeInTheDocument();
+    expect(screen.getByText("notification").tagName).toBe("STRONG");
+    expect(screen.getByRole("link", { name: "details" })).toHaveAttribute(
+      "href",
+      "https://example.com"
+    );
+  });
+
   it("replies from a notification to its source chat without changing the current transcript", async () => {
     const { chatStore, notificationStore, transportMachine } = renderChatRoute(
       "/chat/agent:main:clawline:user_1:main",
@@ -760,6 +805,7 @@ describe("ChatRoute", () => {
     expect(styleText).toContain("height 180ms ease");
     expect(styleText).toContain("grid-template-rows: auto auto auto;");
     expect(styleText).toContain("max-height: calc(min(20rem, 45vh) - 4.7rem);");
+    expect(styleText).not.toContain(".cross-chat-notification-entries {\n  min-height:");
     expect(styleText).not.toContain("-webkit-line-clamp: 3;");
   });
 
@@ -815,9 +861,11 @@ describe("ChatRoute", () => {
     applyAssistantNotification(view);
 
     const overlay = await screen.findByLabelText("Cross-chat notifications");
+    const bubble = await screen.findByLabelText("Side Thread notification");
     fireEvent.pointerDown(overlay, { clientX: 200, clientY: 40 });
     fireEvent.pointerUp(overlay, { clientX: 260, clientY: 42 });
     expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(bubble).toHaveClass("cross-chat-notification-bubble--collapsed");
 
     vi.useFakeTimers();
     await act(async () => {
@@ -828,7 +876,8 @@ describe("ChatRoute", () => {
       });
     });
 
-    expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(bubble).not.toHaveClass("cross-chat-notification-bubble--collapsed");
     expect(screen.getByText("Fresh collapsed notification")).toBeInTheDocument();
 
     await act(async () => {
@@ -842,17 +891,72 @@ describe("ChatRoute", () => {
     await act(async () => {
       vi.advanceTimersByTime(3000);
     });
-    expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(bubble).not.toHaveClass("cross-chat-notification-bubble--collapsed");
 
     await act(async () => {
       vi.advanceTimersByTime(2000);
     });
     expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(bubble).toHaveClass("cross-chat-notification-bubble--collapsed");
     expect(
       view.notificationStore.getState().bubblesBySourceChatId[
         "agent:main:clawline:user_1:side"
       ]
     ).toBeDefined();
+  });
+
+  it("reveals only the updated collapsed web notification bubble", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    const notificationStreams = [
+      ...TEST_STREAMS.map((stream) => ({ ...stream })),
+      {
+        sessionKey: "agent:main:clawline:user_1:other",
+        displayName: "Other Thread",
+        kind: "custom",
+        orderIndex: 3,
+        isBuiltIn: false,
+        createdAt: 12,
+        updatedAt: 12,
+        adopted: false
+      }
+    ];
+    applyAssistantNotification(view, { streams: notificationStreams });
+    applyAssistantNotification(view, {
+      content: "Other notification",
+      id: "s_other_notify",
+      sessionKey: "agent:main:clawline:user_1:other",
+      timestamp: 22,
+      streams: notificationStreams
+    });
+
+    const overlay = await screen.findByLabelText("Cross-chat notifications");
+    const sideBubble = await screen.findByLabelText("Side Thread notification");
+    const otherBubble = await screen.findByLabelText("Other Thread notification");
+    fireEvent.pointerDown(overlay, { clientX: 200, clientY: 40 });
+    fireEvent.pointerUp(overlay, { clientX: 260, clientY: 42 });
+    expect(sideBubble).toHaveClass("cross-chat-notification-bubble--collapsed");
+    expect(otherBubble).toHaveClass("cross-chat-notification-bubble--collapsed");
+
+    vi.useFakeTimers();
+    await act(async () => {
+      applyAssistantNotification(view, {
+        content: "Fresh side notification",
+        id: "s_side_notify_2",
+        timestamp: 23,
+        streams: notificationStreams
+      });
+    });
+
+    expect(sideBubble).not.toHaveClass("cross-chat-notification-bubble--collapsed");
+    expect(otherBubble).toHaveClass("cross-chat-notification-bubble--collapsed");
   });
 
   it("keeps an active notification reply visible when newer notifications arrive", async () => {

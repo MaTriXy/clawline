@@ -32,6 +32,8 @@ struct CrossChatNotificationBubble: Identifiable, Equatable {
     var replyDraft: String = ""
 }
 
+typealias CrossChatNotificationDismissAnimator = (_ updates: @escaping () -> Void) -> Void
+
 protocol ChatViewModelHosting: AnyObject {
     func handleSceneDidBecomeActive()
 }
@@ -118,6 +120,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var lastReadMessageIdBySession: [String: String] = [:]
     private(set) var streamTailStateBySession: [String: StreamTailState] = [:]
     private(set) var crossChatNotificationBubblesBySourceChatId: [String: CrossChatNotificationBubble] = [:]
+    var crossChatNotificationDismissAnimator: CrossChatNotificationDismissAnimator?
     private var unavailableCrossChatNotificationSourceIds: Set<String> = []
     private var syntheticSessionKeys: Set<String> = []
     private var didRestoreActiveSessionKey = false
@@ -1255,11 +1258,23 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     func dismissCrossChatNotification(sourceChatId: String) {
-        crossChatNotificationBubblesBySourceChatId.removeValue(forKey: sourceChatId)
+        animateCrossChatNotificationDismissal {
+            self.crossChatNotificationBubblesBySourceChatId.removeValue(forKey: sourceChatId)
+        }
     }
 
     func dismissAllCrossChatNotifications() {
-        crossChatNotificationBubblesBySourceChatId.removeAll()
+        animateCrossChatNotificationDismissal {
+            self.crossChatNotificationBubblesBySourceChatId.removeAll()
+        }
+    }
+
+    private func animateCrossChatNotificationDismissal(_ updates: @escaping () -> Void) {
+        guard let crossChatNotificationDismissAnimator else {
+            updates()
+            return
+        }
+        crossChatNotificationDismissAnimator(updates)
     }
 
     func openCrossChatNotificationReply(sourceChatId: String) {

@@ -446,6 +446,20 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
                 action: spec.action.selector
             )
         }
+        let prioritizedAppCommandShortcuts = appCommandShortcuts.filter {
+            ChatAppCommandShortcut.prioritizesTextInputBaseCommand(
+                input: $0.input,
+                modifierFlags: $0.modifierFlags,
+                notificationVisibleCount: notificationVisibleCount
+            )
+        }
+        let deferredAppCommandShortcuts = appCommandShortcuts.filter { command in
+            !prioritizedAppCommandShortcuts.contains { prioritized in
+                prioritized.input == command.input
+                    && prioritized.modifierFlags == command.modifierFlags
+                    && prioritized.action == command.action
+            }
+        }
         let inputReleaseCommands = [
             UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(didPressEscape))
         ]
@@ -456,7 +470,12 @@ final class PastableTextView: UITextView, UITextPasteDelegate {
                 UIKeyCommand(input: UIKeyCommand.inputDownArrow, modifierFlags: [], action: #selector(didPressMentionPickerDown))
             ]
             : []
-        return mentionPickerCommands + inputReleaseCommands + base + emacsCommands + appCommandShortcuts
+        return mentionPickerCommands
+            + prioritizedAppCommandShortcuts
+            + inputReleaseCommands
+            + base
+            + emacsCommands
+            + deferredAppCommandShortcuts
     }
 
     private var canHandleInputShortcut: Bool {

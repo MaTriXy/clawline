@@ -9,7 +9,7 @@ final class CrossChatMentionTextAttachment: NSTextAttachment {
     private enum Metrics {
         static let horizontalPadding: CGFloat = 10
         static let iconGap: CGFloat = 6
-        static let maxWidth: CGFloat = 180
+        static let maxWidth: CGFloat = 260
         static let height: CGFloat = 30
         static let verticalOffset: CGFloat = -7
     }
@@ -63,9 +63,12 @@ final class CrossChatMentionTextAttachment: NSTextAttachment {
         let iconImage = UIImage(systemName: "bubble.left.and.bubble.right", withConfiguration: iconConfiguration)?
             .withTintColor(.secondaryLabel, renderingMode: .alwaysOriginal)
         let title = "@\(displayName)" as NSString
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
         let titleAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: UIColor.label
+            .foregroundColor: UIColor.label,
+            .paragraphStyle: paragraph
         ]
         let iconSize = iconImage?.size ?? CGSize(width: font.pointSize, height: font.pointSize)
         let titleSize = title.size(withAttributes: titleAttributes)
@@ -100,7 +103,12 @@ final class CrossChatMentionTextAttachment: NSTextAttachment {
                 width: titleAvailableWidth,
                 height: titleSize.height
             )
-            title.draw(in: titleRect, withAttributes: titleAttributes)
+            title.draw(
+                with: titleRect,
+                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+                attributes: titleAttributes,
+                context: nil
+            )
             context.cgContext.restoreGState()
         }
     }

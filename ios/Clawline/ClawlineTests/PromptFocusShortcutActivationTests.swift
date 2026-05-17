@@ -138,6 +138,70 @@ struct PromptFocusShortcutActivationTests {
         #expect(firstEscapeCommand?.action == Selector(("didPressEscape:")))
     }
 
+    @Test("Prompt text input exposes app scroll commands before base text-view commands")
+    @MainActor
+    func promptTextInputExposesAppScrollCommandsBeforeBaseTextViewCommands() {
+        let textView = PastableTextView(frame: .zero, textContainer: nil)
+        textView.notificationVisibleCount = 2
+
+        let firstCommandJ = textView.keyCommands?.first { command in
+            command.input == "j" && command.modifierFlags == [.command]
+        }
+        let firstCommandShiftK = textView.keyCommands?.first { command in
+            command.input == "k" && command.modifierFlags == [.command, .shift]
+        }
+
+        #expect(firstCommandJ?.action == #selector(UIResponder.clawlineScrollDownCommand(_:)))
+        #expect(firstCommandShiftK?.action == #selector(UIResponder.clawlineScrollChatUpCommand(_:)))
+    }
+
+    @Test("Text input priority is limited to visible notification-owned shortcuts")
+    @MainActor
+    func textInputPriorityIsLimitedToVisibleNotificationOwnedShortcuts() {
+        #expect(
+            ChatAppCommandShortcut.prioritizesTextInputBaseCommand(
+                input: "j",
+                modifierFlags: [.command],
+                notificationVisibleCount: 0
+            ) == false
+        )
+        #expect(
+            ChatAppCommandShortcut.prioritizesTextInputBaseCommand(
+                input: "j",
+                modifierFlags: [.command],
+                notificationVisibleCount: 2
+            )
+        )
+        #expect(
+            ChatAppCommandShortcut.prioritizesTextInputBaseCommand(
+                input: "k",
+                modifierFlags: [.command, .shift],
+                notificationVisibleCount: 2
+            )
+        )
+        #expect(
+            ChatAppCommandShortcut.prioritizesTextInputBaseCommand(
+                input: "1",
+                modifierFlags: [.command, .shift, .alternate],
+                notificationVisibleCount: 2
+            )
+        )
+        #expect(
+            ChatAppCommandShortcut.prioritizesTextInputBaseCommand(
+                input: "l",
+                modifierFlags: [.command],
+                notificationVisibleCount: 2
+            ) == false
+        )
+        #expect(
+            ChatAppCommandShortcut.prioritizesTextInputBaseCommand(
+                input: "1",
+                modifierFlags: [.command, .control],
+                notificationVisibleCount: 2
+            ) == false
+        )
+    }
+
     @Test("Prompt text input reports responder focus transitions")
     @MainActor
     func promptTextInputReportsResponderFocusTransitions() {

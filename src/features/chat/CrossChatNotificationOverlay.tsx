@@ -16,6 +16,7 @@ import {
 import { useChatDomainStore } from "../../runtime/chat/chatDomainStore";
 import { generateUuidV4 } from "../../runtime/shared/uuid";
 import { useTransportMachine } from "../../runtime/transport/transportMachine";
+import { RichMessageBody } from "./RichMessageBody";
 
 const VISIBLE_NOTIFICATION_LIMIT = 10;
 const OVERLAY_VERTICAL_MARGIN_PX = 14;
@@ -52,7 +53,8 @@ export function CrossChatNotificationOverlay() {
     visibleCapacityForViewportHeight(getViewportHeight())
   );
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isCollapsedPreviewing, setIsCollapsedPreviewing] = useState(false);
+  const [previewingCollapsedSourceChatIds, setPreviewingCollapsedSourceChatIds] =
+    useState<Set<string>>(() => new Set());
   const [renderedBubbles, setRenderedBubbles] = useState<RenderedNotificationBubble[]>(
     []
   );
@@ -70,8 +72,9 @@ export function CrossChatNotificationOverlay() {
   const dragStartYRef = useRef<number | null>(null);
   const suppressNavigationClickRef = useRef(false);
   const clearAllHoldTimerRef = useRef<number | null>(null);
-  const collapsedRevealTimerRef = useRef<number | null>(null);
-  const previousNotificationActivitySignatureRef = useRef<string | null>(null);
+  const collapsedRevealTimersBySourceChatIdRef = useRef<Record<string, number>>({});
+  const previousNotificationActivitySignaturesBySourceChatIdRef =
+    useRef<Record<string, string> | null>(null);
   const entriesRefsBySourceChatId = useRef<Record<string, HTMLDivElement | null>>({});
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const baseOrderedBubbles = useMemo(
@@ -97,9 +100,17 @@ export function CrossChatNotificationOverlay() {
   const overflowBubbles = orderedBubbles.slice(visibleCapacity);
   const visibleSourceChatIds = visibleBubbles.map((bubble) => bubble.sourceChatId);
   const hasActiveReply = orderedBubbles.some((bubble) => bubble.replyMode);
-  const notificationActivitySignature = orderedBubbles
-    .map(notificationBubbleActivitySignature)
-    .join("|");
+  const hasCollapsedPreview = previewingCollapsedSourceChatIds.size > 0;
+  const notificationActivitySignaturesBySourceChatId = useMemo(
+    () =>
+      Object.fromEntries(
+        orderedBubbles.map((bubble) => [
+          bubble.sourceChatId,
+          notificationBubbleActivitySignature(bubble)
+        ])
+      ),
+    [orderedBubbles]
+  );
   const visibleBubbleSignature = visibleBubbles
     .map((bubble) =>
       [
@@ -152,22 +163,26 @@ export function CrossChatNotificationOverlay() {
   useEffect(() => {
     return () => {
       clearClearAllHoldTimer();
-      clearCollapsedRevealTimer();
+      clearAllCollapsedRevealPreviews();
     };
   }, []);
 
   useEffect(() => {
-    const previousSignature = previousNotificationActivitySignatureRef.current;
-    previousNotificationActivitySignatureRef.current = notificationActivitySignature;
-    if (
-      previousSignature !== null &&
-      previousSignature !== notificationActivitySignature &&
-      notificationActivitySignature.length > 0 &&
-      isCollapsed
-    ) {
-      startCollapsedRevealPreview();
+    const previousSignatures =
+      previousNotificationActivitySignaturesBySourceChatIdRef.current;
+    previousNotificationActivitySignaturesBySourceChatIdRef.current =
+      notificationActivitySignaturesBySourceChatId;
+    if (previousSignatures !== null && isCollapsed) {
+      const changedSourceChatIds = Object.entries(
+        notificationActivitySignaturesBySourceChatId
+      )
+        .filter(
+          ([sourceChatId, signature]) => previousSignatures[sourceChatId] !== signature
+        )
+        .map(([sourceChatId]) => sourceChatId);
+      startCollapsedRevealPreview(changedSourceChatIds);
     }
-  }, [isCollapsed, notificationActivitySignature]);
+  }, [isCollapsed, notificationActivitySignaturesBySourceChatId]);
 
   useEffect(() => {
     for (const bubble of overflowBubbles) {
@@ -259,7 +274,7 @@ export function CrossChatNotificationOverlay() {
           return;
         }
         event.preventDefault();
-        if (isCollapsedPreviewing) {
+        if (hasCollapsedPreview) {
           restoreNotifications();
         }
         scrollNotificationEntries(targetSourceChatId, key === "j" ? "down" : "up");
@@ -294,7 +309,7 @@ export function CrossChatNotificationOverlay() {
         notificationStore.openCrossChatNotificationReply(sourceChatId);
       } else if (!event.altKey) {
         event.preventDefault();
-        if (isCollapsed || isCollapsedPreviewing) {
+        if (isCollapsed || hasCollapsedPreview) {
           restoreNotifications();
         }
         setActionMenuSelectedIndex(DEFAULT_NOTIFICATION_ACTION_MENU_INDEX);
@@ -306,9 +321,9 @@ export function CrossChatNotificationOverlay() {
     return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
   }, [
     activeSourceChatId,
+    hasCollapsedPreview,
     hasActiveReply,
     isCollapsed,
-    isCollapsedPreviewing,
     notificationStore,
     visibleCapacity,
     visibleSourceChatIds
@@ -366,25 +381,66 @@ export function CrossChatNotificationOverlay() {
     }
   }
 
-  function clearCollapsedRevealTimer() {
-    if (collapsedRevealTimerRef.current !== null) {
-      window.clearTimeout(collapsedRevealTimerRef.current);
-      collapsedRevealTimerRef.current = null;
+  function clearCollapsedRevealPreview(sourceChatId: string) {
+    const timerId = collapsedRevealTimersBySourceChatIdRef.current[sourceChatId];
+    if (timerId !== undefined) {
+      window.clearTimeout(timerId);
+      delete collapsedRevealTimersBySourceChatIdRef.current[sourceChatId];
     }
+    setPreviewingCollapsedSourceChatIds((current) => {
+      if (!current.has(sourceChatId)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(sourceChatId);
+      return next;
+    });
   }
 
-  function clearCollapsedRevealPreview() {
-    clearCollapsedRevealTimer();
-    setIsCollapsedPreviewing(false);
+  function clearAllCollapsedRevealPreviews() {
+    for (const timerId of Object.values(collapsedRevealTimersBySourceChatIdRef.current)) {
+      window.clearTimeout(timerId);
+    }
+    collapsedRevealTimersBySourceChatIdRef.current = {};
+    setPreviewingCollapsedSourceChatIds(new Set());
   }
 
-  function startCollapsedRevealPreview() {
-    clearCollapsedRevealTimer();
-    setIsCollapsedPreviewing(true);
-    collapsedRevealTimerRef.current = window.setTimeout(() => {
-      collapsedRevealTimerRef.current = null;
-      setIsCollapsedPreviewing(false);
-    }, COLLAPSED_NOTIFICATION_REVEAL_MS);
+  function startCollapsedRevealPreview(sourceChatIds: readonly string[]) {
+    if (!isCollapsed || sourceChatIds.length === 0) {
+      return;
+    }
+    const visibleSourceChatIdSet = new Set(visibleSourceChatIds);
+    const previewSourceChatIds = sourceChatIds.filter((sourceChatId) =>
+      visibleSourceChatIdSet.has(sourceChatId)
+    );
+    if (previewSourceChatIds.length === 0) {
+      return;
+    }
+    setPreviewingCollapsedSourceChatIds((current) => {
+      const next = new Set(current);
+      for (const sourceChatId of previewSourceChatIds) {
+        next.add(sourceChatId);
+      }
+      return next;
+    });
+    for (const sourceChatId of previewSourceChatIds) {
+      const currentTimer = collapsedRevealTimersBySourceChatIdRef.current[sourceChatId];
+      if (currentTimer !== undefined) {
+        window.clearTimeout(currentTimer);
+      }
+      collapsedRevealTimersBySourceChatIdRef.current[sourceChatId] =
+        window.setTimeout(() => {
+          delete collapsedRevealTimersBySourceChatIdRef.current[sourceChatId];
+          setPreviewingCollapsedSourceChatIds((current) => {
+            if (!current.has(sourceChatId)) {
+              return current;
+            }
+            const next = new Set(current);
+            next.delete(sourceChatId);
+            return next;
+          });
+        }, COLLAPSED_NOTIFICATION_REVEAL_MS);
+    }
   }
 
   function confirmClearAllNotifications() {
@@ -474,12 +530,12 @@ export function CrossChatNotificationOverlay() {
     if (hasActiveReply) {
       return;
     }
-    clearCollapsedRevealPreview();
+    clearAllCollapsedRevealPreviews();
     setIsCollapsed(true);
   }
 
   function restoreNotifications() {
-    clearCollapsedRevealPreview();
+    clearAllCollapsedRevealPreviews();
     setIsCollapsed(false);
   }
 
@@ -490,12 +546,12 @@ export function CrossChatNotificationOverlay() {
       }
       return;
     }
-    clearCollapsedRevealPreview();
+    clearAllCollapsedRevealPreviews();
     setIsCollapsed((current) => !current);
   }
 
   function pinReplySourceChatId(sourceChatId: string) {
-    if (isCollapsed || isCollapsedPreviewing) {
+    if (isCollapsed || hasCollapsedPreview) {
       restoreNotifications();
     }
     const currentSlot = visibleSourceChatIds.indexOf(sourceChatId);
@@ -536,7 +592,7 @@ export function CrossChatNotificationOverlay() {
   }
 
   function handlePointerDown(event: PointerEvent<HTMLElement>) {
-    if (isCollapsedPreviewing) {
+    if (hasCollapsedPreview) {
       restoreNotifications();
     }
     dragStartXRef.current = event.clientX;
@@ -579,20 +635,18 @@ export function CrossChatNotificationOverlay() {
   const actionMenuAssignedNumber = actionMenuBubble
     ? Math.max(0, visibleSourceChatIds.indexOf(actionMenuBubble.sourceChatId))
     : -1;
-  const isVisuallyCollapsed = isCollapsed && !isCollapsedPreviewing;
-
   return (
     <aside
       aria-label="Cross-chat notifications"
       className={
-        isVisuallyCollapsed
+        isCollapsed
           ? "cross-chat-notification-overlay cross-chat-notification-overlay--collapsed"
           : "cross-chat-notification-overlay"
       }
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
     >
-      {isVisuallyCollapsed ? (
+      {isCollapsed ? (
         <button
           aria-label="Show notifications"
           className="cross-chat-notification-peek"
@@ -600,14 +654,19 @@ export function CrossChatNotificationOverlay() {
           type="button"
         />
       ) : null}
-      {renderedBubbles.map(({ bubble, isExiting }) => (
+      {renderedBubbles.map(({ bubble, isExiting }) => {
+        const isBubbleCollapsed =
+          isCollapsed && !previewingCollapsedSourceChatIds.has(bubble.sourceChatId);
+        return (
         <section
           aria-label={`${bubble.sourceTitle} notification`}
-          className={
-            isExiting
-              ? "cross-chat-notification-bubble cross-chat-notification-bubble--exiting"
-              : "cross-chat-notification-bubble"
-          }
+          className={[
+            "cross-chat-notification-bubble",
+            isExiting ? "cross-chat-notification-bubble--exiting" : null,
+            isBubbleCollapsed ? "cross-chat-notification-bubble--collapsed" : null
+          ]
+            .filter(Boolean)
+            .join(" ")}
           data-testid="cross-chat-notification-bubble"
           key={bubble.sourceChatId}
           onBlur={(event) => {
@@ -681,9 +740,11 @@ export function CrossChatNotificationOverlay() {
             }}
           >
             {bubble.entriesNewestFirst.map((entry) => (
-              <p key={entry.assistantMessageId}>
-                {entry.contentPreview.length > 0 ? entry.contentPreview : "Assistant reply"}
-              </p>
+              <RichMessageBody
+                className="cross-chat-notification-markdown"
+                content={entry.contentPreview.length > 0 ? entry.contentPreview : "Assistant reply"}
+                key={entry.assistantMessageId}
+              />
             ))}
           </div>
           {bubble.replyMode ? (
@@ -726,7 +787,8 @@ export function CrossChatNotificationOverlay() {
             </div>
           ) : null}
         </section>
-      ))}
+        );
+      })}
       {actionMenuBubble ? (
         <div
           className="cross-chat-notification-action-menu-layer"
