@@ -451,7 +451,8 @@ struct UnifiedMarkdownRenderingAcceptanceTests {
                 actionMenuSelection: .goToChat,
                 onActionMenuSelectionChange: { _ in },
                 onActionMenuAction: { _ in },
-                onRegisterScrollView: { _ in }
+                onRegisterScrollView: { _ in },
+                isDismissSwipeActive: false
             )
         )
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 420, height: 320))
