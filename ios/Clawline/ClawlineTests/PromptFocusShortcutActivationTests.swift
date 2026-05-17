@@ -11,6 +11,31 @@ import UIKit
 @testable import Clawline
 
 struct PromptFocusShortcutActivationTests {
+    @Test("T307 notification reply input presents Send return key and five-line cap")
+    @MainActor
+    func notificationReplyInputUsesSendReturnKeyAndFiveLineCap() {
+        let textView = NotificationReplyUITextView()
+        let font = UIFont.systemFont(ofSize: 15)
+
+        NotificationReplyTextInputConfiguration.configure(
+            textView,
+            font: font,
+            textColor: .label,
+            tintColor: .systemGreen,
+            visibleNotificationCount: 3
+        )
+
+        #expect(textView.returnKeyType == .send)
+        #expect(textView.font == font)
+        #expect(textView.visibleNotificationCount == 3)
+        #expect(
+            NotificationReplyTextInputConfiguration.height(
+                forVisibleLines: NotificationReplyTextInputConfiguration.maximumVisibleLines,
+                font: font
+            ) == ceil(font.lineHeight * 5)
+        )
+    }
+
     @Test("No-text prompt focus shortcuts keep Cmd-L out of the unmodified host")
     func noTextPromptFocusShortcutsKeepCommandLOutOfTheUnmodifiedHost() {
         #expect(
