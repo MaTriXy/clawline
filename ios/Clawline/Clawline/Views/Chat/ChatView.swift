@@ -5386,7 +5386,7 @@ private struct CrossChatNotificationOverlay: View {
                 guard measuredBubbleHeightsBySourceChatId != next else { return }
                 measuredBubbleHeightsBySourceChatId = next
             }
-            .overlay(alignment: .topTrailing) {
+            .overlay(alignment: .top) {
                 actionMenuOverlay()
             }
             .overlay(alignment: .trailing) {

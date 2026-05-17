@@ -955,6 +955,10 @@ describe("ChatRoute", () => {
     expect(styleText).toContain("max-height: calc(min(16rem, 36vh) - 4.7rem);");
     expect(styleText).toContain("padding-bottom: 0.57rem;");
     expect(styleText).toContain("0 8px 18px rgba(0, 0, 0, 0.16)");
+    expect(styleText).toContain(".cross-chat-notification-action-menu-layer");
+    expect(styleText).toContain("left: 50%;");
+    expect(styleText).toContain("transform: translateX(-50%);");
+    expect(styleText).not.toContain(".cross-chat-notification-action-menu-layer {\n  position: absolute;\n  right: 0;");
     expect(styleText).toContain(
       "color-mix(in srgb, var(--color-notification-accent) 30%, transparent)"
     );

@@ -1930,9 +1930,10 @@ html[data-appearance="light"] body::before {
 
 .cross-chat-notification-action-menu-layer {
   position: absolute;
-  right: 0;
+  left: 50%;
   z-index: 120;
   width: min(16rem, 100%);
+  transform: translateX(-50%);
   pointer-events: auto;
   isolation: isolate;
 }
