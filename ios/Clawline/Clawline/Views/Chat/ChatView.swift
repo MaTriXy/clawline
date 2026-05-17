@@ -978,15 +978,15 @@ struct ChatView: View {
             visibleMentionPickerStreams.contains { $0.sessionKey == highlighted } ? highlighted : nil
         } ?? visibleMentionPickerStreams.first?.sessionKey
         let isMentionPickerVisible = mentionQuery != nil
+        let notificationOverlayTopMargin: CGFloat = 8
         let notificationOverlayMaxHeight = max(
             CrossChatNotificationOverlay.minVisibleBubbleHeight,
-            geometry.size.height - statusBarTopInset - inputBarTopFromScreenBottom - 24
+            geometry.size.height - notificationOverlayTopMargin - inputBarTopFromScreenBottom - 24
         )
         let notificationOverlayMaxWidth = max(
             0,
             geometry.size.width - geometry.safeAreaInsets.leading - geometry.safeAreaInsets.trailing - 24
         )
-        let notificationOverlayTopMargin = max(8, statusBarTopInset)
         let notificationShortcutVisibleCount = CrossChatNotificationOverlay.visibleBubbles(
             maxContainerHeight: notificationOverlayMaxHeight,
             bubbles: viewModel.crossChatNotificationBubbles,
@@ -5038,7 +5038,7 @@ private struct CrossChatNotificationOverlay: View {
     private static let maxBubbleHeight: CGFloat = 205
     private static let bubbleSpacing: CGFloat = 10
     private static let maxStackWidth: CGFloat = 450
-    private static let collapsedPeekWidth: CGFloat = 37
+    private static let collapsedPeekWidth: CGFloat = 47
     private static let trailingMargin: CGFloat = 12
     private static let collapseSwipeThreshold: CGFloat = 44
     static let stackAnimation = Animation.spring(response: 0.34, dampingFraction: 0.86)
@@ -5177,16 +5177,20 @@ private struct CrossChatNotificationOverlay: View {
                             dismissNotification(sourceChatId: bubble.sourceChatId)
                         },
                         onReply: {
-                            if bubble.isReplying {
-                                unpinReply(sourceChatId: bubble.sourceChatId)
-                            } else {
-                                pinReply(sourceChatId: bubble.sourceChatId)
+                            animateNotificationResize {
+                                if bubble.isReplying {
+                                    unpinReply(sourceChatId: bubble.sourceChatId)
+                                } else {
+                                    pinReply(sourceChatId: bubble.sourceChatId)
+                                }
+                                viewModel.toggleCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
                             }
-                            viewModel.toggleCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
                         },
                         onCancelReply: {
-                            unpinReply(sourceChatId: bubble.sourceChatId)
-                            viewModel.closeCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                            animateNotificationResize {
+                                unpinReply(sourceChatId: bubble.sourceChatId)
+                                viewModel.closeCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                            }
                         },
                         onDismissAll: {
                             dismissAllNotifications()
@@ -5295,8 +5299,10 @@ private struct CrossChatNotificationOverlay: View {
                 guard let index = notification.object as? Int,
                       visibleBubbles.indices.contains(index) else { return }
                 closeActionMenu()
-                pinReply(sourceChatId: visibleBubbles[index].sourceChatId)
-                viewModel.openCrossChatNotificationReply(sourceChatId: visibleBubbles[index].sourceChatId)
+                animateNotificationResize {
+                    pinReply(sourceChatId: visibleBubbles[index].sourceChatId)
+                    viewModel.openCrossChatNotificationReply(sourceChatId: visibleBubbles[index].sourceChatId)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineDismissNotificationCommand)) { notification in
                 guard let index = notification.object as? Int,
@@ -5632,11 +5638,19 @@ private struct CrossChatNotificationOverlay: View {
             unpinReply(sourceChatId: bubble.sourceChatId)
             onNavigateToSource(bubble.sourceChatId)
         case .reply:
-            pinReply(sourceChatId: bubble.sourceChatId)
-            viewModel.openCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+            animateNotificationResize {
+                pinReply(sourceChatId: bubble.sourceChatId)
+                viewModel.openCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+            }
         case .dismiss:
             unpinReply(sourceChatId: bubble.sourceChatId)
             dismissNotification(sourceChatId: bubble.sourceChatId)
+        }
+    }
+
+    private func animateNotificationResize(_ updates: () -> Void) {
+        withAnimation(Self.stackAnimation) {
+            updates()
         }
     }
 
@@ -5742,6 +5756,7 @@ private struct CrossChatNotificationBubbleView: View {
     private let normalBottomPadding: CGFloat = 8
     private let replyVerticalPadding: CGFloat = 4
     private let bubbleCornerRadius: CGFloat = 18
+    private let accentContentGap: CGFloat = 10
     private let resizeAnimation = Animation.spring(response: 0.28, dampingFraction: 0.88)
 
     private var contentMaxHeight: CGFloat {
@@ -5893,6 +5908,7 @@ private struct CrossChatNotificationBubbleView: View {
                 .animation(resizeAnimation, value: entriesAnimationKey)
                 .animation(resizeAnimation, value: resolvedEntriesHeight)
                 .animation(resizeAnimation, value: contentMaxHeight)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             if bubble.isReplying {
@@ -5933,11 +5949,13 @@ private struct CrossChatNotificationBubbleView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Send reply")
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
         }
         .foregroundStyle(.primary)
-        .padding(.horizontal, 12)
+        .padding(.leading, bubbleCornerRadius + accentContentGap)
+        .padding(.trailing, 12)
         .padding(.top, bubble.isReplying ? replyVerticalPadding : normalTopPadding)
         .padding(.bottom, bubble.isReplying ? replyVerticalPadding : normalBottomPadding)
         .frame(maxWidth: maxBubbleWidth, maxHeight: bubble.isReplying ? nil : maxBubbleHeight, alignment: .topLeading)

@@ -1688,7 +1688,7 @@ html[data-appearance="light"] body::before {
   position: absolute;
   inset: 0 0 0 auto;
   z-index: 30;
-  width: 2.35rem;
+  width: 2.975rem;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1707,7 +1707,7 @@ html[data-appearance="light"] body::before {
   align-content: start;
   gap: 0.55rem;
   overflow: hidden;
-  padding: 0.75rem;
+  padding: 0.75rem 0.75rem 0.75rem calc(1.15rem + 0.75rem);
   border: 1px solid color-mix(in srgb, var(--color-border-strong) 76%, var(--color-glass-specular) 24%);
   border-radius: 1.15rem;
   background:
@@ -1744,7 +1744,7 @@ html[data-appearance="light"] body::before {
 }
 
 .cross-chat-notification-bubble--collapsed {
-  transform: translateX(calc(100% - 2.35rem + 0.9rem + env(safe-area-inset-right, 0px)));
+  transform: translateX(calc(100% - 2.975rem + 0.9rem + env(safe-area-inset-right, 0px)));
   pointer-events: none;
 }
 
