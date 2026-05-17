@@ -821,8 +821,11 @@ describe("ChatRoute", () => {
     applyAssistantNotification(view);
 
     const overlay = await screen.findByLabelText("Cross-chat notifications");
-    fireEvent.pointerDown(overlay, { clientX: 200, clientY: 40 });
-    fireEvent.pointerUp(overlay, { clientX: 260, clientY: 42 });
+    const bubble = await screen.findByLabelText("Side Thread notification");
+    await act(async () => {
+      fireEvent.pointerDown(bubble, { clientX: 200, clientY: 40 });
+      fireEvent.pointerUp(bubble, { clientX: 260, clientY: 42 });
+    });
 
     expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
     expect(screen.getByLabelText("Side Thread notification")).toBeInTheDocument();
@@ -835,10 +838,13 @@ describe("ChatRoute", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show notifications" }));
     expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
 
-    fireEvent.pointerDown(overlay, { clientX: 200, clientY: 40 });
-    fireEvent.pointerUp(overlay, { clientX: 260, clientY: 42 });
-    fireEvent.pointerDown(overlay, { clientX: 260, clientY: 40 });
-    fireEvent.pointerUp(overlay, { clientX: 200, clientY: 42 });
+    await act(async () => {
+      fireEvent.pointerDown(bubble, { clientX: 200, clientY: 40 });
+      fireEvent.pointerUp(bubble, { clientX: 260, clientY: 42 });
+    });
+    const peek = screen.getByRole("button", { name: "Show notifications" });
+    fireEvent.pointerDown(peek, { clientX: 260, clientY: 40 });
+    fireEvent.pointerUp(peek, { clientX: 200, clientY: 42 });
 
     expect(overlay).not.toHaveClass("cross-chat-notification-overlay--collapsed");
 
@@ -862,8 +868,8 @@ describe("ChatRoute", () => {
 
     const overlay = await screen.findByLabelText("Cross-chat notifications");
     const bubble = await screen.findByLabelText("Side Thread notification");
-    fireEvent.pointerDown(overlay, { clientX: 200, clientY: 40 });
-    fireEvent.pointerUp(overlay, { clientX: 260, clientY: 42 });
+    fireEvent.pointerDown(bubble, { clientX: 200, clientY: 40 });
+    fireEvent.pointerUp(bubble, { clientX: 260, clientY: 42 });
     expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
     expect(bubble).toHaveClass("cross-chat-notification-bubble--collapsed");
 
@@ -906,6 +912,56 @@ describe("ChatRoute", () => {
     ).toBeDefined();
   });
 
+  it("uses notification-owned swipes for docked previews and dismissal", async () => {
+    const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
+      initialMessages: [],
+      sessionKeys: [
+        "agent:main:clawline:user_1:main",
+        "agent:main:main",
+        "agent:main:clawline:user_1:side"
+      ]
+    });
+    applyAssistantNotification(view);
+
+    const overlay = await screen.findByLabelText("Cross-chat notifications");
+    const bubble = await screen.findByLabelText("Side Thread notification");
+    fireEvent.pointerDown(bubble, { clientX: 200, clientY: 40 });
+    fireEvent.pointerUp(bubble, { clientX: 260, clientY: 42 });
+    expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(bubble).toHaveClass("cross-chat-notification-bubble--collapsed");
+
+    vi.useFakeTimers();
+    await act(async () => {
+      applyAssistantNotification(view, {
+        content: "Preview me",
+        id: "s_side_notify_preview",
+        timestamp: 24
+      });
+    });
+    expect(bubble).not.toHaveClass("cross-chat-notification-bubble--collapsed");
+
+    fireEvent.pointerDown(bubble, { clientX: 200, clientY: 40 });
+    fireEvent.pointerUp(bubble, { clientX: 260, clientY: 42 });
+    expect(overlay).toHaveClass("cross-chat-notification-overlay--collapsed");
+    expect(bubble).toHaveClass("cross-chat-notification-bubble--collapsed");
+    expect(
+      view.notificationStore.getState().bubblesBySourceChatId[
+        "agent:main:clawline:user_1:side"
+      ]
+    ).toBeDefined();
+
+    await act(async () => {
+      fireEvent.pointerDown(bubble, { clientX: 260, clientY: 40 });
+      fireEvent.pointerUp(bubble, { clientX: 200, clientY: 42 });
+    });
+    expect(
+      view.notificationStore.getState().bubblesBySourceChatId[
+        "agent:main:clawline:user_1:side"
+      ]
+    ).toBeUndefined();
+    expect(bubble).toHaveClass("cross-chat-notification-bubble--exiting");
+  });
+
   it("reveals only the updated collapsed web notification bubble", async () => {
     const view = renderChatRoute("/chat/agent:main:clawline:user_1:main", {
       initialMessages: [],
@@ -940,8 +996,8 @@ describe("ChatRoute", () => {
     const overlay = await screen.findByLabelText("Cross-chat notifications");
     const sideBubble = await screen.findByLabelText("Side Thread notification");
     const otherBubble = await screen.findByLabelText("Other Thread notification");
-    fireEvent.pointerDown(overlay, { clientX: 200, clientY: 40 });
-    fireEvent.pointerUp(overlay, { clientX: 260, clientY: 42 });
+    fireEvent.pointerDown(sideBubble, { clientX: 200, clientY: 40 });
+    fireEvent.pointerUp(sideBubble, { clientX: 260, clientY: 42 });
     expect(sideBubble).toHaveClass("cross-chat-notification-bubble--collapsed");
     expect(otherBubble).toHaveClass("cross-chat-notification-bubble--collapsed");
 

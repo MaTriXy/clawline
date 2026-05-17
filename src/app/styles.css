@@ -1687,6 +1687,7 @@ html[data-appearance="light"] body::before {
 .cross-chat-notification-peek {
   position: absolute;
   inset: 0 0 0 auto;
+  z-index: 30;
   width: 2.35rem;
   padding: 0;
   border: 0;
@@ -1732,7 +1733,7 @@ html[data-appearance="light"] body::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 0.4rem;
+  width: 1.15rem;
   background: var(--color-notification-accent);
   pointer-events: none;
 }
@@ -1744,6 +1745,7 @@ html[data-appearance="light"] body::before {
 
 .cross-chat-notification-bubble--collapsed {
   transform: translateX(calc(100% - 2.35rem + 0.9rem + env(safe-area-inset-right, 0px)));
+  pointer-events: none;
 }
 
 .cross-chat-notification-header,
@@ -1873,24 +1875,31 @@ html[data-appearance="light"] body::before {
 .cross-chat-notification-action-menu-layer {
   position: absolute;
   right: 0;
-  z-index: 20;
+  z-index: 120;
   width: min(16rem, 100%);
   pointer-events: auto;
+  isolation: isolate;
 }
 
 .cross-chat-notification-action-menu {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 0.18rem;
   min-width: 11rem;
   padding: 0.28rem;
-  border: 1px solid color-mix(in srgb, var(--color-border-strong) 72%, var(--color-glass-specular) 28%);
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 86%, var(--color-glass-specular) 14%);
   border-radius: 0.8rem;
   background:
-    linear-gradient(180deg, var(--color-glass-specular-soft), transparent 48%),
-    color-mix(in srgb, var(--color-panel-glass-strong) 94%, var(--color-panel));
+    linear-gradient(180deg, var(--color-glass-specular), transparent 46%),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-glass-tint) 70%, var(--color-panel)), rgba(255, 255, 255, 0.01)),
+    color-mix(in srgb, var(--color-panel) 88%, var(--color-panel-glass-strong));
   box-shadow:
-    0 12px 28px var(--color-glass-shadow-soft),
-    inset 0 1px 0 var(--color-glass-specular-soft);
+    0 22px 52px var(--color-glass-shadow),
+    0 8px 22px var(--color-glass-shadow-soft),
+    inset 0 1px 0 var(--color-glass-specular);
+  backdrop-filter: blur(30px) saturate(210%);
+  -webkit-backdrop-filter: blur(30px) saturate(210%);
   outline: none;
 }
 
@@ -1920,12 +1929,12 @@ html[data-appearance="light"] body::before {
 .cross-chat-notification-action-menu-item kbd {
   flex: 0 0 auto;
   color: var(--color-text-dim);
-  font: 700 0.875rem/1 var(--font-body);
+  font: 500 0.875rem/1 var(--font-body);
 }
 
 .cross-chat-notification-action-menu-item--active {
-  border-color: color-mix(in srgb, var(--color-accent) 34%, var(--color-border-strong));
-  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-notification-accent) 56%, var(--color-border-strong));
+  background: color-mix(in srgb, var(--color-notification-accent) 24%, var(--color-panel-glass-strong));
 }
 
 @keyframes cross-chat-notification-enter {

@@ -5218,7 +5218,9 @@ private struct CrossChatNotificationOverlay: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 20)
-                            .onEnded(handleDrag)
+                            .onEnded { value in
+                                handleBubbleDrag(value, sourceChatId: bubble.sourceChatId)
+                            }
                     )
                     .zIndex(actionMenuSourceChatId == bubble.sourceChatId ? 1 : 0)
                 }
@@ -5245,7 +5247,7 @@ private struct CrossChatNotificationOverlay: View {
                     .accessibilityLabel("Show notifications")
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 20)
-                            .onEnded(handleDrag)
+                            .onEnded(handlePeekDrag)
                     )
                 }
             }
@@ -5519,13 +5521,28 @@ private struct CrossChatNotificationOverlay: View {
         scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: clampedY), animated: true)
     }
 
-    private func handleDrag(_ value: DragGesture.Value) {
+    private func handleBubbleDrag(_ value: DragGesture.Value, sourceChatId: String) {
         let horizontal = value.translation.width
         guard abs(horizontal) > abs(value.translation.height),
               abs(horizontal) >= Self.collapseSwipeThreshold else { return }
         if horizontal > 0 {
-            dock()
-        } else if isCollapsed {
+            if isCollapsed {
+                clearCollapsedPreview(sourceChatId: sourceChatId)
+            } else {
+                dock()
+            }
+        } else {
+            closeActionMenu()
+            unpinReply(sourceChatId: sourceChatId)
+            dismissNotification(sourceChatId: sourceChatId)
+        }
+    }
+
+    private func handlePeekDrag(_ value: DragGesture.Value) {
+        let horizontal = value.translation.width
+        guard abs(horizontal) > abs(value.translation.height),
+              abs(horizontal) >= Self.collapseSwipeThreshold else { return }
+        if horizontal < 0 {
             restoreDock()
         }
     }
@@ -5724,6 +5741,7 @@ private struct CrossChatNotificationBubbleView: View {
     private let normalTopPadding: CGFloat = 6
     private let normalBottomPadding: CGFloat = 8
     private let replyVerticalPadding: CGFloat = 4
+    private let bubbleCornerRadius: CGFloat = 18
     private let resizeAnimation = Animation.spring(response: 0.28, dampingFraction: 0.88)
 
     private var contentMaxHeight: CGFloat {
@@ -5932,20 +5950,20 @@ private struct CrossChatNotificationBubbleView: View {
         }
         .onTapGesture(perform: onActivate)
 #if os(visionOS)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
 #else
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
 #endif
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
                 .overlay(alignment: .leading) {
                     Rectangle()
                         .fill(notificationAccentColor)
-                        .frame(width: 6)
+                        .frame(width: bubbleCornerRadius)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
                 .allowsHitTesting(false)
         }
         .confirmationDialog(
@@ -6131,6 +6149,8 @@ private enum CrossChatNotificationActionMenuItem: CaseIterable, Identifiable {
 }
 
 private struct CrossChatNotificationActionMenu: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let assignedNumber: Int
     let visibleNotificationCount: Int
     let selection: CrossChatNotificationActionMenuItem
@@ -6147,48 +6167,70 @@ private struct CrossChatNotificationActionMenu: View {
     }
 
     var body: some View {
-        VStack(spacing: 2) {
-            ForEach(CrossChatNotificationActionMenuItem.allCases) { item in
-                Button {
-                    onActivate(item)
-                } label: {
-                    HStack(spacing: 14) {
-                        Text(item.title)
-                            .font(notificationFont(.secondaryLabel, weight: .semibold))
-                            .lineLimit(1)
-                        Spacer(minLength: 12)
-                        if let shortcut = item.shortcutLabel(assignedNumber: assignedNumber) {
-                            Text(shortcut)
-                                .font(notificationFont(.secondaryLabel))
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
+        let menuShape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let selectionColor = ChatFlowTheme.notificationAccent(colorScheme)
+
+        ZStack {
+            menuShape
+                .fill(.regularMaterial)
+            menuShape
+                .fill(Color(uiColor: .systemBackground).opacity(0.84))
+
+            VStack(spacing: 2) {
+                ForEach(CrossChatNotificationActionMenuItem.allCases) { item in
+                    Button {
+                        onActivate(item)
+                    } label: {
+                        HStack(spacing: 14) {
+                            Text(item.title)
+                                .font(notificationFont(.secondaryLabel, weight: .semibold))
                                 .lineLimit(1)
+                            Spacer(minLength: 12)
+                            if let shortcut = item.shortcutLabel(assignedNumber: assignedNumber) {
+                                Text(shortcut)
+                                    .font(notificationFont(.secondaryLabel))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(item == selection ? selectionColor.opacity(0.24) : Color.clear)
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(
+                                    item == selection ? selectionColor.opacity(0.58) : Color.clear,
+                                    lineWidth: 0.8
+                                )
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(item == selection ? Color.accentColor.opacity(0.18) : Color.clear)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.title)
-                .onHover { isHovering in
-                    if isHovering {
-                        onSelectionChange(item)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(item.title)
+                    .onHover { isHovering in
+                        if isHovering {
+                            onSelectionChange(item)
+                        }
                     }
                 }
             }
+            .padding(5)
         }
-        .padding(5)
         .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.primary.opacity(0.08))
-        )
+        .overlay {
+            menuShape
+                .strokeBorder(Color.primary.opacity(0.30), lineWidth: 0.9)
+        }
+        .shadow(color: Color.black.opacity(0.34), radius: 22, x: 0, y: 12)
+        .shadow(color: Color.black.opacity(0.18), radius: 5, x: 0, y: 2)
+#if compiler(>=6.0)
+        .glassEffect(.regular, in: menuShape)
+#endif
         .focusable()
         .onKeyPress(.upArrow) {
             onSelectionChange(selection.moved(step: -1))

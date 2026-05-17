@@ -592,18 +592,30 @@ export function CrossChatNotificationOverlay() {
   }
 
   function handlePointerDown(event: PointerEvent<HTMLElement>) {
-    if (hasCollapsedPreview) {
-      restoreNotifications();
-    }
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     dragStartXRef.current = event.clientX;
     dragStartYRef.current = event.clientY;
   }
 
-  function handlePointerUp(event: PointerEvent<HTMLElement>) {
-    const startX = dragStartXRef.current;
-    const startY = dragStartYRef.current;
+  function clearPointerDragState() {
     dragStartXRef.current = null;
     dragStartYRef.current = null;
+  }
+
+  function releasePointerCapture(event: PointerEvent<HTMLElement>) {
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+  }
+
+  function handleBubblePointerUp(
+    event: PointerEvent<HTMLElement>,
+    sourceChatId: string
+  ) {
+    releasePointerCapture(event);
+    const startX = dragStartXRef.current;
+    const startY = dragStartYRef.current;
+    clearPointerDragState();
     if (startX === null || startY === null) {
       return;
     }
@@ -622,8 +634,41 @@ export function CrossChatNotificationOverlay() {
       suppressNavigationClickRef.current = false;
     }, 0);
     if (horizontal > 0) {
-      dockNotifications();
-    } else if (isCollapsed) {
+      if (isCollapsed) {
+        clearCollapsedRevealPreview(sourceChatId);
+      } else {
+        dockNotifications();
+      }
+    } else {
+      setActionMenuSourceChatId(null);
+      unpinReplySourceChatId(sourceChatId);
+      notificationStore.dismissCrossChatNotification(sourceChatId);
+    }
+  }
+
+  function handlePeekPointerUp(event: PointerEvent<HTMLElement>) {
+    releasePointerCapture(event);
+    const startX = dragStartXRef.current;
+    const startY = dragStartYRef.current;
+    clearPointerDragState();
+    if (startX === null || startY === null) {
+      return;
+    }
+
+    const horizontal = event.clientX - startX;
+    const vertical = event.clientY - startY;
+    if (
+      Math.abs(horizontal) <= Math.abs(vertical) ||
+      Math.abs(horizontal) < COLLAPSE_SWIPE_THRESHOLD_PX
+    ) {
+      return;
+    }
+
+    suppressNavigationClickRef.current = true;
+    window.setTimeout(() => {
+      suppressNavigationClickRef.current = false;
+    }, 0);
+    if (horizontal < 0) {
       restoreNotifications();
     }
   }
@@ -643,14 +688,15 @@ export function CrossChatNotificationOverlay() {
           ? "cross-chat-notification-overlay cross-chat-notification-overlay--collapsed"
           : "cross-chat-notification-overlay"
       }
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
     >
       {isCollapsed ? (
         <button
           aria-label="Show notifications"
           className="cross-chat-notification-peek"
           onClick={restoreNotifications}
+          onPointerCancel={clearPointerDragState}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePeekPointerUp}
           type="button"
         />
       ) : null}
@@ -669,6 +715,9 @@ export function CrossChatNotificationOverlay() {
             .join(" ")}
           data-testid="cross-chat-notification-bubble"
           key={bubble.sourceChatId}
+          onPointerCancel={clearPointerDragState}
+          onPointerDown={handlePointerDown}
+          onPointerUp={(event) => handleBubblePointerUp(event, bubble.sourceChatId)}
           onBlur={(event) => {
             const nextFocused = event.relatedTarget;
             if (!(nextFocused instanceof Node) || !event.currentTarget.contains(nextFocused)) {
