@@ -4378,6 +4378,7 @@ private final class KeyboardPinnedContainerView<Content: View>: UIView, Keyboard
             let host = UIHostingController(rootView: AnyView(EmptyView()))
             host.view.backgroundColor = .clear
             host.view.isOpaque = false
+            host.view.clipsToBounds = false
             host.view.translatesAutoresizingMaskIntoConstraints = false
             if #available(iOS 16.0, visionOS 1.0, *) {
                 // Give the raw UIKit host its real capsule size on first layout so
@@ -6040,6 +6041,14 @@ struct CrossChatNotificationBubbleView: View {
         ChatFlowTheme.notificationAccent(colorScheme)
     }
 
+    private var notificationDismissActiveColor: Color {
+        StreamDotColor.resolve(
+            isActive: false,
+            dotState: .unread,
+            colorScheme: colorScheme
+        )
+    }
+
     private var notificationBodyInkColor: UIColor {
         UIColor.label.withAlphaComponent(colorScheme == .dark ? 0.82 : 0.74)
     }
@@ -6120,11 +6129,27 @@ struct CrossChatNotificationBubbleView: View {
                 .accessibilityAddTraits(bubble.isReplying ? .isSelected : [])
 
                 Button(action: onDismiss) {
-                    Image(systemName: "xmark")
-                        .font(.clawline(.uiLabel).weight(.semibold))
-                        .foregroundStyle(isDismissSwipeActive ? Color.red : Color.primary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
+                    ZStack {
+                        Circle()
+                            .fill(notificationDismissActiveColor.opacity(colorScheme == .dark ? 0.42 : 0.34))
+                            .frame(width: controlSize, height: controlSize)
+                            .blur(radius: MessageInputBar.sendButtonColoredBackingBlurRadius)
+                            .opacity(isDismissSwipeActive ? 1 : 0)
+                            .animation(
+                                isDismissSwipeActive
+                                    ? .easeOut(duration: 0.16).delay(0.08)
+                                    : .easeOut(duration: 0.10),
+                                value: isDismissSwipeActive
+                            )
+                            .allowsHitTesting(false)
+
+                        Image(systemName: "xmark")
+                            .font(.clawline(.uiLabel).weight(.semibold))
+                            .foregroundStyle(isDismissSwipeActive ? notificationDismissActiveColor : Color.primary)
+                            .animation(.easeOut(duration: 0.10), value: isDismissSwipeActive)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
                 }
                 .frame(width: controlSize, height: controlSize)
                 .buttonStyle(.plain)
