@@ -978,6 +978,7 @@ struct ChatView: View {
             mentionPickerStreams.contains { $0.sessionKey == highlighted } ? highlighted : nil
         } ?? mentionPickerStreams.first?.sessionKey
         let isMentionPickerVisible = mentionQuery != nil
+        let notificationNormalTrailingMargin = metrics.containerPadding / 2
         let notificationOverlayTopMargin: CGFloat = 8
         let notificationOverlayMaxHeight = max(
             CrossChatNotificationOverlay.minVisibleBubbleHeight,
@@ -1029,6 +1030,7 @@ struct ChatView: View {
                 topMargin: notificationOverlayTopMargin,
                 maxContainerHeight: notificationOverlayMaxHeight,
                 maxContainerWidth: notificationOverlayMaxWidth,
+                normalTrailingMargin: notificationNormalTrailingMargin,
                 measuredBubbleHeightsBySourceChatId: $crossChatNotificationMeasuredHeightsBySourceChatId
             )
             .zIndex(20)
@@ -1494,6 +1496,7 @@ struct ChatView: View {
         topMargin: CGFloat,
         maxContainerHeight: CGFloat,
         maxContainerWidth: CGFloat,
+        normalTrailingMargin: CGFloat,
         measuredBubbleHeightsBySourceChatId: Binding<[String: CGFloat]>
     ) -> AnyView {
         AnyView(
@@ -1505,6 +1508,7 @@ struct ChatView: View {
                     topMargin: topMargin,
                     maxContainerHeight: maxContainerHeight,
                     maxContainerWidth: maxContainerWidth,
+                    normalTrailingMargin: normalTrailingMargin,
                     isCollapsed: $isCrossChatNotificationStackDocked,
                     replyPinSlotsBySourceChatId: $crossChatNotificationReplyPinSlotsBySourceChatId,
                     measuredBubbleHeightsBySourceChatId: measuredBubbleHeightsBySourceChatId,
@@ -5118,6 +5122,7 @@ private struct CrossChatNotificationOverlay: View {
     let topMargin: CGFloat
     let maxContainerHeight: CGFloat
     let maxContainerWidth: CGFloat
+    let normalTrailingMargin: CGFloat
     @Binding var isCollapsed: Bool
     @Binding var replyPinSlotsBySourceChatId: [String: Int]
     @Binding var measuredBubbleHeightsBySourceChatId: [String: CGFloat]
@@ -5141,7 +5146,6 @@ private struct CrossChatNotificationOverlay: View {
     private static let maxStackWidth: CGFloat = 562.5
     private static let bubbleCornerRadius: CGFloat = 18
     private static let collapsedPeekWidth: CGFloat = bubbleCornerRadius
-    private static let trailingMargin: CGFloat = 6
     private static let collapseSwipeThreshold: CGFloat = 44
     private static let dragPliabilityLimit: CGFloat = 82
     static let revealAnimation = CrossChatNotificationMotion.reveal
@@ -5375,7 +5379,7 @@ private struct CrossChatNotificationOverlay: View {
             .frame(maxHeight: maxContainerHeight, alignment: .topTrailing)
             .clipped()
             .padding(.top, topMargin)
-            .padding(.trailing, isCollapsed ? 0 : Self.trailingMargin)
+            .padding(.trailing, isCollapsed ? 0 : normalTrailingMargin)
             .onPreferenceChange(CrossChatNotificationBubbleHeightPreferenceKey.self) { heights in
                 let activeSourceChatIds = Set(viewModel.crossChatNotificationBubbles.map(\.sourceChatId))
                 let next = heights.filter { activeSourceChatIds.contains($0.key) }
@@ -6219,7 +6223,6 @@ struct CrossChatNotificationBubbleView: View {
             Rectangle()
                 .fill(notificationAccentColor.opacity(0.30))
                 .frame(width: bubbleCornerRadius)
-                .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
                 .allowsHitTesting(false)
         }
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
