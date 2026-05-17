@@ -3569,6 +3569,17 @@ enum ChatAppCommandShortcut {
         )
     }
 
+    static var notificationScrollKeyCommandSpecs: [KeyCommandSpec] {
+        baseKeyCommandSpecs.filter {
+            switch $0.action {
+            case .scrollDown, .scrollUp, .scrollChatDown, .scrollChatUp:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
     static func notificationNumberKeyCommandSpecs(visibleCount: Int) -> [KeyCommandSpec] {
         guard visibleCount > 0 else { return [] }
         return (0..<min(visibleCount, 10)).flatMap { index in
@@ -5435,8 +5446,14 @@ private struct CrossChatNotificationOverlay: View {
                       visibleBubbles.indices.contains(index) else { return }
                 closeActionMenu()
                 animateNotificationResize {
-                    pinReply(sourceChatId: visibleBubbles[index].sourceChatId)
-                    viewModel.openCrossChatNotificationReply(sourceChatId: visibleBubbles[index].sourceChatId)
+                    let bubble = visibleBubbles[index]
+                    if bubble.isReplying {
+                        unpinReply(sourceChatId: bubble.sourceChatId)
+                        viewModel.closeCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                    } else {
+                        pinReply(sourceChatId: bubble.sourceChatId)
+                        viewModel.openCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                    }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .clawlineDismissNotificationCommand)) { notification in
@@ -5794,8 +5811,13 @@ private struct CrossChatNotificationOverlay: View {
             onNavigateToSource(bubble.sourceChatId)
         case .reply:
             animateNotificationResize {
-                pinReply(sourceChatId: bubble.sourceChatId)
-                viewModel.openCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                if bubble.isReplying {
+                    unpinReply(sourceChatId: bubble.sourceChatId)
+                    viewModel.closeCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                } else {
+                    pinReply(sourceChatId: bubble.sourceChatId)
+                    viewModel.openCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
+                }
             }
         case .dismiss:
             unpinReply(sourceChatId: bubble.sourceChatId)
@@ -6783,7 +6805,16 @@ private struct CrossChatNotificationActionMenuKeyBridge: UIViewRepresentable {
                         action: spec.action.selector
                     )
                 }
-            return menuCommands + notificationNumberCommands
+            let notificationScrollCommands = ChatAppCommandShortcut
+                .notificationScrollKeyCommandSpecs
+                .map { spec in
+                    UIKeyCommand(
+                        input: spec.input,
+                        modifierFlags: spec.modifierFlags,
+                        action: spec.action.selector
+                    )
+                }
+            return menuCommands + notificationNumberCommands + notificationScrollCommands
         }
 
         override func didMoveToWindow() {

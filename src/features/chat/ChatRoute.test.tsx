@@ -1381,6 +1381,31 @@ describe("ChatRoute", () => {
       code: "Digit0",
       key: ")",
       metaKey: true,
+      shiftKey: true
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("textbox", { name: "Reply to Side Thread" })
+      ).toBeNull();
+    });
+    expect(screen.getByLabelText("Side Thread notification")).toBeInTheDocument();
+
+    fireEvent.keyDown(document.body, {
+      code: "Digit0",
+      key: ")",
+      metaKey: true,
+      shiftKey: true
+    });
+    expect(
+      await screen.findByRole("textbox", { name: "Reply to Side Thread" })
+    ).toBeInTheDocument();
+
+    const reopenedReplyField = screen.getByRole("textbox", { name: "Reply to Side Thread" });
+    reopenedReplyField.focus();
+    fireEvent.keyDown(reopenedReplyField, {
+      code: "Digit0",
+      key: ")",
+      metaKey: true,
       shiftKey: true,
       altKey: true
     });

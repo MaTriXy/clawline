@@ -140,6 +140,14 @@ struct PromptFocusShortcutActivationTests {
                 spec.input == "h" && spec.modifierFlags == [.command]
             }
         )
+        #expect(
+            ChatAppCommandShortcut.notificationScrollKeyCommandSpecs.map(\.action) == [
+                .scrollDown,
+                .scrollUp,
+                .scrollChatDown,
+                .scrollChatUp
+            ]
+        )
     }
 
     @Test("No-text shortcut host owns only unmodified prompt and popup keys")

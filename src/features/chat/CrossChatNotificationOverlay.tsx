@@ -422,8 +422,16 @@ export function CrossChatNotificationOverlay() {
       } else if (event.shiftKey) {
         event.preventDefault();
         setActionMenuSourceChatId(null);
-        pinReplySourceChatId(sourceChatId);
-        notificationStore.openCrossChatNotificationReply(sourceChatId);
+        const bubble = visibleBubbles.find(
+          (visibleBubble) => visibleBubble.sourceChatId === sourceChatId
+        );
+        if (bubble?.replyMode) {
+          unpinReplySourceChatId(sourceChatId);
+          notificationStore.closeCrossChatNotificationReply(sourceChatId);
+        } else {
+          pinReplySourceChatId(sourceChatId);
+          notificationStore.openCrossChatNotificationReply(sourceChatId);
+        }
       } else if (!event.altKey) {
         event.preventDefault();
         if (isCollapsed || hasCollapsedPreview) {
@@ -447,6 +455,7 @@ export function CrossChatNotificationOverlay() {
     orderedBubbles,
     transportStore,
     visibleCapacity,
+    visibleBubbles,
     visibleSourceChatIds
   ]);
 
@@ -691,8 +700,16 @@ export function CrossChatNotificationOverlay() {
 
     setActionMenuSourceChatId(null);
     if (index === 1) {
-      pinReplySourceChatId(sourceChatId);
-      notificationStore.openCrossChatNotificationReply(sourceChatId);
+      const bubble = visibleBubbles.find(
+        (visibleBubble) => visibleBubble.sourceChatId === sourceChatId
+      );
+      if (bubble?.replyMode) {
+        unpinReplySourceChatId(sourceChatId);
+        notificationStore.closeCrossChatNotificationReply(sourceChatId);
+      } else {
+        pinReplySourceChatId(sourceChatId);
+        notificationStore.openCrossChatNotificationReply(sourceChatId);
+      }
     } else {
       unpinReplySourceChatId(sourceChatId);
       dismissNotificationAndMarkSourceRead(sourceChatId);
