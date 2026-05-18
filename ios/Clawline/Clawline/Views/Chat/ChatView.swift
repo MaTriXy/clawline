@@ -308,6 +308,14 @@ struct ChatView: View {
 #endif
     }
 
+    private var spatialOverlayDepthOffset: CGFloat {
+#if os(visionOS)
+        48
+#else
+        0
+#endif
+    }
+
     private var isKeyboardVisible: Bool {
         keyboardHeight > 0.5
     }
@@ -1496,6 +1504,7 @@ struct ChatView: View {
             .padding(.bottom, inputBarTopFromScreenBottom + 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .allowsHitTesting(isVisible)
+            .visionOSOverlayDepthOffset(spatialOverlayDepthOffset)
         )
     }
 
@@ -1529,6 +1538,7 @@ struct ChatView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: topMargin + maxContainerHeight + 12, alignment: .topTrailing)
             .ignoresSafeArea(.container, edges: .horizontal)
+            .visionOSOverlayDepthOffset(spatialOverlayDepthOffset)
         )
     }
 
@@ -2666,6 +2676,18 @@ private struct VisionOSInputBarDepthOffset: ViewModifier {
     }
 }
 
+private struct VisionOSOverlayDepthOffset: ViewModifier {
+    let depth: CGFloat
+
+    func body(content: Content) -> some View {
+#if os(visionOS)
+        content.offset(z: depth)
+#else
+        content
+#endif
+    }
+}
+
 private struct StreamPopupTrigger: View {
     @Bindable var routeController: StreamPopupRouteController
 
@@ -2783,6 +2805,10 @@ private struct StreamPopupTrigger: View {
 private extension View {
     func visionOSInputBarDepthOffset() -> some View {
         modifier(VisionOSInputBarDepthOffset())
+    }
+
+    func visionOSOverlayDepthOffset(_ depth: CGFloat) -> some View {
+        modifier(VisionOSOverlayDepthOffset(depth: depth))
     }
 
     @ViewBuilder

@@ -119,6 +119,20 @@ enum ChatVisibleBubbleContentScroll {
     }
 }
 
+#if os(visionOS)
+private final class SpatialTranscriptCollectionView: UICollectionView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard isUserInteractionEnabled,
+              !isHidden,
+              alpha > 0.01,
+              self.point(inside: point, with: event) else {
+            return nil
+        }
+        return super.hitTest(point, with: event) ?? self
+    }
+}
+#endif
+
 @MainActor
 struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var viewModel: ChatViewModel
@@ -3416,7 +3430,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         flowLayout.estimatedItemSize = .zero
 
         // Use frame-based layout - we extend to window bounds in viewDidLayoutSubviews
+#if os(visionOS)
+        collectionView = SpatialTranscriptCollectionView(frame: view.bounds, collectionViewLayout: flowLayout)
+#else
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: flowLayout)
+#endif
         collectionView.translatesAutoresizingMaskIntoConstraints = true
         collectionView.autoresizingMask = []
         collectionView.backgroundColor = Self.chatPageBackgroundColor(
