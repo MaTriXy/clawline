@@ -984,6 +984,9 @@ struct ChatView: View {
             currentSessionKey: mentionCurrentSessionKey,
             query: mentionQuery ?? ""
         )
+        let mentionPickerDotStatesBySession = Dictionary(
+            uniqueKeysWithValues: mentionPickerStreams.map { ($0.sessionKey, viewModel.streamDotState(for: $0.sessionKey)) }
+        )
         let mentionHighlightedSessionKey = highlightedCrossChatMentionSessionKey.flatMap { highlighted in
             mentionPickerStreams.contains { $0.sessionKey == highlighted } ? highlighted : nil
         } ?? mentionPickerStreams.first?.sessionKey
@@ -1033,6 +1036,8 @@ struct ChatView: View {
             toastBannerView(geometry: geometry, toastManager: toastManager)
             mentionPickerOverlay(
                 streams: mentionPickerStreams,
+                currentSessionKey: mentionCurrentSessionKey,
+                dotStatesBySession: mentionPickerDotStatesBySession,
                 highlightedSessionKey: mentionHighlightedSessionKey,
                 isVisible: isMentionPickerVisible,
                 inputBarTopFromScreenBottom: inputBarTopFromScreenBottom
@@ -1487,6 +1492,8 @@ struct ChatView: View {
 
     private func mentionPickerOverlay(
         streams: [StreamSession],
+        currentSessionKey: String,
+        dotStatesBySession: [String: StreamDotState],
         highlightedSessionKey: String?,
         isVisible: Bool,
         inputBarTopFromScreenBottom: CGFloat
@@ -1494,6 +1501,8 @@ struct ChatView: View {
         AnyView(
             CrossChatMentionPickerView(
                 streams: streams,
+                currentSessionKey: currentSessionKey,
+                dotStatesBySession: dotStatesBySession,
                 highlightedSessionKey: highlightedSessionKey,
                 isVisible: isVisible,
                 onSelect: { stream in
@@ -5053,7 +5062,11 @@ private struct AttachmentActionButton: View {
 }
 
 private struct CrossChatMentionPickerView: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let streams: [StreamSession]
+    let currentSessionKey: String
+    let dotStatesBySession: [String: StreamDotState]
     let highlightedSessionKey: String?
     let isVisible: Bool
     let onSelect: (StreamSession) -> Void
@@ -5092,9 +5105,13 @@ private struct CrossChatMentionPickerView: View {
                                 ForEach(streams, id: \.sessionKey) { stream in
                                     Button(action: { onSelect(stream) }) {
                                         HStack(spacing: 10) {
+#if os(visionOS)
+                                            statusDot(for: stream)
+#else
                                             Image(systemName: "bubble.left.and.bubble.right")
                                                 .font(.clawline(.secondaryLabel).weight(.semibold))
                                                 .frame(width: 18)
+#endif
                                             Text(stream.displayName)
                                                 .font(.clawline(.uiLabel))
                                                 .lineLimit(1)
@@ -5139,6 +5156,30 @@ private struct CrossChatMentionPickerView: View {
     private func rowBackground(for stream: StreamSession) -> some View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(stream.sessionKey == highlightedSessionKey ? Color.primary.opacity(0.12) : Color.clear)
+    }
+
+    @ViewBuilder
+    private func statusDot(for stream: StreamSession) -> some View {
+        let isCurrent = stream.sessionKey == currentSessionKey
+        let dotState = dotStatesBySession[stream.sessionKey] ?? .inactive
+        Circle()
+            .fill(
+                StreamDotColor.resolve(
+                    isActive: isCurrent,
+                    dotState: dotState,
+                    colorScheme: colorScheme
+                )
+            )
+            .frame(width: 8, height: 8)
+            .frame(width: 18)
+            .shadow(
+                color: isCurrent ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                radius: isCurrent ? StreamDotColor.activeOuterGlowRadius(colorScheme: colorScheme) : 0
+            )
+            .shadow(
+                color: isCurrent ? StreamDotColor.activeGlow(colorScheme: colorScheme) : .clear,
+                radius: isCurrent ? StreamDotColor.activeInnerGlowRadius(colorScheme: colorScheme) : 0
+            )
     }
 }
 
