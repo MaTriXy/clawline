@@ -11,6 +11,35 @@ import UIKit
 @testable import Clawline
 
 struct PromptFocusShortcutActivationTests {
+    @Test("T307 accent reply gesture only accepts vertical-dominant swipes")
+    func accentReplyGestureOnlyAcceptsVerticalDominantSwipes() {
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 0, height: CrossChatNotificationAccentReplyGesture.minimumDistance)
+            )
+        )
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 4, height: -32)
+            )
+        )
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 28, height: 10)
+            ) == false
+        )
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 0, height: CrossChatNotificationAccentReplyGesture.minimumDistance - 1)
+            ) == false
+        )
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 24, height: 24)
+            ) == false
+        )
+    }
+
     @Test("T307 notification reply input presents Send return key and five-line cap")
     @MainActor
     func notificationReplyInputUsesSendReturnKeyAndFiveLineCap() {

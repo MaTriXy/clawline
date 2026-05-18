@@ -6043,6 +6043,7 @@ struct CrossChatNotificationBubbleView: View {
     private let notificationAccentWidth: CGFloat = 14
     private let notificationAccentOpacity: Double = 0.40
     private let accentContentGap: CGFloat = 10
+    private var accentReplyGestureWidth: CGFloat { notificationAccentWidth + accentContentGap }
     private let entriesBottomBreathingRoom: CGFloat = 8
     private let resizeAnimation = CrossChatNotificationMotion.resize
 
@@ -6334,6 +6335,22 @@ struct CrossChatNotificationBubbleView: View {
                 .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
                 .allowsHitTesting(false)
         }
+        .overlay(alignment: .leading) {
+            Color.clear
+                .frame(width: accentReplyGestureWidth)
+                .contentShape(Rectangle())
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: CrossChatNotificationAccentReplyGesture.minimumDistance)
+                        .onEnded { value in
+                            guard CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                                translation: value.translation
+                            ) else {
+                                return
+                            }
+                            onReply()
+                        }
+                )
+        }
         .confirmationDialog(
             "Clear all notifications?",
             isPresented: $isClearAllConfirmationPresented,
@@ -6400,6 +6417,15 @@ struct CrossChatNotificationBubbleView: View {
         }
     }
 
+}
+
+enum CrossChatNotificationAccentReplyGesture {
+    static let minimumDistance: CGFloat = 18
+
+    static func shouldToggleReply(translation: CGSize) -> Bool {
+        abs(translation.height) >= minimumDistance
+            && abs(translation.height) > abs(translation.width)
+    }
 }
 
 enum NotificationReplyTextInputConfiguration {
