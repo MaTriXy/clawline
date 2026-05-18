@@ -1544,10 +1544,10 @@ struct ChatView: View {
                         selectStream(sourceChatId, source: .programmatic)
                     }
                 )
+                .visionOSOverlayDepthOffset(spatialOverlayDepthOffset)
             }
             .frame(maxWidth: .infinity, maxHeight: topMargin + maxContainerHeight + 12, alignment: .topTrailing)
             .ignoresSafeArea(.container, edges: .horizontal)
-            .visionOSOverlayDepthOffset(spatialOverlayDepthOffset)
         )
     }
 
