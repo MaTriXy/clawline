@@ -5398,7 +5398,6 @@ private struct CrossChatNotificationOverlay: View {
             .padding(.vertical, 2)
             .frame(width: stackWidth, alignment: .topTrailing)
             .frame(maxHeight: maxContainerHeight, alignment: .topTrailing)
-            .clipped()
             .padding(.top, topMargin)
             .padding(.trailing, isCollapsed ? 0 : normalTrailingMargin)
             .animation(Self.revealAnimation, value: visibleBubbleIdentity)
