@@ -476,6 +476,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var sendTask: Task<Void, Never>?
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
     private(set) var shouldMorphTypingIndicator: Bool = false
+    private var typingIndicatorMorphTargetMessageIdBySessionKey: [String: String] = [:]
     private var isRetired = false
 
     private var temporarySendButtonOverride: SendButtonConnectionState?
@@ -592,6 +593,7 @@ final class ChatViewModel: ChatViewModelHosting {
     }
 
     private struct PendingProvisionedSend {
+        let clientId: String
         let content: String
         let attachments: [PendingAttachment]
         let sessionKey: String
@@ -1156,7 +1158,7 @@ final class ChatViewModel: ChatViewModelHosting {
 
     private func validateTextByteLimitForSend(_ text: String) -> Bool {
         let textBytes = text.lengthOfBytes(using: .utf8)
-        guard textBytes <= Self.providerMaxTextMessageBytes else {
+        guard isTextWithinSendByteLimit(text) else {
 #if DEBUG
             recordImageSendDebugEvent(
                 .sendResult,
@@ -1169,6 +1171,14 @@ final class ChatViewModel: ChatViewModelHosting {
         return true
     }
 
+    private func isTextWithinSendByteLimit(_ text: String) -> Bool {
+        text.lengthOfBytes(using: .utf8) <= Self.providerMaxTextMessageBytes
+    }
+
+    private func nextClientMessageId() -> String {
+        "c_\(UUID().uuidString)"
+    }
+
     var canCancelCurrentPrompt: Bool {
         currentInFlightPromptSessionKey != nil
     }
@@ -1176,7 +1186,49 @@ final class ChatViewModel: ChatViewModelHosting {
     func canCancelVisibleTypingPrompt(in sessionKey: String) -> Bool {
         let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedSessionKey.isEmpty else { return false }
-        return isAssistantTyping && typingSessionKey == normalizedSessionKey
+        return shouldShowTypingIndicator(in: normalizedSessionKey)
+    }
+
+    func shouldShowTypingIndicator(in sessionKey: String) -> Bool {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty else { return false }
+        if isAssistantTyping, typingSessionKey == normalizedSessionKey {
+            return true
+        }
+        guard let status = sessionStatusBySessionKey[normalizedSessionKey] else { return false }
+        switch status.run.state {
+        case .running, .queued:
+            return true
+        case .idle, .unknown:
+            return false
+        }
+    }
+
+    func typingIndicatorMorphTargetMessageId(in sessionKey: String) -> String? {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty else { return nil }
+        return typingIndicatorMorphTargetMessageIdBySessionKey[normalizedSessionKey]
+    }
+
+    func consumeTypingIndicatorMorphTargetMessageId(_ messageId: String?, in sessionKey: String) {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty,
+              let messageId,
+              typingIndicatorMorphTargetMessageIdBySessionKey[normalizedSessionKey] == messageId else {
+            return
+        }
+        typingIndicatorMorphTargetMessageIdBySessionKey.removeValue(forKey: normalizedSessionKey)
+        shouldMorphTypingIndicator = !typingIndicatorMorphTargetMessageIdBySessionKey.isEmpty
+    }
+
+    private func clearTypingIndicatorMorphTarget(for sessionKey: String) {
+        typingIndicatorMorphTargetMessageIdBySessionKey.removeValue(forKey: sessionKey)
+        shouldMorphTypingIndicator = !typingIndicatorMorphTargetMessageIdBySessionKey.isEmpty
+    }
+
+    private func clearAllTypingIndicatorMorphTargets() {
+        typingIndicatorMorphTargetMessageIdBySessionKey.removeAll()
+        shouldMorphTypingIndicator = false
     }
 
     func canCancelCurrentPrompt(in sessionKey: String) -> Bool {
@@ -1328,6 +1380,22 @@ final class ChatViewModel: ChatViewModelHosting {
         isSending && activeCrossChatNotificationReplySourceChatId == sourceChatId
     }
 
+    func canImmediatelySendCrossChatNotificationReply(sourceChatId: String) -> Bool {
+        guard !isSending else { return false }
+        guard let bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { return false }
+        let text = bubble.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, isTextWithinSendByteLimit(text) else { return false }
+        guard streamsBySessionKey[sourceChatId] != nil else { return false }
+        guard transportSendButtonConnectionState == .connected else { return false }
+
+        switch sendProvisioningState(for: sourceChatId) {
+        case .ready:
+            return true
+        case .waiting, .unavailable:
+            return false
+        }
+    }
+
     func sendCrossChatNotificationReply(sourceChatId: String) {
         guard !isSending else { return }
         guard let bubble = crossChatNotificationBubblesBySourceChatId[sourceChatId] else { return }
@@ -1350,15 +1418,13 @@ final class ChatViewModel: ChatViewModelHosting {
                 pendingAttachments: [],
                 sessionKey: sourceChatId,
                 clearInputOnSuccess: false,
-                crossChatNotificationReplySourceChatId: sourceChatId
+                crossChatNotificationReplySourceChatId: sourceChatId,
+                onSuccess: { [weak self] _ in
+                    self?.dismissCrossChatNotification(sourceChatId: sourceChatId)
+                }
             )
         case .waiting:
-            pendingProvisionedSend = PendingProvisionedSend(
-                content: text,
-                attachments: [],
-                sessionKey: sourceChatId,
-                crossChatNotificationReplySourceChatId: sourceChatId
-            )
+            return
         case .unavailable:
             toastManager.show("This stream is unavailable. Switch streams and try again.")
         }
@@ -1464,7 +1530,16 @@ final class ChatViewModel: ChatViewModelHosting {
                 detail: "queued reason=provisioning_waiting \(sendTransportSnapshot())"
             )
 #endif
+            let pendingAttachmentIds = pendingAttachments.map(\.id)
+            if let pendingProvisionedSend,
+               pendingProvisionedSend.content == text,
+               pendingProvisionedSend.sessionKey == outboundSessionKey,
+               pendingProvisionedSend.crossChatNotificationReplySourceChatId == nil,
+               pendingProvisionedSend.attachments.map(\.id) == pendingAttachmentIds {
+                return true
+            }
             pendingProvisionedSend = PendingProvisionedSend(
+                clientId: nextClientMessageId(),
                 content: text,
                 attachments: pendingAttachments,
                 sessionKey: outboundSessionKey,
@@ -1486,10 +1561,11 @@ final class ChatViewModel: ChatViewModelHosting {
     private func beginSend(content: String,
                            pendingAttachments: [PendingAttachment],
                            sessionKey: String,
+                           clientId: String? = nil,
                            clearInputOnSuccess: Bool = true,
                            crossChatNotificationReplySourceChatId: String? = nil,
-                           onSuccess: (@MainActor () -> Void)? = nil) {
-        let clientId = "c_\(UUID().uuidString)"
+                           onSuccess: (@MainActor (_ clientId: String) -> Void)? = nil) {
+        let clientId = clientId ?? nextClientMessageId()
         activeClientMessageId = clientId
         activeCrossChatNotificationReplySourceChatId = crossChatNotificationReplySourceChatId
         if let crossChatNotificationReplySourceChatId {
@@ -1682,7 +1758,7 @@ final class ChatViewModel: ChatViewModelHosting {
         bumpSendIndicatorRevision()
         isAssistantTyping = false
         typingSessionKey = nil
-        shouldMorphTypingIndicator = false
+        clearAllTypingIndicatorMorphTargets()
         connectionStableTask?.cancel()
         connectionStableTask = nil
         restoredSessionKeys.removeAll()
@@ -1916,9 +1992,13 @@ final class ChatViewModel: ChatViewModelHosting {
            isAssistantTyping,
            typingSessionKey == message.sessionKey {
             shouldMorphTypingIndicator = true
+            typingIndicatorMorphTargetMessageIdBySessionKey[message.sessionKey] = resolvedMessage.id
             isAssistantTyping = false
             self.typingSessionKey = nil
-        } else {
+        } else if message.role == .assistant,
+                  typingIndicatorMorphTargetMessageIdBySessionKey[message.sessionKey] == message.id {
+            clearTypingIndicatorMorphTarget(for: message.sessionKey)
+        } else if typingIndicatorMorphTargetMessageIdBySessionKey.isEmpty {
             shouldMorphTypingIndicator = false
         }
 
@@ -2481,7 +2561,7 @@ final class ChatViewModel: ChatViewModelHosting {
                              pendingAttachments: [PendingAttachment],
                              sessionKey: String?,
                              clearInputOnSuccess: Bool = true,
-                             onSuccess: (@MainActor () -> Void)? = nil) async {
+                             onSuccess: (@MainActor (_ clientId: String) -> Void)? = nil) async {
         defer { sendTask = nil }
         var didStartChatSend = false
         do {
@@ -2501,7 +2581,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 if clearInputOnSuccess {
                     clearInput()
                 }
-                onSuccess?()
+                onSuccess?(clientId)
                 isSending = false
                 activeClientMessageId = nil
                 activeCrossChatNotificationReplySourceChatId = nil
@@ -3070,6 +3150,7 @@ final class ChatViewModel: ChatViewModelHosting {
                 content: pending.content,
                 pendingAttachments: pending.attachments,
                 sessionKey: pending.sessionKey,
+                clientId: pending.clientId,
                 clearInputOnSuccess: replySourceChatId == nil,
                 crossChatNotificationReplySourceChatId: replySourceChatId
             )
@@ -3099,11 +3180,13 @@ final class ChatViewModel: ChatViewModelHosting {
             connectionStableTask = nil
             isAssistantTyping = false
             typingSessionKey = nil
+            clearAllTypingIndicatorMorphTargets()
             auth.refreshAdminStatusFromToken()
             attemptPendingProvisionedSendIfPossible()
         case .connecting, .reconnecting:
             isAssistantTyping = false
             typingSessionKey = nil
+            clearAllTypingIndicatorMorphTargets()
         case .disconnected, .failed:
             connectionStableTask?.cancel()
             connectionStableTask = nil
@@ -3111,6 +3194,7 @@ final class ChatViewModel: ChatViewModelHosting {
             markPendingMessagesAsFailedForConnectionLoss()
             isAssistantTyping = false
             typingSessionKey = nil
+            clearAllTypingIndicatorMorphTargets()
         }
     }
 
@@ -3742,6 +3826,7 @@ final class ChatViewModel: ChatViewModelHosting {
             typingSessionKey = nil
             isAssistantTyping = false
         }
+        clearTypingIndicatorMorphTarget(for: sessionKey)
 
         if engineActiveSessionKey == sessionKey {
             let fallback = streamMainSessionKey().flatMap { orderedSessionKeys.contains($0) ? $0 : nil }
@@ -3800,6 +3885,7 @@ final class ChatViewModel: ChatViewModelHosting {
             typingSessionKey = nil
             isAssistantTyping = false
         }
+        clearTypingIndicatorMorphTarget(for: sessionKey)
 
         if engineActiveSessionKey == sessionKey {
             let fallback = streamMainSessionKey().flatMap { orderedSessionKeys.contains($0) ? $0 : nil }

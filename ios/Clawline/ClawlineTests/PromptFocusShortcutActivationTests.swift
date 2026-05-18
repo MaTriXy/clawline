@@ -11,6 +11,35 @@ import UIKit
 @testable import Clawline
 
 struct PromptFocusShortcutActivationTests {
+    @Test("T307 accent reply gesture only accepts vertical-dominant swipes")
+    func accentReplyGestureOnlyAcceptsVerticalDominantSwipes() {
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 0, height: CrossChatNotificationAccentReplyGesture.minimumDistance)
+            )
+        )
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 4, height: -32)
+            )
+        )
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 28, height: 10)
+            ) == false
+        )
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 0, height: CrossChatNotificationAccentReplyGesture.minimumDistance - 1)
+            ) == false
+        )
+        #expect(
+            CrossChatNotificationAccentReplyGesture.shouldToggleReply(
+                translation: CGSize(width: 24, height: 24)
+            ) == false
+        )
+    }
+
     @Test("T307 notification reply input presents Send return key and five-line cap")
     @MainActor
     func notificationReplyInputUsesSendReturnKeyAndFiveLineCap() {
@@ -25,6 +54,9 @@ struct PromptFocusShortcutActivationTests {
             visibleNotificationCount: 3
         )
 
+        #expect(textView.returnKeyType == .send)
+        textView.returnKeyType = .default
+        textView.enforceSendReturnKey()
         #expect(textView.returnKeyType == .send)
         #expect(textView.font == font)
         #expect(textView.visibleNotificationCount == 3)
@@ -172,11 +204,19 @@ struct PromptFocusShortcutActivationTests {
             }
         )
         #expect(
-            ChatAppCommandShortcut.notificationScrollKeyCommandSpecs.map(\.action) == [
+            ChatAppCommandShortcut.notificationScrollKeyCommandSpecs(notificationVisibleCount: 0).map(\.action) == [
                 .scrollDown,
                 .scrollUp,
                 .scrollChatDown,
                 .scrollChatUp
+            ]
+        )
+        #expect(
+            ChatAppCommandShortcut.notificationScrollKeyCommandSpecs(notificationVisibleCount: 2).map(\.action) == [
+                .scrollNotificationDown,
+                .scrollNotificationUp,
+                .scrollNotificationDown,
+                .scrollNotificationUp
             ]
         )
     }
@@ -202,9 +242,9 @@ struct PromptFocusShortcutActivationTests {
         #expect(firstEscapeCommand?.action == Selector(("didPressEscape:")))
     }
 
-    @Test("Prompt text input exposes app scroll commands before base text-view commands")
+    @Test("Prompt text input exposes notification scroll commands before base text-view commands")
     @MainActor
-    func promptTextInputExposesAppScrollCommandsBeforeBaseTextViewCommands() {
+    func promptTextInputExposesNotificationScrollCommandsBeforeBaseTextViewCommands() {
         let textView = PastableTextView(frame: .zero, textContainer: nil)
         textView.notificationVisibleCount = 2
 
@@ -215,8 +255,8 @@ struct PromptFocusShortcutActivationTests {
             command.input == "k" && command.modifierFlags == [.command, .shift]
         }
 
-        #expect(firstCommandJ?.action == #selector(UIResponder.clawlineScrollDownCommand(_:)))
-        #expect(firstCommandShiftK?.action == #selector(UIResponder.clawlineScrollChatUpCommand(_:)))
+        #expect(firstCommandJ?.action == #selector(UIResponder.clawlineScrollNotificationDownCommand(_:)))
+        #expect(firstCommandShiftK?.action == #selector(UIResponder.clawlineScrollNotificationUpCommand(_:)))
     }
 
     @Test("Text input priority is limited to visible notification-owned shortcuts")

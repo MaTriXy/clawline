@@ -465,7 +465,7 @@ struct ChatViewModelTests {
         #expect(overflowed.replyDraft == "draft")
     }
 
-    @Test("T307 notification reply closes only after successful send")
+    @Test("T307 notification reply locks duplicate taps and dismisses after accepted send")
     @MainActor
     func notificationReplyClosesOnlyAfterSuccessfulSend() async throws {
         resetChatPersistence()
@@ -505,38 +505,30 @@ struct ChatViewModelTests {
         )
         defer { viewModel.onDisappear() }
 
+        await viewModel.activate(origin: "test.notificationReplyClosesOnlyAfterSuccessfulSend")
         await viewModel.onAppear()
         chatService.emitServiceEvent(.streamSnapshot(streams))
         try await setReadyToSend(chatService: chatService, viewModel: viewModel)
-        chatService.emit(
-            Message(
-                id: "s_reply",
-                role: .assistant,
-                content: "reply target",
-                timestamp: Date(),
-                streaming: false,
-                attachments: [],
-                deviceId: nil,
-                sessionKey: sourceSessionKey
-            )
-        )
+        let assistantPayload = #"{"type":"message","id":"s_reply","role":"assistant","content":"reply target","timestamp":1700000000000,"streaming":false,"sessionKey":"\#(sourceSessionKey)","attachments":[]}"#
+        chatService.emitLifecycleEvent(.init(epoch: 1, payload: .serverMessage(data: Data(assistantPayload.utf8))))
         for _ in 0..<50 {
             if viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] != nil { break }
             try await Task.sleep(for: .milliseconds(10))
         }
+        _ = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey])
 
         viewModel.openCrossChatNotificationReply(sourceChatId: sourceSessionKey)
         viewModel.setCrossChatNotificationReplyDraft(sourceChatId: sourceSessionKey, draft: "reply draft")
-        chatService.sendError = NSError(domain: "test", code: 1)
-        viewModel.sendCrossChatNotificationReply(sourceChatId: sourceSessionKey)
-        try await Task.sleep(for: .milliseconds(50))
-
-        let bubble = try #require(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey])
-        #expect(bubble.isReplying)
-        #expect(bubble.replyDraft == "reply draft")
-
-        chatService.sendError = nil
         chatService.resetFetchedSessionStatusKeys()
+        chatService.emitServiceEvent(.sessionProvisioningAvailable(false))
+        for _ in 0..<50 {
+            if viewModel.canImmediatelySendCrossChatNotificationReply(sourceChatId: sourceSessionKey) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(viewModel.connectionState == .connected)
+        #expect(viewModel.stream(for: sourceSessionKey) != nil)
+        #expect(viewModel.isSendingCrossChatNotificationReply(sourceChatId: sourceSessionKey) == false)
+        #expect(viewModel.canImmediatelySendCrossChatNotificationReply(sourceChatId: sourceSessionKey))
         chatService.sendDelay = .milliseconds(300)
         viewModel.sendCrossChatNotificationReply(sourceChatId: sourceSessionKey)
         for _ in 0..<50 {
@@ -546,30 +538,29 @@ struct ChatViewModelTests {
 
         let replyMessageId = try #require(chatService.lastSentId)
         #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] != nil)
-        viewModel.cancelSend()
-        chatService.emitServiceEvent(.messageAcked(id: replyMessageId))
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] != nil)
-
-        chatService.sendDelay = nil
+        #expect(viewModel.isSendingCrossChatNotificationReply(sourceChatId: sourceSessionKey))
+        #expect(viewModel.canImmediatelySendCrossChatNotificationReply(sourceChatId: sourceSessionKey) == false)
         viewModel.sendCrossChatNotificationReply(sourceChatId: sourceSessionKey)
-        for _ in 0..<50 {
-            if chatService.lastSentId != replyMessageId { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await Task.sleep(for: .milliseconds(40))
+        #expect(chatService.sentIds == [replyMessageId])
 
-        let acceptedReplyMessageId = try #require(chatService.lastSentId)
-        #expect(acceptedReplyMessageId != replyMessageId)
-        chatService.emitServiceEvent(.messageAcked(id: replyMessageId))
-        chatService.emitServiceEvent(.messageAcked(id: acceptedReplyMessageId))
         for _ in 0..<50 {
             if viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] == nil { break }
             try await Task.sleep(for: .milliseconds(10))
         }
+        #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] == nil)
+        #expect(viewModel.isSendingCrossChatNotificationReply(sourceChatId: sourceSessionKey) == false)
+        viewModel.sendCrossChatNotificationReply(sourceChatId: sourceSessionKey)
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(chatService.sentIds == [replyMessageId])
 
+        for _ in 0..<50 {
+            if !viewModel.isSendingCrossChatNotificationReply(sourceChatId: sourceSessionKey) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(chatService.lastSentContent == "reply draft")
         #expect(chatService.lastSessionKey == sourceSessionKey)
-        #expect(viewModel.crossChatNotificationBubblesBySourceChatId[sourceSessionKey] == nil)
+        chatService.emitServiceEvent(.messageAcked(id: replyMessageId))
         for _ in 0..<50 {
             if viewModel.sessionStatus(for: sourceSessionKey)?.run.state == .running { break }
             try await Task.sleep(for: .milliseconds(10))
@@ -914,6 +905,9 @@ struct ChatViewModelTests {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true),
+        ]
         let toastManager = ToastManager()
         let viewModel = ChatViewModel(
             auth: auth,
@@ -1291,6 +1285,9 @@ struct ChatViewModelTests {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true)
+        ]
         chatService.sessionStatusBySessionKey[personalSessionKey] = makeSessionStatus(
             sessionKey: personalSessionKey,
             state: .running,
@@ -1313,6 +1310,7 @@ struct ChatViewModelTests {
         defer { viewModel.onDisappear() }
 
         await viewModel.onAppear()
+        chatService.emitServiceEvent(.streamSnapshot(chatService.streams))
         try await setReadyToSend(chatService: chatService, viewModel: viewModel)
         for _ in 0..<50 {
             if viewModel.sessionStatus(for: personalSessionKey) != nil { break }
@@ -1339,7 +1337,7 @@ struct ChatViewModelTests {
         #expect(toastManager.debugMessages.contains("Prompt cancellation requested."))
     }
 
-    @Test("Visible typing prompt cancellation requires active typing state")
+    @Test("Visible typing prompt cancellation follows in-flight run state")
     @MainActor
     func visibleTypingPromptCancellationRequiresActiveTypingState() async throws {
         resetChatPersistence()
@@ -1366,6 +1364,7 @@ struct ChatViewModelTests {
         )
         defer { viewModel.onDisappear() }
 
+        await viewModel.activate(origin: "test.visibleTypingPromptCancellationRequiresActiveTypingState")
         await viewModel.onAppear()
         try await setReadyToSend(chatService: chatService, viewModel: viewModel)
         for _ in 0..<50 {
@@ -1375,7 +1374,8 @@ struct ChatViewModelTests {
 
         #expect(viewModel.canCancelCurrentPrompt == true)
         #expect(viewModel.canCancelCurrentPrompt(in: personalSessionKey) == true)
-        #expect(viewModel.canCancelVisibleTypingPrompt(in: personalSessionKey) == false)
+        #expect(viewModel.canCancelVisibleTypingPrompt(in: personalSessionKey) == true)
+        #expect(viewModel.shouldShowTypingIndicator(in: personalSessionKey) == true)
 
         chatService.emitServiceEvent(.typingStateChanged(isTyping: true, sessionKey: personalSessionKey))
         for _ in 0..<50 {
@@ -1385,12 +1385,93 @@ struct ChatViewModelTests {
         #expect(viewModel.canCancelVisibleTypingPrompt(in: personalSessionKey) == true)
 
         chatService.emitServiceEvent(.typingStateChanged(isTyping: false, sessionKey: personalSessionKey))
+        try await Task.sleep(forDuration: .milliseconds(20))
+        #expect(viewModel.canCancelCurrentPrompt(in: personalSessionKey) == true)
+        #expect(viewModel.canCancelVisibleTypingPrompt(in: personalSessionKey) == true)
+        #expect(viewModel.shouldShowTypingIndicator(in: personalSessionKey) == true)
+    }
+
+    @Test("Typing indicator morph targets only the newly inserted assistant message once")
+    @MainActor
+    func typingIndicatorMorphTargetIsNewAssistantMessageAndOneShot() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.activate(origin: "test.typingIndicatorMorphTargetIsNewAssistantMessageAndOneShot")
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+
+        let priorMessage = Message(
+            id: "s_prior",
+            role: .assistant,
+            content: "already here",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: personalSessionKey
+        )
+        chatService.emit(priorMessage)
         for _ in 0..<50 {
-            if !viewModel.canCancelVisibleTypingPrompt(in: personalSessionKey) { break }
+            if viewModel.messages(for: personalSessionKey).contains(where: { $0.id == priorMessage.id }) { break }
             try await Task.sleep(forDuration: .milliseconds(20))
         }
-        #expect(viewModel.canCancelCurrentPrompt(in: personalSessionKey) == true)
-        #expect(viewModel.canCancelVisibleTypingPrompt(in: personalSessionKey) == false)
+        #expect(viewModel.shouldMorphTypingIndicator == false)
+
+        chatService.emitServiceEvent(.typingStateChanged(isTyping: true, sessionKey: personalSessionKey))
+        for _ in 0..<50 {
+            if viewModel.shouldShowTypingIndicator(in: personalSessionKey) { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        let newMessage = Message(
+            id: "s_new",
+            role: .assistant,
+            content: "new answer",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: personalSessionKey
+        )
+        chatService.emit(newMessage)
+        for _ in 0..<50 {
+            if viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey) == newMessage.id { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(viewModel.shouldMorphTypingIndicator)
+        #expect(viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey) == newMessage.id)
+        #expect(
+            TypingIndicatorMorph.shouldMorph(
+                wasShowingTypingIndicator: true,
+                targetMessageId: viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey),
+                insertedIds: [priorMessage.id]
+            ) == false
+        )
+        #expect(
+            TypingIndicatorMorph.shouldMorph(
+                wasShowingTypingIndicator: true,
+                targetMessageId: viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey),
+                insertedIds: [newMessage.id]
+            )
+        )
+
+        viewModel.consumeTypingIndicatorMorphTargetMessageId(newMessage.id, in: personalSessionKey)
+        #expect(viewModel.shouldMorphTypingIndicator == false)
+        #expect(viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey) == nil)
     }
 
     @Test("Current prompt cancellation targets visible stream during pager switch debounce")
@@ -1645,6 +1726,9 @@ struct ChatViewModelTests {
         let auth = TestAuthManager()
         auth.storeCredentials(token: "jwt", userId: "user")
         let chatService = TestChatService()
+        chatService.streams = [
+            makeStreamSession(sessionKey: personalSessionKey, displayName: "Personal", kind: "main", orderIndex: 0, isBuiltIn: true)
+        ]
         let toastManager = ToastManager()
         let viewModel = ChatViewModel(
             auth: auth,
@@ -2404,6 +2488,7 @@ struct ChatViewModelTests {
         )
         defer { viewModel.onDisappear() }
 
+        await viewModel.activate(origin: "test.sendWaitsForSessionProvisioning")
         await viewModel.onAppear()
         chatService.emitConnectionState(.connected)
         for _ in 0..<50 {
@@ -2414,6 +2499,7 @@ struct ChatViewModelTests {
         try await Task.sleep(for: .milliseconds(20))
 
         viewModel.inputContent = NSAttributedString(string: "Wait for provisioning")
+        viewModel.send()
         viewModel.send()
         try await Task.sleep(for: .milliseconds(40))
         #expect(chatService.lastSentId == nil)
@@ -2433,6 +2519,7 @@ struct ChatViewModelTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(chatService.lastSessionKey == personalSessionKey)
+        #expect(chatService.sentIds.count == 1)
     }
 
     @Test("Resend keeps replacement bubble if retry send fails immediately")
@@ -5047,6 +5134,7 @@ private final class TestChatService: ChatServicing {
     private(set) var lastSentId: String?
     private(set) var lastSentContent: String?
     private(set) var lastSessionKey: String?
+    private(set) var sentIds: [String] = []
     var lastPublishedReadState: (sessionKey: String, lastReadMessageId: String)?
     private(set) var connectCallCount: Int = 0
     var isTransportReadyForSend: Bool = false
@@ -5182,6 +5270,7 @@ private final class TestChatService: ChatServicing {
         lastSentContent = content
         lastSentAttachments = attachments
         lastSessionKey = sessionKey
+        sentIds.append(id)
         if let sendDelay {
             try await Task.sleep(for: sendDelay)
         }

@@ -33,6 +33,8 @@ struct CrossChatNotificationCommand {
     let openActionMenu: @MainActor (Int) -> Void
     let dismiss: @MainActor (Int) -> Void
     let reply: @MainActor (Int) -> Void
+    let scrollDown: @MainActor () -> Void
+    let scrollUp: @MainActor () -> Void
     let dismissAll: @MainActor () -> Void
 }
 

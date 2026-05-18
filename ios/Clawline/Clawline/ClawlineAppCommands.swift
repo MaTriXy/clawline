@@ -94,22 +94,38 @@ struct ClawlineAppCommands: Commands {
             Divider()
 
             Button("Scroll Bubble Contents Down") {
-                NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)
+                if notificationCommandsActive {
+                    crossChatNotificationCommand?.scrollDown()
+                } else {
+                    NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)
+                }
             }
             .keyboardShortcut("j", modifiers: .command)
 
             Button("Scroll Bubble Contents Up") {
-                NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
+                if notificationCommandsActive {
+                    crossChatNotificationCommand?.scrollUp()
+                } else {
+                    NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
+                }
             }
             .keyboardShortcut("k", modifiers: .command)
 
             Button("Scroll Chat Down") {
-                NotificationCenter.default.post(name: .clawlineScrollChatDownCommand, object: nil)
+                if notificationCommandsActive {
+                    crossChatNotificationCommand?.scrollDown()
+                } else {
+                    NotificationCenter.default.post(name: .clawlineScrollChatDownCommand, object: nil)
+                }
             }
             .keyboardShortcut("j", modifiers: [.command, .shift])
 
             Button("Scroll Chat Up") {
-                NotificationCenter.default.post(name: .clawlineScrollChatUpCommand, object: nil)
+                if notificationCommandsActive {
+                    crossChatNotificationCommand?.scrollUp()
+                } else {
+                    NotificationCenter.default.post(name: .clawlineScrollChatUpCommand, object: nil)
+                }
             }
             .keyboardShortcut("k", modifiers: [.command, .shift])
         }
