@@ -2265,8 +2265,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Add typing indicator when assistant is typing (server-controlled)
         // Only show on the matching channel page (for paged TabView)
-        let showTypingIndicator = viewModel.isAssistantTyping
-            && viewModel.typingSessionKey == effectiveSessionKey
+        let showTypingIndicator = viewModel.shouldShowTypingIndicator(in: effectiveSessionKey)
         let typingIndicatorJustAppeared = showTypingIndicator && !wasShowingTypingIndicator
         let shouldMorph = viewModel.shouldMorphTypingIndicator && wasShowingTypingIndicator
         if showTypingIndicator != wasShowingTypingIndicator {
@@ -5344,7 +5343,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         snapshot.deleteAllItems()
         snapshot.appendSections([0])
         snapshot.appendItems(desiredItemIds)
-        if viewModel.isAssistantTyping && viewModel.typingSessionKey == effectiveSessionKey {
+        if viewModel.shouldShowTypingIndicator(in: effectiveSessionKey) {
             snapshot.appendItems([TypingIndicatorCell.itemId])
         }
         if !snapshotMessages.isEmpty, SessionMetadataFooterCell.footerText(for: sessionStatus) != nil {

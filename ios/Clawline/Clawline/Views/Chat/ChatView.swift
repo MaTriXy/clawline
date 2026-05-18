@@ -5302,8 +5302,9 @@ private struct CrossChatNotificationOverlay: View {
             VStack(alignment: .trailing, spacing: Self.bubbleSpacing) {
                 ForEach(Array(visibleBubbles.enumerated()), id: \.element.sourceChatId) { index, bubble in
                     let isReplySendActive = viewModel.isSendingCrossChatNotificationReply(sourceChatId: bubble.sourceChatId)
-                    let canSendReply = !viewModel.isSending
-                        && !bubble.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    let canSendReply = viewModel.canImmediatelySendCrossChatNotificationReply(
+                        sourceChatId: bubble.sourceChatId
+                    )
                     CrossChatNotificationBubbleView(
                         bubble: bubble,
                         assignedNumber: index,
@@ -5438,6 +5439,7 @@ private struct CrossChatNotificationOverlay: View {
             }
             .onDisappear {
                 clearAllCollapsedPreviews()
+                isCollapsed = false
                 bubbleDragOffsetsBySourceChatId = [:]
                 dismissSwipeActiveSourceChatIds = []
             }
