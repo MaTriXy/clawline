@@ -17,6 +17,20 @@ enum MessageFlowScrollEvent: Equatable {
     case didInvalidateFirstUnreadAnchor(sessionKey: String)
 }
 
+enum TypingIndicatorMorph {
+    static func shouldMorph(
+        wasShowingTypingIndicator: Bool,
+        targetMessageId: String?,
+        insertedIds: Set<String>
+    ) -> Bool {
+        guard wasShowingTypingIndicator,
+              let targetMessageId else {
+            return false
+        }
+        return insertedIds.contains(targetMessageId)
+    }
+}
+
 enum ChatVisibleBubbleContentScroll {
     static var lineIncrement: CGFloat {
         ceil(UIFont.clawline(.bodyText).lineHeight + 4)
@@ -2265,9 +2279,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
         // Add typing indicator when assistant is typing (server-controlled)
         // Only show on the matching channel page (for paged TabView)
+        let wasShowingTypingIndicatorBeforeUpdate = wasShowingTypingIndicator
         let showTypingIndicator = viewModel.shouldShowTypingIndicator(in: effectiveSessionKey)
-        let typingIndicatorJustAppeared = showTypingIndicator && !wasShowingTypingIndicator
-        let shouldMorph = viewModel.shouldMorphTypingIndicator && wasShowingTypingIndicator
+        let typingIndicatorJustAppeared = showTypingIndicator && !wasShowingTypingIndicatorBeforeUpdate
         if showTypingIndicator != wasShowingTypingIndicator {
             logger.info("typing indicator state changed: show=\(showTypingIndicator, privacy: .public) wasShowing=\(self.wasShowingTypingIndicator, privacy: .public)")
         }
@@ -2283,6 +2297,16 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let newItemIds = Set(snapshot.itemIdentifiers)
         let insertedIds = newItemIds.subtracting(oldItemIds)
         let newestMessageId = messages.last?.id
+        let morphTargetMessageId = viewModel.typingIndicatorMorphTargetMessageId(in: effectiveSessionKey)
+        let shouldMorph = TypingIndicatorMorph.shouldMorph(
+            wasShowingTypingIndicator: wasShowingTypingIndicatorBeforeUpdate,
+            targetMessageId: morphTargetMessageId,
+            insertedIds: insertedIds
+        )
+        if let morphTargetMessageId,
+           messages.contains(where: { $0.id == morphTargetMessageId }) {
+            viewModel.consumeTypingIndicatorMorphTargetMessageId(morphTargetMessageId, in: effectiveSessionKey)
+        }
 
         // #51: Subtle entrance animation for newly inserted bubbles when we're already at the bottom.
         if let newestMessageId,
@@ -2380,7 +2404,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if shouldMorph {
             isSnapshotApplyInFlight = true
             StreamSwitchTiming.log("dataSource_apply_start", sessionKey: effectiveSessionKey)
-            applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: newestMessageId) { [weak self] in
+            applySnapshotWithTypingMorphIfPossible(snapshot: snapshot, targetMessageId: morphTargetMessageId) { [weak self] in
                 afterSnapshotApplied()
                 self?.scheduleBubbleSizingV2ViewportAnchorCompensation(expansionAnchor)
                 StreamSwitchTiming.log("dataSource_apply_end", sessionKey: effectiveSessionKey)

@@ -476,6 +476,7 @@ final class ChatViewModel: ChatViewModelHosting {
     private(set) var sendTask: Task<Void, Never>?
     /// Tracks if typing indicator was visible when a message arrives (for morph transition).
     private(set) var shouldMorphTypingIndicator: Bool = false
+    private var typingIndicatorMorphTargetMessageIdBySessionKey: [String: String] = [:]
     private var isRetired = false
 
     private var temporarySendButtonOverride: SendButtonConnectionState?
@@ -1203,6 +1204,33 @@ final class ChatViewModel: ChatViewModelHosting {
         }
     }
 
+    func typingIndicatorMorphTargetMessageId(in sessionKey: String) -> String? {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty else { return nil }
+        return typingIndicatorMorphTargetMessageIdBySessionKey[normalizedSessionKey]
+    }
+
+    func consumeTypingIndicatorMorphTargetMessageId(_ messageId: String?, in sessionKey: String) {
+        let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionKey.isEmpty,
+              let messageId,
+              typingIndicatorMorphTargetMessageIdBySessionKey[normalizedSessionKey] == messageId else {
+            return
+        }
+        typingIndicatorMorphTargetMessageIdBySessionKey.removeValue(forKey: normalizedSessionKey)
+        shouldMorphTypingIndicator = !typingIndicatorMorphTargetMessageIdBySessionKey.isEmpty
+    }
+
+    private func clearTypingIndicatorMorphTarget(for sessionKey: String) {
+        typingIndicatorMorphTargetMessageIdBySessionKey.removeValue(forKey: sessionKey)
+        shouldMorphTypingIndicator = !typingIndicatorMorphTargetMessageIdBySessionKey.isEmpty
+    }
+
+    private func clearAllTypingIndicatorMorphTargets() {
+        typingIndicatorMorphTargetMessageIdBySessionKey.removeAll()
+        shouldMorphTypingIndicator = false
+    }
+
     func canCancelCurrentPrompt(in sessionKey: String) -> Bool {
         let normalizedSessionKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
         return promptIsInFlight(in: normalizedSessionKey)
@@ -1730,7 +1758,7 @@ final class ChatViewModel: ChatViewModelHosting {
         bumpSendIndicatorRevision()
         isAssistantTyping = false
         typingSessionKey = nil
-        shouldMorphTypingIndicator = false
+        clearAllTypingIndicatorMorphTargets()
         connectionStableTask?.cancel()
         connectionStableTask = nil
         restoredSessionKeys.removeAll()
@@ -1964,9 +1992,13 @@ final class ChatViewModel: ChatViewModelHosting {
            isAssistantTyping,
            typingSessionKey == message.sessionKey {
             shouldMorphTypingIndicator = true
+            typingIndicatorMorphTargetMessageIdBySessionKey[message.sessionKey] = resolvedMessage.id
             isAssistantTyping = false
             self.typingSessionKey = nil
-        } else {
+        } else if message.role == .assistant,
+                  typingIndicatorMorphTargetMessageIdBySessionKey[message.sessionKey] == message.id {
+            clearTypingIndicatorMorphTarget(for: message.sessionKey)
+        } else if typingIndicatorMorphTargetMessageIdBySessionKey.isEmpty {
             shouldMorphTypingIndicator = false
         }
 
@@ -3148,11 +3180,13 @@ final class ChatViewModel: ChatViewModelHosting {
             connectionStableTask = nil
             isAssistantTyping = false
             typingSessionKey = nil
+            clearAllTypingIndicatorMorphTargets()
             auth.refreshAdminStatusFromToken()
             attemptPendingProvisionedSendIfPossible()
         case .connecting, .reconnecting:
             isAssistantTyping = false
             typingSessionKey = nil
+            clearAllTypingIndicatorMorphTargets()
         case .disconnected, .failed:
             connectionStableTask?.cancel()
             connectionStableTask = nil
@@ -3160,6 +3194,7 @@ final class ChatViewModel: ChatViewModelHosting {
             markPendingMessagesAsFailedForConnectionLoss()
             isAssistantTyping = false
             typingSessionKey = nil
+            clearAllTypingIndicatorMorphTargets()
         }
     }
 
@@ -3791,6 +3826,7 @@ final class ChatViewModel: ChatViewModelHosting {
             typingSessionKey = nil
             isAssistantTyping = false
         }
+        clearTypingIndicatorMorphTarget(for: sessionKey)
 
         if engineActiveSessionKey == sessionKey {
             let fallback = streamMainSessionKey().flatMap { orderedSessionKeys.contains($0) ? $0 : nil }
@@ -3849,6 +3885,7 @@ final class ChatViewModel: ChatViewModelHosting {
             typingSessionKey = nil
             isAssistantTyping = false
         }
+        clearTypingIndicatorMorphTarget(for: sessionKey)
 
         if engineActiveSessionKey == sessionKey {
             let fallback = streamMainSessionKey().flatMap { orderedSessionKeys.contains($0) ? $0 : nil }

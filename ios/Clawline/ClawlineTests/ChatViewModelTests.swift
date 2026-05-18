@@ -1385,6 +1385,89 @@ struct ChatViewModelTests {
         #expect(viewModel.shouldShowTypingIndicator(in: personalSessionKey) == true)
     }
 
+    @Test("Typing indicator morph targets only the newly inserted assistant message once")
+    @MainActor
+    func typingIndicatorMorphTargetIsNewAssistantMessageAndOneShot() async throws {
+        resetChatPersistence()
+        let auth = TestAuthManager()
+        auth.storeCredentials(token: "jwt", userId: "user")
+        let chatService = TestChatService()
+        let viewModel = ChatViewModel(
+            auth: auth,
+            chatService: chatService,
+            settings: SettingsManager(),
+            device: TestDevice(),
+            uploadService: TestUploadService(),
+            toastManager: ToastManager(),
+            salientHighlightService: SalientHighlightService()
+        )
+        defer { viewModel.onDisappear() }
+
+        await viewModel.activate(origin: "test.typingIndicatorMorphTargetIsNewAssistantMessageAndOneShot")
+        await viewModel.onAppear()
+        try await setReadyToSend(chatService: chatService, viewModel: viewModel)
+
+        let priorMessage = Message(
+            id: "s_prior",
+            role: .assistant,
+            content: "already here",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: personalSessionKey
+        )
+        chatService.emit(priorMessage)
+        for _ in 0..<50 {
+            if viewModel.messages(for: personalSessionKey).contains(where: { $0.id == priorMessage.id }) { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+        #expect(viewModel.shouldMorphTypingIndicator == false)
+
+        chatService.emitServiceEvent(.typingStateChanged(isTyping: true, sessionKey: personalSessionKey))
+        for _ in 0..<50 {
+            if viewModel.shouldShowTypingIndicator(in: personalSessionKey) { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        let newMessage = Message(
+            id: "s_new",
+            role: .assistant,
+            content: "new answer",
+            timestamp: Date(),
+            streaming: false,
+            attachments: [],
+            deviceId: nil,
+            sessionKey: personalSessionKey
+        )
+        chatService.emit(newMessage)
+        for _ in 0..<50 {
+            if viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey) == newMessage.id { break }
+            try await Task.sleep(forDuration: .milliseconds(20))
+        }
+
+        #expect(viewModel.shouldMorphTypingIndicator)
+        #expect(viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey) == newMessage.id)
+        #expect(
+            TypingIndicatorMorph.shouldMorph(
+                wasShowingTypingIndicator: true,
+                targetMessageId: viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey),
+                insertedIds: [priorMessage.id]
+            ) == false
+        )
+        #expect(
+            TypingIndicatorMorph.shouldMorph(
+                wasShowingTypingIndicator: true,
+                targetMessageId: viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey),
+                insertedIds: [newMessage.id]
+            )
+        )
+
+        viewModel.consumeTypingIndicatorMorphTargetMessageId(newMessage.id, in: personalSessionKey)
+        #expect(viewModel.shouldMorphTypingIndicator == false)
+        #expect(viewModel.typingIndicatorMorphTargetMessageId(in: personalSessionKey) == nil)
+    }
+
     @Test("Current prompt cancellation targets visible stream during pager switch debounce")
     @MainActor
     func currentPromptCancellationTargetsVisibleStreamDuringPagerSwitchDebounce() async throws {
