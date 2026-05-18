@@ -6852,7 +6852,7 @@ private struct CrossChatNotificationActionMenu: View {
         }
         .shadow(color: Color.black.opacity(0.34), radius: 22, x: 0, y: 12)
         .shadow(color: Color.black.opacity(0.18), radius: 5, x: 0, y: 2)
-#if compiler(>=6.0)
+#if compiler(>=6.0) && !os(visionOS)
         .glassEffect(.regular, in: menuShape)
 #endif
         .focusable()
