@@ -5641,24 +5641,36 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
             FooterItem(
                 text: "Thinking \(thinkingValue ?? reasoningValue ?? "Unknown")",
                 action: levelControl.action,
-                options: levelOptions(current: thinkingValue ?? reasoningValue, action: levelControl.action),
+                options: levelOptions(
+                    current: thinkingValue ?? reasoningValue,
+                    action: levelControl.action,
+                    providerOptions: levelControl.options
+                ),
                 unsupportedReason: levelControl.reason
             ),
             FooterItem(
-                text: fastModeText(display.fastMode),
+                text: fastModeText(display.fastMode, action: fastControl.action, unsupportedReason: fastControl.reason),
                 action: fastControl.action,
-                options: fastModeOptions(current: display.fastMode, action: fastControl.action),
+                options: fastModeOptions(
+                    current: display.fastMode,
+                    action: fastControl.action,
+                    providerOptions: fastControl.options
+                ),
                 unsupportedReason: fastControl.reason
             )
         ]
     }
 
     private static func capability(_ capability: SessionStatus.Capability?,
-                                   legacySupported: Bool) -> (isSupported: Bool, reason: String?) {
+                                   legacySupported: Bool) -> (
+        isSupported: Bool,
+        reason: String?,
+        options: [SessionStatus.Capability.Option]?
+    ) {
         if let capability {
-            return (capability.supported, capability.reason)
+            return (capability.supported, capability.reason, capability.options)
         }
-        return (legacySupported, nil)
+        return (legacySupported, nil, nil)
     }
 
     private func button(
@@ -5726,12 +5738,39 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
 
     private static func modelCatalogOption(_ model: SessionStatus.ModelCatalog.Model,
                                            current: String?) -> (title: String, isCurrent: Bool) {
-        let title = normalized(model.alias) ?? normalized(model.name) ?? normalized(model.ref) ?? model.ref
+        let title = normalized(model.name) ?? normalized(model.ref) ?? normalized(model.alias) ?? model.ref
         let isCurrent = current == normalized(model.id) || current == normalized(model.ref)
         return (title, isCurrent)
     }
 
-    private static func levelOptions(current: String?, action: SessionControlAction?) -> [FooterOption] {
+    private static func providerFooterOptions(
+        _ options: [SessionStatus.Capability.Option]?
+    ) -> [FooterOption]? {
+        guard let options, !options.isEmpty else { return nil }
+        return options.compactMap { option in
+            let title = normalized(option.title)
+                ?? normalized(option.value)
+                ?? (option.enabled == true ? "On" : option.enabled == false ? "Off" : nil)
+            guard let title else { return nil }
+            return FooterOption(title: title, value: normalized(option.value), enabled: option.enabled, isCurrent: false)
+        }
+    }
+
+    private static func levelOptions(
+        current: String?,
+        action: SessionControlAction?,
+        providerOptions: [SessionStatus.Capability.Option]?
+    ) -> [FooterOption] {
+        if let options = providerFooterOptions(providerOptions) {
+            return options.map { option in
+                FooterOption(
+                    title: option.title,
+                    value: option.value,
+                    enabled: option.enabled,
+                    isCurrent: option.value == current
+                )
+            }
+        }
         let levels: [String]
         switch action {
         case .setThinking:
@@ -5751,7 +5790,27 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         }
     }
 
-    private static func fastModeOptions(current: Bool?, action: SessionControlAction?) -> [FooterOption] {
+    private static func fastModeOptions(
+        current: Bool?,
+        action: SessionControlAction?,
+        providerOptions: [SessionStatus.Capability.Option]?
+    ) -> [FooterOption] {
+        if let options = providerFooterOptions(providerOptions) {
+            return options.map { option in
+                let optionCurrent: Bool
+                if let enabled = option.enabled {
+                    optionCurrent = enabled == current
+                } else {
+                    optionCurrent = option.value == (current == true ? "fast" : current == false ? "normal" : nil)
+                }
+                return FooterOption(
+                    title: option.title,
+                    value: option.value,
+                    enabled: option.enabled,
+                    isCurrent: optionCurrent
+                )
+            }
+        }
         guard action != .setMode else {
             return [
                 FooterOption(title: "On", value: "fast", enabled: nil, isCurrent: current == true),
@@ -5768,45 +5827,50 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         capabilities: SessionStatus.Capabilities,
         hasThinkingValue: Bool,
         hasReasoningValue: Bool
-    ) -> (action: SessionControlAction?, reason: String?) {
+    ) -> (action: SessionControlAction?, reason: String?, options: [SessionStatus.Capability.Option]?) {
         let thinkingCapability = capability(capabilities.setThinking, legacySupported: false)
         let reasoningCapability = capability(
             capabilities.setReasoning,
             legacySupported: capabilities.canChangeReasoning == true
         )
         if hasThinkingValue, thinkingCapability.isSupported {
-            return (.setThinking, nil)
+            return (.setThinking, nil, thinkingCapability.options)
         }
         if hasReasoningValue, reasoningCapability.isSupported {
-            return (.setReasoning, nil)
+            return (.setReasoning, nil, reasoningCapability.options)
         }
         if thinkingCapability.isSupported {
-            return (.setThinking, nil)
+            return (.setThinking, nil, thinkingCapability.options)
         }
         if reasoningCapability.isSupported {
-            return (.setReasoning, nil)
+            return (.setReasoning, nil, reasoningCapability.options)
         }
-        return (nil, thinkingCapability.reason ?? reasoningCapability.reason)
+        return (nil, thinkingCapability.reason ?? reasoningCapability.reason, nil)
     }
 
     private static func fastModeControlAction(
         capabilities: SessionStatus.Capabilities
-    ) -> (action: SessionControlAction?, reason: String?) {
+    ) -> (action: SessionControlAction?, reason: String?, options: [SessionStatus.Capability.Option]?) {
         let fastModeCapability = capability(
             capabilities.setFastMode,
             legacySupported: capabilities.canChangeFastMode == true
         )
         let modeCapability = capability(capabilities.setMode, legacySupported: false)
         if fastModeCapability.isSupported {
-            return (.setFastMode, nil)
+            return (.setFastMode, nil, fastModeCapability.options)
         }
         if modeCapability.isSupported {
-            return (.setMode, nil)
+            return (.setMode, nil, modeCapability.options)
         }
-        return (nil, fastModeCapability.reason ?? modeCapability.reason)
+        return (nil, fastModeCapability.reason ?? modeCapability.reason, nil)
     }
 
-    private static func fastModeText(_ fastMode: Bool?) -> String {
+    private static func fastModeText(_ fastMode: Bool?,
+                                     action: SessionControlAction?,
+                                     unsupportedReason: String?) -> String {
+        if action == nil, fastMode == nil, unsupportedReason != nil {
+            return "Fast unavailable"
+        }
         guard let fastMode else { return "Fast Unknown" }
         return fastMode ? "Fast on" : "Fast off"
     }

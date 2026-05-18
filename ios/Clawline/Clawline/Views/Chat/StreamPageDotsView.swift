@@ -15,7 +15,7 @@ struct StreamPageDotsView: View {
 
     let sessionKeys: [String]
     let activeSessionKey: String
-    let dotStatesBySession: [String: StreamDotState]
+    let dotStateLookup: StreamDotStateLookup
     let maxWidth: CGFloat?
     let onTap: () -> Void
     let onScrubPreview: (String) -> Void
@@ -114,14 +114,14 @@ struct StreamPageDotsView: View {
         guard let firstVisibleIndex = visibleDotIndices.first, firstVisibleIndex > 0 else {
             return false
         }
-        return sessionKeys[..<firstVisibleIndex].contains { dotStatesBySession[$0] == .unread }
+        return sessionKeys[..<firstVisibleIndex].contains { dotStateLookup($0) == .unread }
     }
 
     private var hasHiddenUnreadTrailing: Bool {
         guard let lastVisibleIndex = visibleDotIndices.last, lastVisibleIndex < sessionKeys.count - 1 else {
             return false
         }
-        return sessionKeys[(lastVisibleIndex + 1)...].contains { dotStatesBySession[$0] == .unread }
+        return sessionKeys[(lastVisibleIndex + 1)...].contains { dotStateLookup($0) == .unread }
     }
 
     private var warningBloomColor: Color {
@@ -427,7 +427,7 @@ struct StreamPageDotsView: View {
             onScrubCandidateHaptic(
                 Self.scrubCandidateHapticStyle(
                     isActive: candidateIndex == activeIndex,
-                    dotState: dotStatesBySession[sessionKey] ?? .inactive
+                    dotState: dotStateLookup(sessionKey)
                 )
             )
         }
@@ -516,7 +516,7 @@ struct StreamPageDotsView: View {
                 let isActive = index == activeIndex
                 let isCandidate = index == scrubCandidateIndex
                 let showsSelectionRing = index == selectionRingIndex
-                let dotState = dotStatesBySession[sessionKey] ?? .inactive
+                let dotState = dotStateLookup(sessionKey)
                 let scale = Self.scrubMagnificationScale(
                     dotIndex: index,
                     virtualIndex: scrubVirtualIndex,

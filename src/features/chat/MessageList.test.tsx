@@ -1344,7 +1344,8 @@ describe("MessageList rich rendering", () => {
           models: [
             {
               ref: "openai/gpt-5.5",
-              name: "gpt-5.5"
+              name: "gpt-5.5",
+              alias: "gpt"
             },
             {
               ref: "openai/gpt-5.4",
@@ -1356,8 +1357,10 @@ describe("MessageList rich rendering", () => {
     });
 
     expect(await screen.findByTestId("session-status-footer")).toBeInTheDocument();
+    const modelControl = screen.getByLabelText("gpt-5.5") as HTMLSelectElement;
+    expect(modelControl.options[0]?.textContent).toBe("✓ gpt-5.5");
 
-    fireEvent.change(screen.getByLabelText("gpt-5.5"), {
+    fireEvent.change(modelControl, {
       target: { value: "1" }
     });
 
@@ -1390,5 +1393,70 @@ describe("MessageList rich rendering", () => {
     const fastModeControl = await screen.findByLabelText("Fast off");
     expect(fastModeControl).toBeDisabled();
     expect(fastModeControl).toHaveTextContent("Off");
+  });
+
+  it("uses provider-supplied footer control options", async () => {
+    const onSessionControlSelected = vi.fn();
+    renderMessageListWithProps({
+      messages: [makeMessage(1)],
+      onSessionControlSelected,
+      sessionKey: "agent:main:clawline:flynn:main",
+      sessionStatus: {
+        sessionKey: "agent:main:clawline:flynn:main",
+        display: {
+          model: "gpt-5.5",
+          thinkingLevel: "medium",
+          fastMode: null
+        },
+        capabilities: {
+          setModel: { supported: true },
+          setThinking: {
+            supported: true,
+            options: [
+              { title: "low", value: "low" },
+              { title: "medium", value: "medium" },
+              { title: "xhigh", value: "xhigh" }
+            ]
+          },
+          setFastMode: {
+            supported: false,
+            reason: "codex_fast_mode_not_supported_by_session_control"
+          }
+        },
+        modelCatalog: {
+          available: true,
+          models: [
+            {
+              ref: "openai/gpt-5.5",
+              name: "gpt-5.5"
+            }
+          ]
+        }
+      }
+    });
+
+    const thinkingControl = await screen.findByLabelText("Thinking medium");
+    expect(thinkingControl).toHaveTextContent("low");
+    expect(thinkingControl).toHaveTextContent("medium");
+    expect(thinkingControl).toHaveTextContent("xhigh");
+    expect(thinkingControl).not.toHaveTextContent("adaptive");
+
+    fireEvent.change(thinkingControl, {
+      target: { value: "2" }
+    });
+    expect(onSessionControlSelected).toHaveBeenCalledWith(
+      "agent:main:clawline:flynn:main",
+      "set_thinking",
+      "xhigh",
+      undefined
+    );
+
+    const fastModeControl = screen.getByLabelText("Fast unavailable");
+    expect(fastModeControl).toBeDisabled();
+    expect(fastModeControl).toHaveTextContent("Fast unavailable");
+    expect(fastModeControl).toHaveAttribute(
+      "title",
+      "codex_fast_mode_not_supported_by_session_control"
+    );
   });
 });

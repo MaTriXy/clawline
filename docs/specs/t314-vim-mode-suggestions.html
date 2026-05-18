@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>T314 Vim-Mode Next-Step Suggestions</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: transparent;
+      --fg: var(--clawline-fg, #1d2528);
+      --muted: #5f6f73;
+      --line: #cfd8d6;
+      --panel: #ffffff;
+      --accent: #176b6b;
+      --warn: #8a5400;
+      --code: #eef3f2;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: transparent;
+        --fg: var(--clawline-fg, #eef4f3);
+        --muted: #a8b6b8;
+        --line: #304043;
+        --panel: #182022;
+        --accent: #6ec7bc;
+        --warn: #e2b45e;
+        --code: #202b2d;
+      }
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 48px 22px 72px;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(2rem, 4vw, 3rem);
+    }
+
+    h2 {
+      margin-top: 42px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+      font-size: 1.45rem;
+    }
+
+    h3 {
+      margin-top: 28px;
+      font-size: 1.1rem;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    ul, ol {
+      padding-left: 1.3rem;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+      background: var(--code);
+      border-radius: 6px;
+    }
+
+    code {
+      padding: 0.12rem 0.28rem;
+    }
+
+    pre {
+      overflow-x: auto;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 16px 0;
+      background: var(--panel);
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .meta {
+      color: var(--muted);
+      margin-bottom: 28px;
+    }
+
+    .callout {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--accent);
+      background: var(--panel);
+      padding: 14px 16px;
+      margin: 18px 0;
+      border-radius: 8px;
+    }
+
+    .warning {
+      border-left-color: var(--warn);
+    }
+
+    .decision {
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>T314 Vim-Mode Next-Step Suggestions</h1>
+  <p class="meta">Product and architecture specification for local Foundation Model next-step suggestions over visible Clawline assistant bubbles. Prepared 2026-05-16.</p>
+
+  <section class="callout">
+    <p class="decision">Decision: <code>Cmd-F</code> enters a transient local suggestion mode over currently visible assistant bubbles only. Lettered suggestions render near their source bubbles, typing a suggestion letter submits that suggestion through the normal current-chat prompt path, and <code>Esc</code> exits without side effects.</p>
+    <p>The mode is a keyboard-first "vim hint" layer. It snapshots visible assistant bubble content and resolved bubble rectangles, asks the platform-local Foundation Model for concise next-step prompts, assigns unique letters, and renders non-persistent overlays. No suggestion context leaves the device before the user selects a suggestion.</p>
+  </section>
+
+  <h2>Source Notes</h2>
+  <ul>
+    <li>The requested tracker path <code>/Users/mike/.openclaw/workspace/tracking/T314.md</code> was checked first and is absent on this machine. The local tracking directory currently contains <code>T269.md</code> and <code>T292.md</code>, but no <code>T314.md</code>.</li>
+    <li>The canonical invariants path named in agent instructions, <code>/Users/mike/shared-workspace/clawline/specs/clawline-invariants.md</code>, is absent. The available mirror <code>/Users/mike/shared-workspace/clawline/implementation_details/clawline-invariants.md</code> was consulted.</li>
+    <li>The task prompt is treated as the source of truth. No source code, deploy repo, worktree, or deployment changes are part of this spec task.</li>
+    <li>Engram source <code>a9ac6234-3f31-4aff-991b-b9333dce5905</code> was queried with <code>engram peek</code>; it returned no readable content in this environment and did not affect the spec.</li>
+  </ul>
+
+  <h2>Goals</h2>
+  <ul>
+    <li>Let a physical-keyboard user press <code>Cmd-F</code> from the chat transcript to request local next-step suggestions for assistant bubbles that are currently visible in the active chat.</li>
+    <li>Use the platform-local Foundation Model to generate concise prompt suggestions from visible assistant-bubble text only.</li>
+    <li>Render each suggestion as a compact lettered hint near the assistant bubble that produced it.</li>
+    <li>Submit the selected suggestion by typing its assigned letter, using the same prompt submission route as a normal current-chat prompt.</li>
+    <li>Exit cleanly on <code>Esc</code>, navigation, unsupported local model state, or source-visibility invalidation.</li>
+  </ul>
+
+  <h2>Non-Goals</h2>
+  <ul>
+    <li>No remote model calls, provider-side suggestion generation, analytics upload, cross-device sync, or persistent suggestion history.</li>
+    <li>No suggestions from user, system, tool, terminal, notification, hidden, offscreen, or previously visible bubbles.</li>
+    <li>No transcript mutation, draft insertion, or composer text replacement until the user types a valid suggestion letter.</li>
+    <li>No multi-letter chords, mouse-only selection requirement, or suggestion editing surface in this feature.</li>
+    <li>No new routing contract. Selected suggestions submit through the existing current-chat prompt pathway.</li>
+    <li>No platform fallback that uses a non-local model when the local Foundation Model is unavailable.</li>
+  </ul>
+
+  <h2>Terminology</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Term</th>
+        <th>Meaning</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Suggestion mode</td>
+        <td>The transient keyboard-capture state entered by <code>Cmd-F</code> and exited by <code>Esc</code> or mode-ending events.</td>
+      </tr>
+      <tr>
+        <td>Source bubble</td>
+        <td>One eligible assistant transcript bubble that was visible when suggestion mode entered.</td>
+      </tr>
+      <tr>
+        <td>Visible assistant bubble</td>
+        <td>An assistant-role transcript bubble whose resolved cell/content rectangle intersects the active transcript viewport at mode entry and is not hidden behind another presentation surface.</td>
+      </tr>
+      <tr>
+        <td>Suggestion hint</td>
+        <td>A compact overlay containing one unique letter and one concise prompt suggestion.</td>
+      </tr>
+      <tr>
+        <td>Prompt submission route</td>
+        <td>The same current-chat send path used when the user types text into the composer and submits it normally.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Mode Lifecycle</h2>
+  <ol>
+    <li>User presses <code>Cmd-F</code> while the active chat transcript can receive global chat shortcuts.</li>
+    <li>The chat screen captures a snapshot of eligible visible assistant bubbles: stable message identity, rendered text excerpt, and resolved bubble rectangle in the owning screen coordinate space.</li>
+    <li>The local suggestion service receives only the captured text excerpts and message identifiers needed to associate results back to source bubbles.</li>
+    <li>While generation is pending, the UI enters suggestion mode and may show a small local-generation pending marker near eligible bubbles or the transcript edge.</li>
+    <li>When local generation returns, the reducer filters invalid or empty suggestions, assigns unique letters, and renders hints near source bubbles.</li>
+    <li>Typing a valid assigned letter submits that suggestion as the next prompt to the current chat and exits suggestion mode after the send is accepted by the normal submission path.</li>
+    <li><code>Esc</code>, chat navigation, source bubble disappearance, or local-generation failure exits suggestion mode without submitting anything.</li>
+  </ol>
+
+  <h2>Eligibility</h2>
+  <h3>Eligible Sources</h3>
+  <ul>
+    <li>Only assistant-role transcript bubbles in the current chat are eligible.</li>
+    <li>A bubble is eligible only if it is currently visible in the active transcript viewport when <code>Cmd-F</code> is pressed.</li>
+    <li>Visibility is determined from resolved rectangles owned by the chat screen or message list layout. The suggestion overlay receives resolved source rectangles and must not reconstruct scroll position, split orientation, pane topology, or message layout intent.</li>
+    <li>Streaming assistant bubbles are eligible only when they already expose visible assistant text. Empty typing indicators, progress strips, and placeholders are not eligible.</li>
+    <li>Assistant bubbles with no text extractable for local generation are not eligible. Attachments or rich content may contribute only text already exposed by the existing transcript preview/extraction policy.</li>
+  </ul>
+
+  <h3>Ineligible Sources</h3>
+  <ul>
+    <li>User, system, tool, terminal, status, notification, cross-chat overlay, composer, and progress surfaces are ineligible.</li>
+    <li>Assistant bubbles outside the current viewport are ineligible even if they are in the current transcript data source.</li>
+    <li>Assistant bubbles from other chats are ineligible. This feature does not inspect hidden chats or cross-chat notification state.</li>
+    <li>Bubbles hidden by navigation, filtering, redaction, modal presentation, or cell reuse at mode entry are ineligible.</li>
+  </ul>
+
+  <h3>Snapshot Semantics</h3>
+  <ul>
+    <li>Eligibility is snapshot-based. Scrolling after mode entry does not add new sources or remove generated suggestions by itself.</li>
+    <li>If the source bubble set is structurally invalidated by chat navigation, transcript reload, message deletion, or selected-session change, suggestion mode exits.</li>
+    <li>If an eligible streaming assistant bubble receives more text after the snapshot, the active suggestion request does not incorporate the new text. The user can exit and re-enter mode to regenerate suggestions.</li>
+  </ul>
+
+  <h2>Local Foundation Model and Privacy</h2>
+  <ul>
+    <li>Suggestion generation runs only through the platform-local Foundation Model facility available to the Clawline client process.</li>
+    <li>The provider, gateway, OpenClaw runtime, and remote model APIs do not receive source-bubble text, prompt templates, suggestion candidates, or mode telemetry before the user selects a suggestion.</li>
+    <li>The local model prompt includes only the visible assistant-bubble text excerpts required for current suggestion generation, the source message identifiers needed for local association, and the instruction to produce concise next-step prompts.</li>
+    <li>Suggestions are volatile UI state. They are not written to transcript storage, replay logs, provider status, cross-chat notification stores, or sync state.</li>
+    <li>When the user types a valid suggestion letter, only the selected suggestion text is submitted through the normal current-chat prompt pathway. At that point it has the same privacy and routing semantics as a user-authored prompt.</li>
+    <li>If the local Foundation Model is unavailable, disabled, downloading, rate-limited, or returns an error, Clawline exits or stays out of suggestion mode with a compact local-only failure indication. It must not fall back to a remote model.</li>
+  </ul>
+
+  <h2>Suggestion Generation Contract</h2>
+  <ul>
+    <li>The local generation request groups text by source bubble. The model should produce zero or more concise next-step prompt candidates per source bubble.</li>
+    <li>Each suggestion should be written as a prompt the user could send directly, not as an explanation of why the suggestion exists.</li>
+    <li>Suggestions should be short enough to scan in an overlay. Target one line; allow wrapping only when the platform cannot fit a complete useful prompt otherwise.</li>
+    <li>Suggestions must preserve source association. If the model cannot associate a candidate to a source bubble, discard that candidate.</li>
+    <li>Duplicate or near-duplicate candidates in the same active mode are collapsed before letter assignment.</li>
+    <li>The generation layer returns suggested prompt text only. It does not return overlay coordinates, typography, animation, hit regions, routing destinations, or submission commands.</li>
+  </ul>
+
+  <pre><code>SuggestionModeSource {
+  messageId: String
+  sourceIndex: Int
+  visibleTextExcerpt: String
+  sourceRect: ResolvedRect
+}
+
+SuggestionCandidate {
+  messageId: String
+  promptText: String
+}</code></pre>
+
+  <h2>Suggestion Placement</h2>
+  <ul>
+    <li>The owning chat screen resolves source bubble rectangles and viewport bounds. The suggestion overlay receives those resolved rectangles.</li>
+    <li>Each hint renders visually near its source bubble, preferring the trailing edge of the assistant bubble on wide layouts and a safe below-or-above edge on compact layouts.</li>
+    <li>Hints must stay within the resolved visible viewport and safe-area bounds. If preferred placement would clip, the overlay may flip to the other side of the source bubble or stack hints along the nearest visible edge.</li>
+    <li>Multiple hints for one source bubble stack together in source order with stable spacing and must not cover the letter labels of other hints.</li>
+    <li>Hints from adjacent bubbles may compact vertically but must preserve clear source association. A connector line is optional; proximity and ordering must be sufficient without requiring one.</li>
+    <li>The overlay must not move transcript cells, resize bubbles, alter scroll position, or reserve layout space. It is a presentation layer above the transcript.</li>
+    <li>The overlay may route taps/clicks on visible hints as an optional equivalent to typing the assigned letter, but keyboard letter selection remains the primary interaction.</li>
+  </ul>
+
+  <section class="callout warning">
+    <p><strong>Geometry boundary:</strong> message layout owns source rectangles. The suggestion overlay may validate bounds, transform coordinate spaces, place hints, and route hit regions against provided rectangles. It must not infer pane topology, split direction, orientation, scroll math, or transcript layout intent.</p>
+  </section>
+
+  <h2>Unique-Letter Assignment</h2>
+  <ul>
+    <li>Letters are unique within one active suggestion mode.</li>
+    <li>The assignment pool is lowercase <code>a</code> through <code>z</code>. The display may render uppercase letter badges if that matches platform style, but typed lowercase and uppercase forms select the same hint.</li>
+    <li>Assignment order follows visible source bubble order from top to bottom, then suggestion order within each source bubble.</li>
+    <li>If more than 26 valid suggestions are generated, only the first 26 by assignment order are shown. Extra candidates are discarded for that active mode.</li>
+    <li>Letters are frozen after assignment. They are not reassigned while the same suggestion mode remains active, even if overlays animate or the transcript receives streaming updates.</li>
+    <li>Invalid candidates, empty candidates, duplicates, and candidates whose source bubble is no longer in the snapshot are removed before letters are assigned.</li>
+  </ul>
+
+  <h2>Focus and Keyboard Semantics</h2>
+  <h3>Entering Mode</h3>
+  <ul>
+    <li><code>Cmd-F</code> enters suggestion mode only when the current chat transcript is active and focus is not inside a text-editing field.</li>
+    <li>If focus is inside the composer, a notification reply field, a search field, or another text editor, <code>Cmd-F</code> keeps the existing text-editing meaning for that field and does not enter suggestion mode.</li>
+    <li>If a modal, sheet, confirmation dialog, system permission prompt, or blocking overlay is active, <code>Cmd-F</code> does not enter suggestion mode.</li>
+    <li>Re-pressing <code>Cmd-F</code> while suggestion mode is already active regenerates suggestions from a fresh visible-bubble snapshot only after first canceling the active mode state.</li>
+  </ul>
+
+  <h3>Active Mode</h3>
+  <ul>
+    <li>While active, suggestion mode captures unmodified letter keys that match assigned letters.</li>
+    <li>Typing an assigned letter submits the associated suggestion. Typing an unassigned letter is a no-op and keeps suggestion mode active.</li>
+    <li><code>Esc</code> exits suggestion mode without submitting, without changing composer text, and without mutating transcript state.</li>
+    <li>Pointer/touch selection of a hint, if implemented, must behave exactly like typing that hint's assigned letter.</li>
+    <li>Existing global shortcuts not listed here should either keep their existing app-level behavior if they do not conflict with mode capture, or be ignored while the mode is active. They must not submit a suggestion unless they resolve to an assigned letter selection.</li>
+    <li>Text input focus should return to the same chat-level focus owner that was active before mode entry unless a valid letter selection has handed off to the normal prompt submission flow.</li>
+  </ul>
+
+  <h2>Prompt Submission Routing</h2>
+  <ul>
+    <li>A selected suggestion submits as a user prompt to the current chat session, using the existing current-chat prompt submission route.</li>
+    <li>The selected suggestion is not submitted to the source bubble's historical run, another chat, the provider as metadata, or any special suggestion endpoint.</li>
+    <li>The resulting user message appears in the current chat transcript exactly as a normal submitted prompt would.</li>
+    <li>Current chat dot/status, send state, queueing, cancellation, and failure behavior are owned by the existing send pipeline.</li>
+    <li>If the user navigates to another chat before pressing a letter, suggestion mode exits. A letter typed after navigation cannot submit against the previous chat snapshot.</li>
+    <li>If the normal send pipeline rejects or fails the selected suggestion, the existing prompt send-error pathway handles the failure. Suggestion mode must not create a separate transcript row or retry path.</li>
+  </ul>
+
+  <h2>Failure States</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>State</th>
+        <th>Required Behavior</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>No eligible visible assistant bubbles</td>
+        <td>Do not call the local model. Show a compact no-suggestions indication or simply remain out of suggestion mode.</td>
+      </tr>
+      <tr>
+        <td>Local Foundation Model unavailable</td>
+        <td>Do not fall back to remote generation. Show a compact local-model-unavailable indication and exit suggestion mode.</td>
+      </tr>
+      <tr>
+        <td>Local generation times out, is cancelled, or errors</td>
+        <td>Clear pending UI, discard partial candidates, and exit suggestion mode without transcript mutation.</td>
+      </tr>
+      <tr>
+        <td>Local generation returns no valid candidates</td>
+        <td>Show no hints and exit suggestion mode or show a compact no-suggestions indication. No remote fallback.</td>
+      </tr>
+      <tr>
+        <td>Source snapshot invalidated</td>
+        <td>Discard active suggestions and exit mode.</td>
+      </tr>
+      <tr>
+        <td>Assigned letter selected while send is unavailable</td>
+        <td>Hand the selected prompt to the existing send pipeline and display whatever existing send-unavailable failure state it produces. Do not invent a second failure system.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Platform Differences</h2>
+  <ul>
+    <li>On macOS and Catalyst, <code>Cmd-F</code> is the primary entry shortcut when focus is in the chat transcript and not in text editing. The feature intentionally uses the app-level chat shortcut in that focus state rather than opening global text find.</li>
+    <li>On iPadOS with a hardware keyboard, <code>Cmd-F</code>, letter selection, and <code>Esc</code> follow the same semantics as macOS/Catalyst.</li>
+    <li>On iPhone or iPad without a hardware keyboard, this spec does not require a touch-only entry surface. Existing UI may omit the feature or expose it later through a separate spec.</li>
+    <li>On platforms without the required local Foundation Model API, suggestion mode is unavailable. Web/Electron must not use a remote substitute under this spec.</li>
+    <li>Hints use native platform typography and materials where available. Apple platforms should use SF fonts and platform materials consistent with the surrounding Clawline UI.</li>
+    <li>Accessibility labels for hints identify the assigned letter and suggestion text. Accessibility actions, if added, must trigger the same selection route as the assigned letter.</li>
+  </ul>
+
+  <h2>State Model</h2>
+  <pre><code>SuggestionModeState {
+  activeChatId: ChatSessionId
+  modeId: UUID
+  phase: idle | collectingSources | generating | showing | submitting | failed
+  sources: [SuggestionModeSource]
+  hints: [SuggestionHint]
+  priorFocusOwner: FocusOwner?
+}
+
+SuggestionHint {
+  letter: Character
+  messageId: String
+  promptText: String
+  sourceRect: ResolvedRect
+  placement: ResolvedHintPlacement
+}</code></pre>
+
+  <p>The state is volatile UI state. It belongs with chat screen coordination and presentation, not transcript persistence, provider status, or replay state.</p>
+
+  <h2>Proof Gates</h2>
+  <h3>Unit and Reducer Checks</h3>
+  <ul>
+    <li>Given mixed visible transcript items, only visible assistant bubbles become suggestion sources.</li>
+    <li>Given hidden/offscreen assistant bubbles, no source is created for them.</li>
+    <li>Given duplicate, empty, or unassociated model candidates, the reducer discards them before letter assignment.</li>
+    <li>Given more than 26 candidates, only 26 hints render and each has a unique letter.</li>
+    <li>Given a snapshot invalidation event, suggestion mode exits and clears hints.</li>
+  </ul>
+
+  <h3>Privacy Checks</h3>
+  <ul>
+    <li>Instrumentation or tests verify that entering suggestion mode performs no provider, gateway, or remote model request.</li>
+    <li>Only the selected suggestion text is sent to the provider, and only after the user types an assigned letter or activates the equivalent hint action.</li>
+    <li>Unselected suggestions are absent from transcript storage, replay logs, provider status, and notification state.</li>
+  </ul>
+
+  <h3>Keyboard and Routing Checks</h3>
+  <ul>
+    <li><code>Cmd-F</code> enters mode from chat transcript focus and does not enter mode from composer/text-field focus.</li>
+    <li><code>Esc</code> exits without changing composer text or transcript state.</li>
+    <li>Typing an assigned letter submits exactly that hint's prompt through the normal current-chat send route.</li>
+    <li>Typing an unassigned letter does not submit and keeps mode active.</li>
+    <li>Navigating chats before letter selection exits mode and prevents stale snapshot submission.</li>
+  </ul>
+
+  <h3>Placement Checks</h3>
+  <ul>
+    <li>Hints render near their source bubbles on compact iPhone, iPad split view with hardware keyboard, macOS/Catalyst, and any supported web/Electron surface that has local-model support.</li>
+    <li>Hints stay within safe visible bounds and do not move transcript layout or scroll position.</li>
+    <li>Adjacent source bubbles with multiple hints remain readable and preserve source association.</li>
+  </ul>
+
+  <h2>Implementation Handoff</h2>
+  <ul>
+    <li>Implement only the local suggestion mode described here: <code>Cmd-F</code> entry, visible assistant bubble snapshot, local Foundation Model generation, unique lettered overlays, letter selection submission, and <code>Esc</code> exit.</li>
+    <li>Do not add remote fallback, persistent suggestion history, touch-only entry UI, cross-chat suggestions, transcript annotations, extra routing APIs, or provider-side generation unless this spec is updated first.</li>
+    <li>Respect the geometry boundary: the chat/message layout layer owns resolved source rectangles; the suggestion overlay consumes resolved rectangles and owns only presentation and hit regions.</li>
+    <li>Use the existing current-chat prompt submission route. Do not create a special suggestion send path.</li>
+    <li>Open question for implementation discovery: identify the exact local Foundation Model availability API and the existing transcript text-extraction helper to reuse. This spec requires local-only generation and visible-bubble text extraction, but does not prescribe concrete type names.</li>
+  </ul>
+</main>
+</body>
+</html>

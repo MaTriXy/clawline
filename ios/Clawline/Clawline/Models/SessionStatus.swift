@@ -77,6 +77,19 @@ struct SessionStatus: Decodable, Equatable {
     struct Capability: Decodable, Equatable {
         let supported: Bool
         let reason: String?
+        let options: [Option]?
+
+        init(supported: Bool, reason: String?, options: [Option]? = nil) {
+            self.supported = supported
+            self.reason = reason
+            self.options = options
+        }
+
+        struct Option: Decodable, Equatable {
+            let title: String?
+            let value: String?
+            let enabled: Bool?
+        }
     }
 
     struct ModelCatalog: Decodable, Equatable {
