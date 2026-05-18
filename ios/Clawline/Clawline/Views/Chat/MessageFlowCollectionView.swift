@@ -124,17 +124,23 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
     var sessionKey: String?
     var sessionStatus: SessionStatus?
     var forceReReadGeneration: Int = 0
+    var sendIndicatorRevision: Int = 0
     var fontScaleChangeSequence: Int = 0
     var onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
     var onTypingIndicatorTap: (@MainActor (CGRect) -> Void)?
     var onTypingIndicatorAnchorFrameChanged: (@MainActor (CGRect?) -> Void)? = nil
     var onSessionControlSelected: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.allowsTransparentWindowBackground) private var allowsTransparentWindowBackground
 
     func makeUIViewController(context: Context) -> MessageFlowCollectionViewController {
         let controller = MessageFlowCollectionViewController()
-        controller.loadViewIfNeeded()
         let isDark = colorScheme == .dark
+        controller.prepareInitialAppearance(
+            isDark: isDark,
+            allowsTransparentWindowBackground: allowsTransparentWindowBackground
+        )
+        controller.loadViewIfNeeded()
         controller.update(
             viewModel: viewModel,
             isCompact: isCompact,
@@ -150,12 +156,14 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             sessionKey: sessionKey,
             sessionStatus: sessionStatus,
             forceReReadGeneration: forceReReadGeneration,
+            sendIndicatorRevision: sendIndicatorRevision,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
             onTypingIndicatorAnchorFrameChanged: onTypingIndicatorAnchorFrameChanged,
             onSessionControlSelected: onSessionControlSelected,
-            isDark: isDark
+            isDark: isDark,
+            allowsTransparentWindowBackground: allowsTransparentWindowBackground
         )
         if shouldRegisterWithLayoutCoordinator, let sessionKey {
             layoutCoordinator.registerListView(controller, sessionKey: sessionKey)
@@ -180,12 +188,14 @@ struct MessageFlowCollectionView: UIViewControllerRepresentable {
             sessionKey: sessionKey,
             sessionStatus: sessionStatus,
             forceReReadGeneration: forceReReadGeneration,
+            sendIndicatorRevision: sendIndicatorRevision,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
             onTypingIndicatorAnchorFrameChanged: onTypingIndicatorAnchorFrameChanged,
             onSessionControlSelected: onSessionControlSelected,
-            isDark: isDark
+            isDark: isDark,
+            allowsTransparentWindowBackground: allowsTransparentWindowBackground
         )
         if shouldRegisterWithLayoutCoordinator, let sessionKey {
             layoutCoordinator.registerListView(uiViewController, sessionKey: sessionKey)
@@ -209,12 +219,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let sessionKey: String?
         let sessionStatus: SessionStatus?
         let forceReReadGeneration: Int
+        let sendIndicatorRevision: Int
         let fontScaleChangeSequence: Int
         let onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)?
         let onTypingIndicatorTap: (@MainActor (CGRect) -> Void)?
         let onTypingIndicatorAnchorFrameChanged: (@MainActor (CGRect?) -> Void)?
         let onSessionControlSelected: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)?
         let isDark: Bool?
+        let allowsTransparentWindowBackground: Bool
     }
 
     private let logger = Logger(subsystem: "co.clicketyclacks.Clawline", category: "MessagePipeline")
@@ -237,6 +249,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private var flowLayout: MessageFlowLayout!
     private let uiKitBubbleSizer = MessageBubbleUIKitView(enableDataDetectors: false)
     private var currentIsDark: Bool = true
+    private var allowsTransparentWindowBackground = false
+    private var currentSendIndicatorRevision: Int = 0
     private let bubbleSizingV2Enabled = BubbleSizingV2.isEnabled
     private let bubbleSizingV2MeasurementCache = BubbleSizingV2.LRUCache<BubbleSizingV2.CacheKey, BubbleSizingV2.Measurement>(maxEntries: 800)
     private let bubbleSizingV2LinkPreviewHeightCache = BubbleSizingV2.LinkPreviewHeightCache()
@@ -262,8 +276,22 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     private static let typingIndicatorTapTargetLeadingOutset: CGFloat = 8
     private static let typingIndicatorTapTargetTrailingOutset: CGFloat = 44
 
-    static func chatPageBackgroundColor(isDark: Bool) -> UIColor {
-        isDark ? .clear : UIColor(ChatFlowTheme.pageBackgroundTopColor(.light))
+    static func chatPageBackgroundColor(
+        isDark: Bool,
+        allowsTransparentWindowBackground: Bool = false
+    ) -> UIColor {
+        if allowsTransparentWindowBackground {
+            return .clear
+        }
+        return isDark ? .clear : UIColor(ChatFlowTheme.pageBackgroundTopColor(.light))
+    }
+
+    func prepareInitialAppearance(isDark: Bool, allowsTransparentWindowBackground: Bool) {
+        currentIsDark = isDark
+        self.allowsTransparentWindowBackground = allowsTransparentWindowBackground
+        if isViewLoaded {
+            applyChatPageBackground(isDark: isDark)
+        }
     }
 
     private var messagesById: [String: Message] = [:]
@@ -1111,6 +1139,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 sessionKey: channelOverride,
                 sessionStatus: sessionStatus,
                 forceReReadGeneration: 0,
+                sendIndicatorRevision: viewModel.sendIndicatorRevision,
                 onScrollEvent: onScrollEvent,
                 onTypingIndicatorTap: onTypingIndicatorTap,
                 onTypingIndicatorAnchorFrameChanged: onTypingIndicatorAnchorFrameChanged,
@@ -1949,11 +1978,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sessionKey: channelOverride,
             sessionStatus: sessionStatus,
             forceReReadGeneration: 0,
+            sendIndicatorRevision: viewModel.sendIndicatorRevision,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
             onTypingIndicatorAnchorFrameChanged: onTypingIndicatorAnchorFrameChanged,
             onSessionControlSelected: onSessionControlSelected,
-            isDark: currentIsDark
+            isDark: currentIsDark,
+            allowsTransparentWindowBackground: allowsTransparentWindowBackground
         )
     }
 
@@ -1978,11 +2009,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 sessionKey: request.sessionKey,
                 sessionStatus: request.sessionStatus,
                 forceReReadGeneration: request.forceReReadGeneration,
+                sendIndicatorRevision: request.sendIndicatorRevision,
                 onScrollEvent: request.onScrollEvent,
                 onTypingIndicatorTap: request.onTypingIndicatorTap,
                 onTypingIndicatorAnchorFrameChanged: request.onTypingIndicatorAnchorFrameChanged,
                 onSessionControlSelected: request.onSessionControlSelected,
-                isDark: request.isDark
+                isDark: request.isDark,
+                allowsTransparentWindowBackground: request.allowsTransparentWindowBackground
             )
         }
     }
@@ -2002,6 +2035,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
               self.isActiveSession == request.isActiveSession,
               self.isRenderPolicyFrozen == request.isRenderPolicyFrozen,
               self.isInputActive == request.isInputActive,
+              self.currentSendIndicatorRevision == request.sendIndicatorRevision,
               abs(self.topInset - request.topInset) <= 0.5,
               self.firstUnreadMessageId == request.firstUnreadMessageId,
               self.unreadCount == request.unreadCount else {
@@ -2011,6 +2045,9 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         // Deferring the active-session update until typing settles keeps those height changes
         // from forcing a full list update on each line-wrap tick.  (#148)
         if let isDark = request.isDark, currentIsDark != isDark {
+            return false
+        }
+        if allowsTransparentWindowBackground != request.allowsTransparentWindowBackground {
             return false
         }
         return true
@@ -2031,12 +2068,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         sessionKey: String? = nil,
         sessionStatus: SessionStatus? = nil,
         forceReReadGeneration: Int = 0,
+        sendIndicatorRevision: Int = 0,
         fontScaleChangeSequence: Int = 0,
         onScrollEvent: (@MainActor (MessageFlowScrollEvent) -> Void)? = nil,
         onTypingIndicatorTap: (@MainActor (CGRect) -> Void)? = nil,
         onTypingIndicatorAnchorFrameChanged: (@MainActor (CGRect?) -> Void)? = nil,
         onSessionControlSelected: (@MainActor (String, SessionControlAction, String?, Bool?) -> Void)? = nil,
-        isDark: Bool? = nil
+        isDark: Bool? = nil,
+        allowsTransparentWindowBackground: Bool = false
     ) {
         let request = UpdateRequest(
             viewModel: viewModel,
@@ -2053,12 +2092,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             sessionKey: sessionKey,
             sessionStatus: sessionStatus,
             forceReReadGeneration: forceReReadGeneration,
+            sendIndicatorRevision: sendIndicatorRevision,
             fontScaleChangeSequence: fontScaleChangeSequence,
             onScrollEvent: onScrollEvent,
             onTypingIndicatorTap: onTypingIndicatorTap,
             onTypingIndicatorAnchorFrameChanged: onTypingIndicatorAnchorFrameChanged,
             onSessionControlSelected: onSessionControlSelected,
-            isDark: isDark
+            isDark: isDark,
+            allowsTransparentWindowBackground: allowsTransparentWindowBackground
         )
         if isUpdatePassInFlight || isSnapshotApplyInFlight {
             queuedUpdateRequest = request
@@ -2090,12 +2131,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         self.isInputActive = isInputActive
         self.isTypingActive = isTypingActive
         self.sessionStatus = sessionStatus
+        self.currentSendIndicatorRevision = request.sendIndicatorRevision
         self.onExpand = onExpand
         self.truncationBottomInset = truncationBottomInset
         self.onScrollEvent = onScrollEvent
         self.onTypingIndicatorTap = onTypingIndicatorTap
         self.onTypingIndicatorAnchorFrameChanged = onTypingIndicatorAnchorFrameChanged
         self.onSessionControlSelected = onSessionControlSelected
+        self.allowsTransparentWindowBackground = allowsTransparentWindowBackground
 
         // Handle appearance change from SwiftUI colorScheme
         if let isDark = isDark, currentIsDark != isDark {
@@ -3353,8 +3396,11 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: flowLayout)
         collectionView.translatesAutoresizingMaskIntoConstraints = true
         collectionView.autoresizingMask = []
-        collectionView.backgroundColor = Self.chatPageBackgroundColor(isDark: currentIsDark)
-        collectionView.isOpaque = !currentIsDark
+        collectionView.backgroundColor = Self.chatPageBackgroundColor(
+            isDark: currentIsDark,
+            allowsTransparentWindowBackground: allowsTransparentWindowBackground
+        )
+        collectionView.isOpaque = !currentIsDark && !allowsTransparentWindowBackground
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.alwaysBounceVertical = true
 #if !os(visionOS)
@@ -3385,11 +3431,14 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
     }
 
     private func applyChatPageBackground(isDark: Bool) {
-        let color = Self.chatPageBackgroundColor(isDark: isDark)
+        let color = Self.chatPageBackgroundColor(
+            isDark: isDark,
+            allowsTransparentWindowBackground: allowsTransparentWindowBackground
+        )
         view.backgroundColor = color
-        view.isOpaque = !isDark
+        view.isOpaque = !isDark && !allowsTransparentWindowBackground
         collectionView?.backgroundColor = color
-        collectionView?.isOpaque = !isDark
+        collectionView?.isOpaque = !isDark && !allowsTransparentWindowBackground
     }
 
     @objc private func handleCollectionViewTap(_ recognizer: UITapGestureRecognizer) {
@@ -3576,8 +3625,8 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             let configureWidth: CGFloat
             let truncationHeightOverrideV1: CGFloat?
             let bubbleHeightPolicyForConfigure: BubbleSizingV2.BubbleHeightPolicy
+            let sendIndicatorState = viewModel.sendIndicatorState(for: message.id)
             if self.bubbleSizingV2Enabled {
-                let failureReason = viewModel.failureMessage(for: message.id)
                 let plan = self.bubbleSizingV2Plan(
                     message: message,
                     presentation: presentation,
@@ -3591,7 +3640,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                     metrics: metrics,
                     env: env,
                     plan: plan,
-                    failureReason: failureReason,
+                    sendIndicatorState: sendIndicatorState,
                     showsHeader: !hideHeader
                 )
                 layoutStateV2 = state
@@ -3608,7 +3657,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             cell?.configure(
                 message: message,
                 presentation: presentation,
-                failureReason: viewModel.failureMessage(for: message.id),
+                sendIndicatorState: sendIndicatorState,
                 isCompact: self.isCompact,
                 maxWidth: configureWidth,
                 bubbleHeightPolicy: bubbleHeightPolicyForConfigure,
@@ -4038,7 +4087,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             return measureUIKitBubbleSize(
                 message: message,
                 presentation: presentation,
-                failureReason: nil,
+                sendIndicatorState: nil,
                 maxWidth: maxWidth,
                 showsHeader: false,
                 paddingScale: TypingIndicatorCell.bubblePaddingScale,
@@ -4068,7 +4117,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         if bubbleSizingV2Enabled {
             let presentation = viewModel.presentation(for: message, metrics: metrics)
             let hideHeader = shouldHideHeader(for: message, presentation: presentation)
-            let failureReason = viewModel.failureMessage(for: message.id)
+            let sendIndicatorState = viewModel.sendIndicatorState(for: message.id)
             let plan = bubbleSizingV2Plan(
                 message: message,
                 presentation: presentation,
@@ -4082,7 +4131,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                 metrics: metrics,
                 env: env,
                 plan: plan,
-                failureReason: failureReason,
+                sendIndicatorState: sendIndicatorState,
                 showsHeader: !hideHeader
             )
             return layoutState.measurement.measuredCellSize
@@ -4101,7 +4150,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             metrics: metrics,
             containerWidth: availableWidth
         )
-        let failureReason = viewModel.failureMessage(for: message.id)
+        let sendIndicatorState = viewModel.sendIndicatorState(for: message.id)
         let allowsOuterScroll = (sizeClass == .long) && !shouldDisableOuterScrollForMixedMediaBubble(presentation)
         let bubbleHeightPolicy = bubbleHeightPolicyForPresentation(
             presentation: presentation,
@@ -4112,7 +4161,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         let measuredSize = measureUIKitBubbleSize(
             message: message,
             presentation: presentation,
-            failureReason: failureReason,
+            sendIndicatorState: sendIndicatorState,
             maxWidth: maxWidth,
             bubbleHeightPolicy: bubbleHeightPolicy,
             showsHeader: !hideHeader
@@ -4123,7 +4172,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
 
     private func measureUIKitBubbleSize(message: Message,
                                         presentation: MessagePresentation,
-                                        failureReason: String?,
+                                        sendIndicatorState: MessageSendIndicatorState?,
                                         maxWidth: CGFloat,
                                         bubbleHeightPolicy: BubbleSizingV2.BubbleHeightPolicy? = nil,
                                         truncationHeightOverride: CGFloat? = nil,
@@ -4306,13 +4355,13 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                           metrics: ChatFlowTheme.Metrics,
                                           env: BubbleSizingV2.Environment,
                                           plan: BubbleSizingV2.Plan,
-                                          failureReason: String?,
+                                          sendIndicatorState: MessageSendIndicatorState?,
                                           showsHeader: Bool) -> BubbleSizingV2.LayoutState {
         let initialLinkVersion: Int = bubbleV2PreviewVersion(for: message.id)
         let layoutFingerprintSeed = bubbleSizingV2LayoutFingerprintSeed(
             plan: plan,
             showsHeader: showsHeader,
-            hasFailureBadge: failureReason != nil
+            hasFailureBadge: sendIndicatorState != nil
         )
         let key = plan.heightPolicy.measurementCacheKey(
             sessionKey: message.sessionKey,
@@ -4339,7 +4388,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
             metrics: metrics,
             env: env,
             plan: plan,
-            failureReason: failureReason,
+            sendIndicatorState: sendIndicatorState,
             showsHeader: showsHeader
         )
         recordBubbleV2Measurement(measured.measurement, key: key, messageId: message.id)
@@ -4409,7 +4458,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
                                        metrics: ChatFlowTheme.Metrics,
                                        env: BubbleSizingV2.Environment,
                                        plan: BubbleSizingV2.Plan,
-                                       failureReason: String?,
+                                       sendIndicatorState: MessageSendIndicatorState?,
                                        showsHeader: Bool) -> BubbleSizingV2.LayoutState {
         // Pass 0: configure at max width so preferredWidth() can read padding and label sizes.
         uiKitBubbleSizer.configure(
@@ -4878,6 +4927,7 @@ final class MessageFlowCollectionViewController: UIViewController, UICollectionV
         var hasher = Hasher()
         hasher.combine(message.content)
         hasher.combine(message.streaming)
+        hasher.combine(viewModel?.sendIndicatorState(for: message.id))
         hasher.combine(message.attachments.count)
         for attachment in message.attachments {
             hasher.combine(attachment.id)
@@ -5550,24 +5600,36 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
             FooterItem(
                 text: "Thinking \(thinkingValue ?? reasoningValue ?? "Unknown")",
                 action: levelControl.action,
-                options: levelOptions(current: thinkingValue ?? reasoningValue, action: levelControl.action),
+                options: levelOptions(
+                    current: thinkingValue ?? reasoningValue,
+                    action: levelControl.action,
+                    providerOptions: levelControl.options
+                ),
                 unsupportedReason: levelControl.reason
             ),
             FooterItem(
-                text: fastModeText(display.fastMode),
+                text: fastModeText(display.fastMode, action: fastControl.action, unsupportedReason: fastControl.reason),
                 action: fastControl.action,
-                options: fastModeOptions(current: display.fastMode, action: fastControl.action),
+                options: fastModeOptions(
+                    current: display.fastMode,
+                    action: fastControl.action,
+                    providerOptions: fastControl.options
+                ),
                 unsupportedReason: fastControl.reason
             )
         ]
     }
 
     private static func capability(_ capability: SessionStatus.Capability?,
-                                   legacySupported: Bool) -> (isSupported: Bool, reason: String?) {
+                                   legacySupported: Bool) -> (
+        isSupported: Bool,
+        reason: String?,
+        options: [SessionStatus.Capability.Option]?
+    ) {
         if let capability {
-            return (capability.supported, capability.reason)
+            return (capability.supported, capability.reason, capability.options)
         }
-        return (legacySupported, nil)
+        return (legacySupported, nil, nil)
     }
 
     private func button(
@@ -5635,12 +5697,39 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
 
     private static func modelCatalogOption(_ model: SessionStatus.ModelCatalog.Model,
                                            current: String?) -> (title: String, isCurrent: Bool) {
-        let title = normalized(model.alias) ?? normalized(model.name) ?? normalized(model.ref) ?? model.ref
+        let title = normalized(model.name) ?? normalized(model.ref) ?? normalized(model.alias) ?? model.ref
         let isCurrent = current == normalized(model.id) || current == normalized(model.ref)
         return (title, isCurrent)
     }
 
-    private static func levelOptions(current: String?, action: SessionControlAction?) -> [FooterOption] {
+    private static func providerFooterOptions(
+        _ options: [SessionStatus.Capability.Option]?
+    ) -> [FooterOption]? {
+        guard let options, !options.isEmpty else { return nil }
+        return options.compactMap { option in
+            let title = normalized(option.title)
+                ?? normalized(option.value)
+                ?? (option.enabled == true ? "On" : option.enabled == false ? "Off" : nil)
+            guard let title else { return nil }
+            return FooterOption(title: title, value: normalized(option.value), enabled: option.enabled, isCurrent: false)
+        }
+    }
+
+    private static func levelOptions(
+        current: String?,
+        action: SessionControlAction?,
+        providerOptions: [SessionStatus.Capability.Option]?
+    ) -> [FooterOption] {
+        if let options = providerFooterOptions(providerOptions) {
+            return options.map { option in
+                FooterOption(
+                    title: option.title,
+                    value: option.value,
+                    enabled: option.enabled,
+                    isCurrent: option.value == current
+                )
+            }
+        }
         let levels: [String]
         switch action {
         case .setThinking:
@@ -5660,7 +5749,27 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         }
     }
 
-    private static func fastModeOptions(current: Bool?, action: SessionControlAction?) -> [FooterOption] {
+    private static func fastModeOptions(
+        current: Bool?,
+        action: SessionControlAction?,
+        providerOptions: [SessionStatus.Capability.Option]?
+    ) -> [FooterOption] {
+        if let options = providerFooterOptions(providerOptions) {
+            return options.map { option in
+                let optionCurrent: Bool
+                if let enabled = option.enabled {
+                    optionCurrent = enabled == current
+                } else {
+                    optionCurrent = option.value == (current == true ? "fast" : current == false ? "normal" : nil)
+                }
+                return FooterOption(
+                    title: option.title,
+                    value: option.value,
+                    enabled: option.enabled,
+                    isCurrent: optionCurrent
+                )
+            }
+        }
         guard action != .setMode else {
             return [
                 FooterOption(title: "On", value: "fast", enabled: nil, isCurrent: current == true),
@@ -5677,45 +5786,50 @@ final class SessionMetadataFooterCell: UICollectionViewCell {
         capabilities: SessionStatus.Capabilities,
         hasThinkingValue: Bool,
         hasReasoningValue: Bool
-    ) -> (action: SessionControlAction?, reason: String?) {
+    ) -> (action: SessionControlAction?, reason: String?, options: [SessionStatus.Capability.Option]?) {
         let thinkingCapability = capability(capabilities.setThinking, legacySupported: false)
         let reasoningCapability = capability(
             capabilities.setReasoning,
             legacySupported: capabilities.canChangeReasoning == true
         )
         if hasThinkingValue, thinkingCapability.isSupported {
-            return (.setThinking, nil)
+            return (.setThinking, nil, thinkingCapability.options)
         }
         if hasReasoningValue, reasoningCapability.isSupported {
-            return (.setReasoning, nil)
+            return (.setReasoning, nil, reasoningCapability.options)
         }
         if thinkingCapability.isSupported {
-            return (.setThinking, nil)
+            return (.setThinking, nil, thinkingCapability.options)
         }
         if reasoningCapability.isSupported {
-            return (.setReasoning, nil)
+            return (.setReasoning, nil, reasoningCapability.options)
         }
-        return (nil, thinkingCapability.reason ?? reasoningCapability.reason)
+        return (nil, thinkingCapability.reason ?? reasoningCapability.reason, nil)
     }
 
     private static func fastModeControlAction(
         capabilities: SessionStatus.Capabilities
-    ) -> (action: SessionControlAction?, reason: String?) {
+    ) -> (action: SessionControlAction?, reason: String?, options: [SessionStatus.Capability.Option]?) {
         let fastModeCapability = capability(
             capabilities.setFastMode,
             legacySupported: capabilities.canChangeFastMode == true
         )
         let modeCapability = capability(capabilities.setMode, legacySupported: false)
         if fastModeCapability.isSupported {
-            return (.setFastMode, nil)
+            return (.setFastMode, nil, fastModeCapability.options)
         }
         if modeCapability.isSupported {
-            return (.setMode, nil)
+            return (.setMode, nil, modeCapability.options)
         }
-        return (nil, fastModeCapability.reason ?? modeCapability.reason)
+        return (nil, fastModeCapability.reason ?? modeCapability.reason, nil)
     }
 
-    private static func fastModeText(_ fastMode: Bool?) -> String {
+    private static func fastModeText(_ fastMode: Bool?,
+                                     action: SessionControlAction?,
+                                     unsupportedReason: String?) -> String {
+        if action == nil, fastMode == nil, unsupportedReason != nil {
+            return "Fast unavailable"
+        }
         guard let fastMode else { return "Fast Unknown" }
         return fastMode ? "Fast on" : "Fast off"
     }
