@@ -1570,6 +1570,12 @@ struct ChatView: View {
                     object: index
                 )
             },
+            scrollDown: {
+                NotificationCenter.default.post(name: .clawlineScrollNotificationDownCommand, object: nil)
+            },
+            scrollUp: {
+                NotificationCenter.default.post(name: .clawlineScrollNotificationUpCommand, object: nil)
+            },
             dismissAll: {
                 withAnimation(CrossChatNotificationMotion.hide) {
                     viewModel.dismissAllCrossChatNotifications()
@@ -3536,6 +3542,8 @@ enum ChatAppCommandShortcut {
         case scrollUp
         case scrollChatDown
         case scrollChatUp
+        case scrollNotificationDown
+        case scrollNotificationUp
         case notificationNumber
 
         var selector: Selector {
@@ -3556,6 +3564,10 @@ enum ChatAppCommandShortcut {
                 return #selector(UIResponder.clawlineScrollChatDownCommand(_:))
             case .scrollChatUp:
                 return #selector(UIResponder.clawlineScrollChatUpCommand(_:))
+            case .scrollNotificationDown:
+                return #selector(UIResponder.clawlineScrollNotificationDownCommand(_:))
+            case .scrollNotificationUp:
+                return #selector(UIResponder.clawlineScrollNotificationUpCommand(_:))
             case .notificationNumber:
                 return #selector(UIResponder.clawlineNotificationNumberCommand(_:))
             }
@@ -3568,29 +3580,45 @@ enum ChatAppCommandShortcut {
         let action: Action
     }
 
-    static let baseKeyCommandSpecs: [KeyCommandSpec] = [
+    private static let navigationKeyCommandSpecs: [KeyCommandSpec] = [
         KeyCommandSpec(input: "l", modifierFlags: [.command], action: .focusPromptInput),
         KeyCommandSpec(input: ";", modifierFlags: [.command], action: .openStreamPopup),
         KeyCommandSpec(input: "h", modifierFlags: [.command, .shift], action: .navigatePreviousStream),
-        KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream),
+        KeyCommandSpec(input: "l", modifierFlags: [.command, .shift], action: .navigateNextStream)
+    ]
+
+    private static let transcriptScrollKeyCommandSpecs: [KeyCommandSpec] = [
         KeyCommandSpec(input: "j", modifierFlags: [.command], action: .scrollDown),
         KeyCommandSpec(input: "k", modifierFlags: [.command], action: .scrollUp),
         KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollChatDown),
         KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollChatUp)
     ]
 
+    private static let notificationDirectScrollKeyCommandSpecs: [KeyCommandSpec] = [
+        KeyCommandSpec(input: "j", modifierFlags: [.command], action: .scrollNotificationDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command], action: .scrollNotificationUp),
+        KeyCommandSpec(input: "j", modifierFlags: [.command, .shift], action: .scrollNotificationDown),
+        KeyCommandSpec(input: "k", modifierFlags: [.command, .shift], action: .scrollNotificationUp)
+    ]
+
+    static let baseKeyCommandSpecs = navigationKeyCommandSpecs + transcriptScrollKeyCommandSpecs
+
     static let keyCommandSpecs = keyCommandSpecs(notificationVisibleCount: 0)
 
     static func keyCommandSpecs(notificationVisibleCount: Int) -> [KeyCommandSpec] {
-        baseKeyCommandSpecs + notificationNumberKeyCommandSpecs(
-            visibleCount: notificationVisibleCount
-        )
+        navigationKeyCommandSpecs
+            + scrollKeyCommandSpecs(notificationVisibleCount: notificationVisibleCount)
+            + notificationNumberKeyCommandSpecs(visibleCount: notificationVisibleCount)
     }
 
-    static var notificationScrollKeyCommandSpecs: [KeyCommandSpec] {
-        baseKeyCommandSpecs.filter {
+    static func scrollKeyCommandSpecs(notificationVisibleCount: Int) -> [KeyCommandSpec] {
+        notificationVisibleCount > 0 ? notificationDirectScrollKeyCommandSpecs : transcriptScrollKeyCommandSpecs
+    }
+
+    static func notificationScrollKeyCommandSpecs(notificationVisibleCount: Int) -> [KeyCommandSpec] {
+        scrollKeyCommandSpecs(notificationVisibleCount: notificationVisibleCount).filter {
             switch $0.action {
-            case .scrollDown, .scrollUp, .scrollChatDown, .scrollChatUp:
+            case .scrollDown, .scrollUp, .scrollChatDown, .scrollChatUp, .scrollNotificationDown, .scrollNotificationUp:
                 return true
             default:
                 return false
@@ -3768,6 +3796,14 @@ extension UIResponder {
 
     @objc func clawlineScrollChatUpCommand(_ sender: UIKeyCommand) {
         NotificationCenter.default.post(name: .clawlineScrollChatUpCommand, object: nil)
+    }
+
+    @objc func clawlineScrollNotificationDownCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollNotificationDownCommand, object: nil)
+    }
+
+    @objc func clawlineScrollNotificationUpCommand(_ sender: UIKeyCommand) {
+        NotificationCenter.default.post(name: .clawlineScrollNotificationUpCommand, object: nil)
     }
 
     @objc func clawlineNotificationNumberCommand(_ sender: UIKeyCommand) {
@@ -6912,9 +6948,9 @@ private struct CrossChatNotificationActionMenuKeyBridge: UIViewRepresentable {
                         modifierFlags: spec.modifierFlags,
                         action: spec.action.selector
                     )
-                }
+            }
             let notificationScrollCommands = ChatAppCommandShortcut
-                .notificationScrollKeyCommandSpecs
+                .notificationScrollKeyCommandSpecs(notificationVisibleCount: visibleNotificationCount)
                 .map { spec in
                     UIKeyCommand(
                         input: spec.input,
@@ -7020,22 +7056,6 @@ private struct CrossChatNotificationKeyboardShortcuts: View {
                     .keyboardShortcut("-", modifiers: .command)
                 Button("") { onToggleDock() }
                     .keyboardShortcut("\\", modifiers: .command)
-                Button("") {
-                    NotificationCenter.default.post(name: .clawlineScrollDownCommand, object: nil)
-                }
-                    .keyboardShortcut("j", modifiers: .command)
-                Button("") {
-                    NotificationCenter.default.post(name: .clawlineScrollUpCommand, object: nil)
-                }
-                    .keyboardShortcut("k", modifiers: .command)
-                Button("") {
-                    NotificationCenter.default.post(name: .clawlineScrollChatDownCommand, object: nil)
-                }
-                    .keyboardShortcut("j", modifiers: [.command, .shift])
-                Button("") {
-                    NotificationCenter.default.post(name: .clawlineScrollChatUpCommand, object: nil)
-                }
-                    .keyboardShortcut("k", modifiers: [.command, .shift])
             }
             .opacity(0.001)
             .frame(width: 1, height: 1)

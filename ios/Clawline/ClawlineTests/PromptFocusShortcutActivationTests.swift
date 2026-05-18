@@ -175,11 +175,19 @@ struct PromptFocusShortcutActivationTests {
             }
         )
         #expect(
-            ChatAppCommandShortcut.notificationScrollKeyCommandSpecs.map(\.action) == [
+            ChatAppCommandShortcut.notificationScrollKeyCommandSpecs(notificationVisibleCount: 0).map(\.action) == [
                 .scrollDown,
                 .scrollUp,
                 .scrollChatDown,
                 .scrollChatUp
+            ]
+        )
+        #expect(
+            ChatAppCommandShortcut.notificationScrollKeyCommandSpecs(notificationVisibleCount: 2).map(\.action) == [
+                .scrollNotificationDown,
+                .scrollNotificationUp,
+                .scrollNotificationDown,
+                .scrollNotificationUp
             ]
         )
     }
@@ -205,9 +213,9 @@ struct PromptFocusShortcutActivationTests {
         #expect(firstEscapeCommand?.action == Selector(("didPressEscape:")))
     }
 
-    @Test("Prompt text input exposes app scroll commands before base text-view commands")
+    @Test("Prompt text input exposes notification scroll commands before base text-view commands")
     @MainActor
-    func promptTextInputExposesAppScrollCommandsBeforeBaseTextViewCommands() {
+    func promptTextInputExposesNotificationScrollCommandsBeforeBaseTextViewCommands() {
         let textView = PastableTextView(frame: .zero, textContainer: nil)
         textView.notificationVisibleCount = 2
 
@@ -218,8 +226,8 @@ struct PromptFocusShortcutActivationTests {
             command.input == "k" && command.modifierFlags == [.command, .shift]
         }
 
-        #expect(firstCommandJ?.action == #selector(UIResponder.clawlineScrollDownCommand(_:)))
-        #expect(firstCommandShiftK?.action == #selector(UIResponder.clawlineScrollChatUpCommand(_:)))
+        #expect(firstCommandJ?.action == #selector(UIResponder.clawlineScrollNotificationDownCommand(_:)))
+        #expect(firstCommandShiftK?.action == #selector(UIResponder.clawlineScrollNotificationUpCommand(_:)))
     }
 
     @Test("Text input priority is limited to visible notification-owned shortcuts")
